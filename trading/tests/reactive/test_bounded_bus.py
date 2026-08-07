@@ -149,6 +149,29 @@ class TestDLQ:
 
 
 # ---------------------------------------------------------------------------
+# Reentrant publish through the wrapper
+# ---------------------------------------------------------------------------
+
+class TestReentrantPublish:
+    def test_reentrant_publish_does_not_deadlock(self) -> None:
+        """A subscriber publishing through the wrapper during delivery is
+        enqueued by the core bus instead of deadlocking on the lock.
+        """
+        bus = BoundedReactiveBus()
+        seen: list[object] = []
+
+        def on_message(m: object) -> None:
+            seen.append(m)
+            if m == "trigger":
+                bus.publish("nested")
+
+        bus.subscribe(on_message)
+        bus.publish("trigger")  # must return — no deadlock
+
+        assert seen == ["trigger", "nested"]
+
+
+# ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
 

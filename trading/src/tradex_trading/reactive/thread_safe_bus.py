@@ -27,7 +27,10 @@ class ThreadSafeReactiveBus:
         bus: ReactiveBus | None = None,
         max_log: int = _DEFAULT_MAX_LOG,
     ) -> None:
-        self._lock = threading.Lock()
+        # RLock: a subscriber publishing through the wrapper during delivery
+        # re-enters the same thread's lock (the core bus enqueues it into the
+        # active drain) instead of deadlocking.
+        self._lock = threading.RLock()
         self._bus = bus if bus is not None else ReactiveBus()
         # Replace the bus's unbounded log with a bounded deque.
         self._log: deque[Any] = deque(maxlen=max_log)

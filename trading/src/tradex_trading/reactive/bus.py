@@ -7,6 +7,7 @@ Every message is an Observable emission.
 from __future__ import annotations
 
 import logging
+from collections import deque
 from typing import Any
 
 import rx
@@ -15,6 +16,10 @@ from rx.disposable import CompositeDisposable
 from rx.subject import Subject
 
 log = logging.getLogger(__name__)
+
+#: ponytail: nested-delivery cap — a buggy subscriber that republishes forever
+#: must fail visibly (like the old RecursionError), not hang the bus silently.
+_MAX_NESTED_DELIVERIES = 10_000
 
 
 class ReactiveBus:
@@ -29,21 +34,54 @@ class ReactiveBus:
         self._log: list[Any] | None = message_log
         self._disposables: CompositeDisposable = CompositeDisposable()
         self._metrics = metrics
+        self._pending: deque[Any] = deque()
+        self._draining = False
 
     # ------------------------------------------------------------------
     # Publishing
     # ------------------------------------------------------------------
 
     def publish(self, message: object) -> None:
-        """Publish a message to all subscribers."""
+        """Publish a message to all subscribers.
+
+        Delivery is synchronous and latency-neutral: a nested ``publish()``
+        made from inside a subscriber is enqueued and drained by the outermost
+        ``publish()`` before it returns, so stream order is always causal
+        (matching the message log) and effects are visible before ``publish``
+        returns. No buffering across calls — live market events are never
+        delayed by ordering.
+
+        Single-threaded only: the drain state (``_pending``/``_draining``) is
+        not locked. Publish from one thread, or wrap the bus in
+        ``ThreadSafeReactiveBus`` for concurrent publishers.
+        """
         if self._log is not None:
             self._log.append(message)
+        self._pending.append(message)
+        if self._draining:
+            return  # reentrant publish — the active drain delivers it
+        self._draining = True
         try:
-            self._subject.on_next(message)
-        except Exception as exc:
-            log.error("Bus publish error: %s", exc)
-        if self._metrics is not None:
-            self._metrics.counter("bus.messages.published").inc()
+            delivered = 0
+            while self._pending:
+                delivered += 1
+                if delivered > _MAX_NESTED_DELIVERIES:
+                    log.error(
+                        "Bus drain exceeded %d nested deliveries; "
+                        "dropping backlog",
+                        _MAX_NESTED_DELIVERIES,
+                    )
+                    self._pending.clear()
+                    break
+                msg = self._pending.popleft()
+                try:
+                    self._subject.on_next(msg)
+                except Exception as exc:
+                    log.error("Bus publish error: %s", exc)
+                if self._metrics is not None:
+                    self._metrics.counter("bus.messages.published").inc()
+        finally:
+            self._draining = False
 
     # ------------------------------------------------------------------
     # Subscribing

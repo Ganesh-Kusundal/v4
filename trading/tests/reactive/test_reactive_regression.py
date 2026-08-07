@@ -170,6 +170,87 @@ class TestReactiveBusEdgeCases:
 
 
 # ---------------------------------------------------------------------------
+# ReactiveBus: causal ordering under reentrant publish
+# ---------------------------------------------------------------------------
+
+class TestReactiveBusOrdering:
+    """Nested publishes are drained in causal order — stream == log."""
+
+    def test_reentrant_publish_stream_is_causal(self) -> None:
+        """A subscriber publishing inside delivery: the stream sees the chain
+        in publish order (== the log), not effects-before-cause.
+
+        Regression: recursive delivery previously surfaced nested effects to
+        a stream recorder attached after the publisher before the triggering
+        message itself — order depended on subscription timing.
+        """
+        log: list[Any] = []
+        bus = ReactiveBus(message_log=log)
+
+        def on_int(m: Any) -> None:
+            if isinstance(m, int):
+                bus.publish("nested-from-int")
+
+        def on_str(m: Any) -> None:
+            if isinstance(m, str):
+                bus.publish(3.14)
+
+        bus.stream().subscribe(on_int)
+        bus.stream().subscribe(on_str)
+        seen: list[Any] = []
+        bus.stream().subscribe(seen.append)  # recorder attached last
+
+        bus.publish(1)
+
+        causal = [1, "nested-from-int", 3.14]
+        assert seen == causal
+        assert log == causal  # stream order == message-log order
+
+    def test_effects_visible_before_publish_returns(self) -> None:
+        """The drain is synchronous: nested effects complete inside publish()."""
+        bus = ReactiveBus()
+        bus.stream().subscribe(lambda m: bus.publish("reply") if m == "ping" else None)
+        seen: list[Any] = []
+        bus.stream().subscribe(seen.append)
+        bus.publish("ping")
+        assert seen == ["ping", "reply"]  # no buffering across calls
+
+    def test_dispose_during_delivery_does_not_hang(self) -> None:
+        """A subscriber disposing the bus mid-drain neither hangs nor crashes.
+
+        The drain keeps popping the queue; the disposed subject no-ops the
+        remaining deliveries.
+        """
+        bus = ReactiveBus()
+
+        def handler(m: Any) -> None:
+            bus.dispose()
+
+        bus.stream().subscribe(handler)
+        bus.publish("x")  # must return
+        bus.publish("y")  # drain is fresh; delivery no-ops on disposed subject
+
+    def test_runaway_cascade_is_capped(self) -> None:
+        """A subscriber that republishes forever fails visibly, not hangs.
+
+        Regression: recursive delivery raised RecursionError (visible); an
+        unbounded queue would instead loop silently. The drain caps nested
+        deliveries and drops the backlog.
+        """
+        bus = ReactiveBus()
+        calls = [0]
+
+        def runaway(m: Any) -> None:
+            calls[0] += 1
+            bus.publish("again")
+
+        bus.stream().subscribe(runaway)
+        bus.publish("start")  # must return, not hang
+
+        assert 0 < calls[0] <= 10_000
+
+
+# ---------------------------------------------------------------------------
 # Backpressure presets
 # ---------------------------------------------------------------------------
 

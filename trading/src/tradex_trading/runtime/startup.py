@@ -26,6 +26,7 @@ from tradex_trading.execution.fill_sources import (
     SimulatedFillSource,
 )
 from tradex_trading.reactive.bus import ReactiveBus
+from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_trading.runtime.metrics import MetricsRegistry
 from tradex_trading.sdk.session import TradingSession
 from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
@@ -70,7 +71,7 @@ class RuntimeContext:
     session: TradingSession
     engine: ExecutionEngine
     strategy_engine: object | None
-    bus: ReactiveBus
+    bus: ReactiveBus | ThreadSafeReactiveBus
     broker: Any
 
     def close(self) -> None:
@@ -133,8 +134,15 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # 2. Create metrics registry
     metrics = MetricsRegistry()
 
-    # 3. Create reactive bus
+    # 3. Create reactive bus. Live mode serializes publishes (RLock): the
+    # broker feed thread, engine worker threads, and API callers all publish
+    # concurrently, and a plain RxPY Subject must never be driven from two
+    # threads at once. The feed thread's own quote → pipeline chain is
+    # reentrant on the same thread, so the lock never delays it.
     bus = ReactiveBus(metrics=metrics)
+    if cfg.mode == "live":
+        from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
+        bus = ThreadSafeReactiveBus(bus)
 
     # 4. Create fill source based on mode
     fill_source: Any

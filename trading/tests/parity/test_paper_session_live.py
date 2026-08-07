@@ -13,11 +13,12 @@ Backtest path (mode parity through the composition root):
     boot(AppConfig(mode="backtest")) → same flow via SimulatedFillSource
         → OMS cache + PositionManager
 
-Every order-producing path also asserts the exact documented CQRS event
-spine on the bus — PlaceOrderCommand → OrderPlaced → OrderFilled (via the
-bus message log for the paper paths, which preserves true publish order;
-via counts + payload-linked causality for boot, whose engine pre-subscribes
-to the command).
+Every order-producing path asserts the exact documented CQRS event spine
+on the bus — PlaceOrderCommand → OrderPlaced → OrderFilled. ReactiveBus
+publishes causally (nested publishes are drained before publish returns), so
+the raw stream order matches the message log; boot's shared bus interleaves
+collateral orders from both discovered strategies on the same instrument, so
+its assertions stay scoped by tag/instrument.
 
 Everything is driven and asserted through the documented public surface:
 ``TradingSession.paper()``, ``session.bus``, ``session.stream.subscribe_fills()``,
@@ -326,13 +327,11 @@ class TestPaperSessionLiveParity:
             # MARKET order at zero (documented), unlike paper's nominal 1.0.
             assert mr_fills[0].fill.price.value == 0
 
-            # boot()'s engine is already subscribed to PlaceOrderCommand when
-            # this recorder attaches, so the command's synchronous effects
-            # (OrderPlaced → OrderFilled) are emitted before the command
-            # itself — the stream order is not the causal order here. Assert
-            # the invariants that hold regardless of that reentrancy, scoped
-            # to this strategy's instrument (boot()'s other registered
-            # singletons may add collateral events).
+            # ReactiveBus drains nested publishes causally, so the stream
+            # order matches the message log. boot()'s shared bus interleaves
+            # collateral orders from its other registered singletons (same
+            # instrument), so assertions stay scoped by tag/instrument rather
+            # than asserting a whole-stream sequence.
             pocs = _events_of(events, PlaceOrderCommand, strategy.instrument)
             placed = _events_of(events, OrderPlaced, strategy.instrument)
             filled = _events_of(events, OrderFilled, strategy.instrument)

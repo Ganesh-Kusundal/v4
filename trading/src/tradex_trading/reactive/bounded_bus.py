@@ -29,7 +29,10 @@ class BoundedReactiveBus:
     ) -> None:
         from tradex_trading.reactive.bus import ReactiveBus
         self._bus = bus if bus is not None else ReactiveBus()
-        self._lock = threading.Lock()
+        # RLock: a subscriber publishing through the wrapper during delivery
+        # re-enters the same thread's lock (the core bus enqueues it into the
+        # active drain) instead of deadlocking.
+        self._lock = threading.RLock()
         self.max_log = max_log
         self.max_dlq = max_dlq
         self._dlq: deque[Any] = deque(maxlen=max_dlq)

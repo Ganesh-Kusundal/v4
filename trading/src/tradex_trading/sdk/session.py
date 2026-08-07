@@ -28,6 +28,7 @@ from tradex_domain.value_objects import Price
 from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
+from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_trading.sdk.services import (
     AnalyticsService,
     EdisStatus,
@@ -71,7 +72,7 @@ class TradingSession:
     def __init__(
         self,
         broker: BrokerAdapter,
-        bus: ReactiveBus,
+        bus: ReactiveBus | ThreadSafeReactiveBus,
         engine: ExecutionEngine,
         cache: TradingCache,
         broker_id: BrokerId,
@@ -245,8 +246,8 @@ class TradingSession:
         return self._broker.capabilities
 
     @property
-    def bus(self) -> ReactiveBus:
-        """Reactive message bus."""
+    def bus(self) -> ReactiveBus | ThreadSafeReactiveBus:
+        """Reactive message bus (thread-safe facade for live sessions)."""
         return self._bus
 
     @property
@@ -399,10 +400,14 @@ class TradingSession:
             )
 
         from tradex_trading.execution.fill_sources import BrokerFillSource
+        from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
         from tradex_trading.runtime.live import build_broker_from_env
 
         broker = build_broker_from_env(broker_id.value)
-        _bus = bus or ReactiveBus()
+        # Thread-safe bus: live ticks arrive on the broker feed thread while
+        # engine workers and API callers publish concurrently — serializing
+        # publishes (RLock) prevents Subject delivery from interleaving.
+        _bus = bus or ThreadSafeReactiveBus()
         _engine = ExecutionEngine(bus=_bus, fill_source=BrokerFillSource(broker=broker))
         from tradex_trading.runtime.market_feed import MarketFeed
 
