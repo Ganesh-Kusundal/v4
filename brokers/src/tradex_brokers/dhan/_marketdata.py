@@ -1,0 +1,495 @@
+"""Dhan REST client mixin — MarketDataMixin.
+
+Mixed into :class:`~tradex_brokers.dhan.client.DhanApiClient`; the
+facade owns shared state and internal helpers.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import TYPE_CHECKING, Any
+
+from tradex_domain.enums import AssetClass, Timeframe
+from tradex_domain.instruments import Instrument, Option
+from tradex_domain.market import OHLC, Candle, Depth, HistoricalSeries, Quote
+from tradex_domain.options import Expiry, OptionChain, OptionPair
+from tradex_domain.value_objects import InstrumentId, Price, Quantity
+
+from tradex_brokers.common.client_shared import parse_timestamp_fallback
+from tradex_brokers.common.provider_common import (
+    as_decimal,
+    as_price,
+    parse_date,
+    require_success,
+    unwrap_data,
+)
+
+if TYPE_CHECKING:
+    from tradex_brokers.dhan._facade import DhanClientFacade
+
+# Dhan intraday session bounds by canonical exchange (v2 parity).
+_SESSION_OPEN = {"MCX_COMM": "09:00:00", "NSE_COMM": "09:00:00"}
+_SESSION_CLOSE = {"MCX_COMM": "23:30:00", "NSE_COMM": "23:30:00"}
+_DEFAULT_SESSION_OPEN = "09:15:00"
+_DEFAULT_SESSION_CLOSE = "15:30:00"
+
+
+class MarketDataMixin:
+    def _validated(self: DhanClientFacade, body: object) -> object:
+        """Reject failure bodies before parsing (never fabricate zeros).
+
+        Dhan serves rate-limit / token failures as ``status: "failed"``
+        bodies (often with ``_http_status: 429``) — parsing those into a
+        silent ``Price(0)`` / empty series masks the outage. ``require_success``
+        raises ``RateLimitError``/``SDKError``/``AuthenticationError`` instead
+        (portfolio mixin parity).
+        """
+        if isinstance(body, dict):
+            require_success(body)
+        return body
+
+    def ltp(self: DhanClientFacade, instrument: Instrument) -> Price:
+        """Last traded price via POST /marketfeed/ltp."""
+        payload = {
+            self._segment(instrument): [int(self._security_id(instrument.instrument_id))]
+        }
+        body = self._validated(
+            self._request("POST", "/marketfeed/ltp", json=payload, cache_read=True)
+        )
+        raw = unwrap_data(body)
+        segment = raw.get(self._segment(instrument), {}) if isinstance(raw, dict) else {}
+        row = (
+            segment.get(self._security_id(instrument.instrument_id), {})
+            if isinstance(segment, dict)
+            else {}
+        )
+        return (
+            as_price(row.get("ltp", row.get("last_price")))
+            if isinstance(row, dict)
+            else as_price(None)
+        )
+
+
+    def ltp_batch(
+        self: DhanClientFacade, instruments: Sequence[Instrument]
+    ) -> dict[InstrumentId, Price]:
+        """Native batch LTP: one POST /marketfeed/ltp for all symbols."""
+        segment_map, id_map = self._batch_segment_map(instruments)
+        if not segment_map:
+            return {}
+        body = self._validated(
+            self._request("POST", "/marketfeed/ltp", json=segment_map, cache_read=True)
+        )
+        raw = unwrap_data(body)
+        result: dict[InstrumentId, Price] = {}
+        if not isinstance(raw, dict):
+            return result
+        for rows in raw.values():
+            if not isinstance(rows, dict):
+                continue
+            for security_id, info in rows.items():
+                instrument = id_map.get(str(security_id))
+                if instrument is None or not isinstance(info, dict):
+                    continue
+                result[instrument.instrument_id] = as_price(
+                    info.get("ltp", info.get("last_price"))
+                )
+        return result
+
+
+    def quote_batch(
+        self: DhanClientFacade, instruments: Sequence[Instrument]
+    ) -> dict[InstrumentId, Quote]:
+        """Native batch quote: one POST /marketfeed/quote for all symbols."""
+        segment_map, id_map = self._batch_segment_map(instruments)
+        if not segment_map:
+            return {}
+        body = self._validated(
+            self._request("POST", "/marketfeed/quote", json=segment_map, cache_read=True)
+        )
+        raw = unwrap_data(body)
+        result: dict[InstrumentId, Quote] = {}
+        if not isinstance(raw, dict):
+            return result
+        for rows in raw.values():
+            if not isinstance(rows, dict):
+                continue
+            for security_id, info in rows.items():
+                instrument = id_map.get(str(security_id))
+                if instrument is None or not isinstance(info, dict):
+                    continue
+                result[instrument.instrument_id] = self._quote_from_row(instrument, info)
+        return result
+
+
+    def get_quote(self: DhanClientFacade, instrument: Instrument) -> Quote:
+        """Single quote via POST /marketfeed/quote."""
+        payload = {
+            self._segment(instrument): [int(self._security_id(instrument.instrument_id))]
+        }
+        body = self._validated(
+            self._request("POST", "/marketfeed/quote", json=payload, cache_read=True)
+        )
+        raw = unwrap_data(body)
+        segment = raw.get(self._segment(instrument), {}) if isinstance(raw, dict) else {}
+        row = (
+            segment.get(self._security_id(instrument.instrument_id), {})
+            if isinstance(segment, dict)
+            else {}
+        )
+        if not isinstance(row, dict):
+            row = {}
+        return self._quote_from_row(instrument, row)
+
+
+    def depth(self: DhanClientFacade, instrument: Instrument) -> Depth:
+        """Market depth via POST /marketfeed/quote."""
+        payload = {
+            self._segment(instrument): [int(self._security_id(instrument.instrument_id))]
+        }
+        body = self._validated(
+            self._request("POST", "/marketfeed/quote", json=payload, cache_read=True)
+        )
+        raw = unwrap_data(body)
+        segment = raw.get(self._segment(instrument), {}) if isinstance(raw, dict) else {}
+        row = (
+            segment.get(self._security_id(instrument.instrument_id), {})
+            if isinstance(segment, dict)
+            else {}
+        )
+        depth_data = (
+            row.get("depth", {})
+            if isinstance(row, dict) and isinstance(row.get("depth"), dict)
+            else {}
+        )
+        # Sort the book (bids price-descending, asks ascending) so the depth
+        # invariant ``Depth.best_bid/best_ask == [0]`` holds even if the
+        # provider returns levels out of order.
+        def _level(raw: dict[str, Any]) -> tuple[Price, Quantity]:
+            return (
+                as_price(raw.get("price")),
+                Quantity(value=as_decimal(raw.get("quantity", 0))))
+
+        bids = tuple(
+            sorted(
+                (_level(i) for i in depth_data.get("buy", []) if isinstance(i, dict)),
+                key=lambda level: level[0].value,
+                reverse=True)
+        )
+        asks = tuple(
+            sorted(
+                (_level(i) for i in depth_data.get("sell", []) if isinstance(i, dict)),
+                key=lambda level: level[0].value)
+        )
+        return Depth(instrument=instrument, bids=bids, asks=asks, timestamp=datetime.now(UTC))
+
+
+    def history(
+        self: DhanClientFacade,
+        instrument: Instrument,
+        timeframe: Timeframe | str,
+        start: datetime,
+        end: datetime,
+    ) -> HistoricalSeries:
+        """Historical candles via POST /charts/intraday or /charts/historical."""
+        interval = timeframe.value if isinstance(timeframe, Timeframe) else str(timeframe)
+        interval_map = {"1m": "1", "5m": "5", "15m": "15", "1h": "60"}
+        requested_timeframe = {
+            "1m": Timeframe.M1,
+            "5m": Timeframe.M5,
+            "15m": Timeframe.M15,
+            "1h": Timeframe.H1,
+            "1d": Timeframe.D1,
+        }.get(interval)
+        if requested_timeframe is None:
+            raise ValueError(f"unsupported Dhan timeframe: {interval!r}")
+        segment = self._segment(instrument)
+        security_id = self._security_id(instrument.instrument_id)
+        native_type = self._history_instrument_type(instrument)
+        if interval in interval_map:
+            session_open = _SESSION_OPEN.get(segment, _DEFAULT_SESSION_OPEN)
+            session_close = _SESSION_CLOSE.get(segment, _DEFAULT_SESSION_CLOSE)
+            path = "/charts/intraday"
+            params: dict[str, object] = {
+                "securityId": security_id,
+                "exchangeSegment": segment,
+                "instrument": native_type,
+                "interval": interval_map[interval],
+                "fromDate": f"{start.date()} {session_open}",
+                "toDate": f"{end.date()} {session_close}",
+            }
+        else:
+            path = "/charts/historical"
+            params = {
+                "securityId": security_id,
+                "exchangeSegment": segment,
+                "instrument": native_type,
+                "expiryCode": 0,
+                "fromDate": start.strftime("%Y-%m-%d"),
+                "toDate": end.strftime("%Y-%m-%d"),
+            }
+        body = self._validated(
+            self._request("POST", path, json=params, cache_read=True)
+        )
+        raw = unwrap_data(body)
+        if not isinstance(raw, dict):
+            raw = {}
+        opens = raw.get("open", [])
+        if not isinstance(opens, list):
+            opens = []
+        timestamps = raw.get("timestamp", []) if isinstance(raw.get("timestamp", []), list) else []
+        highs = raw.get("high", []) if isinstance(raw.get("high", []), list) else []
+        lows = raw.get("low", []) if isinstance(raw.get("low", []), list) else []
+        closes = raw.get("close", []) if isinstance(raw.get("close", []), list) else []
+        volumes = raw.get("volume", []) if isinstance(raw.get("volume", []), list) else []
+        row_count = min(
+            len(opens), len(timestamps), len(highs),
+            len(lows), len(closes), len(volumes))
+        candles = [
+            Candle(
+                instrument=instrument,
+                timeframe=requested_timeframe,
+                ohlc=OHLC(
+                    open=as_price(opens[i]),
+                    high=as_price(highs[i]),
+                    low=as_price(lows[i]),
+                    close=as_price(closes[i])),
+                volume=Quantity(value=as_decimal(volumes[i])),
+                timestamp=parse_timestamp_fallback(timestamps[i], start))
+            for i in range(row_count)
+        ]
+        return HistoricalSeries(
+            instrument=instrument,
+            timeframe=requested_timeframe,
+            candles=candles,
+            start=start,
+            end=end)
+
+
+    def get_option_chain(
+        self: DhanClientFacade,
+        underlying: Instrument,
+        expiry: object | None = None) -> OptionChain:
+        """Option chain via POST /optionchain/expirylist + /optionchain."""
+        key = self._security_id(underlying.instrument_id)
+        numeric_key = int(key) if str(key).isdigit() else key
+        expiry_body = self._validated(
+            self._request(
+                "POST", "/optionchain/expirylist", json={
+                    "UnderlyingScrip": numeric_key,
+                    "UnderlyingSeg": self._segment(underlying),
+                },
+                cache_read=True
+            )
+        )
+        expiry_data = unwrap_data(expiry_body)
+        if isinstance(expiry_data, dict):
+            expiry_values = expiry_data.get("expiryList", expiry_data.get("expiries", []))
+        elif isinstance(expiry_data, list):
+            expiry_values = expiry_data
+        else:
+            expiry_values = []
+        requested_expiry = parse_date(expiry) if expiry is not None else None
+        if expiry is not None and requested_expiry is None:
+            raise ValueError(f"invalid Dhan option-chain expiry: {expiry!r}")
+        raw_expiries = expiry_values if isinstance(expiry_values, list) else []
+        if requested_expiry is not None:
+            raw_expiries = [
+                raw_e for raw_e in raw_expiries if parse_date(raw_e) == requested_expiry
+            ]
+        expiries: list[Expiry] = []
+        for raw_expiry in raw_expiries:
+            expiry_date = parse_date(raw_expiry)
+            if expiry_date is None:
+                continue
+            chain_body = self._validated(
+                self._request(
+                    "POST", "/optionchain", json={
+                        "UnderlyingScrip": numeric_key,
+                        "UnderlyingSeg": self._segment(underlying),
+                        "Expiry": str(raw_expiry),
+                    },
+                    cache_read=True
+                )
+            )
+            data = unwrap_data(chain_body)
+            if not isinstance(data, dict):
+                data = {}
+            spot = as_price(data["last_price"]) if data.get("last_price") is not None else None
+            raw_strikes = data.get("oc", {})
+            pairs: list[OptionPair] = []
+            if isinstance(raw_strikes, dict):
+                for raw_strike, legs in sorted(
+                    raw_strikes.items(), key=lambda item: Decimal(str(item[0]))
+                ):
+                    if not isinstance(legs, dict):
+                        continue
+                    try:
+                        strike = Decimal(str(raw_strike))
+                        call = Option.of(
+                            self._option_exchange(underlying),
+                            underlying.symbol,
+                            expiry_date,
+                            strike,
+                            "CE")
+                        put = Option.of(
+                            self._option_exchange(underlying),
+                            underlying.symbol,
+                            expiry_date,
+                            strike,
+                            "PE")
+                    except (TypeError, ValueError):
+                        continue
+                    call_leg = legs.get("ce")
+                    put_leg = legs.get("pe")
+                    call_key = (
+                        call_leg.get("security_id", call_leg.get("securityId"))
+                        if isinstance(call_leg, dict)
+                        else None
+                    )
+                    put_key = (
+                        put_leg.get("security_id", put_leg.get("securityId"))
+                        if isinstance(put_leg, dict)
+                        else None
+                    )
+                    # Dhan returns placeholder legs (``security_id`` == 0) for
+                    # deep-ITM strikes on far expiries that have no live
+                    # contract. A zero id must not be registered: ``str(0)``
+                    # is ``"0"``, and the *next* placeholder leg would then
+                    # collide in the registry (SDKError). Only real contracts
+                    # (truthy security id) are mapped and paired.
+                    if call_key and put_key:
+                        self._registry.register(call.instrument_id, {"key": str(call_key)})
+                        self._registry.register(put.instrument_id, {"key": str(put_key)})
+                        pairs.append(
+                            OptionPair(call=call, put=put, strike=Price(value=strike))
+                        )
+            expiries.append(
+                Expiry(
+                    underlying=underlying,
+                    expiry_date=expiry_date,
+                    pairs=tuple(pairs),
+                    reference_price=spot)
+            )
+        return OptionChain(underlying=underlying, _expiries=tuple(expiries))
+
+
+    def expiry_list(self: DhanClientFacade, instrument: Instrument) -> list[str]:
+        """Option expiry dates for *instrument* via POST /optionchain/expirylist."""
+        key = self._security_id(instrument.instrument_id)
+        numeric_key = int(key) if str(key).isdigit() else key
+        body = self._validated(
+            self._request(
+                "POST",
+                "/optionchain/expirylist",
+
+                json={
+                    "UnderlyingScrip": numeric_key,
+                    "UnderlyingSeg": self._segment(instrument),
+                },
+                cache_read=True
+            )
+        )
+        data = unwrap_data(body)
+        if isinstance(data, Mapping):
+            data = data.get("expiryList", data.get("expiries", []))
+        if not isinstance(data, list):
+            return []
+        return [str(value) for value in data]
+
+
+    def get_rolling_options(
+        self: DhanClientFacade,
+        instrument: Instrument,
+        *,
+        expiry_flag: str,
+        expiry_code: int,
+        strike: str,
+        option_type: str,
+        from_date: str,
+        to_date: str,
+        required_data: Sequence[str] | None = None,
+        interval: int = 1) -> dict[str, object]:
+        """Continuous expired-option data via POST /charts/rollingoption.
+
+        Returns columnar ``ce``/``pe`` dicts (open/high/low/close/volume/oi/
+        spot/timestamp lists) straight from the API.
+        """
+        flag = str(expiry_flag).strip().upper()
+        if flag not in ("WEEK", "MONTH"):
+            raise ValueError(f"expiry_flag must be 'WEEK' or 'MONTH', got {expiry_flag!r}")
+        opt = str(option_type).strip().upper()
+        if opt in ("CE"):
+            opt = "CALL"
+        elif opt in ("PE"):
+            opt = "PUT"
+        if opt not in ("CALL", "PUT"):
+            raise ValueError(f"option_type must be 'CALL' or 'PUT', got {option_type!r}")
+        if interval not in (1, 5, 15, 25, 60):
+            raise ValueError(f"interval must be one of 1/5/15/25/60, got {interval!r}")
+        # ponytail: Dhan rejects expiryCode=0; logical "nearest" (0) maps to 1.
+        code = expiry_code + 1 if expiry_code == 0 else int(expiry_code)
+        segment = self._segment(instrument)
+        native_type = self._history_instrument_type(instrument)
+        if instrument.asset_class is AssetClass.INDEX:
+            # ponytail: rolling-option rejects IDX_I; index underlyings trade
+            # as OPTIDX on NSE_FNO (Trade_XV2 parity).
+            segment = "NSE_FNO"
+            native_type = "OPTIDX"
+        fields = (
+            list(required_data)
+            if required_data is not None
+            else ["open", "high", "low", "close", "volume", "oi", "spot"]
+        )
+        payload: dict[str, object] = {
+            "securityId": int(self._security_id(instrument.instrument_id)),
+            "exchangeSegment": segment,
+            "instrument": native_type,
+            "expiryFlag": flag,
+            "expiryCode": code,
+            "strike": strike,
+            "drvOptionType": opt,
+            "requiredData": fields,
+            "fromDate": from_date,
+            "toDate": to_date,
+            "interval": interval,
+        }
+        body = self._validated(
+            self._request(
+                "POST", "/charts/rollingoption", json=payload, cache_read=True
+            )
+        )
+        raw = unwrap_data(body)
+        return raw if isinstance(raw, dict) else {}
+
+
+    def get_expired_option_data(
+        self: DhanClientFacade,
+        instrument: Instrument,
+        timeframe: str = "1d",
+        start: str | None = None,
+        end: str | None = None) -> dict[str, object]:
+        """Historical data for expired options via POST /charts/historical."""
+        segment = self._segment(instrument)
+        security_id = self._security_id(instrument.instrument_id)
+        native_type = self._history_instrument_type(instrument)
+        params: dict[str, object] = {
+            "securityId": security_id,
+            "exchangeSegment": segment,
+            "instrument": native_type,
+            "expiryCode": 1,
+        }
+        if start:
+            params["fromDate"] = start
+        if end:
+            params["toDate"] = end
+        body = self._validated(
+            self._request(
+                "POST", "/charts/historical", json=params, cache_read=True
+            )
+        )
+        raw = unwrap_data(body)
+        return raw if isinstance(raw, dict) else {}
+

@@ -1,0 +1,42 @@
+# Credentials — NEVER commit
+.env.local
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Runtime state
+runtime/
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Tool caches & generated output
+.mypy_cache/
+.ruff_cache/
+graphify-out/
+.freebuff/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual envs
+.venv/
+venv/

@@ -1,0 +1,13 @@
+[tool.pytest.ini_options]
+# Root config so the whole v4 suite runs as one command:
+#   pytest domain/tests brokers/tests trading/tests
+# Without this, the three sibling `tests/` dirs collide on the module id
+# `tests.conftest` (no package __init__), raising ImportPathMismatchError.
+# `importmode = "importlib"` names modules by path, not by an importable
+# `tests` package, which removes the collision.
+addopts = "--import-mode=importlib"
+testpaths = ["tests", "domain/tests", "brokers/tests", "trading/tests"]
+pythonpath = ["domain/src", "brokers/src", "trading/src"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

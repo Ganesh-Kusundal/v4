@@ -1,0 +1,120 @@
+"""Repo-wide readiness sweep: every TradingSession factory returns READY.
+
+Guards the class of bug where a factory returns a NEW session whose services
+all raise ``SessionStateError`` (the ``TradingSession.live()`` bug, and the
+same latent issue in ``paper()`` before it started calling ``start()``).
+
+Covered paths:
+- ``TradingSession.paper()``
+- ``TradingSession.live(confirm=True)``
+- ``runtime.startup.boot()`` (paper, backtest, and live modes)
+- ``runtime.startup.boot_context()``
+
+The raw constructor is intentionally excluded: a hand-built session stays NEW
+until the caller calls ``start()`` (tested in ``test_session_lifecycle.py``).
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+import pytest
+from tradex_domain import BrokerId
+
+from tradex_trading.config.schema import AppConfig
+from tradex_trading.sdk.session import SessionState, TradingSession
+
+
+def _fake_live_broker() -> MagicMock:
+    """A broker that satisfies TradingSession.live() without any network.
+
+    A plain MagicMock suffices: ``MarketFeed.__init__`` probes
+    ``getattr(broker, "capabilities", None)`` which auto-creates a MagicMock,
+    and that fails the ``isinstance(..., BrokerCapabilities)`` check so the
+    feed treats the broker as capability-less. NOTE: never stub capabilities
+    via ``broker.__class__.capabilities = ...`` — that mutates the global
+    MagicMock class and contaminates every other test in the process.
+    """
+    return MagicMock()
+
+
+def test_paper_factory_returns_ready() -> None:
+    session = TradingSession.paper()
+    assert session.state == SessionState.READY
+    # Services are immediately usable — no explicit start() needed.
+    assert session.market is not None
+    session.stop()
+
+
+def test_live_factory_returns_ready(monkeypatch) -> None:
+    from tradex_trading import runtime
+
+    monkeypatch.setattr(
+        runtime.live, "build_broker_from_env", lambda _provider: _fake_live_broker()
+    )
+    session = TradingSession.live(BrokerId.DHAN, confirm=True)
+    assert session.state == SessionState.READY
+    assert session.market is not None
+    session.stop()
+
+
+def test_live_factory_requires_confirm() -> None:
+    with pytest.raises(ValueError, match="Live trading requires explicit confirmation"):
+        TradingSession.live(BrokerId.DHAN)
+
+
+def test_boot_paper_returns_ready() -> None:
+    from tradex_trading.runtime.startup import boot
+
+    session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+    assert session.state == SessionState.READY
+    assert session.market is not None
+    session.stop()
+
+
+def test_boot_backtest_returns_ready() -> None:
+    from tradex_trading.runtime.startup import boot
+
+    session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="backtest"))
+    assert session.state == SessionState.READY
+    assert session.market is not None
+    session.stop()
+
+
+def test_boot_live_returns_ready(monkeypatch) -> None:
+    """boot(live) returns READY without touching the network.
+
+    ``startup.boot`` builds the broker through ``BrokerFactory.create`` — patch
+    the module-level name with a fake factory (restored cleanly after the test;
+    avoids monkeypatching the shared classmethod descriptor), so the
+    connect/stream-backend/fill-source wiring runs offline.
+    """
+    from tradex_trading.runtime import startup
+
+    fake = _fake_live_broker()
+
+    class _FakeFactory:
+        @staticmethod
+        def create(_broker_id: BrokerId) -> MagicMock:
+            return fake
+
+    monkeypatch.setattr(startup, "BrokerFactory", _FakeFactory)
+
+    session = startup.boot(
+        AppConfig(broker_id=BrokerId.DHAN, mode="live", live_enabled=True)
+    )
+    assert session.state == SessionState.READY
+    assert session.market is not None
+    assert session.stream is not None
+    assert fake.connect.called
+    session.stop()
+
+
+def test_boot_context_returns_ready_session() -> None:
+    from tradex_trading.runtime.startup import boot_context
+
+    ctx = boot_context(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+    assert ctx.session.state == SessionState.READY
+    assert ctx.session.market is not None
+    ctx.close()
+    assert ctx.session.state == SessionState.STOPPED
