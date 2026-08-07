@@ -20,11 +20,16 @@ from tradex_trading.strategy.extensions import strategies as _strategies
 
 
 def _collect(package: object, predicate: type) -> tuple[object, ...]:
-    """Gather objects from *package*'s ``__all__`` that satisfy *predicate*."""
+    """Gather objects from *package*'s ``__all__`` that satisfy *predicate*.
+
+    Names missing from the package namespace are skipped (not fatal) so a
+    typo in a user's ``__all__`` degrades to "not discovered" instead of
+    breaking every strategy import.
+    """
     found: list[object] = []
     for name in getattr(package, "__all__", ()):
-        obj = getattr(package, name)
-        if isinstance(obj, predicate):
+        obj = getattr(package, name, None)
+        if obj is not None and isinstance(obj, predicate):
             found.append(obj)
     return tuple(found)
 
