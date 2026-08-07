@@ -13,6 +13,7 @@ from tradex_domain import Candle, Fill, Quote
 from tradex_domain.strategy import StrategyContext
 
 from tradex_trading.reactive.bus import ReactiveBus
+from tradex_trading.replay.synthetic_ticks import SyntheticTickGenerator
 
 
 class ReplayEngine:
@@ -31,17 +32,34 @@ class ReplayEngine:
     ```
     """
 
-    def __init__(self, events: Sequence[Any] | None = None) -> None:
+    def __init__(
+        self,
+        events: Sequence[Any] | None = None,
+        *,
+        synthetic_ticks: bool = False,
+        seed: int | None = None,
+    ) -> None:
         """Initialize with optional event sequence.
 
         Parameters
         ----------
         events : Sequence[Any] | None
             Historical events to replay.
+        synthetic_ticks : bool
+            When True, each M1 Candle is expanded into 60 synthetic 1-second
+            ``Quote`` events on the bus (via ``SyntheticTickGenerator``)
+            instead of publishing the raw candle — the bar-data analogue of a
+            live quote feed. Registered strategies still receive the candle
+            directly through ``on_bar``. ``ReplayResult`` counters describe
+            input events on the direct callback path, not bus emissions.
+        seed : int | None
+            Optional RNG seed for reproducible synthetic tick paths.
         """
         self._events = list(events or [])
         self._strategies: list[Any] = []
         self._bar_count = 0
+        self._synthetic_ticks = synthetic_ticks
+        self._seed = seed
 
     def register_strategy(self, strategy: Any) -> ReplayEngine:
         """Register a strategy for direct callback invocation.
@@ -83,6 +101,11 @@ class ReplayEngine:
         quotes_processed = 0
         fills_processed = 0
         errors: list[str] = []
+        tick_generator = (
+            SyntheticTickGenerator(bus, seed=self._seed)
+            if bus is not None and self._synthetic_ticks
+            else None
+        )
 
         # Notify strategies of start
         ctx = self._make_context()
@@ -96,12 +119,20 @@ class ReplayEngine:
         for event in self._events:
             events_processed += 1
 
-            # Publish to bus if provided
+            # Publish to bus if provided. In synthetic mode, M1 candles are
+            # expanded into 1-second Quote events instead of being published
+            # raw; the candle still reaches registered strategies via on_bar.
             if bus is not None:
-                try:
-                    bus.publish(event)
-                except Exception as e:
-                    errors.append(f"Bus publish error: {e}")
+                if isinstance(event, Candle) and tick_generator is not None:
+                    try:
+                        tick_generator.feed_bar(event)
+                    except Exception as e:
+                        errors.append(f"Tick generation error: {e}")
+                else:
+                    try:
+                        bus.publish(event)
+                    except Exception as e:
+                        errors.append(f"Bus publish error: {e}")
 
             # Direct strategy callbacks
             if isinstance(event, Candle):

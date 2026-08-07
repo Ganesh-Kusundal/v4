@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -57,6 +57,94 @@ class TestReplayResult:
         s = repr(r)
         assert "events=10" in s
         assert "candles=5" in s
+
+
+class TestReplayEngineSyntheticTicks:
+    """ReplayEngine synthetic mode: M1 candles -> synthetic Quote stream."""
+
+    @staticmethod
+    def _m1(ts: datetime) -> Candle:
+        return Candle(
+            instrument=_eq(),
+            timeframe=Timeframe.M1,
+            timestamp=ts,
+            ohlc=OHLC(
+                open=Price(value=Decimal("100")),
+                high=Price(value=Decimal("110")),
+                low=Price(value=Decimal("95")),
+                close=Price(value=Decimal("105")),
+            ),
+            volume=Quantity(value=Decimal("10000")),
+        )
+
+    def test_synthetic_mode_quote_subscribers_see_ticks(self) -> None:
+        """Quote-subscribed strategies receive the synthetic tick stream."""
+        bus = ReactiveBus()
+        seen: list[Quote] = []
+        stream: list[object] = []
+        bus.of_type(Quote).subscribe(seen.append)
+        bus.stream().subscribe(stream.append)
+        now = _now()
+        engine = ReplayEngine(
+            [self._m1(now), self._m1(now + timedelta(minutes=1))],
+            synthetic_ticks=True,
+            seed=1,
+        )
+        result = engine.replay(bus)
+
+        assert len(seen) == 120  # 60 ticks per M1 bar
+        # Replace semantics: the bus carries only synthetic quotes — no candle.
+        assert len(stream) == 120
+        assert all(isinstance(m, Quote) for m in stream)
+        assert result.candles_processed == 2
+        assert result.events_processed == 2
+        # Bar 1 timestamps step one second; ticks stay within the bar range.
+        for i, quote in enumerate(seen[:60]):
+            assert quote.timestamp == now + timedelta(seconds=i)
+            assert Decimal("95") <= quote.ltp.value <= Decimal("110")
+        assert seen[0].ltp.value == Decimal("100")  # open anchor
+        assert seen[59].ltp.value == Decimal("105")  # close anchor
+
+    def test_default_mode_publishes_raw_candles(self) -> None:
+        """Without the flag, the bus receives the raw candle (unchanged)."""
+        bus = ReactiveBus()
+        seen: list[object] = []
+        bus.stream().subscribe(seen.append)
+        engine = ReplayEngine([self._m1(_now())])
+        engine.replay(bus)
+        assert len(seen) == 1
+        assert isinstance(seen[0], Candle)
+
+    def test_synthetic_mode_on_bar_still_receives_candle(self) -> None:
+        """Registered bar strategies keep working in synthetic mode."""
+        bus = ReactiveBus()
+        strat = MagicMock()
+        engine = ReplayEngine([self._m1(_now())], synthetic_ticks=True, seed=1)
+        engine.register_strategy(strat)
+        engine.replay(bus)
+        strat.on_bar.assert_called_once()
+
+    def test_synthetic_mode_non_m1_candle_recorded_as_error(self) -> None:
+        """Non-M1 candles fail loudly in synthetic mode (no silent skip)."""
+        bus = ReactiveBus()
+        seen: list[object] = []
+        bus.stream().subscribe(seen.append)
+        engine = ReplayEngine([_candle(100.0, _now())], synthetic_ticks=True)
+        result = engine.replay(bus)
+        assert seen == []  # nothing published for the D1 candle
+        assert result.has_errors
+        assert any("Tick generation error" in e for e in result.errors)
+
+    def test_synthetic_mode_deterministic_with_seed(self) -> None:
+        """Same seed -> identical tick paths across replays."""
+        def prices() -> list[Decimal]:
+            bus = ReactiveBus()
+            seen: list[Quote] = []
+            bus.of_type(Quote).subscribe(seen.append)
+            ReplayEngine([self._m1(_now())], synthetic_ticks=True, seed=7).replay(bus)
+            return [q.ltp.value for q in seen]
+
+        assert prices() == prices()
 
 
 class TestReplayEngineEnhanced:
