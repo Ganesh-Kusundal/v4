@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted — amended 2026-08-07 (ordering + thread-safety contract, see
+"Amendment 2026-08-07" below)
 
 ## Decision
 
@@ -67,12 +68,61 @@ require bounded buffers and error isolation.
   library.
 - `of_type` filters by `isinstance`, so only exact message classes (or subclasses)
   match; structural/duck-typed events need explicit mapping.
-- `ReactiveBus.publish` swallows and logs exceptions (`bus.py:43`) while
-  `BoundedReactiveBus` adds its own try/except (`bounded_bus.py:40`) — error
-  handling is duplicated across the two layers.
-- `replay` ignores its `start`/`end` parameters (`bus.py:90`), so time-range replay
-  is currently a stub despite being part of the API.
-- The bounded log/DLQ are simple `deque`s with a single `threading.Lock`
-  (`bounded_bus.py:32`); there is no explicit subscriber backpressure, so a slow
-  consumer can still fall behind and messages are dropped at the DLQ maxlen
-  without notification.
+- `ReactiveBus.publish` swallows and logs exceptions while `BoundedReactiveBus`
+  adds its own try/except — error handling is duplicated across the two layers.
+- `replay` ignores its `start`/`end` parameters, so time-range replay is
+  currently a stub despite being part of the API.
+- The bounded log/DLQ are simple `deque`s; there is no explicit subscriber
+  backpressure, so a slow consumer can still fall behind and messages are
+  dropped at the DLQ maxlen without notification.
+
+## Amendment 2026-08-07: Ordering & Thread-Safety Contract
+
+`ReactiveBus.publish` (`trading/src/tradex_trading/reactive/bus.py`) is a
+**synchronous, latency-neutral drain queue**: a nested `publish()` made from
+inside a subscriber is enqueued into an in-flight deque and drained by the
+outermost frame before `publish()` returns.
+
+### Contract
+
+- **Synchronous delivery, latency-neutral.** All effects of a `publish()`
+  (including every nested chain) complete before it returns; there is no
+  buffering across calls and no lock in the hot path. Live market events are
+  never delayed by ordering — the drain reuses the work the old recursive
+  delivery already did (same `Subject.on_next` calls, deque instead of stack
+  recursion).
+- **Causal stream order: stream == log.** Nested publishes are delivered after
+  the triggering message's full delivery, so stream order matches the message
+  log and is independent of subscription timing. This replaced the previous
+  depth-first recursion, where a stream recorder attached after a publisher
+  saw a chain's effects *before* the triggering message.
+- **Single-threaded `ReactiveBus`.** The drain state (`_pending`/`_draining`)
+  is not locked; publish from one thread, or wrap the bus in
+  `ThreadSafeReactiveBus` for concurrent publishers.
+- **`ThreadSafeReactiveBus` / `BoundedReactiveBus` for concurrent publishers.**
+  Both serialize `publish()` with an `RLock` (previously a non-reentrant
+  `Lock`, which deadlocked when a subscriber published through the wrapper
+  during delivery — now re-entered safely and enqueued by the core drain).
+- **Live wiring.** `boot(mode="live")` (`runtime/startup.py`) and
+  `TradingSession.live()` (`sdk/session.py`) use `ThreadSafeReactiveBus`,
+  because the broker feed thread, engine worker threads, and API callers
+  publish concurrently and a plain RxPY `Subject` must never be driven from
+  two threads at once. Paper/backtest/replay sessions keep the plain bus
+  (single-threaded). The feed thread's own quote → pipeline chain is
+  reentrant on the same thread, so the lock never delays it.
+- **Nested-delivery cap.** A subscriber that republishes forever fails
+  visibly: the drain stops after 10,000 nested deliveries per publish, logs
+  an error, and drops the backlog — instead of the old `RecursionError`
+  (recursion) or an unbounded silent loop (queue).
+
+### Consequences
+
+Positive: deterministic, subscription-order-independent streams; one truth
+(log == stream); no stack recursion on cascades; the live race (concurrent
+`Subject.on_next` from feed/engine/API threads) is closed at the composition
+root without touching the hot core.
+
+Negative: the plain bus is single-threaded-only — publishing it from multiple
+threads (e.g. a paper session driven through `AsyncTradingSession`'s thread
+pool) must go through `ThreadSafeReactiveBus`; and a deadlock regression in
+the wrappers would hang (not fail) a reentrant publish until a timeout.
