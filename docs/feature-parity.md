@@ -19,8 +19,8 @@ Tracks implementation status of every feature (F1–F28), non-functional require
 | F7 | SDK MarketService (quote, ltp, depth, history) | 6 | ✅ | `sdk/session.py` |
 | F8 | SDK TradeService (submit, cancel) | 6 | ✅ | `sdk/session.py` |
 | F9 | SDK PortfolioService (positions, account, portfolio) | 6 | ✅ | `sdk/session.py` |
-| F10 | Strategy protocol + ReactiveStrategyEngine | 10 | ✅ | `strategy/protocols.py`, `strategy/engine.py` |
-| F11 | ScannerEngine | 10 | ✅ | `strategy/scanner.py` |
+| F10 | Strategy protocol + ReactiveStrategyEngine | 10 | ✅ | `strategy/core/protocols.py`, `strategy/core/engine.py` (re-exported from `strategy/`) |
+| F11 | ScannerEngine | 10 | ✅ | `strategy/core/scanner.py` (depends on `IndicatorComputer` protocol, not concrete engine) |
 | F12 | ExecutionEngine (reactive order spine) | 5 | ✅ | `execution/engine.py` — RxPY pipeline |
 | F13 | OMS (OrderManager, PositionManager, TradingCache) | 5 | ✅ | `execution/order_manager.py`, `position_manager.py`, `trading_cache.py` |
 | F14 | SDK StreamService (reactive subscriptions) | 6 | ✅ | `sdk/streaming.py` |
@@ -28,15 +28,15 @@ Tracks implementation status of every feature (F1–F28), non-functional require
 | F16 | Datalake (DataCatalog, quality, source selection) | 10 | ✅ | `datalake/catalog.py`, `quality.py`, `source_selection.py` |
 | F17 | Replay + Backtest engines | 10 | ✅ | `replay/engine.py`, `replay/backtest.py` |
 | F18 | Paper broker adapter | 4 | ✅ | `paper/adapter.py` — full BrokerAdapter |
-| F19 | Dhan broker adapter | 8 | ✅ | `dhan/adapter.py` — stub with protocol conformance |
-| F20 | Upstox broker adapter | 9 | ✅ | `upstox/adapter.py` — stub with protocol conformance |
+| F19 | Dhan broker adapter | 8 | ✅ | `dhan/adapter.py` — full adapter, protocol conformance (432 lines) |
+| F20 | Upstox broker adapter | 9 | ✅ | `upstox/adapter.py` — full adapter, protocol conformance (442 lines) |
 | F21 | CLI interface | 11 | ✅ | `interface/cli.py` |
 | F22 | Config schema + loaders (YAML, env) | 7 | ✅ | `config/schema.py`, `env.py`, `loader.py` |
 | F23 | Serialization (to_dict/from_dict) | 1 | ✅ | `serialization.py` — generic machinery |
 | F24 | Fee calculator + PricingService | 5 | ✅ | `execution/fees.py` |
 | F25 | Reconciliation engine | 5 | ✅ | `execution/reconciliation.py` |
 | F26 | Runtime boot (composition root) | 7 | ✅ | `runtime/startup.py` — `boot()` |
-| F27 | HTTP health API + TUI diagnostics | 11 | ✅ | `interface/api.py`, `interface/tui.py` |
+| F27 | HTTP health API + TUI diagnostics | 11 | ✅ | `interface/fastapi_app.py`, `interface/tui.py` |
 | F28 | Corporate actions + MCP server | 10 | ✅ | `datalake/corporate_actions.py`, `datalake/mcp_server.py` |
 
 ---
@@ -45,7 +45,7 @@ Tracks implementation status of every feature (F1–F28), non-functional require
 
 | ID | Requirement | Phase | Status | Notes |
 |----|-------------|-------|--------|-------|
-| N1 | Domain has ZERO internal deps (stdlib + rx only) | 1 | ✅ | `pyproject.toml` — only `rx>=7.0` |
+| N1 | Domain has ZERO internal deps (stdlib + rx only) | 1 | ✅ | `pyproject.toml` — only `rx>=3.2,<4` (all 3 packages aligned) |
 | N2 | Auth module (TOTP/OAuth) | 2 | ✅ | `common/auth.py` |
 | N3 | Token lifecycle (DurableTokenManager, broadcast, refresh) | 2 | ✅ | `common/token_lifecycle.py` |
 | N4 | Rate limiting (per-broker tables) | 2 | ✅ | `common/rate_limit.py` — TokenBucketRateLimiter |
@@ -96,7 +96,7 @@ Tracks implementation status of every feature (F1–F28), non-functional require
 | All market data flows through RxPY Observable | ✅ | `ReactiveBus.of_type()` + `share()` |
 | EventBus is fully reactive | ✅ | No imperative pub/sub — all via Subject |
 | BrokerFactory enables plug-and-play | ✅ | `register()` / `create()` / `available()` |
-| v3 is completely untouched | ✅ | v4 lives in `v4/` directory |
+| v3 is completely untouched | ✅ | v3 lives in a sibling workspace; this checkout is the v4 tree |
 
 ---
 
@@ -104,16 +104,16 @@ Tracks implementation status of every feature (F1–F28), non-functional require
 
 ```bash
 # Domain
-cd v4/domain && python -m compileall -q src && pytest -q && ruff check src
+cd domain && python -m compileall -q src && pytest -q && ruff check src
 
 # Brokers
-cd v4/brokers && python -m compileall -q src && pytest -q && ruff check src
+cd brokers && python -m compileall -q src && pytest -q && ruff check src
 
 # Trading
-cd v4/trading && python -m compileall -q src && pytest -q && ruff check src
+cd trading && python -m compileall -q src && pytest -q && ruff check src
 ```
 
-**Result:** ALL 3 repos GREEN ✅
+**Result:** ALL 3 repos GREEN ✅ — 2,543 passing, 0 failures (2 skipped), ruff clean (verified 2026-08-07)
 
 ---
 
@@ -127,7 +127,7 @@ cd v4/trading && python -m compileall -q src && pytest -q && ruff check src
 | OrderManager always sets FILLED | order_manager.py | Partial fill → `PARTIALLY_FILLED` | ✅ Fixed |
 | boot() missing safety gates | startup.py, schema.py | Mode validation, live gates, `live_enabled` | ✅ Fixed |
 | PaperFillSource quantity-as-price | fill_sources.py | Nominal `Decimal("1.0")` paper price | ✅ Fixed |
-| `distinct_until_changed` key ignored | stream_operators.py | Pass `key` to RxPY operator | ✅ Fixed |
+| `distinct_until_changed` key ignored | reactive/operators.py | Pass `key` to RxPY operator | ✅ Fixed |
 | SimulatedFillSource dead code | fill_sources.py | Simplified fill_price logic | ✅ Fixed |
 | RiskManager thread safety | engine.py | Added `threading.Lock` | ✅ Fixed |
 | kill_switch thread safety | engine.py | `bool` → `threading.Event` | ✅ Fixed |
@@ -142,17 +142,17 @@ cd v4/trading && python -m compileall -q src && pytest -q && ruff check src
 
 | Area | v3 modules | v4 modules | Status |
 |------|-----------|-----------|--------|
-| Domain | 8 files | 13 files | ✅ v4 adds events, protocols, capabilities, wire |
-| Analytics | 15 files | 16 files | ✅ All v3 analytics ported + functions.py |
-| Execution | 8 files | 8 files | ✅ Match + IdempotencyGuard + trip_kill_switch + reconcile |
-| Brokers common (infra) | 16 files | 17 files | ✅ All v3 infra ported |
-| Strategy | 4 files | 4 files | 🟡 Core match; advanced v3 features deferred |
-| Replay | 2 files | 2 files | ✅ Exact match |
-| Datalake | 5 files | 5 files | ✅ Exact match |
-| Runtime | 6 files | 6 files | ✅ All v3 runtime ported + safety gates |
-| SDK | 2 files | 2 files | 🟡 Core services; some v3 services deferred |
-| Interface | 4 files | 4 files | ✅ Exact match |
-| Config | 3 files | 3 files | ✅ Match + `live_enabled` gate |
-| Reactive (new) | — | 4 files | ✅ RxPY backbone (bus, backpressure, operators, subscription) |
-| **Total source** | **102** | **113** | ✅ v4 has MORE modules |
-| **Tests** | — | **152** | ✅ 148 trading + 4 brokers |
+| Domain | 8 files | 15 files | ✅ v4 adds events, protocols, capabilities, wire, lifecycle |
+| Analytics | 15 files | 18 files | ✅ All v3 analytics ported + orderflow, probability, ranking, warmup |
+| Execution | 8 files | 12 files | ✅ Match + IdempotencyGuard + trip_kill_switch + reconcile + slippage, submission_safety |
+| Brokers common (infra) | 16 files | 21 files | ✅ All v3 infra ported + base, client_shared, streaming |
+| Strategy | 4 files | core/ 5 + extensions/ 6 (+ init files) | ✅ Framework in `strategy/core/`, user code in `strategy/extensions/` (auto-discovered) |
+| Replay | 2 files | 5 files | ✅ Match + optimization, walk_forward |
+| Datalake | 5 files | 8 files | ✅ Match + data_engine, parquet_catalog |
+| Runtime | 6 files | 9 files | ✅ All v3 runtime ported + safety gates |
+| SDK | 2 files | 6 + services/ | ✅ Core services + services/ subpackage |
+| Interface | 4 files | 5 files | ✅ Match (api → fastapi_app) |
+| Config | 3 files | 4 files | ✅ Match + `live_enabled` gate |
+| Reactive (new) | — | 9 files | ✅ RxPY backbone (bus, bounded_bus, thread_safe_bus, async_dispatch, message_log, backpressure, operators, subscription) |
+| **Total source** | **102** | **168** | ✅ v4 has MORE modules (15 domain + 54 brokers + 99 trading) |
+| **Tests** | — | **159 test files / 2,543 passing** | ✅ 0 failures (2 skipped) |

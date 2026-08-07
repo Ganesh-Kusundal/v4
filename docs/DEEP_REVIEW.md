@@ -1,9 +1,9 @@
 # TradeX v4 — Deep Architectural Review
 
-> **Date:** 2026-08-06
+> **Date:** 2026-08-07 (reconciled with post-Phase-1 tree)
 > **Scope:** Full code-level audit of `tradex-domain`, `tradex-brokers`, `tradex-trading`
 > **Audience:** Principal Engineer / Quant Engineer
-> **Status:** Code ~99% complete, 2,307 tests pass, 4 trivial failures
+> **Status:** Code complete — 2,543 tests pass, 0 failures (2 skipped)
 
 ---
 
@@ -43,14 +43,14 @@ tradex-trading   ← engine, SDK, execution, analytics, strategy
 
 | Metric | Value |
 |--------|-------|
-| Source files | **113** (domain: 13, brokers: 30, trading: 30) |
-| Test files | **152** (domain: 4, brokers: 14, trading: 148) |
-| Passing tests | **2,307** (domain: 329, brokers: 748, trading: 1,230) |
-| Failing tests | **4** (1 inheritance, 3 env-dependent) |
-| LOC | ~9,400 (-41% vs v3 by design) |
+| Source files | **168** (domain: 15, brokers: 54, trading: 99) |
+| Test files | **159** (domain: 15, brokers: 38, trading: 106) |
+| Passing tests | **2,543** (domain: 343, brokers: 899, trading: 1,301) |
+| Failing tests | **0** (2 skipped) |
+| LOC | ~28,700 (domain: 3.2k, brokers: 12.9k, trading: 12.6k) |
 | Compilation | Clean (0 errors across all 3 packages) |
 | Lint (ruff) | Clean (0 errors) |
-| Type checking (mypy) | ⚠️ Not configured for v4 layout (258 errors) |
+| Type checking (mypy) | ⚠️ Not configured for v4 layout |
 
 ### Verdict
 
@@ -66,27 +66,29 @@ v4/
 ├── smoke_mcx_stream.py                          # Live MCX WebSocket smoke test
 │
 ├── domain/                                        # tradex-domain (shared kernel)
-│   ├── pyproject.toml                           # hatchling, rx>=7.0 only
+│   ├── pyproject.toml                           # hatchling, rx>=3.2,<4 only
 │   ├── src/tradex_domain/
-│   │   ├── __init__.py                          # Public API re-exports (55 symbols)
+│   │   ├── __init__.py                          # Public API re-exports
 │   │   ├── enums.py                             # 10 StrEnum types + open registration
 │   │   ├── errors.py                            # 10 typed exceptions (SDKError hierarchy)
 │   │   ├── value_objects.py                     # 7 frozen value objects
 │   │   ├── instruments.py                       # 6 concrete instrument types
+│   │   ├── lifecycle.py                         # Lifecycle states + transitions
 │   │   ├── market.py                            # Quote, Depth, Candle, HistoricalSeries
 │   │   ├── options.py                           # OptionChain, Expiry, OptionPair
 │   │   ├── execution.py                         # Order, Fill, Position, Account, Portfolio
-│   │   ├── protocols.py                         # BrokerAdapter, ExtensionAdapter, SessionFacade
+│   │   ├── protocols.py                         # BrokerAdapter, ExtensionAdapter, SessionFacade, Clock, IndicatorComputer
 │   │   ├── capabilities.py                      # BrokerCapabilities + 3 provider matrices
 │   │   ├── events.py                            # 15 domain event types
 │   │   ├── strategy.py                          # Signal, ScannerDefinition, StrategyContext
 │   │   ├── serialization.py                     # Generic to_dict/from_dict machinery
 │   │   └── wire.py                              # InstrumentRegistry, WireAdapter, normalize
-│   └── tests/
-│       ├── test_instruments.py
-│       ├── test_market_plot.py
-│       ├── test_value_objects.py
-│       └── test_wire.py
+│   └── tests/                                   # 15 test files
+│       ├── test_lifecycle.py
+│       ├── test_value_object_arithmetic.py
+│       ├── test_instrument_id_parsing.py
+│       ├── test_serialization_roundtrip.py
+│       └── ... (11 more: registry, market, options, domain enrichments)
 │
 ├── brokers/                                       # tradex-brokers (adapter layer)
 │   ├── pyproject.toml                           # hatchling, depends on tradex-domain
@@ -94,11 +96,13 @@ v4/
 │   │   ├── __init__.py                          # Package init
 │   │   ├── registry.py                          # BrokerFactory (register/create/available)
 │   │   │
-│   │   ├── common/                              # Shared infrastructure
+│   │   ├── common/                              # Shared infrastructure (21 modules)
 │   │   │   ├── __init__.py
 │   │   │   ├── auth.py                          # TOTP code gen, JWT expiry, form POST
+│   │   │   ├── base.py                          # Shared adapter base
 │   │   │   ├── cache.py                         # ReadCache — bounded TTL cache
 │   │   │   ├── circuit_breaker.py               # 3-state circuit breaker
+│   │   │   ├── client_shared.py                 # Shared client helpers
 │   │   │   ├── http_response.py                 # HTTP response wrapper
 │   │   │   ├── instruments.py                   # Instrument master loading
 │   │   │   ├── message_log.py                   # Message logging for replay
@@ -109,29 +113,42 @@ v4/
 │   │   │   ├── rate_limit.py                    # MultiBucketRateLimiter, TokenBucket
 │   │   │   ├── resilience.py                    # Resilience pipeline composition
 │   │   │   ├── retry.py                         # RetryableHttpClient with backoff
+│   │   │   ├── streaming.py                     # Stream subscription types
 │   │   │   ├── token_lifecycle.py               # DurableTokenManager, TokenBroadcast
 │   │   │   ├── totp_cooldown.py                 # TotpCooldownGuard (cross-process)
 │   │   │   ├── transport.py                     # HttpTransport (stdlib urllib)
 │   │   │   └── ws_reconnect.py                  # WsReconnectManager with exponential backoff
 │   │   │
-│   │   ├── dhan/                                # Dhan adapter
+│   │   ├── dhan/                                # Dhan adapter (14 modules)
 │   │   │   ├── __init__.py
 │   │   │   ├── adapter.py                       # DhanBroker (BrokerAdapter + ExtensionAdapter)
-│   │   │   ├── client.py                        # DhanApiClient (~75 methods)
+│   │   │   ├── client.py                        # DhanApiClient (26 methods)
 │   │   │   ├── depth_parser.py                  # MCX/NSE depth frame parser
 │   │   │   ├── instruments.py                   # MCX row loader, expiry parser
 │   │   │   ├── master.py                        # Dhan instrument master loader
 │   │   │   ├── tick_parser.py                   # Dhan tick/frame decoder
-│   │   │   └── ws_streams.py                    # DhanMarketDataStreamBackend, etc.
+│   │   │   ├── ws_streams.py                    # DhanMarketDataStreamBackend, etc.
+│   │   │   ├── _admin.py                        # Admin/fund endpoints
+│   │   │   ├── _alerts.py                       # Alert endpoints
+│   │   │   ├── _facade.py                       # Capability facade
+│   │   │   ├── _marketdata.py                   # Market data endpoints
+│   │   │   ├── _orders.py                       # Order endpoints
+│   │   │   └── _portfolio.py                    # Portfolio endpoints
 │   │   │
-│   │   ├── upstox/                              # Upstox adapter
+│   │   ├── upstox/                              # Upstox adapter (13 modules)
 │   │   │   ├── __init__.py
 │   │   │   ├── adapter.py                       # UpstoxBroker (BrokerAdapter + ExtensionAdapter)
-│   │   │   ├── client.py                        # UpstoxApiClient (~68 methods)
+│   │   │   ├── client.py                        # UpstoxApiClient (22 methods)
 │   │   │   ├── instruments.py                   # Upstox instrument helpers
 │   │   │   ├── master.py                        # Upstox instrument master loader
 │   │   │   ├── ws_decoder.py                    # WSS v2 frame decoder
-│   │   │   └── ws_streams.py                    # UpstoxMarketDataStreamBackend, etc.
+│   │   │   ├── ws_streams.py                    # UpstoxMarketDataStreamBackend, etc.
+│   │   │   ├── _admin.py                        # Admin endpoints
+│   │   │   ├── _alerts.py                       # Alert endpoints
+│   │   │   ├── _facade.py                       # Capability facade
+│   │   │   ├── _marketdata.py                   # Market data endpoints
+│   │   │   ├── _orders.py                       # Order endpoints
+│   │   │   └── _portfolio.py                    # Portfolio endpoints
 │   │   │
 │   │   ├── paper/                               # Paper (simulated) broker
 │   │   │   ├── __init__.py
@@ -141,31 +158,32 @@ v4/
 │   │       ├── __init__.py
 │   │       └── MarketDataFeed_pb2.py            # Generated protobuf for Dhan WS
 │   │
-│   └── tests/
-│       ├── conftest.py
+│   └── tests/                                   # 38 test files
 │       ├── test_dhan_adapter.py
+│       ├── test_dhan_client.py
+│       ├── test_dhan_tick_parser.py
+│       ├── test_upstox_adapter.py
+│       ├── test_upstox_client.py
 │       ├── test_master_parsers.py
 │       ├── test_paper_broker_symmetry.py
+│       ├── test_paper_broker_no_trading_import.py
+│       ├── test_paper_order_book.py
+│       ├── test_token_lifecycle.py
+│       ├── test_history_memory_efficiency.py
+│       ├── test_stream_reconnect_harness.py
 │       ├── test_v3_port.py
-│       └── common/
-│           ├── test_auth.py
+│       └── common/                               # 25 infra test files
 │           ├── test_broker_factory.py
-│           ├── test_cache.py
-│           ├── test_circuit_breaker.py
-│           ├── test_infra_core.py
-│           ├── test_instruments.py
-│           ├── test_message_log.py
-│           ├── test_paths.py
-│           ├── test_provider_client.py
-│           ├── test_provider_common.py
-│           ├── test_rate_limit.py
-│           ├── test_resilience.py
-│           ├── test_retry.py
+│           ├── test_broker_contracts.py
 │           ├── test_token_lifecycle.py
 │           ├── test_totp_cooldown.py
-│           ├── test_transport.py
+│           ├── test_read_cache.py
+│           ├── test_rate_limits.py
+│           ├── test_resilience_pipeline.py
+│           ├── test_retry_skips_4xx.py
 │           ├── test_transport_error_handling.py
-│           └── test_ws_reconnect.py
+│           ├── test_ws_resilience.py
+│           └── ... (15 more: auth, client seam, streaming, ...)
 │
 ├── trading/                                       # tradex-trading (application layer)
 │   ├── pyproject.toml                           # hatchling, depends on domain + brokers
@@ -210,22 +228,28 @@ v4/
 │   │   │
 │   │   ├── interface/                           # CLI, API, diagnostics
 │   │   │   ├── __init__.py
-│   │   │   ├── api.py                           # FastAPI health endpoint
+│   │   │   ├── fastapi_app.py                   # FastAPI health endpoint
 │   │   │   ├── check_connection.py              # Connectivity probe CLI
 │   │   │   ├── cli.py                           # Main CLI with argparse
 │   │   │   └── tui.py                           # Terminal diagnostics
 │   │   │
-│   │   ├── reactive/                            # RxPY backbone
+│   │   ├── reactive/                            # RxPY backbone (9 modules)
 │   │   │   ├── __init__.py
+│   │   │   ├── async_dispatch.py                # Async event dispatch
 │   │   │   ├── backpressure.py                  # Backpressure operators
+│   │   │   ├── bounded_bus.py                   # BoundedReactiveBus (backpressure edges)
 │   │   │   ├── bus.py                           # ReactiveBus (Subject-backed)
+│   │   │   ├── message_log.py                   # FileMessageLog for auditing
 │   │   │   ├── operators.py                     # Custom RxPY operators
-│   │   │   └── subscription.py                  # Subscription management
+│   │   │   ├── subscription.py                  # Subscription management
+│   │   │   └── thread_safe_bus.py               # ThreadSafeReactiveBus
 │   │   │
-│   │   ├── replay/                              # Backtesting engine
+│   │   ├── replay/                              # Backtesting engine (5 modules)
 │   │   │   ├── __init__.py
 │   │   │   ├── backtest.py                      # BacktestEngine with FakeClock
-│   │   │   └── engine.py                        # ReplayEngine (historical data)
+│   │   │   ├── engine.py                        # ReplayEngine (historical data)
+│   │   │   ├── optimization.py                  # grid_search + result objects
+│   │   │   └── walk_forward.py                  # walk-forward optimization
 │   │   │
 │   │   ├── runtime/                             # Composition root
 │   │   │   ├── __init__.py
@@ -241,34 +265,40 @@ v4/
 │   │   ├── sdk/                                 # Public-facing session API
 │   │   │   ├── __init__.py
 │   │   │   ├── async_session.py                 # Async session wrapper
+│   │   │   ├── protocols.py                     # SDK service protocols
 │   │   │   ├── session.py                       # TradingSession + 7 services
 │   │   │   ├── session_manager.py               # Multi-session manager
-│   │   │   └── streaming.py                     # StreamSubscription types
+│   │   │   ├── streaming.py                     # StreamSubscription types
+│   │   │   └── services/                        # Per-service implementations
 │   │   │
 │   │   └── strategy/                            # Strategy framework
-│   │       ├── __init__.py
-│   │       ├── buy_and_hold.py                  # Reference strategy
-│   │       ├── engine.py                        # ReactiveStrategyEngine
-│   │       ├── ensemble.py                      # Multi-strategy ensemble
-│   │       ├── protocols.py                     # Strategy protocol (on_start/on_stop/on_event)
-│   │       ├── scanner.py                       # ScannerEngine
-│   │       └── scanner_runtime.py               # Scanner runtime wiring
+│   │       ├── __init__.py                      # Re-exports core + all_strategies/all_scanners
+│   │       ├── core/                            # Framework code (never edited by users)
+│   │       │   ├── __init__.py
+│   │       │   ├── protocols.py                 # Strategy protocol (on_start/on_stop/on_event)
+│   │       │   ├── engine.py                    # ReactiveStrategyEngine (Signal→Order bridge)
+│   │       │   ├── scanner.py                   # ScannerEngine (IndicatorComputer protocol)
+│   │       │   ├── ensemble.py                  # Multi-strategy ensemble
+│   │       │   └── buy_and_hold.py              # Reference strategy
+│   │       └── extensions/                      # User-owned, auto-discovered
+│   │           ├── __init__.py                  # all_strategies / all_scanners
+│   │           ├── strategies/                  # Custom strategy classes (SmaCrossStrategy)
+│   │           ├── scanners/                    # ScannerDefinition objects (momentum)
+│   │           └── shared/                      # Custom indicators, helpers
 │   │
-│   └── tests/                                   # 148 test files
-│       ├── conftest.py
-│       ├── analytics/                           # Analytics tests
-│       ├── config/                              # Config tests
-│       ├── contracts/                           # Contract/integration tests
-│       ├── datalake/                            # Datalake tests
-│       ├── execution/                           # Engine, OMS, fill source tests
-│       ├── interface/                           # CLI, API tests
-│       ├── integration/                         # Full-stack integration tests
-│       ├── parity/                              # Cross-provider parity tests
-│       ├── reactive/                            # Bus, operator tests
-│       ├── replay/                              # Backtest engine tests
-│       ├── runtime/                             # Startup, health, metrics tests
-│       ├── sdk/                                 # Session, service tests
-│       └── strategy/                            # Strategy engine tests
+│   └── tests/                                   # 106 test files
+│       ├── analytics/  (8)                      # Analytics tests
+│       ├── contracts/  (10)                     # Contract/integration tests (incl. CQRS Signal→Order)
+│       ├── datalake/   (9)                      # Datalake tests
+│       ├── execution/  (31)                     # Engine, OMS, fill source tests
+│       ├── interface/  (2)                      # CLI, API tests
+│       ├── integration/ (1)                     # Full-stack integration tests
+│       ├── parity/     (1)                      # Cross-provider parity tests
+│       ├── reactive/   (7)                      # Bus, operator tests
+│       ├── replay/     (7)                      # Backtest engine tests
+│       ├── runtime/    (15)                     # Startup, health, metrics tests
+│       ├── sdk/        (9)                      # Session, service tests
+│       └── strategy/   (6)                      # Strategy engine tests
 │
 └── runtime/                                       # Runtime state (git-ignored)
     ├── dhan/
@@ -314,8 +344,9 @@ v4/
 │       └───────────┼──────────┼──────────┴──────────────────┘ │
 │                   │          │                                │
 │  ┌────────────────┴──────────┴────────────────────────────┐  │
-│  │                    reactive/                           │  │
-│  │  ReactiveBus · backpressure · operators · subscription │  │
+│  │                    reactive/  (9 modules)             │  │
+│  │  bus · bounded_bus · thread_safe_bus · async_dispatch │  │
+│  │  backpressure · operators · subscription · message_log│  │
 │  └────────────────────────────────────────────────────────┘  │
 └──────────────────────┬──────────────────────────────────────┘
                        │ imports
@@ -386,7 +417,7 @@ v4/
 
 **Assessment:** Clean. The `InstrumentType` deprecation is handled correctly with `__init__` override emitting `DeprecationWarning`. The `StrEnum` choice enables seamless serialization to JSON and database storage.
 
-### 4.2 `errors.py` (69 lines)
+### 4.2 `errors.py` (68 lines)
 
 **Typed exception hierarchy:**
 
@@ -406,7 +437,7 @@ Exception
 
 **Assessment:** Well-designed hierarchy. `ConnectionTimeoutError` as a subclass of `BrokerUnavailableError` is correct — callers catching the broader type still handle timeouts. `OrderSubmissionUnknownError` is critical for the idempotency boundary: when the broker HTTP call succeeds but the response is lost, the order may exist at the broker.
 
-### 4.3 `value_objects.py` (438 lines)
+### 4.3 `value_objects.py` (437 lines)
 
 **7 frozen value objects** with full arithmetic, comparison, and serialization:
 
@@ -430,7 +461,7 @@ Exception
 
 **Assessment:** Excellent. The frozen dataclass pattern with `__post_init__` validation is the correct approach for financial value objects. The `Quantity` allowing negative values (for short positions) while `OrderRequest.quantity` must be positive (line 64-65 in execution.py) is a good separation of concerns.
 
-### 4.4 `instruments.py` (167 lines)
+### 4.4 `instruments.py` (166 lines)
 
 **Instrument hierarchy:**
 
@@ -454,7 +485,7 @@ Instrument (abstract base, frozen)
 
 **Assessment:** Clean hierarchy. The `Index.of()` and `Currency.of()` use `InstrumentId.equity()` which is slightly misleading semantically but functionally correct since the `InstrumentId` is just a structured identifier. Consider `InstrumentId.index()` (line 70-72) for Index and `InstrumentId.currency()` (line 75-77) for Currency in a future pass.
 
-### 4.5 `market.py` (439 lines)
+### 4.5 `market.py` (463 lines)
 
 **Market data objects:**
 
@@ -481,7 +512,7 @@ Instrument (abstract base, frozen)
 
 **Assessment:** Rich and well-designed. The lazy imports for pandas/polars/arrow keep the domain dependency-free while providing convenient export. The `Depth` validation in `__post_init__` is a good defensive practice. The `_bucketize` and `_aggregate` helpers for resampling are clean.
 
-### 4.6 `options.py` (75 lines)
+### 4.6 `options.py` (74 lines)
 
 **Option chain objects:**
 
@@ -502,7 +533,7 @@ OptionChain
 
 **Assessment:** Clean. The `atm()` method finds the nearest strike to `reference_price` with offset support. `otm()` and `itm()` return ordered lists. The `_nearest_index` helper uses `min()` with absolute difference — O(n) but fine for option chains (typically < 100 strikes).
 
-### 4.7 `execution.py` (280 lines)
+### 4.7 `execution.py` (294 lines)
 
 **Execution objects with full lifecycle:**
 
@@ -531,15 +562,21 @@ Terminal states: FILLED, CANCELLED, REJECTED (no outgoing transitions).
 
 **Assessment:** Excellent. The frozen Order with explicit state machine transitions is the correct pattern for financial order records. The `_LEGAL_TRANSITIONS` dict is a clear, testable representation of the lifecycle. `OrderRequest.__post_init__` validates quantity > 0 and price >= 0.
 
-### 4.8 `protocols.py` (169 lines)
+### 4.8 `protocols.py`
 
-**Three runtime-checkable protocols:**
+**Eleven runtime-checkable protocols:**
 
-1. **`BrokerAdapter`** — Full adapter surface: lifecycle, orders, portfolio, market data, streaming, instruments (~30 methods)
-2. **`ExtensionAdapter`** — Extends BrokerAdapter with super/forever/slice/edis orders
-3. **`SessionFacade`** — Minimal session surface for strategies (market, trade, portfolio, stream, scanner, analytics, extension)
+| Protocol | Surface |
+|----------|---------|
+| `BrokerAdapter` | Full adapter: lifecycle, orders, portfolio, market data, streaming, instruments |
+| `ExtensionAdapter` | Extends `BrokerAdapter` with super/forever/slice/edis orders |
+| `SuperOrderAdapter` / `ForeverOrderAdapter` / `SliceOrderAdapter` / `EdisAdapter` / `KillSwitchAdapter` | Capability-gated surfaces (`isinstance` before mutating) |
+| `SessionFacade` | Minimal session surface for strategies (market, trade, portfolio, stream, scanner, analytics, extension) |
+| `TradingCacheProtocol` | In-memory OMS cache contract shared by paper broker + trading caches |
+| `Clock` | Deterministic clock (`now() -> datetime`) — backtest/live share one time API |
+| `IndicatorComputer` | Indicator contract — lets `ScannerEngine` depend on a protocol, not the concrete engine |
 
-**Assessment:** Well-scoped. `BrokerAdapter` is comprehensive without being bloated. The `SessionFacade` using `object` for service types is the correct approach — domain cannot import trading types. The `@runtime_checkable` decorator enables `isinstance()` checks in tests and capability discovery.
+**Assessment:** Well-scoped. `BrokerAdapter` is comprehensive without being bloated; the capability-gated adapter protocols (`SuperOrderAdapter`, `EdisAdapter`, etc.) let consumers bind a broker structurally instead of `cast`-ing. The `SessionFacade` using `object` for service types is the correct approach — domain cannot import trading types. `Clock` and `IndicatorComputer` (added in the WS-0 refactor) decouple backtest/scanner from concrete implementations. The `@runtime_checkable` decorator enables `isinstance()` checks in tests and capability discovery.
 
 ### 4.9 `capabilities.py` (165 lines)
 
@@ -573,7 +610,7 @@ Terminal states: FILLED, CANCELLED, REJECTED (no outgoing transitions).
 
 **Assessment:** The fail-closed design is correct for a trading platform. The capability matrix is truthful — Paper has minimal capabilities, Dhan has depth-20, Upstox has depth-30. `require_capability()` is the single gate used by SDK services.
 
-### 4.10 `events.py` (125 lines)
+### 4.10 `events.py` (124 lines)
 
 **15 domain event types** for the reactive bus:
 
@@ -599,7 +636,7 @@ All events inherit from `DomainEvent` (timestamp + correlation_id).
 
 **Assessment:** Comprehensive event set. The `PlaceOrderCommand` as a CQRS command (strategy → engine) is well-designed — strategies never call the broker directly. Events are frozen dataclasses, ensuring immutability in the stream.
 
-### 4.11 `strategy.py` (99 lines)
+### 4.11 `strategy.py` (98 lines)
 
 **Strategy/scanner objects:**
 
@@ -625,7 +662,7 @@ All events inherit from `DomainEvent` (timestamp + correlation_id).
 
 ## 5. Brokers Layer — Deep Dive
 
-### 5.1 Infrastructure (`common/`) — 17 modules
+### 5.1 Infrastructure (`common/`) — 21 modules
 
 The infrastructure layer provides all the plumbing for reliable broker communication:
 
@@ -633,11 +670,11 @@ The infrastructure layer provides all the plumbing for reliable broker communica
 
 | Module | Classes/Functions | Lines | Purpose |
 |--------|-------------------|-------|---------|
-| `auth.py` | `totp_code()`, `jwt_expiry()`, `_form_post()`, `_extract_message()`, `_is_rate_limit_message()`, `_require_mapping()` | 115 | TOTP generation, JWT parsing, OAuth form POST |
-| `token_lifecycle.py` | `DurableTokenManager`, `TokenLifecyclePort`, `TokenMintResult`, `TokenBroadcast`, `TokenRefreshScheduler`, `_TokenState` | 674 | **Core**: Two-mode token management (port/mint), cross-process file locks, atomic writes, generation tracking, 401-once semantics |
-| `totp_cooldown.py` | `TotpCooldownGuard`, `TotpRateLimitError` | 91 | Cross-process TOTP attempt rate limiting (broker 2-min limit) |
+| `auth.py` | `totp_code()`, `jwt_expiry()`, `_form_post()`, `_extract_message()`, `_is_rate_limit_message()`, `_require_mapping()` | 364 | TOTP generation, JWT parsing, OAuth form POST |
+| `token_lifecycle.py` | `DurableTokenManager`, `TokenLifecyclePort`, `TokenMintResult`, `TokenBroadcast`, `TokenRefreshScheduler`, `_TokenState` | 739 | **Core**: Two-mode token management (port/mint), cross-process file locks, atomic writes, generation tracking, 401-once semantics |
+| `totp_cooldown.py` | `TotpCooldownGuard`, `TotpRateLimitError` | 348 | Cross-process TOTP attempt rate limiting (broker 2-min limit) |
 
-**`DurableTokenManager`** is the most complex class in the codebase (674 lines). It supports:
+**`DurableTokenManager`** is the most complex class in the codebase (739 lines). It supports:
 - **Port mode (v4)**: Delegates to `TokenLifecyclePort`, adds caching + persistence
 - **Mint mode (v3)**: Generation-aware with durable file, atomic writes, cross-process locks
 - **401-once semantics**: A rejected token burns exactly one mint slot across processes
@@ -650,9 +687,9 @@ The infrastructure layer provides all the plumbing for reliable broker communica
 
 | Module | Classes/Functions | Lines | Purpose |
 |--------|-------------------|-------|---------|
-| `rate_limit.py` | `MultiBucketRateLimiter`, `TokenBucketRateLimiter`, `RateLimitConfig` | 175 | Per-path token bucket rate limiting |
-| `circuit_breaker.py` | `CircuitBreaker`, `CircuitBreakerConfig`, `CircuitBreakerOpenError` | 165 | 3-state circuit breaker (closed → open → half-open) |
-| `retry.py` | `RetryableHttpClient`, `RetryConfig`, `RetryExhaustedError`, `retryable()` | 203 | Exponential backoff retry for transient failures |
+| `rate_limit.py` | `MultiBucketRateLimiter`, `TokenBucketRateLimiter`, `RateLimitConfig` | 509 | Per-path token bucket rate limiting |
+| `circuit_breaker.py` | `CircuitBreaker`, `CircuitBreakerConfig`, `CircuitBreakerOpenError` | 208 | 3-state circuit breaker (closed → open → half-open) |
+| `retry.py` | `RetryableHttpClient`, `RetryConfig`, `RetryExhaustedError`, `retryable()` | 202 | Exponential backoff retry for transient failures |
 | `resilience.py` | Pipeline composition | — | rate_limit → retry → circuit_breaker |
 
 **Assessment:** Standard resilience patterns implemented correctly. The `retryable()` function classifies GET/HEAD/OPTIONS as safe for auto-retry — critical for not retrying order submissions.
@@ -661,10 +698,10 @@ The infrastructure layer provides all the plumbing for reliable broker communica
 
 | Module | Classes/Functions | Lines | Purpose |
 |--------|-------------------|-------|---------|
-| `transport.py` | `HttpTransport` | 162 | stdlib urllib HTTP client with get/post/delete/put |
+| `transport.py` | `HttpTransport` | 208 | stdlib urllib HTTP client with get/post/delete/put |
 | `pooled_transport.py` | Connection-pooled transport | — | HTTP connection pooling |
-| `provider_client.py` | `ProviderHttpClient`, `UncertainSubmissionTracker` | 95 | Rate-limited client with 401 handling, cache invalidation |
-| `cache.py` | `ReadCache` | 122 | Bounded TTL cache with regex invalidation |
+| `provider_client.py` | `ProviderHttpClient`, `UncertainSubmissionTracker` | 356 | Rate-limited client with 401 handling, cache invalidation |
+| `cache.py` | `ReadCache` | 121 | Bounded TTL cache with regex invalidation |
 
 **Assessment:** Clean stdlib-only transport. `ProviderHttpClient` integrates rate limiting, caching, and 401 token refresh. The `UncertainSubmissionTracker` handles the edge case where a POST succeeds but the response is lost.
 
@@ -672,10 +709,10 @@ The infrastructure layer provides all the plumbing for reliable broker communica
 
 | Module | Classes/Functions | Lines | Purpose |
 |--------|-------------------|-------|---------|
-| `ws_reconnect.py` | `WsReconnectManager`, `ReconnectConfig` | 99 | WebSocket auto-reconnect with exponential backoff |
-| `paths.py` | `default_token_state_path()`, `default_totp_cooldown_path()` | 72 | Platform-aware default paths |
+| `ws_reconnect.py` | `WsReconnectManager`, `ReconnectConfig` | 256 | WebSocket auto-reconnect with exponential backoff |
+| `paths.py` | `default_token_state_path()`, `default_totp_cooldown_path()` | 91 | Platform-aware default paths |
 | `message_log.py` | Message log for replay | — | Record messages for debugging |
-| `provider_common.py` | `resolve_instrument()`, `future_chain_from_master()`, `is_token_rejection_response()` | 233 | Shared broker utilities |
+| `provider_common.py` | `resolve_instrument()`, `future_chain_from_master()`, `is_token_rejection_response()` | 295 | Shared broker utilities |
 | `instruments.py` | Instrument master loading | — | Parse provider instrument masters |
 | `http_response.py` | HTTP response wrapper | — | Typed response handling |
 
@@ -683,13 +720,13 @@ The infrastructure layer provides all the plumbing for reliable broker communica
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `adapter.py` | 162 | `DhanBroker` — implements `BrokerAdapter` + `ExtensionAdapter` |
-| `client.py` | 72 | `DhanApiClient` — ~75 HTTP methods |
-| `depth_parser.py` | 27 | MCX/NSE depth frame parser |
-| `instruments.py` | 21 | MCX row loader, expiry parser |
-| `master.py` | — | Dhan instrument master download/parse |
-| `tick_parser.py` | — | Dhan tick/frame decoder |
-| `ws_streams.py` | — | `DhanMarketDataStreamBackend`, `DhanOrderStreamBackend`, `DhanDepthStreamBackend` |
+| `adapter.py` | 432 | `DhanBroker` — implements `BrokerAdapter` + `ExtensionAdapter` |
+| `client.py` | 480 | `DhanApiClient` — 207 defs across the dhan package (26 in client.py) |
+| `depth_parser.py` | 120 | MCX/NSE depth frame parser |
+| `instruments.py` | 131 | MCX row loader, expiry parser |
+| `master.py` | 146 | Dhan instrument master download/parse |
+| `tick_parser.py` | 197 | Dhan tick/frame decoder |
+| `ws_streams.py` | 839 | `DhanMarketDataStreamBackend`, `DhanOrderStreamBackend`, `DhanDepthStreamBackend` |
 
 **`DhanBroker`** composition:
 - Wraps `DhanApiClient` for HTTP calls
@@ -703,12 +740,12 @@ The infrastructure layer provides all the plumbing for reliable broker communica
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `adapter.py` | 163 | `UpstoxBroker` — implements `BrokerAdapter` + `ExtensionAdapter` |
-| `client.py` | 74 | `UpstoxApiClient` — ~68 HTTP methods |
-| `instruments.py` | 21 | Upstox instrument helpers |
-| `master.py` | — | Upstox instrument master download/parse |
-| `ws_decoder.py` | 27 | WSS v2 frame decoder (market/depth/LTPC) |
-| `ws_streams.py` | — | `UpstoxMarketDataStreamBackend`, `UpstoxPortfolioStreamBackend` |
+| `adapter.py` | 442 | `UpstoxBroker` — implements `BrokerAdapter` + `ExtensionAdapter` |
+| `client.py` | 397 | `UpstoxApiClient` — 205 defs across the upstox package (22 in client.py) |
+| `instruments.py` | 39 | Upstox instrument helpers |
+| `master.py` | 153 | Upstox instrument master download/parse |
+| `ws_decoder.py` | 124 | WSS v2 frame decoder (market/depth/LTPC) |
+| `ws_streams.py` | 673 | `UpstoxMarketDataStreamBackend`, `UpstoxPortfolioStreamBackend` |
 
 **Assessment:** Parallel structure to Dhan. The `ws_decoder.py` handles Upstox's WSS v2 protocol with frame types: MARKET_FULL, MARKET_FIRST, INDEX_FULL, DEPTH, LTPC.
 
@@ -716,7 +753,7 @@ The infrastructure layer provides all the plumbing for reliable broker communica
 
 | Module | Lines | Purpose |
 |--------|-------|---------|
-| `adapter.py` | 206 | `PaperBroker` — simulated broker with fill engine |
+| `adapter.py` | 742 | `PaperBroker` — simulated broker with fill engine |
 
 **`PaperBroker`** implements:
 - Full `BrokerAdapter` protocol (no streaming)
@@ -742,11 +779,15 @@ The infrastructure layer provides all the plumbing for reliable broker communica
 | Module | Classes | Purpose |
 |--------|---------|---------|
 | `bus.py` | `ReactiveBus` | RxPY Subject-backed message bus, typed streams via `of_type()`, replay, dispose |
-| `backpressure.py` | — | Backpressure operators for high-frequency streams |
-| `operators.py` | — | Custom RxPY operators (distinct_until_changed, etc.) |
-| `subscription.py` | — | Subscription lifecycle management |
+| `bounded_bus.py` | `BoundedReactiveBus` | Bounded-capacity bus with backpressure edges |
+| `thread_safe_bus.py` | `ThreadSafeReactiveBus` | Thread-safe bus wrapper |
+| `async_dispatch.py` | `AsyncDispatch` | Async event dispatch to the bus |
+| `backpressure.py` | `BackpressurePresets` | Backpressure operators for high-frequency streams |
+| `operators.py` | `of_type`, `share`, `replay_buffer`, `throttle_first`, `sample`, `distinct_until_changed`, `take_until`, `map_to`, `filter_safe`, `catch_error` | Custom RxPY operators |
+| `subscription.py` | `DisposableSubscription`, `SubscriptionManager` | Subscription lifecycle management |
+| `message_log.py` | `FileMessageLog` | File-backed message log for auditing/replay |
 
-**`ReactiveBus`** (107 lines):
+**`ReactiveBus`** (126 lines):
 - `publish(message)` → emits to all subscribers
 - `of_type(msg_type)` → filtered Observable with `share()` (multicast)
 - `stream()` → raw Observable of all messages
@@ -760,14 +801,17 @@ The infrastructure layer provides all the plumbing for reliable broker communica
 
 | Module | Key Classes | Lines | Purpose |
 |--------|-------------|-------|---------|
-| `engine.py` | `ExecutionEngine`, `RiskManager`, `MemoryIdempotencyGuard` | 570 | **Core**: Reactive order pipeline, idempotency, risk, kill switch |
+| `engine.py` | `ExecutionEngine`, `RiskManager`, `MemoryIdempotencyGuard` | 588 | **Core**: Reactive order pipeline, idempotency, risk, kill switch |
 | `fill_sources.py` | `FillSource` protocol, `SimulatedFillSource`, `PaperFillSource`, `BrokerFillSource`, `ReplayFillSource` | 238 | Execution mode abstraction |
 | `order_manager.py` | `OrderManager` | — | Order lifecycle tracking |
 | `position_manager.py` | `PositionManager` | — | Position/P&L tracking |
-| `trading_cache.py` | `TradingCache` | 72 | In-memory OMS state (orders, positions, quotes) |
+| `trading_cache.py` | `TradingCache` | 115 | In-memory OMS state (orders, positions, quotes) |
+| `thread_safe_cache.py` | Thread-safe cache | — | Locked in-memory state |
 | `reconciliation.py` | `ReconciliationEngine` | — | Drift detection between local and broker state |
-| `sqlite_store.py` | `SQLiteOrderStore` | 220 | Persistent order storage |
+| `sqlite_store.py` | `SQLiteOrderStore` | 232 | Persistent order storage |
 | `fees.py` | Fee calculator | — | Indian market fee calculation |
+| `slippage.py` | Slippage models | — | Fill-price slippage |
+| `submission_safety.py` | Submission safety | — | Uncertain-submission handling |
 
 **`ExecutionEngine`** pipeline:
 
@@ -800,10 +844,12 @@ OrderRequest / PlaceOrderCommand
 
 | Module | Key Classes | Lines | Purpose |
 |--------|-------------|-------|---------|
-| `session.py` | `TradingSession`, 7 services, 5 result types | 1072 | **Core**: Main entry point, lifecycle, services |
-| `streaming.py` | `StreamSubscription`, `BackendStreamSubscription` | — | Subscription types |
-| `session_manager.py` | Multi-session manager | — | Manage multiple sessions |
-| `async_session.py` | Async session wrapper | — | Async API wrapper |
+| `session.py` | `TradingSession`, 7 services, 5 result types | 482 | **Core**: Main entry point, lifecycle, services |
+| `streaming.py` | `StreamSubscription`, `BackendStreamSubscription` | 76 | Subscription types |
+| `session_manager.py` | Multi-session manager | 178 | Manage multiple sessions |
+| `async_session.py` | Async session wrapper | 281 | Async API wrapper |
+| `protocols.py` | SDK service protocols | — | Service contracts |
+| `services/` | Market/Trade/Portfolio/Stream/Scanner/Analytics/Extension services | — | Per-service implementations |
 
 **`TradingSession`** lifecycle: `NEW → READY → STOPPED`
 
@@ -827,16 +873,20 @@ OrderRequest / PlaceOrderCommand
 
 ### 6.4 Strategy Framework (`strategy/`)
 
+The framework is split into **`core/`** (framework code — never edited by users) and **`extensions/`** (user-owned, auto-discovered). `strategy/__init__.py` re-exports the public surface and `all_strategies` / `all_scanners`.
+
 | Module | Classes | Purpose |
 |--------|---------|---------|
-| `protocols.py` | `Strategy` protocol | on_start/on_stop/on_event callbacks |
-| `engine.py` | `ReactiveStrategyEngine` | RxPY-driven strategy execution |
-| `scanner.py` | `ScannerEngine` | Scanner run/top with history/evaluate/matches |
-| `ensemble.py` | Multi-strategy ensemble | Run multiple strategies, aggregate signals |
-| `buy_and_hold.py` | `BuyAndHoldStrategy` | Reference strategy implementation |
-| `scanner_runtime.py` | Scanner runtime wiring | Connect scanner to session |
+| `core/protocols.py` | `Strategy` protocol | on_start/on_stop/on_event callbacks (`@runtime_checkable`) |
+| `core/engine.py` | `ReactiveStrategyEngine` | RxPY-driven strategy execution + **Signal→`PlaceOrderCommand` bridge** (CQRS) |
+| `core/scanner.py` | `ScannerEngine` | Scanner run/top with history/evaluate/matches; depends on the `IndicatorComputer` protocol |
+| `core/ensemble.py` | `StrategyEnsemble`, `StrategyEntry` | Run multiple strategies, aggregate signals |
+| `core/buy_and_hold.py` | `BuyAndHoldStrategy` | Reference strategy implementation |
+| `extensions/` | `all_strategies`, `all_scanners` | Auto-discovery: `isinstance` against `Strategy` / `ScannerDefinition` over each sub-package's `__all__` |
+| `extensions/strategies/sma_cross.py` | `SmaCrossStrategy` | Example user strategy proving discovery |
+| `extensions/scanners/momentum.py` | momentum `ScannerDefinition` | Example user scanner proving discovery |
 
-**Assessment:** Clean strategy framework. The `Strategy` protocol with `on_start/on_stop/on_event` is the standard event-driven pattern. The `ReactiveStrategyEngine` drives strategies via the reactive bus.
+**Assessment:** Clean strategy framework. The `Strategy` protocol with `on_start/on_stop/on_event` is the standard event-driven pattern. `ReactiveStrategyEngine` drives strategies via the reactive bus and — for CQRS — converts any returned `Signal` into a `PlaceOrderCommand` published to the bus, so strategies never touch the execution layer directly. Extension isolation is enforced structurally: user code lives only in `extensions/` and is picked up by discovery, so `core/` stays untouched.
 
 ### 6.5 Runtime (`runtime/`)
 
@@ -865,6 +915,10 @@ OrderRequest / PlaceOrderCommand
 | `breadth.py` | Market breadth indicators |
 | `feature_pipeline.py` | Feature extraction pipeline |
 | `functions.py` | Standalone analytics functions |
+| `orderflow.py`, `volume_profile.py` | Order-flow and volume-profile analysis |
+| `probability.py`, `ranking.py`, `sector.py` | Probability, ranking, sector analytics |
+| `volatility.py`, `warmup.py` | Volatility analytics, warmup handling |
+| `walk_forward.py` | Walk-forward analysis |
 
 **Assessment:** Good coverage of standard technical indicators. The lazy numpy import keeps the analytics optional.
 
@@ -877,6 +931,8 @@ OrderRequest / PlaceOrderCommand
 | `source_selection.py` | `DataSourceKind` | Source priority selection |
 | `corporate_actions.py` | `CorporateActionStore` | Split/dividend adjustments |
 | `mcp_server.py` | MCP server | External data access |
+| `data_engine.py` | Data ingestion engine | Backfill/aggregation pipeline |
+| `parquet_catalog.py` | Parquet-backed catalog | Columnar bar storage |
 
 **Assessment:** Pragmatic duckdb-backed storage. The `DataCatalog` provides a clean API for bar persistence.
 
@@ -886,6 +942,8 @@ OrderRequest / PlaceOrderCommand
 |--------|---------|---------|
 | `engine.py` | `ReplayEngine` | Historical data replay |
 | `backtest.py` | `BacktestEngine`, `FakeClock` | Backtesting with simulated time |
+| `optimization.py` | `grid_search`, `OptimizationResult` | Parameter grid search |
+| `walk_forward.py` | `walk_forward` | Walk-forward optimization |
 
 **Assessment:** Clean separation of replay (historical data) and backtest (strategy evaluation). The `FakeClock` enables deterministic time in backtests.
 
@@ -894,7 +952,7 @@ OrderRequest / PlaceOrderCommand
 | Module | Classes | Purpose |
 |--------|---------|---------|
 | `cli.py` | `_build_parser()`, `run_cli()` | Main CLI with argparse |
-| `api.py` | `HealthApp`, `_SystemClock` | FastAPI health endpoint |
+| `fastapi_app.py` | `HealthApp`, `_SystemClock` | FastAPI health endpoint |
 | `check_connection.py` | `_check()`, `main()` | Connectivity probe |
 | `tui.py` | `diagnose()`, `render_status()` | Terminal diagnostics |
 
@@ -986,8 +1044,8 @@ OrderRequest / PlaceOrderCommand
     │  DhanBroker  │              │   UpstoxBroker      │
     │              │              │                     │
     │ ┌──────────┐ │              │ ┌────────────────┐  │
-    │ │DhanApiClient││            │ │UpstoxApiClient │  │
-    │ │(75 methods)││             │ │(68 methods)    │  │
+│ │DhanApiClient││            │ │UpstoxApiClient │  │
+│ │(26 methods)││             │ │(22 methods)    │  │
     │ └──────────┘ │              │ └────────────────┘  │
     │ ┌──────────┐ │              │ ┌────────────────┐  │
     │ │Registry  │ │              │ │Registry        │  │
@@ -1178,7 +1236,7 @@ session.market_feed.subscribe([inst1, inst2], depth="20")
 
 | Boundary | Rule | Enforcement |
 |----------|------|-------------|
-| `domain` → stdlib + rx only | No internal deps | `pyproject.toml`: `dependencies = ["rx>=7.0"]` |
+| `domain` → stdlib + rx only | No internal deps | `pyproject.toml`: `dependencies = ["rx>=3.2,<4"]` (all 3 packages aligned) |
 | `brokers` → domain + stdlib | Never imports `tradex_trading` | CI grep verified |
 | `trading` → domain + brokers + stdlib | Composition root | `runtime/startup.py` |
 
@@ -1232,10 +1290,10 @@ Supports both v4 port mode and v3 mint mode. Cross-process locking with fcntl/ms
 ### 11.2 Architecture Concerns
 
 **1. `DurableTokenManager` Complexity (B-)**
-674 lines for a token manager is high. The dual-mode design (port + mint) adds significant complexity. Consider splitting into `PortTokenManager` and `MintTokenManager` in v5.
+739 lines for a token manager is high. The dual-mode design (port + mint) adds significant complexity. Consider splitting into `PortTokenManager` and `MintTokenManager` in v5.
 
 **2. `TradingSession` Size (B)**
-1072 lines for the session module. The 7 services are defined inline, making the file large. Consider extracting services to separate modules.
+482 lines for the session module. The 7 services have been extracted to `sdk/services/` (done in v4). Remaining facade is reasonable.
 
 **3. Missing mypy Configuration (C)**
 258 type errors because mypy is not configured for the v4 layout. The `pyproject.toml` has `[tool.mypy]` sections but no `mypy_path` or per-subproject config.
@@ -1243,18 +1301,18 @@ Supports both v4 port mode and v3 mint mode. Cross-process locking with fcntl/ms
 **4. Error Handling in Pipeline (B)**
 The `_process_request` error handler creates an `Order` with `None` for instrument/side/type/quantity — these should not be None in a real Order. The frozen dataclass should reject this.
 
-**5. Test Environment Dependency (B)**
-3 trading tests fail because they expect env vars that are in `.env.local` but not loaded in the test context. The tests should either mock the env or load the file.
+**5. Test Environment Dependency (B → Resolved)**
+The 3 env-dependent trading tests documented in the original audit are now mocked/isolated — 0 failures as of 2026-08-07.
 
 ### 11.3 Code Quality Metrics
 
 | Metric | Value | Assessment |
 |--------|-------|------------|
-| Average module size | ~83 lines/file | **Good** — small, focused modules |
-| Largest module | 1072 lines (session.py) | **Acceptable** — session is the facade |
-| Largest single class | 674 lines (DurableTokenManager) | **High** — consider splitting |
-| Test-to-source ratio | 152 test files / 113 source files | **Excellent** — 1.35:1 |
-| Test pass rate | 2,307 / 2,311 = 99.8% | **Excellent** |
+| Average module size | ~171 lines/file | **Good** — focused modules |
+| Largest module | 1114 lines (interface/fastapi_app.py) | **Acceptable** — HTTP app surface |
+| Largest single class | 739 lines (DurableTokenManager) | **High** — consider splitting |
+| Test-to-source ratio | 159 test files / 168 source files | **Good** — 0.95:1 |
+| Test pass rate | 2,543 / 2,545 = 99.9% | **Excellent** (2 skipped) |
 | Frozen dataclasses | ~95% of domain objects | **Excellent** — immutability |
 | Type annotations | Comprehensive | **Good** — but mypy not configured |
 | Docstrings | Present on all public APIs | **Good** — with FDS references |
@@ -1317,10 +1375,10 @@ Per-path token bucket rate limiting prevents broker throttling. The `MultiBucket
 
 | Package | Test Files | Passing | Skipped | Failed | Coverage Estimate |
 |---------|-----------|---------|---------|--------|-------------------|
-| domain | 4 | 329 | 0 | 0 | ~95% |
-| brokers | 14 | 748 | 0 | 1 | ~90% |
-| trading | 148 | 1,230 | 2 | 3 | ~85% |
-| **Total** | **166** | **2,307** | **2** | **4** | **~88%** |
+| domain | 15 | 343 | 0 | 0 | ~95% |
+| brokers | 38 | 899 | 2 | 0 | ~90% |
+| trading | 106 | 1,301 | 0 | 0 | ~85% |
+| **Total** | **159** | **2,543** | **2** | **0** | **~88%** |
 
 ### 13.2 Test Categories
 
@@ -1352,23 +1410,15 @@ Per-path token bucket rate limiting prevents broker throttling. The `MultiBucket
 
 ## 14. Known Issues & Failures
 
-### 14.1 Failing Tests (4)
+### 14.1 Failing Tests — Resolved (0)
 
-**1. `test_retry_exhausted_error_is_runtime_error`** (brokers)
-```
-AssertionError: assert isinstance(RetryExhaustedError('exhausted'), RuntimeError)
-```
-`RetryExhaustedError` subclasses `BrokerUnavailableError` (which subclasses `SDKError`), not `RuntimeError`. The test expectation is wrong — the code is correct per the docstring: "subclass of BrokerUnavailableError for zero-parity with the transport layer."
+The 4 failures documented in the 2026-08-06 audit are all fixed as of 2026-08-07:
 
-**Fix:** Update test to `assert isinstance(err, BrokerUnavailableError)`.
+**1. `test_retry_exhausted_error_is_runtime_error`** (brokers) — test expectation corrected to `BrokerUnavailableError`; the code was already correct.
 
-**2-4. `test_check_without_session`, `test_main_default_args`, `test_main_single_broker`** (trading)
-```
-FAIL: AuthenticationError: missing live credential: DHAN_CLIENT_ID
-```
-The `_check()` function tries to build a real broker from env, but the test context doesn't have the env vars loaded (they're in `.env.local`).
+**2-4. `test_check_without_session`, `test_main_default_args`, `test_main_single_broker`** (trading) — env-dependent failures resolved (broker construction now isolated/mocked); all 3 pass.
 
-**Fix:** Either load `.env.local` in `conftest.py`, or mock `build_broker_from_env` in the tests, or the tests should pass a session instead of relying on env.
+**Current state:** 0 failures, 2 skipped (brokers).
 
 ### 14.2 Warnings (1,761)
 
@@ -1380,18 +1430,18 @@ The `_check()` function tries to build a real broker from env, but the test cont
 
 ### 14.3 Security Concerns
 
-**`.env.local` with real credentials** — the file contains live API tokens, secrets, PINs, and TOTP secrets. This should:
-1. Be added to `.gitignore` (verify it is)
-2. Never be committed
-3. Use a secrets manager in production
+**`.env.local` with real credentials** — the file contains live API tokens, secrets, PINs, and TOTP secrets. Status as of 2026-08-07:
+1. ✅ Added to `.gitignore` (verified: `git check-ignore .env.local` → ignored)
+2. ✅ Never committed (working tree clean, no secrets in history)
+3. ⚠️ Use a secrets manager in production (still open)
 
 ### 14.4 Operational Gaps
 
-1. **No `mypy.ini` for v4** — 258 type errors because mypy config targets v2 `src/`
-2. **No CI pipeline** — no GitHub Actions or equivalent
-3. **No `.gitignore` in v4** — runtime state, caches, and `.env.local` should be ignored
-4. **No `README.md`** — no usage documentation
-5. **No version pinning** — `pyproject.toml` uses loose version constraints
+1. ⚠️ **No `mypy.ini` for v4** — mypy not configured for the v4 layout (open)
+2. ⚠️ **No CI pipeline** — no GitHub Actions or equivalent (open)
+3. ✅ **`.gitignore` present** — runtime state, caches, and `.env.local` ignored (verified)
+4. ✅ **`README.md` present** — usage documentation exists
+5. ✅ **Version pinning** — `rx>=3.2,<4` aligned across all 3 pyprojects (2026-08-07)
 
 ---
 
@@ -1399,13 +1449,13 @@ The `_check()` function tries to build a real broker from env, but the test cont
 
 ### 15.1 Immediate (This Week)
 
-| Priority | Action | Effort | Impact |
-|----------|--------|--------|--------|
-| **P0** | Add `.env.local` to `.gitignore` | 1 min | Security |
-| **P0** | Fix 4 failing tests | 15 min | CI green |
-| **P1** | Add `mypy.ini` for v4 layout | 30 min | Type safety |
-| **P1** | Create `README.md` with usage examples | 1 hour | Onboarding |
-| **P2** | Add `.gitignore` for v4 | 10 min | Clean repo |
+| Priority | Action | Effort | Impact | Status (2026-08-07) |
+|----------|--------|--------|--------|---------------------|
+| **P0** | Add `.env.local` to `.gitignore` | 1 min | Security | ✅ Done — verified ignored |
+| **P0** | Fix 4 failing tests | 15 min | CI green | ✅ Done — 0 failures |
+| **P1** | Add `mypy.ini` for v4 layout | 30 min | Type safety | ⚠️ Open |
+| **P1** | Create `README.md` with usage examples | 1 hour | Onboarding | ✅ Done — exists |
+| **P2** | Add `.gitignore` for v4 | 10 min | Clean repo | ✅ Done — exists |
 
 ### 15.2 Short Term (This Sprint)
 
@@ -1445,10 +1495,10 @@ The `_check()` function tries to build a real broker from env, but the test cont
 
 | Area | v3 | v4 | Change |
 |------|-----|-----|--------|
-| Source files | 78 | 113 | +44% (new modules: reactive, events, capabilities, wire) |
-| Lines of code | 15,828 | 9,387 | -41% (by design — less boilerplate) |
-| Test files | 51 | 152 | +198% |
-| Tests | ~200+ | 2,307 | +1,050% |
+| Source files | 78 | 168 | +115% (new modules: reactive, events, capabilities, wire, extensions) |
+| Lines of code | 15,828 | 28,714 | +81% (broker adapters + trading services expanded; domain kernel lean) |
+| Test files | 51 | 159 | +212% |
+| Tests | ~200+ | 2,543 | +1,170% |
 | Packages | 1 monolith | 3 packages | Clean boundaries |
 | EventBus | Imperative pub/sub | RxPY reactive streams | Event-driven |
 | Token management | Per-broker | Shared DurableTokenManager | Cross-process safe |
@@ -1459,7 +1509,7 @@ The `_check()` function tries to build a real broker from env, but the test cont
 
 ```bash
 # Set up paths
-export PYTHONPATH=v4/domain/src:v4/brokers/src:v4/trading/src
+export PYTHONPATH=domain/src:brokers/src:trading/src
 
 # Run all tests
 python -m pytest domain/tests brokers/tests trading/tests -q
@@ -1494,4 +1544,4 @@ session.stop()
 
 ---
 
-*Report generated 2026-08-06. Based on full code-level review of 113 source files across 3 packages.*
+*Report generated 2026-08-06, reconciled 2026-08-07. Based on full code-level review of 168 source files across 3 packages.*
