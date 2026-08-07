@@ -18,8 +18,8 @@ from tradex_domain import (
 )
 from tradex_domain.strategy import StrategyContext
 
-from tradex_trading.strategy.buy_and_hold import BuyAndHoldStrategy
-from tradex_trading.strategy.protocols import Strategy
+from tradex_trading.strategy.core.buy_and_hold import BuyAndHoldStrategy
+from tradex_trading.strategy.core.protocols import Strategy
 
 
 def _now() -> datetime:

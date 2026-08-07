@@ -8,7 +8,7 @@ from tradex_domain import Candle, Quote
 from tradex_domain.enums import OrderSide
 from tradex_domain.strategy import StrategyContext
 
-from tradex_trading.strategy.ensemble import StrategyEnsemble, StrategyEntry
+from tradex_trading.strategy.core.ensemble import StrategyEnsemble, StrategyEntry
 
 
 def _ctx(**overrides):

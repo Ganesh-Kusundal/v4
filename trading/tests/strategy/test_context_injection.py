@@ -17,7 +17,7 @@ from typing import Any
 from tradex_domain.strategy import StrategyContext
 
 from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.strategy.engine import ReactiveStrategyEngine
+from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
 
 # ---------------------------------------------------------------------------
 # Recording strategy — captures context passed to callbacks

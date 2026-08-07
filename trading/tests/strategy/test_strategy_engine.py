@@ -27,7 +27,7 @@ from tradex_domain.value_objects import Price as QuotePrice
 from tradex_trading.config.loader import load_yaml
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.runtime.metrics import MetricsRegistry
-from tradex_trading.strategy.engine import ReactiveStrategyEngine
+from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
 
 
 def _now() -> datetime:

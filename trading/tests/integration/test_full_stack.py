@@ -25,8 +25,8 @@ from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.replay.backtest import BacktestEngine
 from tradex_trading.sdk.session import SessionState, TradingSession
 from tradex_trading.sdk.session_manager import SessionManager
-from tradex_trading.strategy.buy_and_hold import BuyAndHoldStrategy
-from tradex_trading.strategy.ensemble import StrategyEnsemble
+from tradex_trading.strategy.core.buy_and_hold import BuyAndHoldStrategy
+from tradex_trading.strategy.core.ensemble import StrategyEnsemble
 
 
 def _now() -> datetime:
@@ -232,7 +232,7 @@ class TestStrategyExecution:
 
     def test_strategy_context_injection(self):
         """Strategy receives populated context via ReactiveStrategyEngine."""
-        from tradex_trading.strategy.engine import ReactiveStrategyEngine
+        from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
 
         bus = ReactiveBus()
         engine = ReactiveStrategyEngine(bus)

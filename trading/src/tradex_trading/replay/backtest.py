@@ -14,7 +14,7 @@ from tradex_domain.value_objects import OrderId, Price, Quantity
 
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
 from tradex_trading.execution.fees import FeeCalculator
-from tradex_trading.strategy.protocols import Strategy
+from tradex_trading.strategy.core.protocols import Strategy
 
 
 class FakeClock:

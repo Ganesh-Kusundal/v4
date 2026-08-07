@@ -1,10 +1,19 @@
-"""Strategy module — reactive strategy engine and protocols."""
+"""Strategy module — reactive strategy engine, protocols, scanners, extensions.
 
-from tradex_trading.strategy.buy_and_hold import BuyAndHoldStrategy
-from tradex_trading.strategy.engine import ReactiveStrategyEngine
-from tradex_trading.strategy.ensemble import StrategyEnsemble, StrategyEntry
-from tradex_trading.strategy.protocols import Strategy
-from tradex_trading.strategy.scanner import ScannerEngine
+Framework code lives in ``tradex_trading.strategy.core``; user-owned strategies
+and scanners live in ``tradex_trading.strategy.extensions`` and are
+auto-discovered on import (see ``all_strategies`` / ``all_scanners``).
+"""
+
+from tradex_trading.strategy.core import (
+    BuyAndHoldStrategy,
+    ReactiveStrategyEngine,
+    ScannerEngine,
+    Strategy,
+    StrategyEnsemble,
+    StrategyEntry,
+)
+from tradex_trading.strategy.extensions import all_scanners, all_strategies
 
 __all__ = [
     "Strategy",
@@ -13,4 +22,6 @@ __all__ = [
     "BuyAndHoldStrategy",
     "StrategyEnsemble",
     "StrategyEntry",
+    "all_strategies",
+    "all_scanners",
 ]
