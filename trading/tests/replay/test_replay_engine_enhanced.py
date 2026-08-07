@@ -115,6 +115,41 @@ class TestReplayEngineSyntheticTicks:
         assert len(seen) == 1
         assert isinstance(seen[0], Candle)
 
+    def test_synthetic_mode_clock_seeded_to_first_bar(self) -> None:
+        """tick_clock starts at the first candle and advances 1s per tick."""
+        now = _now()
+        engine = ReplayEngine(
+            [self._m1(now), self._m1(now + timedelta(minutes=1))],
+            synthetic_ticks=True,
+            seed=1,
+        )
+        assert engine.tick_clock is None  # no replay yet
+        engine.replay(ReactiveBus())
+        clock = engine.tick_clock
+        assert clock is not None
+        # Seeded to the first candle's timestamp, advanced 120 ticks.
+        assert clock.now() == now + timedelta(seconds=120)
+
+    def test_synthetic_mode_clock_tracks_tick_timestamps(self) -> None:
+        """clock.now() sits one tick ahead of the last emitted quote."""
+        bus = ReactiveBus()
+        quotes: list[Quote] = []
+        bus.of_type(Quote).subscribe(quotes.append)
+        now = _now()
+        engine = ReplayEngine([self._m1(now)], synthetic_ticks=True, seed=1)
+        engine.replay(bus)
+        clock = engine.tick_clock
+        assert clock is not None
+        assert len(quotes) == 60
+        assert quotes[-1].timestamp == now + timedelta(seconds=59)
+        assert clock.now() == quotes[-1].timestamp + timedelta(seconds=1)
+
+    def test_default_mode_has_no_tick_clock(self) -> None:
+        """No synthetic mode -> no tick clock."""
+        engine = ReplayEngine([self._m1(_now())])
+        engine.replay(ReactiveBus())
+        assert engine.tick_clock is None
+
     def test_synthetic_mode_on_bar_still_receives_candle(self) -> None:
         """Registered bar strategies keep working in synthetic mode."""
         bus = ReactiveBus()

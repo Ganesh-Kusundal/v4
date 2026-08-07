@@ -13,6 +13,7 @@ from tradex_domain import Candle, Fill, Quote
 from tradex_domain.strategy import StrategyContext
 
 from tradex_trading.reactive.bus import ReactiveBus
+from tradex_trading.replay.backtest import FakeClock
 from tradex_trading.replay.synthetic_ticks import SyntheticTickGenerator
 
 
@@ -52,6 +53,9 @@ class ReplayEngine:
             live quote feed. Registered strategies still receive the candle
             directly through ``on_bar``. ``ReplayResult`` counters describe
             input events on the direct callback path, not bus emissions.
+            The generator's ``FakeClock`` is seeded to the first candle's
+            timestamp (exposed as :attr:`tick_clock`) so ``clock.now()``
+            tracks the emitted tick timestamps during replay.
         seed : int | None
             Optional RNG seed for reproducible synthetic tick paths.
         """
@@ -60,6 +64,7 @@ class ReplayEngine:
         self._bar_count = 0
         self._synthetic_ticks = synthetic_ticks
         self._seed = seed
+        self._tick_clock: FakeClock | None = None
 
     def register_strategy(self, strategy: Any) -> ReplayEngine:
         """Register a strategy for direct callback invocation.
@@ -82,6 +87,19 @@ class ReplayEngine:
         """Return registered strategies."""
         return list(self._strategies)
 
+    @property
+    def tick_clock(self) -> FakeClock | None:
+        """The synthetic tick generator's clock from the latest ``replay()``.
+
+        Seeded to the first candle's timestamp and advanced one second per
+        emitted tick, so ``tick_clock.now()`` tracks the quote timestamps
+        during replay — a deterministic time source for time-dependent
+        strategies. With gapped bars the clock drifts from later bar
+        timestamps (it only ever advances). ``None`` when synthetic mode is
+        off, before the first replay, or when the events contain no candles.
+        """
+        return self._tick_clock
+
     def replay(self, bus: ReactiveBus | None = None) -> ReplayResult:
         """Replay events through the bus and to registered strategies.
 
@@ -101,11 +119,20 @@ class ReplayEngine:
         quotes_processed = 0
         fills_processed = 0
         errors: list[str] = []
-        tick_generator = (
-            SyntheticTickGenerator(bus, seed=self._seed)
-            if bus is not None and self._synthetic_ticks
-            else None
-        )
+        tick_generator = None
+        tick_clock: FakeClock | None = None
+        if bus is not None and self._synthetic_ticks:
+            # Seed the generator's clock to the first candle so clock.now()
+            # tracks the emitted tick timestamps (1s advance per tick); for
+            # contiguous M1 bars this stays aligned across the whole replay.
+            first_ts = next(
+                (e.timestamp for e in self._events if isinstance(e, Candle)), None
+            )
+            tick_clock = FakeClock(start=first_ts) if first_ts is not None else None
+            tick_generator = SyntheticTickGenerator(
+                bus, clock=tick_clock, seed=self._seed
+            )
+        self._tick_clock = tick_clock
 
         # Notify strategies of start
         ctx = self._make_context()

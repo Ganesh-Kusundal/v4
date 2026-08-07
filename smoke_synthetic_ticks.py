@@ -96,7 +96,8 @@ def main() -> int:
     bus = ReactiveBus(message_log=log)
     stream: list[object] = []
     bus.stream().subscribe(stream.append)
-    result = ReplayEngine(events, synthetic_ticks=True, seed=1).replay(bus)
+    engine = ReplayEngine(events, synthetic_ticks=True, seed=1)
+    result = engine.replay(bus)
 
     quotes = [e for e in log if isinstance(e, Quote)]
     candles_on_bus = sum(1 for e in log if isinstance(e, Candle))
@@ -112,6 +113,11 @@ def main() -> int:
     check("120 quotes on bus, 0 raw candles (replace semantics)", (
         len(quotes) == 120 and candles_on_bus == 0
     ))
+    check("tick_clock seeded to first bar, tracks ticks (120s after replay)", (
+        engine.tick_clock is not None
+        and engine.tick_clock.now() == now + timedelta(seconds=120)
+    ))
+
     def compact(events: list[object]) -> str:
         """Run-length summary of the type sequence, e.g. 'Quote x120'."""
         runs: list[tuple[str, int]] = []
