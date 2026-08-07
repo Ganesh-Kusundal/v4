@@ -36,3 +36,15 @@ files = ["src"]
 mypy_path = "../domain/src"
 ignore_missing_imports = true
 disable_error_code = ["no-any-return", "misc"]
+
+[tool.pytest.ini_options]
+# Self-contained pytest config: running ``python -m pytest`` from brokers/
+# must not silently depend on the repo-root conftest.py/pyproject.toml for
+# package resolution (rootdir would otherwise walk up to v4/). "tests" is
+# on the path so the support.fake_fetch helper stays importable.
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["src", "../domain/src", "tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

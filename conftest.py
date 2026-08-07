@@ -1,10 +1,16 @@
-"""Make the v4 namespace packages importable without installation.
+"""Make the v4 namespace packages importable in-place for the combined root suite.
 
-v4 is three separate hatchling projects (domain/brokers/trading); the root
-venv can't install them (rx>=7.0 dependency conflict). Prepend their src
-layouts so the whole suite runs in place with one command:
+v4 is three separate hatchling projects (domain/brokers/trading) that run
+without installation. This conftest prepends their src layouts — plus
+brokers/tests, for the ``support.fake_fetch`` test helper — so the whole
+suite runs in place with one command:
 
     pytest domain/tests brokers/tests trading/tests
+
+Each package now carries its own ``[tool.pytest.ini_options]`` ``pythonpath``
+in its pyproject.toml, so running pytest from inside a package directory
+(e.g. ``cd trading && python -m pytest``) resolves without this file; the
+conftest exists for the repo-root combined run.
 """
 
 import sys
