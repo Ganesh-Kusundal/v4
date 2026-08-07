@@ -38,3 +38,15 @@ files = ["src"]
 mypy_path = "../domain/src:../brokers/src"
 ignore_missing_imports = true
 disable_error_code = ["no-any-return", "misc"]
+
+[tool.pytest.ini_options]
+# Self-contained pytest config: running ``python -m pytest`` from trading/
+# must not silently depend on the repo-root conftest.py/pyproject.toml for
+# package resolution (rootdir would otherwise walk up to v4/). Relative
+# paths resolve against this rootdir, mirroring the mypy_path convention.
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["src", "../domain/src", "../brokers/src"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
