@@ -213,7 +213,21 @@ class TestMarketFeedSubscribeUnsubscribe:
         feed.subscribe([_reliance(), _tcs()])
         feed.unsubscribe([_reliance()])
         assert fake.unsubscribed_instruments_calls == [[_reliance()]]
-        assert feed.instruments == {_tcs().instrument_id}
+
+    def test_partial_unsubscribe_drops_only_released_instruments(self) -> None:
+        """At scale: 50 instruments subscribed, 10 released — the backend is
+        told to drop exactly those 10; the other 40 keep streaming.
+        """
+        feed, fake, _ = _make()
+        many = [Equity.of("NSE", f"SC{i:03d}") for i in range(50)]
+        feed.subscribe(many)
+        released = many[:10]
+        feed.unsubscribe(released)
+        # No subscription storm: the 50 went out in one subscribe call, and the
+        # partial unsubscribe added no further subscribe (only a wire drop).
+        assert len(fake.quote_subs) == 1
+        assert fake.unsubscribed_instruments_calls == [released]
+        assert feed.instruments == {i.instrument_id for i in many[10:]}
         assert feed.active is True
 
     def test_depth_toggled_later(self) -> None:

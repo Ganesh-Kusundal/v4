@@ -149,6 +149,14 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     else:
         raise ValueError(f"unknown mode: {cfg.mode}")
 
+    # 4b. Idempotency guard — durable SQLite when persistence is configured,
+    # so correlation IDs survive restarts (duplicate-order protection).
+    # ponytail: opt-in only; the default remains no guard (current behavior).
+    guard: Any = None
+    if cfg.persistence.path:
+        from tradex_trading.execution.sqlite_store import SQLiteIdempotencyGuard
+        guard = SQLiteIdempotencyGuard(cfg.persistence.path)
+
     # 5. Create risk manager
     risk_manager = RiskManager(
         max_order_value=cfg.risk.max_order_value,
@@ -159,6 +167,7 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # 6. Create execution engine
     engine = ExecutionEngine(
         bus=bus, fill_source=fill_source, risk_manager=risk_manager, metrics=metrics,
+        idempotency_guard=guard,
     )
     engine.kill_switch = cfg.kill_switch_default
 

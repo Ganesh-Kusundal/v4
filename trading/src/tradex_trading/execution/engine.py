@@ -279,6 +279,14 @@ class ExecutionEngine:
                 self._command_disposable.dispose()
             except Exception as exc:
                 log.error("Error disposing command subscription: %s", exc)
+        # Close an injected durable guard (e.g. SQLiteIdempotencyGuard) so its
+        # connection is released on shutdown — not leaked for the process life.
+        guard_close = getattr(self._guard, "close", None)
+        if callable(guard_close):
+            try:
+                guard_close()
+            except Exception as exc:  # pragma: no cover
+                log.error("Error closing idempotency guard: %s", exc)
         log.info("ExecutionEngine shutdown complete")
 
     def __enter__(self) -> ExecutionEngine:
@@ -300,7 +308,10 @@ class ExecutionEngine:
 
     def _process_request_impl(self, request: OrderRequest) -> None:
         """Inner pipeline logic — separated for latency instrumentation."""
-        log.info("Processing order request for %s", request.instrument)
+        log.info(
+            "Processing order request for %s (cid=%s)",
+            request.instrument, request.correlation_id,
+        )
 
         # 1. Idempotency check
         if self._guard is not None:
@@ -366,8 +377,8 @@ class ExecutionEngine:
                     request.correlation_id, order.order_id,
                 )
             log.info(
-                "Order filled: %s qty=%s price=%s",
-                order.order_id, fill.quantity, fill.price,
+                "Order filled: %s qty=%s price=%s (cid=%s)",
+                order.order_id, fill.quantity, fill.price, request.correlation_id,
             )
             if self._metrics is not None:
                 self._metrics.counter("orders.submitted").inc()
@@ -410,7 +421,10 @@ class ExecutionEngine:
 
     def _submit_impl(self, request: OrderRequest) -> OrderReceipt:
         """Inner submit logic — separated for latency instrumentation."""
-        log.info("Sync submit: %s %s %s", request.side, request.quantity, request.instrument)
+        log.info(
+            "Sync submit: %s %s %s (cid=%s)",
+            request.side, request.quantity, request.instrument, request.correlation_id,
+        )
 
         # Kill switch short-circuit
         if self._kill_switch.is_set():
@@ -475,8 +489,8 @@ class ExecutionEngine:
             self._position_manager.on_fill(fill)
             self._bus.publish(OrderFilled(fill=fill))
             log.info(
-                "Order filled: %s qty=%s price=%s",
-                order.order_id, fill.quantity, fill.price,
+                "Order filled: %s qty=%s price=%s (cid=%s)",
+                order.order_id, fill.quantity, fill.price, request.correlation_id,
             )
             if self._guard is not None and request.correlation_id is not None:
                 self._guard.record_result(request.correlation_id, order.order_id)

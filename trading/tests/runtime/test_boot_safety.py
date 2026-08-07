@@ -113,3 +113,30 @@ class TestBootStreamBackendWiring:
             assert session._stream_backend is None
         finally:
             session.stop()
+
+
+class TestBootPersistenceWiring:
+    """boot() wires the durable idempotency guard when persistence is set."""
+
+    def test_persistence_path_wires_sqlite_guard(self, tmp_path) -> None:
+        from tradex_trading.config.schema import PersistenceConfig
+        from tradex_trading.execution.sqlite_store import SQLiteIdempotencyGuard
+
+        cfg = AppConfig(
+            mode="paper",
+            persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+        )
+        session = boot(cfg)
+        try:
+            guard = session.engine._guard  # noqa: SLF001 – wiring probe
+            assert isinstance(guard, SQLiteIdempotencyGuard)
+        finally:
+            session.stop()
+
+    def test_no_persistence_keeps_no_guard(self) -> None:
+        """Default boot stays unchanged: idempotency is opt-in."""
+        session = boot(AppConfig(mode="paper"))
+        try:
+            assert session.engine._guard is None  # noqa: SLF001 – wiring probe
+        finally:
+            session.stop()
