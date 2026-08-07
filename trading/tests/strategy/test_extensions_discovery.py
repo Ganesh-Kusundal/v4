@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
 from tradex_domain import OHLC, Candle, OrderSide
 from tradex_domain.enums import ExchangeId, Timeframe
 from tradex_domain.instruments import Equity
@@ -67,6 +68,169 @@ class TestExampleSmaCross:
 
         assert ReactiveStrategyEngine is not None
         assert ScannerEngine is not None
+
+
+class TestExampleMeanReversion:
+    """The second extension strategy: SELL on overbought, BUY on oversold."""
+
+    def test_discovered_and_protocol_conformant(self) -> None:
+        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+            MeanReversionStrategy,
+            mean_reversion_strategy,
+        )
+
+        assert isinstance(mean_reversion_strategy, Strategy)
+        assert mean_reversion_strategy.strategy_id == "mean_reversion_example"
+        assert any(
+            s.strategy_id == "mean_reversion_example" for s in all_strategies
+        )
+        assert MeanReversionStrategy is not None
+
+    def test_emits_sell_on_overbought(self) -> None:
+        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+            MeanReversionStrategy,
+        )
+
+        strat = MeanReversionStrategy(
+            "mr_sell_test", INSTRUMENT, period=2, overbought=70.0, oversold=30.0
+        )
+        ctx = StrategyContext()
+        # Strictly rising closes → RSI pins at 100 (> overbought) → SELL.
+        signals = [
+            sig
+            for i, close in enumerate([10, 11, 12, 13, 14, 15], start=1)
+            if (sig := strat.on_bar(ctx, _candle(close, i))) is not None
+        ]
+        assert signals
+        assert signals[0].direction == OrderSide.SELL
+        assert signals[0].reason == "rsi_overbought"
+        assert signals[0].instrument == INSTRUMENT
+
+    def test_emits_buy_on_oversold(self) -> None:
+        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+            MeanReversionStrategy,
+        )
+
+        strat = MeanReversionStrategy(
+            "mr_buy_test", INSTRUMENT, period=2, overbought=70.0, oversold=30.0
+        )
+        ctx = StrategyContext()
+        # Strictly falling closes → RSI pins at 0 (< oversold) → BUY.
+        signals = [
+            sig
+            for i, close in enumerate([15, 14, 13, 12, 11, 10], start=1)
+            if (sig := strat.on_bar(ctx, _candle(close, i))) is not None
+        ]
+        assert signals
+        assert signals[0].direction == OrderSide.BUY
+        assert signals[0].reason == "rsi_oversold"
+
+    def test_no_signal_spam_inside_extreme_zone(self) -> None:
+        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+            MeanReversionStrategy,
+        )
+
+        strat = MeanReversionStrategy(
+            "mr_no_spam", INSTRUMENT, period=2, overbought=70.0, oversold=30.0
+        )
+        ctx = StrategyContext()
+        # RSI stays overbought for 4 consecutive bars — only 1 SELL, no repeats.
+        signals = [
+            sig
+            for i, close in enumerate([10, 11, 12, 13, 14, 15], start=1)
+            if (sig := strat.on_bar(ctx, _candle(close, i))) is not None
+        ]
+        assert len(signals) == 1
+        assert signals[0].direction == OrderSide.SELL
+
+    def test_flat_prices_emit_no_signal(self) -> None:
+        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+            MeanReversionStrategy,
+        )
+
+        strat = MeanReversionStrategy(
+            "mr_flat", INSTRUMENT, period=2, overbought=70.0, oversold=30.0
+        )
+        ctx = StrategyContext()
+        # All deltas are zero → RSI is neutral (50) → nothing emitted.
+        signals = [
+            sig
+            for i, close in enumerate([10, 10, 10, 10, 10, 10], start=1)
+            if (sig := strat.on_bar(ctx, _candle(close, i))) is not None
+        ]
+        assert signals == []
+
+    def test_invalid_levels_rejected(self) -> None:
+        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+            MeanReversionStrategy,
+        )
+
+        with pytest.raises(ValueError, match="oversold"):
+            MeanReversionStrategy("bad_levels", INSTRUMENT, oversold=80.0)
+
+
+class TestExamplePullbackScanner:
+    """The second extension scanner combines two conditions."""
+
+    def test_discovered_with_two_conditions(self) -> None:
+        from tradex_trading.strategy.extensions.scanners.pullback import (
+            pullback_scanner,
+        )
+
+        assert any(s is pullback_scanner for s in all_scanners)
+        assert isinstance(pullback_scanner, ScannerDefinition)
+        assert len(pullback_scanner.conditions) == 2
+        assert {c.name for c in pullback_scanner.conditions} == {"close", "rsi"}
+        assert pullback_scanner.limit == 20
+
+
+class TestTypoInAllDegradesGracefully:
+    """A typo in a user's ``__all__`` must not break discovery.
+
+    ``_collect`` skips names missing from the package namespace instead of
+    raising — the documented degradation is "not discovered", not "import
+    explodes".
+    """
+
+    def test_missing_name_is_skipped_for_strategies(self) -> None:
+        from tradex_trading.strategy.extensions import _collect
+        from tradex_trading.strategy.extensions.strategies.sma_cross import (
+            sma_cross_strategy,
+        )
+
+        class FakeStrategies:
+            __all__ = ["sma_cross_strategy", "typo_strategy"]
+
+        FakeStrategies.sma_cross_strategy = sma_cross_strategy
+        # typo_strategy is intentionally NOT set on the namespace.
+
+        collected = _collect(FakeStrategies, Strategy)
+        assert collected == (sma_cross_strategy,)
+
+    def test_missing_name_is_skipped_for_scanners(self) -> None:
+        from tradex_domain.strategy import ScannerDefinition as ScannerDef
+
+        from tradex_trading.strategy.extensions import _collect
+        from tradex_trading.strategy.extensions.scanners.momentum import (
+            momentum_scanner,
+        )
+
+        class FakeScanners:
+            __all__ = ["momentum_scanner", "typo_scanner"]
+
+        FakeScanners.momentum_scanner = momentum_scanner
+
+        collected = _collect(FakeScanners, ScannerDef)
+        assert collected == (momentum_scanner,)
+
+    def test_all_typos_yield_empty_result(self) -> None:
+        from tradex_trading.strategy.extensions import _collect
+
+        class AllTypos:
+            __all__ = ["nope_strategy", "missing_strategy"]
+
+        collected = _collect(AllTypos, Strategy)
+        assert collected == ()
 
 
 def _candle(close_value: float, day: int) -> Candle:

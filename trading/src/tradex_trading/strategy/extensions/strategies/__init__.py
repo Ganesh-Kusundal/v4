@@ -5,8 +5,11 @@ Objects listed in ``__all__`` are validated against the runtime-checkable
 dropping a module in this package and importing it below.
 """
 
+from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+    mean_reversion_strategy,
+)
 from tradex_trading.strategy.extensions.strategies.sma_cross import (
     sma_cross_strategy,
 )
 
-__all__ = ["sma_cross_strategy"]
+__all__ = ["mean_reversion_strategy", "sma_cross_strategy"]
