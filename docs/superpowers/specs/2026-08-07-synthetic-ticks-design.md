@@ -35,22 +35,35 @@ advances 1 second per tick so time-dependent logic stays deterministic.
   doc's "simple function of price" option.
 - Reproducible: optional `seed` seeds the RNG.
 
-### Why not Brownian bridge (doc §2.2)?
+### Brownian bridge (doc §2.2) — shipped as an option
 
-The bridge adds variance-calibration machinery for a marginal realism gain on
-a simulator with no real ticks to validate against. The anchored walk already
-satisfies the invariants that matter: open→close, inside [low, high],
-U-shaped volume. Upgrade path: swap `_walk()` internals — the seam is one
-method.
+`method="bridge"` (constructor param, default `"anchored"`) generates a
+zero-drift Gaussian walk pinned at both ends:
+`X(t) = open + (close - open)·t/T + W(t) − (t/T)·W(T)`, so X(0) == open and
+X(T) == close exactly. Per-step volatility is calibrated from the bar's
+high-low range — `step_vol = 2·(high − low) / (3·√T)` — so the bridge's
+mid-bar standard deviation is a third of the range and typical excursions
+track the real bar. Final clamp to [low, high] keeps the range contract on
+outlier paths; flat bars (range 0) degenerate to all-flat ticks.
 
-### Why no config option, BacktestEngine wiring, or calibration tool (doc §6)?
+The anchored walk stays the default: it is simpler, its noise needs no
+interpretation, and both methods satisfy the invariants that matter
+(open→close, inside [low, high], U-shaped volume). Choosing between them is
+a per-generator decision; a calibration study against real ticks would be
+needed to prefer one over the other.
 
-- `tick_simulation: true` config: no consumer yet — the generator is
-  constructed directly. Add the flag the day something feeds it bars.
-- `BacktestEngine` wiring: `BacktestEngine.run()` feeds events to the strategy
-  *directly*, not via the bus — the generator is a bus event source, so the
-  natural host is the reactive replay path (`ReplayEngine`), not
-  `BacktestEngine`. No consumer asks for it yet; wiring is a few lines later.
+### Wiring, config, calibration (doc §6) — status
+
+- `ReplayEngine` wiring: **done**. `ReplayEngine(events, synthetic_ticks=True,
+  seed=N)` expands each M1 candle into synthetic quotes on the bus (the
+  reactive replay path, per doc §3); registered strategies still receive the
+  candle directly via `on_bar`. A non-M1 candle in synthetic mode is recorded
+  as a bus-publish error rather than silently skipped.
+- `tick_simulation: true` app config: still deferred — `AppConfig` gains the
+  flag the day a session-level consumer asks for it.
+- `BacktestEngine` wiring: still deferred — `BacktestEngine.run()` feeds
+  events to the strategy *directly*, not via the bus, so the generator (a bus
+  event source) has no seam there.
 - Calibration tool: requires real tick data the repo does not have. YAGNI —
   "add when real ticks exist".
 

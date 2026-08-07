@@ -40,6 +40,76 @@ def _candle(
     )
 
 
+class TestBrownianBridge:
+    """method="bridge" — Brownian bridge between open and close."""
+
+    def test_bridge_anchors_first_and_last_tick(self) -> None:
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        gen = SyntheticTickGenerator(bus, seed=1, method="bridge")
+        candle = _candle()
+        gen.feed_bar(candle)
+
+        quotes = [e for e in events if isinstance(e, Quote)]
+        assert quotes[0].ltp.value == candle.ohlc.open.value
+        assert quotes[-1].ltp.value == candle.ohlc.close.value
+
+    def test_bridge_ticks_stay_within_range(self) -> None:
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        gen = SyntheticTickGenerator(bus, seed=7, method="bridge")
+        candle = _candle()
+        gen.feed_bar(candle)
+
+        low_, high_ = Decimal("95"), Decimal("110")
+        for quote in (e for e in events if isinstance(e, Quote)):
+            assert low_ <= quote.ltp.value <= high_
+
+    def test_bridge_flat_bar_emits_flat_ticks(self) -> None:
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        gen = SyntheticTickGenerator(bus, seed=1, method="bridge")
+        gen.feed_bar(_candle(open_=Decimal("100"), high=Decimal("100"),
+                             low=Decimal("100"), close=Decimal("100")))
+        quotes = [e for e in events if isinstance(e, Quote)]
+        assert all(q.ltp.value == Decimal("100") for q in quotes)
+
+    def test_bridge_reproducible_with_seed(self) -> None:
+        def prices() -> list[Decimal]:
+            events: list[object] = []
+            bus = ReactiveBus(message_log=events)
+            SyntheticTickGenerator(bus, seed=42, method="bridge").feed_bar(_candle())
+            return [q.ltp.value for q in events if isinstance(q, Quote)]
+
+        assert prices() == prices()
+
+    def test_bridge_path_differs_from_anchored(self) -> None:
+        """Same seed, different methods -> different interior paths."""
+        def run(method: str) -> list[Decimal]:
+            events: list[object] = []
+            bus = ReactiveBus(message_log=events)
+            SyntheticTickGenerator(bus, seed=1, method=method).feed_bar(_candle())
+            return [q.ltp.value for q in events if isinstance(q, Quote)]
+
+        assert run("bridge") != run("anchored")
+
+    def test_bridge_two_tick_bar(self) -> None:
+        """ticks_per_bar=2 -> exactly [open, close] (n=2 edge)."""
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        gen = SyntheticTickGenerator(bus, ticks_per_bar=2, seed=1, method="bridge")
+        candle = _candle()
+        gen.feed_bar(candle)
+        quotes = [e for e in events if isinstance(e, Quote)]
+        assert len(quotes) == 2
+        assert quotes[0].ltp.value == candle.ohlc.open.value
+        assert quotes[1].ltp.value == candle.ohlc.close.value
+
+    def test_unknown_method_raises(self) -> None:
+        with pytest.raises(ValueError, match="unknown method"):
+            SyntheticTickGenerator(ReactiveBus(), method="bogus")
+
+
 class TestSyntheticTickGenerator:
     def test_m1_only_guard(self) -> None:
         gen = SyntheticTickGenerator(ReactiveBus(), seed=1)

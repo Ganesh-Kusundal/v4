@@ -4,15 +4,23 @@ An event source that reads an M1 ``Candle`` and publishes ``ticks_per_bar``
 synthetic ``Quote`` events onto the ``ReactiveBus`` — the bar-data analogue
 of the live market feed. Strategies subscribed to ``Quote`` work unchanged.
 
-The price path is a simple OHLC-anchored random walk: it starts at the bar
-open, ends at the bar close, and every tick is clamped inside ``[low, high]``.
-This is reference-grade simulation, not production data: no order-book depth,
-no real volume profile, no calibrated intra-bar volatility. Validate any
-strategy built on it against real ticks before going live.
+Two price-path methods are available (``method=``):
+
+- ``anchored`` (default) — OHLC-anchored random walk: starts at the bar open,
+  ends at the bar close, every tick clamped inside ``[low, high]``.
+- ``bridge`` — Brownian bridge between open and close whose per-step
+  volatility is calibrated from the bar's high-low range (so the path's
+  mid-bar excursion scales with the real range).
+
+Both anchor the endpoints and clamp to ``[low, high]``. This is
+reference-grade simulation, not production data: no order-book depth, no real
+volume profile. Validate any strategy built on it against real ticks before
+going live.
 """
 
 from __future__ import annotations
 
+import math
 import random
 from datetime import timedelta
 from decimal import Decimal
@@ -35,12 +43,15 @@ _VOLUME_QUANT = Decimal("0.000001")
 class SyntheticTickGenerator:
     """Publish one synthetic ``Quote`` per simulated second of an M1 bar."""
 
+    _METHODS = ("anchored", "bridge")
+
     def __init__(
         self,
         bus: Any,  # seam: any publish()-capable bus (ReactiveBus)
         clock=None,
         ticks_per_bar: int = 60,
         seed: int | None = None,
+        method: str = "anchored",
     ) -> None:
         """Initialize the generator.
 
@@ -56,12 +67,21 @@ class SyntheticTickGenerator:
             Number of ticks per M1 bar (default 60 = one per second).
         seed:
             Optional RNG seed for reproducible tick paths.
+        method:
+            Price-path method: ``"anchored"`` (default, OHLC-anchored random
+            walk) or ``"bridge"`` (Brownian bridge between open and close,
+            volatility calibrated from the high-low range).
         """
         if ticks_per_bar < 2:
             raise ValueError("ticks_per_bar must be at least 2 (open + close)")
+        if method not in self._METHODS:
+            raise ValueError(
+                f"unknown method {method!r}, expected one of {self._METHODS}"
+            )
         self._bus = bus
         self._clock = clock or FakeClock()
         self._ticks_per_bar = ticks_per_bar
+        self._method = method
         self._rng = random.Random(seed)
 
     def feed_bar(self, candle: Candle) -> None:
@@ -92,6 +112,12 @@ class SyntheticTickGenerator:
     # -- internals ----------------------------------------------------------
 
     def _walk(self, candle: Candle) -> list[float]:
+        """Dispatch to the configured price-path method."""
+        if self._method == "bridge":
+            return self._bridge(candle)
+        return self._anchored(candle)
+
+    def _anchored(self, candle: Candle) -> list[float]:
         """Anchored random walk: open -> close, clamped to [low, high]."""
         open_ = float(candle.ohlc.open.value)
         close_ = float(candle.ohlc.close.value)
@@ -109,6 +135,41 @@ class SyntheticTickGenerator:
         # Clamp the close anchor too: valid candles always have close within
         # [low, high], but malformed input must not violate the clamp claim.
         prices.append(min(max(close_, low_), high_))
+        return prices
+
+    def _bridge(self, candle: Candle) -> list[float]:
+        """Brownian bridge between open and close, volatility calibrated from
+        the bar's high-low range.
+
+        A zero-drift Gaussian walk ``W`` is generated, then pinned at both
+        ends: ``X(t) = open + (close - open) * t/T + W(t) - (t/T) * W(T)``,
+        so ``X(0) == open`` and ``X(T) == close`` exactly. Per-step
+        volatility is set so the bridge's mid-bar standard deviation is a
+        third of the range (``step_vol * sqrt(T) / 2 == range / 3``), which
+        makes typical excursions track the real bar. Final clamp to
+        ``[low, high]`` keeps the range contract on outlier paths.
+        """
+        open_ = float(candle.ohlc.open.value)
+        close_ = float(candle.ohlc.close.value)
+        low_ = float(candle.ohlc.low.value)
+        high_ = float(candle.ohlc.high.value)
+        n = self._ticks_per_bar
+        span = max(high_ - low_, 0.0)
+        # T = n - 1 steps, so the bridge's mid-bar std is exactly
+        # step_vol * sqrt(T) / 2 = span / 3.
+        step_vol = 2.0 * span / (3.0 * math.sqrt(n - 1)) if span else 0.0
+
+        free = [0.0]
+        for _ in range(1, n):
+            free.append(free[-1] + self._rng.gauss(0.0, step_vol))
+        end = free[-1]
+        last = n - 1
+
+        prices = []
+        for t in range(n):
+            frac = t / last
+            price = open_ + (close_ - open_) * frac + free[t] - frac * end
+            prices.append(min(max(price, low_), high_))
         return prices
 
     def _split_volume(self, candle: Candle) -> list[Quantity]:
