@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from tradex_trading.interface.check_connection import (
     _check,
     _cooldown_path,
@@ -222,6 +224,10 @@ class TestRunCli:
 
     def test_serve_starts_fastapi_server(self) -> None:
         """serve should boot a paper session and start the FastAPI server."""
+        # Patch resolution imports fastapi_app, whose top level imports
+        # fastapi — declare the api-extra dep so a fastapi-less env skips
+        # instead of failing opaquely (mirrors test_fastapi_app.py).
+        pytest.importorskip("fastapi")
         with patch(
             "tradex_trading.interface.fastapi_app.start_fastapi_server"
         ) as start:
@@ -237,6 +243,7 @@ class TestRunCli:
 
     def test_serve_forwards_workers_and_reload(self) -> None:
         """serve --workers/--reload should reach start_fastapi_server."""
+        pytest.importorskip("fastapi")
         with patch(
             "tradex_trading.interface.fastapi_app.start_fastapi_server"
         ) as start:
@@ -249,6 +256,7 @@ class TestRunCli:
 
     def test_serve_failure_returns_1(self) -> None:
         """serve should print a loud failure and return 1 on server error."""
+        pytest.importorskip("fastapi")
         with patch(
             "tradex_trading.interface.fastapi_app.start_fastapi_server",
             side_effect=RuntimeError("port in use"),
@@ -258,6 +266,7 @@ class TestRunCli:
 
     def test_serve_reuses_runtime_session(self) -> None:
         """main() must pass its own session to serve — never boot a second."""
+        pytest.importorskip("fastapi")
         with patch(
             "tradex_trading.interface.fastapi_app.start_fastapi_server"
         ) as start, patch(
