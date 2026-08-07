@@ -74,7 +74,13 @@ from tradex_domain.instruments import (
 )
 from tradex_domain.market import OHLC, Candle, Depth, HistoricalSeries, Quote
 from tradex_domain.options import Expiry, OptionChain, OptionPair
-from tradex_domain.protocols import BrokerAdapter, ExtensionAdapter, SessionFacade
+from tradex_domain.protocols import (
+    BrokerAdapter,
+    Clock,
+    ExtensionAdapter,
+    IndicatorComputer,
+    SessionFacade,
+)
 from tradex_domain.serialization import Serializable, from_dict, to_dict
 from tradex_domain.strategy import (
     Condition,
@@ -168,7 +174,9 @@ __all__ = [
     # capabilities + protocols
     "BrokerAdapter",
     "BrokerCapabilities",
+    "Clock",
     "ExtensionAdapter",
+    "IndicatorComputer",
     "InstrumentRegistry",
     "SessionFacade",
     "WireAdapter",

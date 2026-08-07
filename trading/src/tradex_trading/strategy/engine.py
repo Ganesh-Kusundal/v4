@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
-from tradex_domain.strategy import StrategyContext
+from tradex_domain.enums import OrderType
+from tradex_domain.events import PlaceOrderCommand
+from tradex_domain.execution import OrderRequest
+from tradex_domain.strategy import Signal, StrategyContext
+from tradex_domain.value_objects import Quantity
 
 
 class ReactiveStrategyEngine:
@@ -26,21 +31,25 @@ class ReactiveStrategyEngine:
         return StrategyContext(**overrides)
 
     def _wrap_on_bar(self, strategy: Any) -> Any:
-        """Wrap strategy.on_bar to inject context."""
+        """Wrap strategy.on_bar to inject context and bridge Signal→Order."""
         def handler(candle: Any) -> Any:
             self._bar_count += 1
             ctx = self._make_context(
                 bar_count=self._bar_count,
                 timestamp=getattr(candle, "timestamp", None),
             )
-            return strategy.on_bar(ctx, candle)
+            result = strategy.on_bar(ctx, candle)
+            self._maybe_publish_order(result, strategy.strategy_id)
+            return result
         return handler
 
     def _wrap_on_quote(self, strategy: Any) -> Any:
-        """Wrap strategy.on_quote to inject context."""
+        """Wrap strategy.on_quote to inject context and bridge Signal→Order."""
         def handler(quote: Any) -> Any:
             ctx = self._make_context(timestamp=getattr(quote, "timestamp", None))
-            return strategy.on_quote(ctx, quote)
+            result = strategy.on_quote(ctx, quote)
+            self._maybe_publish_order(result, strategy.strategy_id)
+            return result
         return handler
 
     def _wrap_on_fill(self, strategy: Any) -> Any:
@@ -49,6 +58,20 @@ class ReactiveStrategyEngine:
             ctx = self._make_context()
             return strategy.on_fill(ctx, fill)
         return handler
+
+    def _maybe_publish_order(self, result: Any, strategy_id: str) -> None:
+        """If *result* is a Signal, publish a PlaceOrderCommand to the bus."""
+        if not isinstance(result, Signal):
+            return
+        qty_value = abs(result.strength) if result.strength else 1.0
+        request = OrderRequest(
+            instrument=result.instrument,
+            side=result.direction,
+            order_type=OrderType.MARKET,
+            quantity=Quantity(Decimal(str(qty_value))),
+            tag=strategy_id,
+        )
+        self._bus.publish(PlaceOrderCommand(request=request))
 
     def register(self, strategy) -> None:
         """Register a strategy and subscribe it to market events.

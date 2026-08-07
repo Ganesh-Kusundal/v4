@@ -14,19 +14,6 @@ def _to_float(value: NumericValue) -> float:
     return value
 
 
-def breadth_indicator(series) -> list:
-    """Calculate breadth indicator (stub).
-
-    Args:
-        series: List of numeric values
-
-    Returns:
-        List of breadth values
-    """
-    # Stub implementation
-    return []
-
-
 def volatility(series, period: int = 20) -> list:
     """Calculate volatility (standard deviation).
 
@@ -55,4 +42,4 @@ def volatility(series, period: int = 20) -> list:
     return result
 
 
-__all__ = ["breadth_indicator", "volatility"]
+__all__ = ["volatility"]

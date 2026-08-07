@@ -7,13 +7,12 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from tradex_domain import Candle, Fill, Quote, Signal
+from tradex_domain import Candle, Clock, Fill, Quote, Signal
 from tradex_domain.enums import OrderSide
 from tradex_domain.strategy import StrategyContext
 from tradex_domain.value_objects import OrderId, Price, Quantity
 
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
-from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fees import FeeCalculator
 from tradex_trading.strategy.protocols import Strategy
 
@@ -67,8 +66,7 @@ class BacktestEngine:
     def __init__(
         self,
         fill_source: Any | None = None,  # fill sources vary
-        clock: FakeClock | None = None,
-        engine: ExecutionEngine | None = None,
+        clock: Clock | None = None,
         fee_calculator: FeeCalculator | None = None,
     ) -> None:
         """Initialize backtest engine.
@@ -76,13 +74,11 @@ class BacktestEngine:
         Args:
             fill_source: Optional fill source for simulating fills
             clock: Optional FakeClock for deterministic time progression
-            engine: Optional ExecutionEngine to delegate order submission
             fee_calculator: Optional FeeCalculator; when provided, fees are
                 deducted from cash on each fill and surfaced in BacktestResult.
         """
         self._fill_source = fill_source
         self._clock = clock or FakeClock()
-        self._engine = engine
         self._fee_calculator = fee_calculator
 
     def submit(self, request: Any) -> Any:
@@ -101,9 +97,6 @@ class BacktestEngine:
         object
             The order receipt or result.
         """
-        # Delegate to ExecutionEngine if available
-        if self._engine is not None:
-            return self._engine.submit(request)
         if self._fill_source is not None and hasattr(self._fill_source, "submit"):
             return self._fill_source.submit(request)  # type: ignore[attr-defined]
         return request

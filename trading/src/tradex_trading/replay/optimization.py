@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from tradex_trading.replay.backtest import BacktestResult
@@ -98,96 +98,8 @@ def grid_search(
     )
 
 
-@dataclass(frozen=True, slots=True)
-class WalkForwardResult:
-    """Result from walk-forward optimization."""
-
-    in_sample_results: tuple[OptimizationResult, ...]
-    out_of_sample_results: tuple[OptimizationResult, ...]
-    best_params: dict[str, Any] = field(default_factory=dict)
-    total_return: float = 0.0
-
-
-def walk_forward(
-    data: Sequence[Any],
-    param_grid: dict[str, Sequence[Any]],
-    run_fn: Callable[[dict[str, Any], Sequence[Any]], BacktestResult],
-    n_splits: int = 5,
-    score_fn: Callable[[BacktestResult], float] | None = None,
-) -> WalkForwardResult:
-    """Run walk-forward optimization.
-
-    Splits data into n_splits train/test pairs, optimizes on train,
-    evaluates on test.
-
-    Parameters
-    ----------
-    data : Sequence[Any]
-        Full dataset (e.g., list of Candle).
-    param_grid : dict[str, Sequence[Any]]
-        Parameter grid to search.
-    run_fn : Callable
-        Function that takes (params, data_subset) and returns BacktestResult.
-    n_splits : int
-        Number of train/test splits.
-    score_fn : Callable | None
-        Scoring function. Defaults to total_return.
-
-    Returns
-    -------
-    WalkForwardResult
-        Walk-forward optimization results.
-    """
-    if len(data) < n_splits * 2:
-        raise ValueError(f"Need at least {n_splits * 2} data points for {n_splits} splits")
-
-    split_size = len(data) // (n_splits + 1)
-    all_in_sample: list[OptimizationResult] = []
-    all_oos: list[OptimizationResult] = []
-
-    for i in range(n_splits):
-        train_start = i * split_size
-        train_end = train_start + split_size
-        test_end = min(train_end + split_size, len(data))
-
-        train_data = data[train_start:train_end]
-        test_data = data[train_end:test_end]
-
-        # Optimize on train
-        def train_run(params: dict[str, Any]) -> BacktestResult:
-            return run_fn(params, train_data)
-
-        grid = grid_search(param_grid, train_run, score_fn)
-
-        if grid.best is not None:
-            all_in_sample.append(grid.best)
-
-            # Evaluate best params on test
-            try:
-                oos_result = run_fn(grid.best.params, test_data)
-                score = score_fn(oos_result) if score_fn else oos_result.total_return
-                all_oos.append(
-                    OptimizationResult(params=grid.best.params, result=oos_result, score=score)
-                )
-            except Exception:
-                continue
-
-    # Aggregate
-    best_params = all_in_sample[-1].params if all_in_sample else {}
-    total_ret = sum(r.score for r in all_oos) / len(all_oos) if all_oos else 0.0
-
-    return WalkForwardResult(
-        in_sample_results=tuple(all_in_sample),
-        out_of_sample_results=tuple(all_oos),
-        best_params=best_params,
-        total_return=total_ret,
-    )
-
-
 __all__ = [
     "GridSearchResult",
     "OptimizationResult",
-    "WalkForwardResult",
     "grid_search",
-    "walk_forward",
 ]

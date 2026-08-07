@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = [
     "tradex-domain>=0.1.0,<0.2",
     "tradex-brokers>=0.1.0,<0.2",
-    "rx>=7.0,<8",
+    "rx>=3.2,<4",
 ]
 
 [project.optional-dependencies]

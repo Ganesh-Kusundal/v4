@@ -1,4 +1,4 @@
-"""Tests for replay/optimization.py — grid_search, walk_forward, result objects."""
+"""Tests for replay/optimization.py — grid_search and result objects."""
 
 from __future__ import annotations
 
@@ -9,9 +9,7 @@ import pytest
 from tradex_trading.replay.optimization import (
     GridSearchResult,
     OptimizationResult,
-    WalkForwardResult,
     grid_search,
-    walk_forward,
 )
 
 # ---------------------------------------------------------------------------
@@ -138,58 +136,3 @@ class TestGridSearch:
         result = grid_search({"k": [42]}, lambda p: _make_bt(total_return=p["k"]))
         assert result.best.params == {"k": 42}
         assert result.best.score == 42
-
-
-# ---------------------------------------------------------------------------
-# walk_forward
-# ---------------------------------------------------------------------------
-
-class TestWalkForward:
-    def test_basic_walk_forward(self):
-        """walk_forward should split data, optimize in-sample, eval out-of-sample."""
-        data = list(range(20))  # 20 data points
-
-        def run_fn(params, data_subset):
-            # Return total_return proportional to param and data length
-            return _make_bt(total_return=params["m"] * len(data_subset))
-
-        result = walk_forward(
-            data=data,
-            param_grid={"m": [1, 2]},
-            run_fn=run_fn,
-            n_splits=3,
-        )
-
-        assert isinstance(result, WalkForwardResult)
-        assert len(result.in_sample_results) > 0
-        assert len(result.out_of_sample_results) > 0
-        assert result.best_params != {}
-
-    def test_insufficient_data_raises(self):
-        """Should raise ValueError if not enough data for splits."""
-        with pytest.raises(ValueError, match="Need at least"):
-            walk_forward(
-                data=[1, 2],
-                param_grid={"x": [1]},
-                run_fn=lambda p, d: _make_bt(),
-                n_splits=5,
-            )
-
-    def test_walk_forward_with_score_fn(self):
-        data = list(range(10))
-
-        def run_fn(params, data_subset):
-            return _make_bt(total_return=params["k"], sharpe=params["k"] * 2.0)
-
-        def score_fn(bt):
-            return bt.sharpe
-
-        result = walk_forward(
-            data=data,
-            param_grid={"k": [1, 5]},
-            run_fn=run_fn,
-            n_splits=2,
-            score_fn=score_fn,
-        )
-
-        assert result.total_return != 0.0 or len(result.out_of_sample_results) == 0

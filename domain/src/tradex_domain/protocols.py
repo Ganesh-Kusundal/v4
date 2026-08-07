@@ -256,11 +256,36 @@ class SessionFacade(Protocol):
     def bus(self) -> object: ...
 
 
+@runtime_checkable
+class Clock(Protocol):
+    """Deterministic clock abstraction.
+
+    Allows backtest and live engines to share the same time API.
+    Satisfied structurally by any object with a ``now() -> datetime`` method.
+    """
+
+    def now(self) -> datetime: ...
+
+
+@runtime_checkable
+class IndicatorComputer(Protocol):
+    """Indicator computation contract.
+
+    Satisfied structurally by any object with an
+    ``indicator(series, name, **params) -> HistoricalSeries`` method.
+    Lets ScannerEngine depend on a protocol instead of a concrete AnalyticsEngine.
+    """
+
+    def indicator(self, series: object, name: str, **params: object) -> object: ...
+
+
 __all__ = [
     "BrokerAdapter",
+    "Clock",
     "EdisAdapter",
     "ExtensionAdapter",
     "ForeverOrderAdapter",
+    "IndicatorComputer",
     "KillSwitchAdapter",
     "SessionFacade",
     "SliceOrderAdapter",

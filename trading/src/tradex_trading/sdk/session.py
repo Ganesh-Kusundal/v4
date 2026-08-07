@@ -244,6 +244,16 @@ class TradingSession:
         return self._bus
 
     @property
+    def engine(self) -> ExecutionEngine:
+        """Execution engine."""
+        return self._engine
+
+    @property
+    def broker(self) -> BrokerAdapter:
+        """Broker adapter."""
+        return self._broker
+
+    @property
     def mode(self) -> str:
         """Execution mode."""
         return self._mode

@@ -5,13 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from tradex_domain import ScannerDefinition, ScannerResult
+from tradex_domain import IndicatorComputer, ScannerDefinition, ScannerResult
 from tradex_domain.enums import Timeframe
 from tradex_domain.errors import SDKError
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.strategy import Condition
-
-from tradex_trading.analytics.engine import AnalyticsEngine
 
 _OPS = {
     ">": lambda v, t: v > t,
@@ -29,11 +27,14 @@ class ScannerEngine:
     def __init__(
         self,
         market: Any,
-        analytics: AnalyticsEngine | None = None,
+        analytics: IndicatorComputer | None = None,
         window_days: int = 30,
     ) -> None:
         self._market = market
-        self._analytics = analytics or AnalyticsEngine()
+        if analytics is None:
+            from tradex_trading.analytics.engine import AnalyticsEngine
+            analytics = AnalyticsEngine()  # type: ignore[assignment]
+        self._analytics = analytics
         self._window_days = window_days
 
     def run(self, definition: ScannerDefinition) -> list[ScannerResult]:

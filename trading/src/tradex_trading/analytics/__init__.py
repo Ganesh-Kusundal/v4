@@ -2,7 +2,7 @@
 
 from tradex_trading.analytics.breadth import advance_decline
 from tradex_trading.analytics.engine import AnalyticsEngine
-from tradex_trading.analytics.functions import breadth_indicator, volatility
+from tradex_trading.analytics.functions import volatility
 from tradex_trading.analytics.fundamentals import pe_ratio
 from tradex_trading.analytics.futures import basis
 from tradex_trading.analytics.indicators import ema, rsi, sma
@@ -25,7 +25,6 @@ __all__ = [
     "max_drawdown",
     "total_return",
     "AnalyticsEngine",
-    "breadth_indicator",
     "volatility",
     "advance_decline",
     "realized_vol",
