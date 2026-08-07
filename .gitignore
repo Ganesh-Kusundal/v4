@@ -19,8 +19,8 @@ build/
 *.swo
 *~
 
-# Runtime state
-runtime/
+# Runtime state (root dir only — NOT trading/src/tradex_trading/runtime/)
+/runtime/
 
 # Test artifacts
 .pytest_cache/

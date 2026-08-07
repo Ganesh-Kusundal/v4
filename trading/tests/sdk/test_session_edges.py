@@ -139,13 +139,27 @@ class TestStreamServiceEdges:
 class TestScannerServiceEdges:
     """ScannerService raises loudly without a bound engine."""
 
-    def test_run_without_engine_raises(self) -> None:
+    def test_unbound_service_raises(self) -> None:
+        from tradex_trading.sdk.services.scanner import ScannerService
+
+        service = ScannerService()  # no engine, no definitions
+        assert service.discovered == ()
+        with pytest.raises(CapabilityNotSupportedError):
+            service.run(ScannerDefinition())
+        with pytest.raises(CapabilityNotSupportedError):
+            service.top(ScannerDefinition())
+        with pytest.raises(CapabilityNotSupportedError):
+            service.run_all()
+
+    def test_booted_session_has_bound_scanner(self) -> None:
+        """boot() now wires a ScannerEngine — running a definition succeeds."""
         session = boot()
-        with pytest.raises(CapabilityNotSupportedError):
-            session.scanner.run(ScannerDefinition())
-        with pytest.raises(CapabilityNotSupportedError):
-            session.scanner.top(ScannerDefinition())
-        session.stop()
+        try:
+            assert session.scanner._engine is not None  # noqa: SLF001 – wiring probe
+            results = session.scanner.run(ScannerDefinition())
+            assert isinstance(results, list)
+        finally:
+            session.stop()
 
 
 # ---------------------------------------------------------------------------

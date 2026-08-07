@@ -77,6 +77,8 @@ class TradingSession:
         broker_id: BrokerId,
         mode: str = "paper",
         scanner_engine: object | None = None,
+        scanner_definitions: Sequence[object] = (),
+        strategy_engine: object | None = None,
         stream_backend: object | None = None,
         analytics_engine: object | None = None,
         live_orders_enabled: bool = True,
@@ -90,6 +92,8 @@ class TradingSession:
         self._state = SessionState.NEW
         self._subscriptions: list[StreamSubscription] = []
         self._scanner_engine = scanner_engine
+        self._scanner_definitions = tuple(scanner_definitions)
+        self._strategy_engine = strategy_engine
         self._stream_backend = stream_backend
         self._analytics_engine = analytics_engine
         self._live_orders_enabled = live_orders_enabled
@@ -205,7 +209,9 @@ class TradingSession:
     def scanner(self) -> ScannerService:
         """ScannerService — scanner definitions and results."""
         self._check_ready()
-        return ScannerService(self._scanner_engine)
+        return ScannerService(
+            self._scanner_engine, definitions=self._scanner_definitions
+        )
 
     @cached_property
     def analytics(self) -> AnalyticsService:
@@ -252,6 +258,11 @@ class TradingSession:
     def broker(self) -> BrokerAdapter:
         """Broker adapter."""
         return self._broker
+
+    @property
+    def strategy_engine(self) -> object | None:
+        """Strategy engine (auto-registered discovered strategies)."""
+        return self._strategy_engine
 
     @property
     def mode(self) -> str:
