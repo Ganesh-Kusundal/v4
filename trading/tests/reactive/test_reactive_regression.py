@@ -11,7 +11,7 @@ from typing import Any
 
 from tradex_domain.events import OrderFilled, OrderPlaced
 
-from tradex_trading.reactive import stream_operators
+from tradex_trading.reactive import operators
 from tradex_trading.reactive.backpressure import BackpressurePresets
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.reactive.subscription import DisposableSubscription, SubscriptionManager
@@ -274,26 +274,26 @@ class TestStreamOperators:
     """Stream operator helpers produce valid RxPY operators."""
 
     def test_of_type_returns_operator(self) -> None:
-        op = stream_operators.of_type(int)
+        op = operators.of_type(int)
         assert callable(op)
 
     def test_share_returns_operator(self) -> None:
-        op = stream_operators.share()
+        op = operators.share()
         assert callable(op)
 
     def test_replay_buffer_returns_operator(self) -> None:
-        op = stream_operators.replay_buffer(5)
+        op = operators.replay_buffer(5)
         assert callable(op)
 
     def test_distinct_until_changed_returns_operator(self) -> None:
-        op = stream_operators.distinct_until_changed()
+        op = operators.distinct_until_changed()
         assert callable(op)
 
     def test_distinct_until_changed_with_key(self) -> None:
         """distinct_until_changed with key function deduplicates by key."""
         bus = ReactiveBus()
         received: list[Any] = []
-        op = stream_operators.distinct_until_changed(key=lambda m: m.get("id"))
+        op = operators.distinct_until_changed(key=lambda m: m.get("id"))
         bus.stream().pipe(op).subscribe(lambda m: received.append(m))
         bus.publish({"id": 1, "v": "a"})
         bus.publish({"id": 1, "v": "b"})  # same id — suppressed
@@ -303,16 +303,16 @@ class TestStreamOperators:
         assert received[1]["v"] == "c"
 
     def test_map_to_returns_operator(self) -> None:
-        op = stream_operators.map_to(lambda x: x * 2)
+        op = operators.map_to(lambda x: x * 2)
         assert callable(op)
 
     def test_filter_safe_returns_operator(self) -> None:
-        op = stream_operators.filter_safe(lambda x: x > 0)
+        op = operators.filter_safe(lambda x: x > 0)
         assert callable(op)
 
     def test_filter_safe_suppresses_exceptions(self) -> None:
         """filter_safe should skip items that cause predicate errors."""
-        op = stream_operators.filter_safe(lambda x: x > 0)
+        op = operators.filter_safe(lambda x: x > 0)
         # The operator should work in a pipe without crashing
         bus = ReactiveBus()
         received: list[Any] = []
