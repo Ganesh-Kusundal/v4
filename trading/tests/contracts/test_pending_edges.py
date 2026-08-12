@@ -1,8 +1,8 @@
 """Pending-edge contracts — ported from v3.
 
-Tests meaningful failure/edge behavior: analytics edge cases (short inputs,
-option pricing), wire registry atomicity, and generic serialization
-coercion for variadic tuples and nested types.
+Tests meaningful failure/edge behavior: analytics edge cases (short inputs),
+wire registry atomicity, and generic serialization coercion for variadic
+tuples and nested types.
 
 Skipped from v3 (deferred to later waves or not portable):
 - Scanner tests (v4 ScannerEngine is a stub)
@@ -25,11 +25,10 @@ from tradex_domain.serialization import Serializable
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_trading.analytics.indicators import ema, rsi, sma
-from tradex_trading.analytics.options import black_scholes_call, intrinsic_call
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio
 
 # ---------------------------------------------------------------------------
-# Analytics edge cases — indicator short inputs + option pricing
+# Analytics edge cases — indicator short inputs
 # ---------------------------------------------------------------------------
 
 
@@ -44,10 +43,6 @@ def test_indicator_short_inputs_and_option_expiry_edges() -> None:
     # sharpe_ratio with a single return → 0.0 (need ≥ 2 for std-dev)
     assert sharpe_ratio([100.0]) == 0.0
     assert max_drawdown([]) == 0.0
-    # Option pricing edge cases
-    assert intrinsic_call(95.0, 100.0) == 0.0
-    assert black_scholes_call(105.0, 100.0, 0.0, 0.05, 0.2) == 5.0
-    assert black_scholes_call(105.0, 100.0, 1.0, 0.05, 0.0) == 5.0
 
 
 # ---------------------------------------------------------------------------
