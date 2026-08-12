@@ -28,13 +28,11 @@ from tradex_domain import (
 )
 from tradex_domain.protocols import TradingCacheProtocol
 
-from tradex_trading.execution.thread_safe_cache import ThreadSafeTradingCache
 from tradex_trading.execution.trading_cache import TradingCache
 
 _CACHE_IMPLS = [
     ("paper", _PaperCache),
     ("trading", TradingCache),
-    ("thread_safe", ThreadSafeTradingCache),
 ]
 
 
