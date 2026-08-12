@@ -10,6 +10,15 @@ Rules:
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
 
+### Graph refresh & post-commit hook
+
+- Manual refresh: `make graph` (runs `graphify update .`).
+- Optional post-commit hook: `graphify hook install` rebuilds the graph after
+  every `git commit` (incremental AST re-extraction of changed files; doc/image
+  changes are ignored). `graphify hook uninstall` / `graphify hook status` to
+  remove/check. The hook is a one-time local install — it is not committed to
+  the repo.
+
 ---
 
 ## Standard Interfaces — USE THESE, DON'T REINVENT
@@ -55,7 +64,7 @@ session.stop()
 - `build_broker_from_env()` handles ALL auth: TOTP generation, token minting, token persistence, refresh
 - Credentials come from `.env.local` (DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN, DHAN_PIN, DHAN_TOTP_SECRET, etc.)
 - Timestamps from broker are UTC tz-aware — convert to IST before storing: `ts.astimezone(IST).replace(tzinfo=None)`
-- Dhan intraday API returns last 5 trading days only
+- Dhan `/charts/intraday` serves up to 90 days per request; `ParallelHistoryFetcher` guards intraday timeframes (M1/M5/M15/H1) to ranges ≤ 90 days and raises `SDKError` beyond that (fail-loud, no silent truncation)
 - Dhan returns phantom post-market bars (16:00-20:00) — filter to 9:15-15:30 IST
 
 ### Datalake Operations (Parquet Storage, Backfill, Sync)
@@ -148,6 +157,6 @@ runtime/         → Token state, broker runtime files
 2. **DON'T** investigate TOTP/auth internals unless explicitly debugging auth
 3. **DON'T** store UTC timestamps in the datalake — always convert to IST
 4. **DON'T** assume broker data is clean — Dhan returns phantom post-market bars
-5. **DON'T** fetch history for dates > 5 days ago from Dhan (API limitation)
+5. **DON'T** fetch intraday history for ranges > 90 days from Dhan (API limit — `ParallelHistoryFetcher` raises `SDKError`)
 6. **DON'T** reinvent parallel fetching — use `ParallelHistoryFetcher`
 7. **DON'T** manually parse universe CSVs — use `load_universe()`
