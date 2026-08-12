@@ -103,7 +103,7 @@ def upstox_capabilities() -> BrokerCapabilities:
         supports_future_chain=True,
         supports_kill_switch=True,
         supports_news=True,
-        supports_fundamentals=True,
+        supports_fundamentals=False,
         max_order_quantity=None,
         max_order_value=None,
         max_batch_size=500,

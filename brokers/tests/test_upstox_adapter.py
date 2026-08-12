@@ -120,7 +120,7 @@ class TestLifecycle:
         assert caps.supports_slice_order is True
         assert caps.supports_kill_switch is True
         assert caps.supports_news is True
-        assert caps.supports_fundamentals is True
+        assert caps.supports_fundamentals is False
 
 
 # ---------------------------------------------------------------------------
