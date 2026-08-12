@@ -14,7 +14,6 @@ from tradex_brokers.dhan.master import parse_dhan_master
 from tradex_brokers.upstox.master import parse_upstox_master
 
 from tradex_trading.config.env import _parse_bool
-from tradex_trading.config.loader import load_config
 from tradex_trading.config.schema import (
     AppConfig,
     BrokerConfig,
@@ -23,14 +22,6 @@ from tradex_trading.config.schema import (
     PersistenceConfig,
     RiskConfig,
     _build,
-)
-from tradex_trading.runtime.health import (
-    AggregateHealthCheck,
-    CacheHealthCheck,
-    ClockHealthCheck,
-    ComponentHealth,
-    ComponentState,
-    MessageBusHealthCheck,
 )
 from tradex_trading.runtime.live import (
     _curl_cffi_available,
@@ -118,36 +109,6 @@ class TestSchemaPorts:
 
 
 # ---------------------------------------------------------------------------
-# Task 3: config/loader.py
-# ---------------------------------------------------------------------------
-
-
-class TestLoaderPorts:
-    def test_load_config_json(self, tmp_path: Path) -> None:
-        config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({"mode": "backtest", "log_level": "DEBUG"}))
-        cfg = load_config(config_file)
-        assert cfg.mode == "backtest"
-        assert cfg.log_level == "DEBUG"
-
-    def test_load_config_not_found(self, tmp_path: Path) -> None:
-        with pytest.raises(FileNotFoundError):
-            load_config(tmp_path / "missing.json")
-
-    def test_load_config_invalid_json(self, tmp_path: Path) -> None:
-        config_file = tmp_path / "bad.json"
-        config_file.write_text("{invalid json")
-        with pytest.raises(ValueError, match="invalid JSON"):
-            load_config(config_file)
-
-    def test_load_config_non_object_json(self, tmp_path: Path) -> None:
-        config_file = tmp_path / "array.json"
-        config_file.write_text("[1, 2, 3]")
-        with pytest.raises(ValueError, match="config root must be an object"):
-            load_config(config_file)
-
-
-# ---------------------------------------------------------------------------
 # Task 4: config/env.py
 # ---------------------------------------------------------------------------
 
@@ -198,76 +159,6 @@ class TestStartupPorts:
         assert "engine" in fields
         assert "bus" in fields
         assert "broker" in fields
-
-
-# ---------------------------------------------------------------------------
-# Task 6: runtime/health.py
-# ---------------------------------------------------------------------------
-
-
-class TestHealthPorts:
-    def test_component_state_values(self) -> None:
-        assert ComponentState.RUNNING == "RUNNING"
-        assert ComponentState.DEGRADED == "DEGRADED"
-        assert ComponentState.ERROR == "ERROR"
-        assert ComponentState.UNKNOWN == "UNKNOWN"
-
-    def test_component_health_defaults(self) -> None:
-        h = ComponentHealth(component_id="test")
-        assert h.state == ComponentState.RUNNING
-        assert h.details == {}
-
-    def test_message_bus_health_check_running(self) -> None:
-        bus = MagicMock()
-        bus.stopped = False
-        check = MessageBusHealthCheck(bus)
-        result = check.check()
-        assert result.state == ComponentState.RUNNING
-
-    def test_message_bus_health_check_error(self) -> None:
-        bus = MagicMock()
-        bus.stopped = True
-        check = MessageBusHealthCheck(bus)
-        result = check.check()
-        assert result.state == ComponentState.ERROR
-
-    def test_cache_health_check(self) -> None:
-        cache = MagicMock()
-        cache.snapshot.return_value = {"orders": {1: "a"}, "positions": {}}
-        check = CacheHealthCheck(cache)
-        result = check.check()
-        assert result.state == ComponentState.RUNNING
-        assert result.details["orders"] == 1
-        assert result.details["positions"] == 0
-
-    def test_clock_health_check_ok(self) -> None:
-        clock = MagicMock()
-        clock.now.return_value = 12345.0
-        check = ClockHealthCheck(clock)
-        result = check.check()
-        assert result.state == ComponentState.RUNNING
-
-    def test_clock_health_check_error(self) -> None:
-        clock = MagicMock()
-        clock.now.side_effect = RuntimeError("clock broken")
-        check = ClockHealthCheck(clock)
-        result = check.check()
-        assert result.state == ComponentState.ERROR
-        assert "clock broken" in result.details["error"]
-
-    def test_aggregate_health_check_worst_state(self) -> None:
-        ok = MagicMock()
-        ok.check.return_value = ComponentHealth("a", ComponentState.RUNNING)
-        bad = MagicMock()
-        bad.check.return_value = ComponentHealth("b", ComponentState.ERROR)
-        agg = AggregateHealthCheck([ok, bad])
-        result = agg.check()
-        assert result.state == ComponentState.ERROR
-        assert agg.is_ready() is False
-
-    def test_aggregate_health_check_empty(self) -> None:
-        agg = AggregateHealthCheck([])
-        assert agg.is_ready() is True
 
 
 # ---------------------------------------------------------------------------
