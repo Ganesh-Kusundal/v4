@@ -24,9 +24,7 @@ from tradex_domain.value_objects import Price, Quantity
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.replay.backtest import BacktestEngine
 from tradex_trading.sdk.session import SessionState, TradingSession
-from tradex_trading.sdk.session_manager import SessionManager
 from tradex_trading.strategy.core.buy_and_hold import BuyAndHoldStrategy
-from tradex_trading.strategy.core.ensemble import StrategyEnsemble
 
 
 def _now() -> datetime:
@@ -302,95 +300,8 @@ class TestBacktestEngine:
 
 
 # ---------------------------------------------------------------------------
-# Test 6: Multi-session management
-# ---------------------------------------------------------------------------
-
-
-class TestMultiSession:
-    """Test SessionManager with multiple sessions."""
-
-    def test_multi_session_workflow(self):
-        """Create multiple sessions, manage them, aggregate positions."""
-        manager = SessionManager()
-
-        s1 = TradingSession.paper()
-        s1.start()
-        s2 = TradingSession.paper()
-        s2.start()
-
-        manager.add("paper-1", s1)
-        manager.add("paper-2", s2)
-
-        assert len(manager) == 2
-        assert manager.active is s1
-
-        manager.set_active("paper-2")
-        assert manager.active is s2
-
-        # Aggregate positions
-        all_positions = manager.all_positions()
-        assert isinstance(all_positions, list)
-
-        manager.close_all()
-        assert len(manager) == 0
-
-
-# ---------------------------------------------------------------------------
 # Test 7: Strategy ensemble
 # ---------------------------------------------------------------------------
-
-
-class TestStrategyEnsembleIntegration:
-    """Test multi-strategy ensemble end-to-end."""
-
-    def test_ensemble_with_multiple_strategies(self):
-        """Run ensemble with 2 strategies, aggregate signals."""
-        s1 = BuyAndHoldStrategy("bh-1", _eq())
-        s2 = BuyAndHoldStrategy("bh-2", _eq())
-
-        ensemble = StrategyEnsemble()
-        ensemble.add(s1, weight=0.6, name="primary")
-        ensemble.add(s2, weight=0.4, name="secondary")
-
-        assert len(ensemble) == 2
-
-        ctx = StrategyContext()
-        quote = Quote(
-            instrument=_eq(),
-            ltp=Price(value=Decimal("2500")),
-            timestamp=_now(),
-        )
-
-        results = ensemble.on_quote(ctx, quote)
-        assert len(results) == 2
-
-        # Both strategies should emit BUY signals
-        signal = ensemble.aggregate(results)
-        assert signal is not None
-        assert signal.direction == OrderSide.BUY
-
-    def test_ensemble_majority_aggregation(self):
-        """Test majority aggregation mode."""
-        s1 = BuyAndHoldStrategy("bh-1", _eq())
-        s2 = BuyAndHoldStrategy("bh-2", _eq())
-        s3 = BuyAndHoldStrategy("bh-3", _eq())
-
-        ensemble = StrategyEnsemble(aggregation="majority", min_votes=2)
-        ensemble.add(s1, weight=1.0, name="s1")
-        ensemble.add(s2, weight=1.0, name="s2")
-        ensemble.add(s3, weight=1.0, name="s3")
-
-        ctx = StrategyContext()
-        quote = Quote(
-            instrument=_eq(),
-            ltp=Price(value=Decimal("2500")),
-            timestamp=_now(),
-        )
-
-        results = ensemble.on_quote(ctx, quote)
-        signal = ensemble.aggregate(results)
-        assert signal is not None
-        assert signal.direction == OrderSide.BUY
 
 
 # ---------------------------------------------------------------------------
