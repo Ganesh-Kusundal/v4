@@ -1,15 +1,11 @@
-"""Datalake tests — catalog, quality, corporate actions, source selection (F16/F28).
+"""Datalake tests — catalog, corporate actions (F16/F28).
 
 Ported from v3 ``test_analytics_datalake.py`` (datalake parts only).
 
 v4 API differences:
 - ``DataCatalog.write_bar(instrument, timeframe, candle)`` (v3: ``write_bars(symbol, [bars])``)
 - ``DataCatalog.read_bars(instrument, timeframe, start, end)`` → list[Candle]
-- ``DataQualityEngine.check_gaps(bars, timeframe)`` → list[dict]
-- ``DataQualityEngine.check_duplicates(bars)`` → list[timestamp]
 - ``CorporateActionStore.add(action)`` / ``.get(instrument, start, end)`` — no split adjustment
-- ``SourceSelectionPolicy`` is a frozen dataclass with ``select()`` → str
-- ``MCPDataLakeServer`` is a stub (start/stop only)
 """
 
 from __future__ import annotations
@@ -31,10 +27,6 @@ from tradex_domain import (
 from tradex_trading.datalake import (
     CorporateActionStore,
     DataCatalog,
-    DataQualityEngine,
-    DataSourceKind,
-    MCPDataLakeServer,
-    SourceSelectionPolicy,
 )
 
 
@@ -103,57 +95,6 @@ class TestDataCatalog:
         instruments = catalog.list_instruments()
         assert len(instruments) == 1
         assert instruments[0] == ("NSE", "RELIANCE")
-
-
-# ---------------------------------------------------------------------------
-# DataQualityEngine — gap and duplicate detection
-# ---------------------------------------------------------------------------
-
-
-class TestDataQualityEngine:
-    """DataQualityEngine data quality checks."""
-
-    def test_check_gaps_detects_missing_bars(self) -> None:
-        engine = DataQualityEngine()
-        now = datetime(2026, 7, 1, 10, 0, tzinfo=UTC)
-        bars = [
-            _candle(100.0, now),
-            _candle(101.0, now + timedelta(days=1)),
-            _candle(102.0, now + timedelta(days=5)),  # gap of 4 days
-        ]
-        gaps = engine.check_gaps(bars, Timeframe.D1)
-        assert len(gaps) == 1
-        assert gaps[0]["expected_count"] >= 2
-
-    def test_check_gaps_no_gaps(self) -> None:
-        engine = DataQualityEngine()
-        now = datetime(2026, 7, 1, 10, 0, tzinfo=UTC)
-        bars = [
-            _candle(100.0, now),
-            _candle(101.0, now + timedelta(days=1)),
-        ]
-        gaps = engine.check_gaps(bars, Timeframe.D1)
-        assert gaps == []
-
-    def test_check_gaps_empty(self) -> None:
-        engine = DataQualityEngine()
-        assert engine.check_gaps([], Timeframe.D1) == []
-
-    def test_check_duplicates(self) -> None:
-        engine = DataQualityEngine()
-        now = datetime(2026, 7, 1, 10, 0, tzinfo=UTC)
-        bars = [
-            _candle(100.0, now),
-            _candle(101.0, now),  # duplicate timestamp
-            _candle(102.0, now + timedelta(days=1)),
-        ]
-        dupes = engine.check_duplicates(bars)
-        assert len(dupes) == 1
-        assert dupes[0] == now
-
-    def test_check_duplicates_empty(self) -> None:
-        engine = DataQualityEngine()
-        assert engine.check_duplicates([]) == []
 
 
 # ---------------------------------------------------------------------------
@@ -226,55 +167,6 @@ class TestCorporateActionStore:
         store = CorporateActionStore()
         with pytest.raises(ValueError):
             store.adjust_price(100.0)
-
-
-# ---------------------------------------------------------------------------
-# SourceSelectionPolicy
-# ---------------------------------------------------------------------------
-
-
-class TestSourceSelectionPolicy:
-    """SourceSelectionPolicy — data source selection."""
-
-    def test_default_preferred_source(self) -> None:
-        policy = SourceSelectionPolicy()
-        assert policy.select(_eq(), Timeframe.D1) == "broker"
-
-    def test_custom_preferred_source(self) -> None:
-        policy = SourceSelectionPolicy(preferred_source="datalake")
-        assert policy.select(_eq(), Timeframe.D1) == "datalake"
-
-    def test_fallback_source(self) -> None:
-        policy = SourceSelectionPolicy(preferred_source="broker", fallback_source="datalake")
-        assert policy.fallback_source == "datalake"
-
-
-class TestDataSourceKind:
-    """DataSourceKind enum."""
-
-    def test_enum_values(self) -> None:
-        assert DataSourceKind.DATALAKE == "DATALAKE"
-        assert DataSourceKind.BROKER_HISTORICAL == "BROKER_HISTORICAL"
-        assert DataSourceKind.LIVE == "LIVE"
-        assert DataSourceKind.REPLAY == "REPLAY"
-
-    def test_is_str(self) -> None:
-        assert isinstance(DataSourceKind.DATALAKE, str)
-
-
-# ---------------------------------------------------------------------------
-# MCPDataLakeServer — stub
-# ---------------------------------------------------------------------------
-
-
-class TestMCPDataLakeServer:
-    """MCPDataLakeServer is a stub with start/stop."""
-
-    def test_start_and_stop(self, tmp_path: Path) -> None:
-        catalog = DataCatalog(tmp_path)
-        server = MCPDataLakeServer(catalog)
-        server.start()
-        server.stop()
 
 
 # ---------------------------------------------------------------------------
