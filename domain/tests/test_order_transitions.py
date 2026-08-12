@@ -13,7 +13,7 @@ from tradex_domain.enums import (
     ProductType,
     TimeInForce,
 )
-from tradex_domain.errors import OrderRejectedError
+from tradex_domain.errors import SessionStateError
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
@@ -83,7 +83,7 @@ class TestIllegalTransitions:
     )
     def test_illegal_transition_raises(self, from_status: OrderStatus, to_status: OrderStatus):
         order = _make_order(from_status)
-        with pytest.raises(OrderRejectedError, match="illegal order transition"):
+        with pytest.raises(SessionStateError, match="illegal order transition"):
             order.transition_to(to_status)
 
 
@@ -95,5 +95,5 @@ class TestTerminalStates:
     def test_terminal_state_has_no_outgoing(self, terminal: OrderStatus):
         order = _make_order(terminal)
         for target in OrderStatus:
-            with pytest.raises(OrderRejectedError):
+            with pytest.raises(SessionStateError):
                 order.transition_to(target)

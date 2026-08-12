@@ -3,18 +3,50 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
-from tradex_domain.enums import OrderSide
+from tradex_domain.enums import OrderSide, OrderStatus, OrderType
+from tradex_domain.events import OrderFilled
+from tradex_domain.execution import OrderRequest
 from tradex_domain.strategy import StrategyContext
 from tradex_domain.value_objects import OrderId, Price, Quantity
 
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
+from tradex_trading.datalake.corporate_actions import CorporateActionStore
+from tradex_trading.execution.cash_ledger import CashLedger
+from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fees import FeeCalculator
+from tradex_trading.execution.fill_sources import SimulatedFillSource
+from tradex_trading.execution.position_math import (
+    _q2,
+    apply_dividend,
+    apply_fill,
+    apply_split,
+)
+from tradex_trading.execution.position_manager import PositionManager
+from tradex_trading.execution.slippage import SlippageModel
+from tradex_trading.execution.trading_cache import TradingCache
+from tradex_trading.reactive.bus import ReactiveBus
+from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
 from tradex_trading.strategy.core.protocols import Strategy
+
+
+def _parse_ex_date(value: str) -> date:
+    """Parse a corporate-action ISO ex-date string to a ``date``."""
+    return date.fromisoformat(value)
+
+
+def _action_identity(action: Any) -> str:
+    """Stable identity for an action: ex-date + type + amount + ratio.
+
+    Two distinct actions sharing one ex-date (e.g. a dividend and a split on
+    the same day) must be applied separately, so the once-per-run dedup key
+    is never the bare ex-date string.
+    """
+    return f"{action.ex_date}|{action.action_type}|{action.amount}|{action.ratio}"
 
 
 class FakeClock:
@@ -55,9 +87,21 @@ class BacktestResult:
     total_return: float
     sharpe: float
     max_drawdown: float
+    #: Signals emitted by the strategy — INCLUDING any the risk manager
+    #: rejected and any with no bar to fill at (a signal on the final bar
+    #: never trades). Metrics are computed solely from ``equity_curve``
+    #: (which only moves on actual fills), so return/sharpe/drawdown are
+    #: unaffected by rejected or unmatched signals; use ``num_rejected``
+    #: to see how many the risk gate suppressed.
     num_trades: int
+    #: Emitted signals (see ``num_trades``) — the full audit trail, not a
+    #: list of executed fills.
     trades: list[Signal] = field(default_factory=list)
     total_fees: float = 0.0
+    equity_curve: list[float] = field(default_factory=list)
+    #: Signals whose orders failed the configured risk manager and were
+    #: skipped (no fill, no P&L) — the backtest mirror of OrderRejected.
+    num_rejected: int = 0
 
 
 class BacktestEngine:
@@ -68,6 +112,10 @@ class BacktestEngine:
         fill_source: Any | None = None,  # fill sources vary
         clock: Clock | None = None,
         fee_calculator: FeeCalculator | None = None,
+        slippage_model: SlippageModel | None = None,
+        corporate_actions: CorporateActionStore | None = None,
+        risk_manager: Any | None = None,
+        initial_capital: Decimal | float | str = Decimal("100000"),
     ) -> None:
         """Initialize backtest engine.
 
@@ -76,10 +124,45 @@ class BacktestEngine:
             clock: Optional FakeClock for deterministic time progression
             fee_calculator: Optional FeeCalculator; when provided, fees are
                 deducted from cash on each fill and surfaced in BacktestResult.
+            slippage_model: Optional slippage model; when provided, the fill
+                price is worsened by the model on each trade (BUY pays more,
+                SELL receives less). Defaults to no slippage.
+            corporate_actions: Optional ``CorporateActionStore``; when
+                provided, SPLIT/BONUS/DIVIDEND actions whose ex-date falls on
+                or before a fill bar are applied to the open position at that
+                point — point-in-time, once each, through the same shared
+                accounting math as ``PositionManager`` (parity review area
+                #4: corporate actions modeled consistently across modes).
+
+        Note: fees are charged on the *applied* fill — a SELL larger than the
+        open position is capped at the position, so the fee matches the
+        actual (capped) quantity, and a SELL with no position to close pays
+        no fee.
+
+        risk_manager:
+            Optional shared ``RiskManager`` (the same class the reactive
+            ``ExecutionEngine`` uses). When provided, each signal's order is
+            risk-checked at the fill candle's open — the same request the
+            ``next_open`` reactive bridge submits — and a rejected order is
+            skipped entirely (no fill, no P&L), mirroring OrderRejected in
+            paper/live (parity review area #1/#4: risk decisions consistent
+            across modes). ``max_position_value`` binds to the backtest's own
+            open positions when the manager has no explicit provider; the
+            orders-per-minute window is evaluated at the fill timestamp for
+            determinism. Defaults to None (no risk gate — historical behavior).
+
+            Dedicate the manager to this engine: ``run()`` binds its
+            positions provider and resets its rate window, so concurrent
+            runs sharing one manager would race on the provider binding, and
+            its rate-limit state belongs to the backtest, not live order flow.
         """
         self._fill_source = fill_source
         self._clock = clock or FakeClock()
         self._fee_calculator = fee_calculator
+        self._slippage_model = slippage_model
+        self._corporate_actions = corporate_actions
+        self._risk_manager = risk_manager
+        self._initial_capital = Decimal(str(initial_capital))
 
     def submit(self, request: Any) -> Any:
         """Route a strategy order through the backtest engine.
@@ -114,121 +197,124 @@ class BacktestEngine:
         Returns:
             BacktestResult with performance metrics
         """
-        initial_capital = Decimal("100000")
-        cash = initial_capital
-        # positions: instrument_id -> (quantity, avg_price)
-        positions: dict = {}
+        initial_capital = self._initial_capital
 
-        # Collect candles per instrument_id (preserving order for next-match lookup)
-        candles_by_id: dict = {}
+        # Snapshot signals already on the strategy (e.g. a strategy object
+        # reused from a prior ReplayEngine run) so this run only counts the
+        # signals it emits itself — never pre-existing ones (parity area #5).
+        _pre_signals = len(getattr(strategy, "signals", []) or [])
+
+        # --- Unified reactive pipeline (same as live/replay/paper) -----------
+        # Backtest is now a *bus driver*: it publishes historical events onto a
+        # ReactiveBus; the strategy (via ReactiveStrategyEngine, next_open) emits
+        # PlaceOrderCommand at the next bar's open; the SAME ExecutionEngine +
+        # PositionManager + FeeCalculator + RiskManager that live uses processes
+        # the order. Fills/risk/fees/positions are therefore computed by one code
+        # path in every mode (parity review CRITICAL-1). Backtest-specific
+        # reporting (cash ledger, point-in-time MTM, sharpe/drawdown) is derived
+        # from PositionManager + CashLedger state after the stream completes.
+        bus = ReactiveBus()
+        cache = TradingCache()
+        position_manager = PositionManager(cache)
+        fill_source = self._fill_source or SimulatedFillSource(
+            slippage_model=self._slippage_model,
+        )
+        engine = ExecutionEngine(
+            bus,
+            fill_source,
+            risk_manager=self._risk_manager,
+            cache=cache,
+            fee_calculator=self._fee_calculator,
+        )
+        ledger = CashLedger(initial_capital)
+
+        # Cash ledger subscribes to fills (orchestrated cash tracking).
+        def _on_fill(ev: OrderFilled) -> None:
+            f = ev.fill
+            ledger.on_fill(f.side, f.quantity, f.price)
+            if self._fee_calculator is not None:
+                ledger.on_fee(self._fee_calculator.calculate(f).amount)
+
+        bus.of_type(OrderFilled).subscribe(_on_fill)
+
+        # Strategy engine (next_open) drives PlaceOrderCommand at next-open.
+        strategy_engine = ReactiveStrategyEngine(bus, fill_reference="next_open")
+        strategy_engine.register(strategy)
+
+        # Risk manager binds to the SAME positions the engine fills, and resets
+        # its rate window so each run is reproducible (parity area #8).
+        if self._risk_manager is not None:
+            if not getattr(self._risk_manager, "positions_provider_bound", False):
+                self._risk_manager.set_positions_provider(
+                    lambda: list(cache.all_positions()),
+                )
+            self._risk_manager.reset_rate_window()
+
+        # Corp actions: applied to the shared PositionManager (and the ledger's
+        # cash effects mirrored) at each bar's ex-date — before that bar's fill.
+        applied_actions: dict[str, set[str]] = {}
+        def _apply_ca_for(ts: datetime) -> None:
+            if self._corporate_actions is None:
+                return
+            for pos in list(cache.all_positions()):
+                self._apply_actions_due(
+                    pos.instrument, position_manager, ledger, ts, applied_actions,
+                )
+
+        # Collect candles per instrument_id for point-in-time MTM.
+        candles_by_id: dict[Any, list] = {}
         for event in data:
             if isinstance(event, Candle):
                 candles_by_id.setdefault(event.instrument.instrument_id, []).append(event)
 
-        # Feed events to strategy
-        ctx = StrategyContext()
-        bar_count = 0
+        # Stamp the strategy version onto each signal's metadata (audit trail).
+        # The strategy is fed events through the bus; signals are collected
+        # from the strategy object after the stream (parity area #5).
+        version = str(getattr(strategy, "version", "1.0.0"))
+
+        # Stream historical events through the unified pipeline.
+        equity_curve_dec: list[Decimal] = [initial_capital]
         for event in data:
             if isinstance(event, Candle):
-                bar_count += 1
-                ctx = StrategyContext(bar_count=bar_count, timestamp=event.timestamp)
-                strategy.on_bar(ctx, event)
+                # Apply due corporate actions BEFORE the bar's open fill.
+                _apply_ca_for(event.timestamp)
+                bus.publish(event)
+                # Point-in-time MTM at this bar's close.
+                positions_now = {
+                    p.instrument.instrument_id: p for p in cache.all_positions()
+                }
+                equity_curve_dec.append(
+                    ledger.cash
+                    + self._mark_to_market(positions_now, candles_by_id, event.timestamp)
+                )
             elif isinstance(event, Quote):
-                ctx = StrategyContext(timestamp=event.timestamp)
-                strategy.on_quote(ctx, event)
+                bus.publish(event)
             elif isinstance(event, Fill):
-                strategy.on_fill(ctx, event)
+                bus.publish(event)
 
-        signals = getattr(strategy, "signals", [])
-        num_trades = len(signals)
+        engine.shutdown()
+        strategy_engine.dispose_all()
 
-        # Guard: no signals → zeroed metrics
-        if not signals:
-            return BacktestResult(
-                total_return=0.0,
-                sharpe=0.0,
-                max_drawdown=0.0,
-                num_trades=0,
-                trades=[],
-                total_fees=0.0,
-            )
-
-        # Build equity curve from signal-driven trades.
-        # Signals carry no timestamp, so we match them sequentially against the
-        # candle stream for each instrument: signal N consumes candle N.
-        equity_curve_dec: list[Decimal] = [initial_capital]
-        cursor_by_id: dict = {}
-        total_fees = Decimal("0")
-        fee_seq = 0
-
+        # --- Derive BacktestResult from pipeline state (unchanged fields) -----
+        _all_signals = getattr(strategy, "signals", []) or []
+        signals = _all_signals[_pre_signals:]
         for signal in signals:
-            inst_id = signal.instrument.instrument_id
-            inst_candles = candles_by_id.get(inst_id, [])
-            cursor = cursor_by_id.get(inst_id, 0)
-            if cursor >= len(inst_candles):
-                # No candle available for this signal — counted in num_trades
-                # but does not move equity.
-                continue
-            fill_candle = inst_candles[cursor]
-            cursor_by_id[inst_id] = cursor + 1
+            meta = getattr(signal, "metadata", None)
+            if isinstance(meta, dict):
+                meta.setdefault("strategy_version", version)
 
-            price = fill_candle.ohlc.close.value
-            if not isinstance(price, Decimal):
-                price = Decimal(str(price))
+        filled_orders = [
+            o for o in cache.all_orders()
+            if o.status == OrderStatus.FILLED
+        ]
+        num_trades = len(filled_orders)
+        rejected = (
+            self._risk_manager.rejected_count
+            if self._risk_manager is not None else 0
+        )
+        total_fees = ledger.total_fees
 
-            # Infer quantity from signal strength, default 1
-            strength = getattr(signal, "strength", None)
-            qty = (
-                Decimal(str(strength))
-                if strength is not None and strength != 0
-                else Decimal("1")
-            )
-            if qty < 0:
-                qty = -qty
-
-            fee = Decimal("0")
-            if self._fee_calculator is not None and price > 0 and qty > 0:
-                fee_seq += 1
-                domain_fill = Fill(
-                    order_id=OrderId(f"bt-{fee_seq}"),
-                    instrument=signal.instrument,
-                    side=signal.direction,
-                    quantity=Quantity(qty),
-                    price=Price(price),
-                    timestamp=fill_candle.timestamp,
-                )
-                fee = self._fee_calculator.calculate(domain_fill).amount
-                total_fees += fee
-                cash -= fee
-
-            if signal.direction == OrderSide.BUY:
-                cost = price * qty
-                cash -= cost
-                prev_qty, prev_avg = positions.get(inst_id, (Decimal("0"), Decimal("0")))
-                new_qty = prev_qty + qty
-                new_avg = (
-                    (prev_avg * prev_qty + price * qty) / new_qty
-                    if new_qty > Decimal("0")
-                    else price
-                )
-                positions[inst_id] = (new_qty, new_avg)
-                equity_curve_dec.append(cash + self._mark_to_market(positions, candles_by_id))
-
-            elif signal.direction == OrderSide.SELL:
-                prev_qty, prev_avg = positions.get(inst_id, (Decimal("0"), Decimal("0")))
-                sell_qty = min(qty, prev_qty)
-                if sell_qty <= Decimal("0"):
-                    continue
-                proceeds = price * sell_qty
-                cash += proceeds
-                new_qty = prev_qty - sell_qty
-                if new_qty > Decimal("0"):
-                    positions[inst_id] = (new_qty, prev_avg)
-                else:
-                    positions.pop(inst_id, None)
-                equity_curve_dec.append(cash + self._mark_to_market(positions, candles_by_id))
-
-        # Build float equity curve and returns
+        # Build float equity curve and returns.
         equity_curve = [float(v) for v in equity_curve_dec]
         returns: list[float] = []
         for i in range(1, len(equity_curve)):
@@ -242,19 +328,96 @@ class BacktestEngine:
             num_trades=num_trades,
             trades=signals,
             total_fees=float(total_fees),
+            equity_curve=equity_curve,
+            num_rejected=rejected,
         )
 
+    def _apply_actions_due(
+        self,
+        instrument: Any,
+        position_manager: Any,
+        ledger: Any,
+        as_of: datetime | None,
+        applied: dict[str, set[str]],
+    ) -> None:
+        """Apply corporate actions with ex-date <= *as_of* to the shared
+        PositionManager (and mirror their cash effects onto the ledger).
+
+        Point-in-time: only actions already effective by *as_of* are applied,
+        in ex-date order, and each action exactly once per run. The position
+        math is delegated to ``PositionManager.on_corporate_action`` — the same
+        ``apply_split`` / ``apply_dividend`` model the reactive pipeline uses
+        (parity review area #4), so backtest, replay, paper, and live book
+        corporate actions identically. The cash ledger receives the same basis
+        restatement (split) and per-share credit (dividend) the legacy private
+        loop applied, so realized P&L and equity stay equal to the rupee.
+        """
+        if as_of is None or self._corporate_actions is None:
+            return
+        actions = [
+            a
+            for a in self._corporate_actions.get_typed(instrument.symbol)
+            if a.ex_date and _parse_ex_date(a.ex_date) <= as_of.date()
+        ]
+        if not actions:
+            return
+        actions.sort(key=lambda a: a.ex_date)
+        done = applied.setdefault(instrument.instrument_id, set())
+        # Read the open position BEFORE applying (split re-bases qty; dividend
+        # credit is per pre-action qty).
+        existing = position_manager._cache.get_position(instrument.symbol)
+        for action in actions:
+            identity = _action_identity(action)
+            if identity in done:
+                continue
+            done.add(identity)
+            if existing is None:
+                continue  # no open position — nothing to adjust
+            kind = action.action_type.upper()
+            if kind in ("SPLIT", "BONUS") and action.ratio > 0:
+                old_basis = existing.avg_price.value * existing.quantity.value
+                position_manager.on_corporate_action(
+                    instrument, kind, ratio=action.ratio,
+                )
+                existing = position_manager._cache.get_position(instrument.symbol)
+                new_basis = existing.avg_price.value * existing.quantity.value
+                ledger.restate(old_basis - new_basis)
+            elif kind == "DIVIDEND":
+                per_share = Decimal(str(action.amount))
+                ledger.credit(_q2(per_share * existing.quantity.value))
+                position_manager.on_corporate_action(
+                    instrument, "DIVIDEND", per_share=action.amount,
+                )
+                existing = position_manager._cache.get_position(instrument.symbol)
+
     @staticmethod
-    def _mark_to_market(positions: dict, candles_by_id: dict) -> Decimal:
-        """Sum position qty * last close price across all open positions."""
+    def _mark_to_market(
+        positions: dict,
+        candles_by_id: dict,
+        as_of: datetime | None,
+    ) -> Decimal:
+        """Sum position qty * latest close known at *as_of* across open positions.
+
+        Point-in-time: only candles with ``timestamp <= as_of`` are used, so a
+        position is never marked at a close from the future. Untimestamped
+        (legacy) signals pass ``as_of=None`` and fall back to the full series.
+        Positions are the shared-model ``Position`` objects.
+        """
         mtm = Decimal("0")
-        for inst_id, (qty, _avg) in positions.items():
+        for inst_id, pos in positions.items():
+            qty = pos.quantity.value
             if qty <= Decimal("0"):
                 continue
             inst_candles = candles_by_id.get(inst_id, [])
             if not inst_candles:
                 continue
-            last_close = inst_candles[-1].ohlc.close.value
+            if as_of is not None:
+                known = [c for c in inst_candles if c.timestamp <= as_of]
+                if not known:
+                    continue
+                last_close = known[-1].ohlc.close.value
+            else:
+                last_close = inst_candles[-1].ohlc.close.value
             if not isinstance(last_close, Decimal):
                 last_close = Decimal(str(last_close))
             mtm += qty * last_close

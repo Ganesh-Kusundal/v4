@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.execution import Fill
-from tradex_domain.market import Candle, Quote
+from tradex_domain.market import Candle, Depth, Quote
 from tradex_domain.strategy import Signal, StrategyContext
 
 
@@ -18,6 +18,14 @@ class Strategy(Protocol):
         """Unique identifier for this strategy."""
         ...
 
+    @property
+    def version(self) -> str:
+        """Semver of this strategy's logic (parity review area #5: strategies
+        are versioned artifacts). Stamped onto signals and orders so the audit
+        trail identifies exactly which version produced each result. Strategies
+        without a ``version`` attribute default to ``"1.0.0"``."""
+        return "1.0.0"
+
     def on_start(self, context: StrategyContext) -> None:
         """Called once when strategy starts."""
         ...
@@ -28,6 +36,10 @@ class Strategy(Protocol):
 
     def on_quote(self, context: StrategyContext, quote: Quote) -> Signal | None:
         """Called on each new quote."""
+        ...
+
+    def on_depth(self, context: StrategyContext, depth: Depth) -> Signal | None:
+        """Called on each new depth snapshot."""
         ...
 
     def on_fill(self, context: StrategyContext, fill: Fill) -> None:

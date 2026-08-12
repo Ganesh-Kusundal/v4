@@ -71,6 +71,3 @@ class BackendStreamSubscription(StreamSubscription):
 
 
 __all__ = ["BackendStreamSubscription", "StreamSubscription"]
-
-
-__all__ = ["StreamSubscription"]

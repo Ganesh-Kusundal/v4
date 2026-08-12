@@ -374,7 +374,6 @@ class HistoricalSeries(Serializable):
             ax_vol = None
 
         timestamps = [c.timestamp for c in self.candles]
-        [float(c.ohlc.open.value) for c in self.candles]
         highs = [float(c.ohlc.high.value) for c in self.candles]
         lows = [float(c.ohlc.low.value) for c in self.candles]
         closes = [float(c.ohlc.close.value) for c in self.candles]
@@ -418,7 +417,6 @@ def _aggregate(chunk: list[Candle]) -> Candle:
 
 def _bucketize(candles: list[Candle], timeframe: Timeframe) -> dict[int, Candle]:
     import calendar
-    from decimal import Decimal
 
     seconds = {
         Timeframe.M1: 60,
@@ -436,19 +434,14 @@ def _bucketize(candles: list[Candle], timeframe: Timeframe) -> dict[int, Candle]
         buckets.setdefault(key, []).append(candle)
     out: dict[int, Candle] = {}
     for key, chunk in buckets.items():
-        first = chunk[0]
-        ohlc = first.ohlc
+        agg = _aggregate(chunk)
+        # Override timeframe to target (_aggregate uses the source candle's timeframe)
         out[key] = Candle(
-            instrument=first.instrument,
+            instrument=agg.instrument,
             timeframe=timeframe,
-            ohlc=type(ohlc)(
-                open=ohlc.open,
-                high=Price(value=max(c.ohlc.high.value for c in chunk)),
-                low=Price(value=min(c.ohlc.low.value for c in chunk)),
-                close=chunk[-1].ohlc.close,
-            ),
-            volume=Quantity(value=sum((c.volume.value for c in chunk), Decimal(0))),
-            timestamp=chunk[-1].timestamp,
+            ohlc=agg.ohlc,
+            volume=agg.volume,
+            timestamp=agg.timestamp,
         )
     return out
 

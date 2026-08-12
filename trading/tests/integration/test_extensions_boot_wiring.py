@@ -155,6 +155,46 @@ class TestBootWiresDiscovery:
         finally:
             ctx.close()
 
+    def test_backtest_mode_scanner_uses_datalake_provider(self, monkeypatch) -> None:
+        """In backtest/replay modes the scanner market is the parquet datalake
+        provider, not the broker — offline scanning over the full universe."""
+        from tradex_brokers import BrokerFactory
+
+        from tradex_trading.datalake.market_provider import ParquetMarketProvider
+
+        monkeypatch.setattr(
+            BrokerFactory, "create", lambda _bid, **_kw: _fake_broker_with_history([10.0])
+        )
+        for mode in ("backtest", "replay"):
+            session = boot(AppConfig(mode=mode))
+            try:
+                engine = session.scanner._engine  # noqa: SLF001 – wiring probe
+                assert isinstance(engine._market, ParquetMarketProvider)  # noqa: SLF001
+            finally:
+                session.stop()
+
+    def test_backtest_mode_exposes_datalake_backtest_loader(self, monkeypatch) -> None:
+        """Backtest/replay sessions expose ``session.backtest`` bound to the
+        datalake loader; paper sessions keep it ``None``."""
+        from tradex_brokers import BrokerFactory
+
+        from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
+
+        monkeypatch.setattr(
+            BrokerFactory, "create", lambda _bid, **_kw: _fake_broker_with_history([10.0])
+        )
+        for mode in ("backtest", "replay"):
+            session = boot(AppConfig(mode=mode))
+            try:
+                assert isinstance(session.backtest, ParquetBacktestLoader)
+            finally:
+                session.stop()
+        session = boot(AppConfig(mode="paper"))
+        try:
+            assert session.backtest is None
+        finally:
+            session.stop()
+
 
 def test_paper_boot_with_real_broker_runs_discovered_scanner() -> None:
     """End-to-end with the real PaperBroker (no mocks): the paper broker's

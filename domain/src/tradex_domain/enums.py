@@ -85,7 +85,7 @@ class InstrumentType(StrEnum):
         warnings.warn(
             "InstrumentType is deprecated, use AssetClass instead",
             DeprecationWarning,
-            stacklevel=2,
+            stacklevel=3,
         )
 
 

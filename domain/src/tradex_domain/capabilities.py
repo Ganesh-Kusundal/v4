@@ -8,6 +8,7 @@ single capability-loud gate used by the SDK services (D-8).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 from tradex_domain.enums import AssetClass
 from tradex_domain.errors import CapabilityNotSupportedError
@@ -36,7 +37,7 @@ class BrokerCapabilities:
     supports_news: bool = False
     supports_fundamentals: bool = False
     max_order_quantity: int | None = None
-    max_order_value: float | None = None
+    max_order_value: Decimal | None = None
     max_batch_size: int = 1
     #: Levels in the deepest market-depth stream (0 = no depth feed).
     #: Dhan depth-20 -> 20; Upstox full_d30 -> 30.

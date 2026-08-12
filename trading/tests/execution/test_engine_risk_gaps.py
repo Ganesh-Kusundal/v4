@@ -5,7 +5,8 @@ from __future__ import annotations
 from decimal import Decimal
 
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
-from tradex_domain.execution import Order, OrderRequest, Position
+from tradex_domain.events import OrderFilled
+from tradex_domain.execution import Fill, Order, OrderRequest, Position
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import (
     CorrelationId,
@@ -93,12 +94,53 @@ def test_risk_manager_rate_limit_rejects_after_cap() -> None:
 
 
 def test_risk_manager_max_position_value_rejects() -> None:
-    """RiskManager accepts max_position_value param without error."""
+    """RiskManager rejects when exposure + incoming order exceed the cap."""
     rm = RiskManager(max_position_value=Decimal("50000"))
-    req = _make_request(quantity="10", price="100")
-    # max_position_value is stored; check still passes for small orders
-    result = rm.check(req)
-    assert result is True
+    req = _make_request(quantity="10", price="100")  # 1,000 notional
+    # No positions provider -> no position check; order value itself is small.
+    assert rm.check(req) is True
+
+    # With a provider showing existing exposure, the cap is enforced.
+    rm2 = RiskManager(
+        max_position_value=Decimal("50000"),
+        positions_provider=lambda: [_make_position("AAPL", qty="500")],
+    )
+    assert rm2.check(req) is False  # 500*100 + 10*100 = 51,000 > 50,000
+
+    # Exposure exactly at the cap is allowed (only > rejects).
+    rm3 = RiskManager(
+        max_position_value=Decimal("50000"),
+        positions_provider=lambda: [_make_position("AAPL", qty="490")],
+    )
+    assert rm3.check(req) is True  # 49,000 + 1,000 = 50,000 == cap
+
+    # Small existing exposure passes.
+    rm4 = RiskManager(
+        max_position_value=Decimal("50000"),
+        positions_provider=lambda: [_make_position("AAPL", qty="100")],
+    )
+    assert rm4.check(req) is True  # 10,000 + 1,000 = 11,000 <= 50,000
+
+
+def test_engine_enforces_max_position_value_on_fills() -> None:
+    """ExecutionEngine + cache-backed risk manager: a fill that pushes total
+    position value over the cap is rejected end-to-end."""
+    bus = ReactiveBus()
+    engine = ExecutionEngine(bus=bus, fill_source=SimulatedFillSource())
+    risk = RiskManager(max_position_value=Decimal("2000"))
+    risk._positions_provider = engine.cache.all_positions  # type: ignore[attr-defined]
+    engine._risk = risk
+    try:
+        receipt = engine.submit(_make_request(quantity="10", price="100"))
+        assert receipt.status == OrderStatus.FILLED  # 1,000
+        receipt2 = engine.submit(_make_request(quantity="10", price="100"))
+        assert receipt2.status == OrderStatus.FILLED  # 2,000 (== cap, allowed)
+        # A third order pushes cumulative exposure to 3,000 > 2,000 -> reject.
+        receipt3 = engine.submit(_make_request(quantity="10", price="100"))
+        assert receipt3.status == OrderStatus.REJECTED
+        assert "risk_check_failed" in receipt3.message
+    finally:
+        engine.shutdown()
 
 
 # ---------------------------------------------------------------------------
@@ -178,3 +220,50 @@ def test_reconcile_combined_positions_and_orders() -> None:
     order_drifts = [d for d in drifts if d.kind == "order"]
     assert len(pos_drifts) >= 1
     assert len(order_drifts) >= 1
+
+
+def test_risk_manager_rejected_count_increments() -> None:
+    """rejected_count tracks every deny so backtest can report num_rejected."""
+    rm = RiskManager(max_order_value=Decimal("1"))
+    req = OrderRequest(
+        instrument=Equity.of("NSE", "RELIANCE"),
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(Decimal("10")),
+        price=Price(Decimal("100")),
+    )
+    assert rm.check(req) is False
+    assert rm.check(req) is False
+    assert rm.rejected_count == 2
+    # A passing check does not change the count.
+    rm2 = RiskManager()
+    assert rm2.check(req) is True
+    assert rm2.rejected_count == 0
+
+
+# ---------------------------------------------------------------------------
+# _applied_fills bounding (C1)
+# ---------------------------------------------------------------------------
+
+
+def test_applied_fills_bounded_to_prevent_memory_leak() -> None:
+    """_applied_fills is cleared when it exceeds the max to cap memory growth."""
+    engine = _make_engine()
+    # Lower the cap for testing.
+    engine._applied_fills_max = 100
+
+    instrument = Equity.of("NSE", "TEST")
+    for i in range(150):
+        fill = Fill(
+            order_id=OrderId(value=f"ord-{i}"),
+            instrument=instrument,
+            side=OrderSide.BUY,
+            quantity=Quantity(Decimal("10")),
+            price=Price(Decimal("100")),
+            fill_id=f"fill-{i}",
+        )
+        engine._apply_fill(OrderFilled(fill=fill))
+
+    # After 150 unique fills with max=100, the set should have been cleared
+    # at some point and only contain a subset.
+    assert len(engine._applied_fills) <= 100

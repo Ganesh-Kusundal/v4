@@ -886,7 +886,7 @@ class TestDhanWsStreams:
         assert dhan_segment(Future.of("NFO", "NIFTY", date(2024, 12, 26))) == "NSE_FNO"
 
     def test_row_to_quote(self) -> None:
-        from tradex_brokers.dhan.ws_streams import _row_to_quote
+        from tradex_brokers.common.ws_shared import row_to_quote
 
         inst = Equity.of("NSE", "RELIANCE")
         row = {
@@ -897,7 +897,7 @@ class TestDhanWsStreams:
                 "sell": [{"price": 101, "quantity": 300}],
             },
         }
-        quote = _row_to_quote(inst, row, provider="dhan")
+        quote = row_to_quote(inst, row, provider="dhan")
         assert quote.ltp.value == Decimal("100.5")
         assert quote.volume.value == 1000
         assert quote.bid is not None

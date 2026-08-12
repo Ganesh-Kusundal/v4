@@ -16,8 +16,10 @@ dependencies = [
 [project.optional-dependencies]
 analytics = ["numpy>=1.26,<3"]
 datalake = ["duckdb>=0.10,<2"]
-api = ["fastapi>=0.110,<1", "uvicorn>=0.29,<1", "httpx2>=2.0.0,<3"]
-full = ["numpy>=1.26,<3", "duckdb>=0.10,<2", "fastapi>=0.110,<1", "uvicorn>=0.29,<1", "httpx2>=2.0.0,<3"]
+# TestClient (fastapi.testclient) needs the real httpx at runtime; the
+# previously-declared "httpx2" was an unrelated package nothing imports.
+api = ["fastapi>=0.110,<1", "uvicorn>=0.29,<1", "httpx>=0.27,<1"]
+full = ["numpy>=1.26,<3", "duckdb>=0.10,<2", "fastapi>=0.110,<1", "uvicorn>=0.29,<1", "httpx>=0.27,<1"]
 
 [project.scripts]
 tradex = "tradex_trading.interface.cli:main"

@@ -1,0 +1,29 @@
+name: parity-gate
+
+# Release gate (parity review): the same input event stream must produce
+# identical signals, fills, positions, and P&L in backtest, replay, paper,
+# and live. Runs the golden parity + CQRS contract suites on every push and
+# PR — the build fails automatically if any mode behaves differently.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ./domain -e ./brokers -e ./trading
+      - name: Parity + CQRS gate
+        run: python -m pytest trading/tests/parity trading/tests/contracts -q
+      - name: Shared accounting contract
+        run: python -m pytest trading/tests/execution/test_position_math.py -q

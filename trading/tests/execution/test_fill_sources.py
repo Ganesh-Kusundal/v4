@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import pytest
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
@@ -33,7 +34,7 @@ def _make_request(
 
 
 class TestSimulatedFillSource:
-    """SimulatedFillSource fills at request price or zero."""
+    """SimulatedFillSource fills at request price; rejects price-less orders."""
 
     def test_fill_at_limit_price(self) -> None:
         fill_source = SimulatedFillSource()
@@ -43,12 +44,13 @@ class TestSimulatedFillSource:
         assert fill is not None
         assert fill.price.value == Decimal("2500.00")
 
-    def test_fill_at_zero_for_market_without_price(self) -> None:
+    def test_price_less_market_order_raises(self) -> None:
+        """A zero-priced fill silently corrupts P&L (avg_price=0) and breaks
+        FeeCalculator — SimulatedFillSource must fail loudly instead."""
         fill_source = SimulatedFillSource()
         req = _make_request()  # MARKET, no price
-        order, fill = fill_source.submit(req)
-        assert fill is not None
-        assert fill.price.value == Decimal("0")
+        with pytest.raises(ValueError, match="without a positive price"):
+            fill_source.submit(req)
 
     def test_fill_uses_trigger_price_as_fallback(self) -> None:
         fill_source = SimulatedFillSource()

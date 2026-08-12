@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
+from datetime import date
+from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.errors import SDKError
@@ -48,6 +50,49 @@ def normalize_symbol(value: str) -> str:
 
 def normalize_exchange(value: str) -> str:
     return value.strip().upper()
+
+
+def _instrument_id_from_row(
+    row: dict[str, object], exchange: str, symbol: str
+) -> InstrumentId:
+    """Create the appropriate InstrumentId based on row metadata.
+
+    Inspects asset_class/instrument_type and F&O fields (expiry, strike, right)
+    to dispatch to the correct InstrumentId factory method.
+    """
+    asset_class = str(row.get("asset_class", "")).upper()
+    instrument_type = str(row.get("instrument_type", "")).upper()
+
+    # Check for option first (has strike + right)
+    right = row.get("right") or row.get("option_type")
+    strike = row.get("strike")
+    expiry_raw = row.get("expiry")
+
+    if right and strike is not None:
+        # Option
+        expiry = _parse_expiry(expiry_raw)
+        return InstrumentId.option(
+            exchange, symbol, expiry,
+            Decimal(str(strike)),
+            str(right).strip().upper(),
+        )
+
+    if expiry_raw is not None and (instrument_type == "FUTURE" or asset_class == "FUTURE" or right == "FUT"):
+        # Future
+        expiry = _parse_expiry(expiry_raw)
+        return InstrumentId.future(exchange, symbol, expiry)
+
+    # Equity/Index/Currency/Commodity — all use bare exchange+underlying
+    return InstrumentId(exchange=exchange, underlying=symbol)
+
+
+def _parse_expiry(value: object) -> date:
+    """Parse an expiry value to a date."""
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    raise ValueError(f"Cannot parse expiry: {value!r}")
 
 
 @runtime_checkable
@@ -93,10 +138,10 @@ class InstrumentRegistry:
 
     @staticmethod
     def _tag_from_id(instrument_id: InstrumentId) -> str:
-        if instrument_id.right == "FUT":
-            return "FUT"
-        if instrument_id.right in {"CE", "PE"}:
-            return "OPT"
+        tag = _TAG_BY_ASSET_CLASS.get(str(instrument_id.asset_class.value))
+        if tag is not None:
+            return tag
+        # Fallback for any asset class without an explicit mapping.
         return "EQ"
 
     @staticmethod
@@ -106,7 +151,7 @@ class InstrumentRegistry:
         if iid.expiry is not None:
             suffix += ":" + iid.expiry.strftime("%Y%m%d")
         if iid.strike is not None:
-            suffix += ":" + str(int(iid.strike))
+            suffix += ":" + str(iid.strike)
         if iid.right is not None:
             suffix += ":" + iid.right
         return f"{iid.exchange}_{tag}|{iid.underlying}{suffix}"
@@ -176,7 +221,7 @@ class InstrumentRegistry:
 
     def register_bulk(self, rows: list[dict[str, object]]) -> None:
         """Register many rows atomically: validate all, then apply.
-
+    
         A bulk registration is an *authoritative replacement* (a fresh master
         reload): each instrument's primary key is set to this batch's key and
         previously registered stale keys are dropped from reverse resolution.
@@ -188,7 +233,7 @@ class InstrumentRegistry:
             for row in rows:
                 symbol = normalize_symbol(str(row["symbol"]))
                 exchange = normalize_exchange(str(row["exchange"]))
-                iid = InstrumentId.equity(exchange, symbol)
+                iid = _instrument_id_from_row(row, exchange, symbol)
                 key = str(row.get("key") or self._default_key(iid, row))
                 prepared.append((key, iid, dict(row)))
             pending: dict[str, InstrumentId] = dict(self._state.by_key)

@@ -114,6 +114,7 @@ src/tradex_trading/
 │   ├── __init__.py                      #   Re-exports: TradingSession, services, StreamSubscription
 │   ├── session.py                       #   TradingSession — main entry point (NEW→READY→STOPPED)
 │   ├── async_session.py                 #   AsyncTradingSession — async wrapper over TradingSession
+│   ├── live_fill_bridge.py              #   LiveFillBridge — broker order stream → bus OrderFilled (HIGH-4)
 │   ├── streaming.py                     #   StreamSubscription, BackendStreamSubscription — reactive handles
 │   ├── protocols.py                     #   SDK-level protocol definitions
 │   ├── session_manager.py               #   SessionManager — multi-session lifecycle management
@@ -753,7 +754,10 @@ classDiagram
 **`NSETradingCalendar`**:
 - Market hours: 09:15 – 15:30 IST, Monday–Friday
 - `is_trading_day()`, `next_trading_day()`, `is_market_open()`
-- Does not yet account for exchange-specific holidays
+- Exchange holidays: `NSETradingCalendar(holidays={date, ...})` — a holiday
+  is not a trading day even on a weekday (was: "does not yet account for
+  exchange-specific holidays"). Used by the loader's data-gap check so
+  holidays are never mistaken for missing data.
 
 ---
 
@@ -902,6 +906,7 @@ classDiagram
 | `extensions/__init__.py` | 41 | Auto-discovery: `__all__` collection + `isinstance` filtering |
 | `extensions/strategies/sma_cross.py` | 112 | SMA crossover strategy |
 | `extensions/strategies/mean_reversion.py` | 139 | Mean reversion strategy |
+| `extensions/strategies/multi_symbol_sma_cross.py` | — | Portfolio SMA cross — one instance trades every instrument |
 | `extensions/scanners/momentum.py` | 26 | Momentum scanner definition |
 | `extensions/scanners/pullback.py` | 31 | Pullback scanner definition |
 
@@ -1045,6 +1050,10 @@ classDiagram
 | `quality.py` | 141 | `DataQualityEngine` — data quality validation |
 | `corporate_actions.py` | 156 | `CorporateAction`, `CorporateActionStore` |
 | `parquet_catalog.py` | 94 | `ParquetCatalog` — columnar storage (DuckDB) |
+| `parquet_storage.py` | — | `ParquetStorage` — Hive-partitioned OHLCV store (upsert/read) |
+| `market_provider.py` | — | `ParquetMarketProvider` — scanner/backtest history from the store |
+| `backtest_loader.py` | — | `ParquetBacktestLoader` — datalake → `BacktestEngine` inputs (§4.9) |
+| `universe.py` | — | `load_universe`/`available_universes` — Nifty constituent CSVs |
 | `source_selection.py` | 60 | `SourceSelectionPolicy` — live vs cached routing |
 | `mcp_server.py` | 51 | `MCPDataLakeServer` — MCP protocol for AI agents |
 
@@ -1143,6 +1152,65 @@ classDiagram
 - Splits data into train/test windows
 - Runs in-sample optimization on train, out-of-sample validation on test
 - Prevents overfitting by ensuring strategies are validated on unseen data
+
+#### Datalake-Backed Backtesting (`ParquetBacktestLoader`)
+
+**Data-gap safety (parity review #3/#10)** — `ParquetBacktestLoader`
+verifies, per symbol, that no *interior* trading day is missing from its
+loaded bars: for every date strictly between the symbol's first and last
+bar, a weekday that is not an exchange holiday must have a bar, or the run
+warns (`check_gaps=True` default). A symbol listed mid-window, an
+unfinished final day, weekends, and holidays are never flagged. Pass
+`gap_strict=True` (or `--strict-gaps` in the CLI) to fail the run instead —
+a data-gap hole can no longer silently distort indicators, signals, or P&L
+in a datalake backtest. Supply the exchange holiday list via
+`--holidays 2026-08-15,2026-10-02` (or `NSETradingCalendar(holidays=…)` in
+code) so `--strict-gaps` never mistakes a holiday for missing data; with
+no holiday list, the weekday-only calendar warns on holiday dates.
+Timestamps are the datalake's IST tz-naive convention, so `date()`
+boundaries are market-day boundaries.
+
+**Survivorship-bias protection (review area #3)** —
+``ParquetBacktestLoader(delisted={"XYZ", ...})`` filters out delisted symbols
+from the universe and store-symbol paths, so backtests over past windows
+never include stocks that are no longer listed (classic survivorship bias).
+Explicit ``instruments=`` are NOT filtered, so a delisted stock can still be
+loaded by name. The ``DataCatalog`` (``datalake/catalog.py``) provides
+``mark_delisted``/``delisted_instruments()`` for building the set from the
+JSONL store; the parquet store currently has no automated delisted feed.
+
+`datalake/backtest_loader.py` closes the loop between the parquet datalake
+(§4.8) and `BacktestEngine` (§4.9): it assembles the flat, time-ordered
+`list[Candle]` that `BacktestEngine.run(strategy, data)` consumes directly
+from `ParquetStorage` — offline, multi-symbol, no broker APIs.
+
+- `load(instruments=…, universe=…, timeframe=M1, start=…, end=…, *, max_workers=1)` →
+  `list[Candle]`, sorted by timestamp then instrument id so multi-symbol data
+  interleaves chronologically. Per-symbol reads run in parallel when
+  `max_workers > 1`; symbols without data in the window are skipped with a
+  `UserWarning` (no silent under-coverage).
+- `run(strategy, engine=None, **load_kwargs)` → `BacktestResult` — one call
+  from datalake to result; `engine` may carry `FeeCalculator`/`SlippageModel`.
+- Backtest/replay mode boots expose it as `session.backtest` (paper/live →
+  `None`); the scanner market is bound to the same datalake provider at boot
+  (see the Boot Sequence in §4.4).
+- Multi-symbol runs use a portfolio-style strategy — one instance trading
+  every instrument (e.g. `MultiSymbolSmaCross`, §4.6) — or one strategy
+  instance per symbol via the CLI script.
+
+```python
+from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
+from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+    MultiSymbolSmaCross,
+)
+
+loader = ParquetBacktestLoader()
+result = loader.run(MultiSymbolSmaCross(), universe="nifty100",
+                    timeframe=Timeframe.D1, max_workers=4)
+```
+
+CLI: `python trading/scripts/backtest_datalake.py --universe nifty100
+--timeframe 1d --months 2 --strategy sma_cross --limit 10 --fees`
 
 ---
 
@@ -1588,6 +1656,217 @@ sequenceDiagram
     BT->>BT: Compute total_return, sharpe, max_drawdown
     BT-->>User: BacktestResult
 ```
+
+#### Datalake-Backed Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Loader as ParquetBacktestLoader
+    participant Store as ParquetStorage
+    participant BT as BacktestEngine
+    participant Strat as Strategy
+
+    User->>Loader: load(universe, timeframe, start, end, max_workers)
+    Loader->>Store: read(symbol) per symbol (parallel threads)
+    Store-->>Loader: M1 candles
+    Loader->>Loader: resample to timeframe + sort by (ts, instrument)
+    Loader-->>User: list[Candle]
+    User->>BT: BacktestEngine(fee_calculator=…, slippage_model=…)
+    User->>BT: run(strategy, candles)
+
+    loop For each candle
+        BT->>Strat: on_bar(context, candle)
+        Strat-->>BT: Signal | None
+    end
+    BT-->>User: BacktestResult
+```
+
+- **Portfolio mode**: one `MultiSymbolSmaCross` instance trades every instrument
+  in a single engine pass — no per-symbol strategy instances.
+- **Optimization**: `grid_search` (optionally parallel via `max_workers`) or
+  walk-forward — `run_walk_forward` (bar windows) and
+  `run_walk_forward_by_date` (calendar windows, correct for interleaved
+  multi-symbol data).
+- CLI: `python trading/scripts/backtest_datalake.py` (see §4.9).
+
+#### Price-reference model & the exact-parity milestone
+
+Every order the `Signal → Order` bridge emits is stamped with a reference
+price (triggering candle close / quote LTP) and a deterministic
+correlation id, so no mode can fill a strategy order at zero or a nominal
+1.0 (parity review CRITICAL-2). Fill timing is deliberate per mode:
+
+- **BacktestEngine** fills timestamped signals at the **next bar's open** —
+  the earliest price a backtest can know without same-close look-ahead — and
+  marks positions point-in-time (no final-close leakage).
+- **Paper / reactive boot** fills at the **signal bar's close** (the latest
+  known price when a strategy signals live).
+
+**Accounting and price reference are both unified (CRITICAL-1).**
+BacktestEngine and the reactive pipeline (PositionManager) share one
+accounting model —
+`trading/src/tradex_trading/execution/position_math.py::apply_fill` — the
+single weighted-average + realized-PnL implementation, and one fill-price
+reference: `ReactiveStrategyEngine(fill_reference="next_open")` (the
+default) defers signal orders to the next candle of the same instrument and
+fills at its open, exactly like BacktestEngine's timestamp-matched
+next-bar-open fills. `fill_reference="signal_close"` restores immediate
+fills priced at the triggering event for live quote-driven strategies.
+
+`TestAccountingConvergence` and the golden parity gate
+(`trading/tests/parity/test_golden_mode_parity.py`) now assert **exact**
+fill-price + realized-P&L equality across backtest, replay, and paper on the
+same event stream, and `trading/tests/execution/test_position_math.py` pins
+the shared accounting contract. `.github/workflows/parity.yml` runs the
+parity + CQRS suites on every push and PR — the build fails automatically if
+any mode diverges.
+
+**Live-operations note (next_open default):** the strategy bridge defers
+every signal order until the next candle of the same instrument and fills at
+its open — realistic for bar-close strategies, but it adds one bar of
+execution lag, and a quote-driven live strategy fed quotes only (no candles)
+would never fill. Quote-driven live strategies should construct the strategy
+engine with ``ReactiveStrategyEngine(bus, fill_reference="signal_close")``
+to fill immediately at the triggering LTP. ``AppConfig.execution.
+fill_reference`` surfaces the same choice at boot (env:
+``TRADEX_FILL_REFERENCE``). **Note on venue trade ids:** live fills are
+bridged from the broker order stream's *cumulative* filled quantity (§
+Execution costs below), so per-trade dedup needs no ``Fill.fill_id`` — the
+bridge computes newly-filled deltas against the OMS cache. ``fill_id``
+remains an optional per-trade handle for future REST trade-pull flows
+(e.g. Dhan ``tradeId``).
+
+#### Execution costs are consistent across modes (HIGH-6b)
+
+BacktestEngine deducts fees and applies slippage when configured; the
+reactive paper/live path now does the same, so net P&L is identical across
+modes under the same cost model:
+
+- ``ExecutionEngine`` takes an optional ``fee_calculator`` and deducts each
+  fill's fees from the position's realized P&L
+  (``PositionManager.on_fee``, paisa-quantized).
+- ``SimulatedFillSource``/``PaperFillSource`` apply the same slippage models
+  as BacktestEngine.
+- ``AppConfig.execution`` (``fees_enabled``, ``slippage_bps``,
+  ``fill_reference``) wires both at boot (env: ``TRADEX_FEES_ENABLED``,
+  ``TRADEX_SLIPPAGE_BPS``). Defaults are zero-cost + next-open — the
+  historical behavior.
+- Fill timestamps are deterministic: the strategy bridge stamps
+  ``OrderRequest.reference_timestamp`` with the triggering market timestamp,
+  and fill sources use it instead of ``now()`` — reproducible event logs.
+
+Proven by ``trading/tests/parity/test_execution_cost_parity.py``: fee and
+slippage parity between BacktestEngine and the reactive path, the boot
+config wiring, and deterministic fill timestamps.
+
+Other phase-2 parity fixes now in place:
+
+- **Live fill bridge (HIGH-4)** — `ExecutionEngine` subscribes to
+  `OrderFilled` on the bus and applies inbound fills to the OMS
+  idempotently (per-occurrence fingerprints, partial-fill safe, unknown
+  orders recorded). Live mode completes the loop: `BrokerFillSource` ACKs
+  orders synchronously with no fill, and `LiveFillBridge`
+  (`sdk/live_fill_bridge.py`) watches the broker's order stream and
+  publishes an `OrderFilled` for every newly-filled delta — computed as
+  the difference between the stream's cumulative filled quantity and the
+  quantity already applied in the OMS cache, so re-published updates are
+  no-ops and each partial lands exactly once. Engine orders are matched to
+  broker rows via the correlation id the broker echoes; unmatched rows
+  record unknown orders. The Dhan mapper
+  (`DhanApiClient._stream_order_from_row`) resolves the instrument via the
+  registry and prices fills at the row's ``tradedPrice`` (not the limit
+  price). Covered by
+  `trading/tests/execution/test_live_fill_stream_bridge.py`
+  (cumulative partial→full deltas) and the Dhan mapper tests in
+  `brokers/tests/test_dhan_client.py`.
+- **Exchange trade ids stamped on live fills (review area #10, last
+  tracked gap)** — the bridge's per-occurrence dedup fingerprints an
+  ``OrderFilled`` by ``fill_id`` when present, else by (order, side, qty,
+  price); two genuine equal-lot, same-price partials were therefore
+  indistinguishable from a re-publish and the second was skipped
+  (under-counting). ``TradeBookFillIdResolver`` now hands each new delta a
+  distinct exchange trade id from the broker's REST trade book (Dhan
+  ``GET /trades`` rows: ``tradeId`` + ``orderId``, keyed by the broker
+  order id), which ``LiveFillBridge`` stamps onto ``Fill.fill_id`` — so
+  equal-lot partials dedup exactly. Wired at boot for any broker exposing
+  ``trade_book()``; network failure or absent trade book degrades to the
+  composite fingerprint (opt-in, backward compatible). Proven by
+  `trading/tests/execution/test_live_fill_trade_ids.py` (resolver
+  distinct-id/replay/failure behavior + bridge integration: both
+  equal-lot partials land at 6, without the resolver the control
+  under-counts at 3).
+- **`max_position_value` enforced (HIGH-5)** — `RiskManager` takes a
+  `positions_provider` (bound to the OMS cache at boot) and rejects orders
+  whose cumulative exposure (qty×avg + incoming notional) exceeds the cap.
+- **Risk decisions identical in backtest (review area #1/#4)** —
+  `BacktestEngine(risk_manager=RiskManager(...))` now gates each signal
+  with the *same* `RiskManager` the reactive `ExecutionEngine` uses,
+  evaluated on the fill candle's open with the signal's nominal quantity —
+  exactly the OrderRequest the `next_open` bridge submits — so an order
+  that paper/live would reject (order value, position exposure, rate
+  limit, kill-switch gate) is skipped in backtest too: no fill, no P&L,
+  counted in `BacktestResult.num_rejected`. The rate-limit window is
+  evaluated at the fill timestamp (via `RiskManager.check(request, now=…)`,
+  not wall clock) and `reset_rate_window()` clears it at run start, so a
+  shared manager can never leak state between runs and results stay a pure
+  function of (data, config, strategy) (review area #8). Live semantics are
+  untouched. Proven by `trading/tests/parity/test_risk_parity.py`
+  (reject/allow decisions, backward compat, deterministic rate limit,
+  position-cap binding, reactive-path same-decision proof).
+- **One fee model (HIGH-6)** — `FeeCalculator.calculate` delegates to the
+  canonical `equity_intraday` static model (side-dependent STT, brokerage
+  capped at ₹20, SEBI + stamp duty, GST on brokerage+exchange); custom
+  rates use the same structure via `_calculate_legacy`. Instance and static
+  APIs agree exactly.
+- **Strategies are versioned artifacts (review area #5)** — every strategy
+  exposes a ``version`` (semver; protocol default ``"1.0.0"``, built-ins
+  declare it explicitly). The strategy bridge stamps it onto the signal
+  ``metadata`` AND the order tag (``strategy_id@version``) in both
+  ``next_open`` and ``signal_close`` paths, and ``BacktestEngine`` stamps
+  it onto each emitted signal — so the audit trail (orders, fills, signals)
+  identifies exactly which strategy version produced every result in every
+  mode. Proven by ``TestStrategyVersionStamping`` in
+  `trading/tests/parity/test_golden_all_costs_parity.py`.
+- **Corporate actions book identically in every mode (review area #4)** —
+  SPLIT/BONUS re-base quantity × ratio and avg price ÷ ratio, and DIVIDEND
+  credits `per_share × qty` to cash and realized P&L (shorts pay), all
+  through the shared `position_math.apply_split` / `apply_dividend` — the
+  same CRITICAL-1 model as fills. `PositionManager.on_corporate_action`
+  applies actions in the reactive paper/live path;
+  `BacktestEngine(corporate_actions=CorporateActionStore)` applies them
+  point-in-time at the first fill bar on/after each ex-date (each action
+  exactly once; actions landing after the last fill still hit before the
+  final MTM). A mid-holding 2:1 split therefore cannot corrupt backtest
+  P&L and paper/live cannot diverge from it. Proven by
+  `trading/tests/parity/test_corporate_action_parity.py` (split/dividend
+  equity parity, ex-date ordering, reactive↔backtest realized-P&L
+  equality, short-dividend debit).
+
+### Execution assumptions — the explicit parity contract
+
+The review's acceptance criterion "all assumptions and execution costs are
+explicit and consistent" is met by these documented, mode-wide invariants:
+
+- **Fill timing (latency model)** — a signal on bar N fills at bar N+1's
+  OPEN in backtest, replay, paper, and live ``next_open`` mode (the
+  default); ``signal_close`` is the documented exception for quote-driven
+  live strategies. This next-open model IS the system's latency assumption:
+  zero intra-bar execution latency, uniform across modes. Slippage
+  (optional, default 0) captures market impact instead of an artificial
+  delay, and is applied identically in every mode.
+- **Margin/leverage** — deliberately not modeled; neither path enforces
+  cash sufficiency (both allow negative cash identically). Risk limits are
+  enforced via the shared ``RiskManager``: ``max_order_value``,
+  ``max_position_value`` (cumulative exposure), ``max_orders_per_minute``,
+  and the kill-switch master gate — identical in backtest and the reactive
+  pipeline since the backtest now consumes the same manager.
+- **Determinism** — fill timestamps come from ``reference_timestamp``
+  (the triggering market event) in every non-live mode; live fills use
+  real wall-clock timestamps as the accurate record. Strategies are
+  versioned; the risk manager's rate window resets per backtest run;
+  corporate actions apply point-in-time once; fees and slippage use the
+  same shared models everywhere.
 
 ---
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 import pytest
 from support.fake_fetch import FakeFetch
@@ -495,6 +496,7 @@ class TestAccountMethods:
         assert result["clientName"] == "Test"
 
     def test_fund_limits(self):
+        # "availabelBalance" is Dhan's actual API spelling (not a typo)
         response = {"data": {"availabelBalance": 100000}}
         client, _, _ = _make_client([response])
         result = client.fund_limits()
@@ -1093,3 +1095,68 @@ class TestExtendedEndpoints:
         kwargs = {**self._rolling_kwargs(), "interval": 7}
         with pytest.raises(ValueError, match="interval"):
             client.get_rolling_options(_index(), **kwargs)
+
+
+class TestStreamOrderFromRow:
+    """Live order-update row mapping used by the LiveFillBridge (HIGH-4)."""
+
+    def _row(self, **overrides: Any) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "orderId": "dhan-order-1",
+            "securityId": "2885",
+            "transactionType": "BUY",
+            "orderType": "MARKET",
+            "quantity": "10",
+            "price": "2500",
+            "orderStatus": "TRADED",
+            "filledQty": "10",
+            "correlationId": "11111111-2222-3333-4444-555555555555",
+        }
+        row.update(overrides)
+        return row
+
+    def test_traded_row_uses_traded_price_for_fill(self) -> None:
+        """Fills trade at ``tradedPrice``, not the order's limit price."""
+        client, _, _ = _make_client()
+        order = client._stream_order_from_row(
+            self._row(tradedPrice="2505.55")
+        )
+        assert order.status is OrderStatus.FILLED
+        assert order.price is not None
+        assert order.price.value == Decimal("2505.55")
+        assert order.filled_quantity.value == Decimal("10")
+        assert order.correlation_id.value == UUID("11111111-2222-3333-4444-555555555555")
+        assert order.instrument.instrument_id == InstrumentId.equity("NSE", "RELIANCE")
+
+    def test_part_traded_keeps_limit_price_without_traded_price(self) -> None:
+        """No ``tradedPrice`` → fall back to the order price (limit)."""
+        client, _, _ = _make_client()
+        order = client._stream_order_from_row(
+            self._row(orderStatus="PART_TRADED", filledQty="3")
+        )
+        assert order.status is OrderStatus.PARTIALLY_FILLED
+        assert order.price is not None
+        assert order.price.value == Decimal("2500")
+        assert order.filled_quantity.value == Decimal("3")
+
+    def test_pending_row_maps_status_without_fill(self) -> None:
+        client, _, _ = _make_client()
+        order = client._stream_order_from_row(
+            self._row(orderStatus="PENDING", filledQty="0")
+        )
+        assert order.status is OrderStatus.PENDING
+        assert order.filled_quantity.value == Decimal("0")
+
+    def test_unmapped_security_raises(self) -> None:
+        client, _, _ = _make_client()
+        with pytest.raises(ValueError, match="securityId"):
+            client._stream_order_from_row(self._row(securityId="999999"))
+
+    def test_non_uuid_correlation_id_preserved_verbatim(self) -> None:
+        """Strategy-bridge ids (``strat-...``) survive the echo round-trip so
+        the live-fill bridge can match the engine order by correlation id."""
+        client, _, _ = _make_client()
+        order = client._stream_order_from_row(
+            self._row(correlationId="strat-deadbeef")
+        )
+        assert order.correlation_id.value == "strat-deadbeef"

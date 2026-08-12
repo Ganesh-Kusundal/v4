@@ -169,6 +169,78 @@ class TestExampleMeanReversion:
             MeanReversionStrategy("bad_levels", INSTRUMENT, oversold=80.0)
 
 
+class TestExampleMultiSymbolSmaCross:
+    """The portfolio-style strategy: one instance trades every instrument."""
+
+    def test_discovered_and_protocol_conformant(self) -> None:
+        from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+            MultiSymbolSmaCross,
+            multi_symbol_sma_cross,
+        )
+
+        assert isinstance(multi_symbol_sma_cross, Strategy)
+        assert multi_symbol_sma_cross.strategy_id == "multi_symbol_sma_cross"
+        assert any(
+            s.strategy_id == "multi_symbol_sma_cross" for s in all_strategies
+        )
+        assert MultiSymbolSmaCross is not None
+
+    def test_invalid_periods_rejected(self) -> None:
+        from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+            MultiSymbolSmaCross,
+        )
+
+        with pytest.raises(ValueError, match="fast SMA"):
+            MultiSymbolSmaCross(fast=20, slow=10)
+
+    def test_signals_attributed_per_instrument(self) -> None:
+        """Interleaved candles from two symbols produce the same per-symbol
+        signal sequence as running each symbol standalone — the property the
+        multi-symbol ``BacktestEngine`` relies on (signals matched per
+        instrument id)."""
+        from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+            MultiSymbolSmaCross,
+        )
+
+        other = Equity.of(ExchangeId.NSE, "TCS")
+        rel_closes = [10, 11, 10, 9, 15]
+        tcs_closes = [10, 12, 10, 8, 16]
+        ctx = StrategyContext()
+        strat = MultiSymbolSmaCross(fast=2, slow=3)
+
+        candles = []
+        for i in range(len(rel_closes)):
+            candles.append(_candle(rel_closes[i], i + 1))
+            candles.append(_candle(tcs_closes[i], i + 1, other))
+        signals = [
+            sig for candle in candles
+            if (sig := strat.on_bar(ctx, candle)) is not None
+        ]
+
+        rel_signals = [s for s in signals if s.instrument == INSTRUMENT]
+        tcs_signals = [s for s in signals if s.instrument == other]
+        assert rel_signals and tcs_signals
+        # Every signal references exactly one of the two traded instruments.
+        assert all(s.instrument in (INSTRUMENT, other) for s in signals)
+
+        def _standalone_directions(closes: list[float], instrument) -> list:
+            standalone = MultiSymbolSmaCross(fast=2, slow=3)
+            return [
+                sig.direction
+                for i, close in enumerate(closes, start=1)
+                if (sig := standalone.on_bar(ctx, _candle(close, i, instrument))) is not None
+            ]
+
+        # Interleaved feeding must match each symbol run standalone — the
+        # property the multi-symbol BacktestEngine relies on.
+        assert [s.direction for s in rel_signals] == _standalone_directions(
+            rel_closes, INSTRUMENT
+        )
+        assert [s.direction for s in tcs_signals] == _standalone_directions(
+            tcs_closes, other
+        )
+
+
 class TestExamplePullbackScanner:
     """The second extension scanner combines two conditions."""
 
@@ -182,6 +254,62 @@ class TestExamplePullbackScanner:
         assert len(pullback_scanner.conditions) == 2
         assert {c.name for c in pullback_scanner.conditions} == {"close", "rsi"}
         assert pullback_scanner.limit == 20
+
+
+class TestNifty500TechnicalScanner:
+    """The Nifty 500 technical screener extension."""
+
+    def test_discovered_with_technical_conditions(self) -> None:
+        from tradex_trading.strategy.extensions.scanners.nifty500_technical import (
+            nifty500_technical_scanner,
+        )
+
+        assert any(s is nifty500_technical_scanner for s in all_scanners)
+        assert isinstance(nifty500_technical_scanner, ScannerDefinition)
+        assert {c.name for c in nifty500_technical_scanner.conditions} == {"close", "roc"}
+        assert nifty500_technical_scanner.limit == 20
+
+    def test_universe_nonempty(self) -> None:
+        from tradex_trading.strategy.extensions.scanners.nifty500_technical import (
+            _UNIVERSE,
+        )
+
+        # Loaded from the nifty500 CSV when present; falls back to examples.
+        assert len(_UNIVERSE) >= 1
+
+    def test_boot_can_run_it(self, monkeypatch) -> None:
+        """The nifty500 scanner runs through a booted session's ScannerService."""
+        from unittest.mock import MagicMock
+
+        from tradex_domain.market import HistoricalSeries
+
+        from tradex_trading.config.schema import AppConfig
+        from tradex_trading.runtime.startup import boot
+        from tradex_trading.strategy.extensions.scanners.nifty500_technical import (
+            nifty500_technical_scanner,
+        )
+
+        def fake_broker() -> MagicMock:
+            broker = MagicMock()
+
+            def history(instrument, timeframe, start, end) -> HistoricalSeries:
+                return HistoricalSeries(
+                    instrument=instrument, timeframe=timeframe, candles=[],
+                    start=start, end=end,
+                )
+
+            broker.history = history
+            return broker
+
+        from tradex_brokers import BrokerFactory
+
+        monkeypatch.setattr(BrokerFactory, "create", lambda _bid, **_kw: fake_broker())
+        session = boot(AppConfig(mode="paper"))
+        try:
+            results = session.scanner.run(nifty500_technical_scanner)
+            assert isinstance(results, list)
+        finally:
+            session.stop()
 
 
 class TestTypoInAllDegradesGracefully:
@@ -233,10 +361,10 @@ class TestTypoInAllDegradesGracefully:
         assert collected == ()
 
 
-def _candle(close_value: float, day: int) -> Candle:
+def _candle(close_value: float, day: int, instrument=INSTRUMENT) -> Candle:
     price = Price(value=Decimal(str(close_value)))
     return Candle(
-        instrument=INSTRUMENT,
+        instrument=instrument,
         timeframe=Timeframe.D1,
         ohlc=OHLC(open=price, high=price, low=price, close=price),
         volume=Quantity(value=Decimal("1000")),

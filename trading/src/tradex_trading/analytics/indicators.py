@@ -125,4 +125,58 @@ def rsi(values: list, period: int = 14) -> list:
     return result
 
 
-__all__ = ["sma", "ema", "rsi"]
+def roc(values: list, period: int = 10) -> list:
+    """Rate of Change — percentage change over *period* bars.
+
+    Args:
+        values: List of numeric values (Decimal or float)
+        period: Lookback period (default: 10)
+
+    Returns:
+        List of ROC percentages (None-padded at start; 0.0 for flat base)
+    """
+    if period <= 0:
+        raise ValueError("period must be positive")
+    if len(values) < period + 1:
+        return [None] * len(values)
+
+    floats = [_to_float(v) for v in values]
+    result: list[float | None] = [None] * period
+    for i in range(period, len(floats)):
+        base = floats[i - period]
+        if base == 0:
+            result.append(0.0)
+        else:
+            result.append(((floats[i] - base) / base) * 100.0)
+    return result
+
+
+def macd(values: list, period: int = 26) -> list:
+    """MACD line — fast EMA minus slow EMA.
+
+    The uniform indicator signature takes a single ``period``; here it is the
+    slow EMA period and the fast EMA is ``period // 2`` (e.g. 26 -> fast 13),
+    giving the standard fast/slow spread without extra parameters.
+
+    Args:
+        values: List of numeric values (Decimal or float)
+        period: Slow EMA period (default: 26)
+
+    Returns:
+        List of MACD-line values (None-padded at start)
+    """
+    if period < 2:
+        raise ValueError("period must be at least 2")
+    fast_period = max(2, period // 2)
+    fast = ema(values, fast_period)
+    slow = ema(values, period)
+    result: list[float | None] = []
+    for f, s in zip(fast, slow, strict=True):
+        if f is None or s is None:
+            result.append(None)
+        else:
+            result.append(f - s)
+    return result
+
+
+__all__ = ["sma", "ema", "rsi", "roc", "macd"]

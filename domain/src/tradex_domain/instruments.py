@@ -72,7 +72,7 @@ class Index(Instrument):
     @classmethod
     def of(cls, exchange: str, symbol: str) -> Index:
         return cls(
-            instrument_id=InstrumentId.equity(exchange, symbol),
+            instrument_id=InstrumentId.index(exchange, symbol),
             symbol=symbol,
             exchange=ExchangeId(exchange.strip().upper()),
         )
@@ -134,7 +134,7 @@ class Currency(Instrument):
     @classmethod
     def of(cls, exchange: str, symbol: str) -> Currency:
         return cls(
-            instrument_id=InstrumentId.equity(exchange, symbol),
+            instrument_id=InstrumentId.currency(exchange, symbol),
             symbol=symbol,
             exchange=ExchangeId(exchange.strip().upper()),
         )
@@ -148,7 +148,7 @@ class Commodity(Instrument):
     @classmethod
     def of(cls, exchange: str, symbol: str) -> Commodity:
         return cls(
-            instrument_id=InstrumentId.equity(exchange, symbol),
+            instrument_id=InstrumentId.commodity(exchange, symbol),
             symbol=symbol,
             exchange=ExchangeId(exchange.strip().upper()),
         )

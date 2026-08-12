@@ -243,25 +243,25 @@ class _MockBroker:
         return OrderId(value="super-1")
 
     def modify_super_order(self, order_id: OrderId, request: OrderRequest) -> OrderResult:
-        return OrderResult(order_id=order_id, status="modified")
+        return OrderResult(order_id=order_id, status=OrderStatus.SUBMITTED)
 
     def cancel_super_order(self, order_id: OrderId, leg: str = "ENTRY") -> OrderResult:
-        return OrderResult(order_id=order_id, status="cancelled")
+        return OrderResult(order_id=order_id, status=OrderStatus.CANCELLED)
 
     def list_super_orders(self) -> list[OrderResult]:
-        return [OrderResult(order_id=OrderId(value="super-1"), status="open")]
+        return [OrderResult(order_id=OrderId(value="super-1"), status=OrderStatus.ACK)]
 
     def submit_forever_order(self, request: OrderRequest) -> OrderId:
         return OrderId(value="forever-1")
 
     def modify_forever_order(self, order_id: OrderId, request: OrderRequest) -> OrderResult:
-        return OrderResult(order_id=order_id, status="modified")
+        return OrderResult(order_id=order_id, status=OrderStatus.SUBMITTED)
 
     def cancel_forever_order(self, order_id: OrderId) -> OrderResult:
-        return OrderResult(order_id=order_id, status="cancelled")
+        return OrderResult(order_id=order_id, status=OrderStatus.CANCELLED)
 
     def list_forever_orders(self) -> list[OrderResult]:
-        return [OrderResult(order_id=OrderId(value="forever-1"), status="open")]
+        return [OrderResult(order_id=OrderId(value="forever-1"), status=OrderStatus.ACK)]
 
     def submit_slice_order(
         self, request: OrderRequest, slices: int, interval: timedelta | None = None,
@@ -774,13 +774,13 @@ class TestExtensionService:
         session = _make_session()
         result = session.extension.modify_super(OrderId(value="super-1"), _make_request())
         assert isinstance(result, OrderResult)
-        assert result.status == "modified"
+        assert result.status == OrderStatus.SUBMITTED
 
     def test_cancel_super(self) -> None:
         session = _make_session()
         result = session.extension.cancel_super(OrderId(value="super-1"))
         assert isinstance(result, OrderResult)
-        assert result.status == "cancelled"
+        assert result.status == OrderStatus.CANCELLED
 
     def test_list_super(self) -> None:
         session = _make_session()
@@ -798,13 +798,13 @@ class TestExtensionService:
         session = _make_session()
         result = session.extension.modify_forever(OrderId(value="forever-1"), _make_request())
         assert isinstance(result, OrderResult)
-        assert result.status == "modified"
+        assert result.status == OrderStatus.SUBMITTED
 
     def test_cancel_forever(self) -> None:
         session = _make_session()
         result = session.extension.cancel_forever(OrderId(value="forever-1"))
         assert isinstance(result, OrderResult)
-        assert result.status == "cancelled"
+        assert result.status == OrderStatus.CANCELLED
 
     def test_get_forever(self) -> None:
         session = _make_session()

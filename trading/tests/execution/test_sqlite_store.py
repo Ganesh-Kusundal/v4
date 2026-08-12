@@ -102,6 +102,7 @@ class TestSQLiteIdempotencyGuardCrossEngine:
             side=OrderSide.BUY,
             order_type=OrderType.MARKET,
             quantity=Quantity(value=Decimal("2")),
+            price=Price(value=Decimal("2500")),
             correlation_id=CorrelationId(value="cid-42"),
         )
 

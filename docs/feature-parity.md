@@ -38,6 +38,7 @@ Tracks implementation status of every feature (F1–F28), non-functional require
 | F26 | Runtime boot (composition root) | 7 | ✅ | `runtime/startup.py` — `boot()` |
 | F27 | HTTP health API + TUI diagnostics | 11 | ✅ | `interface/fastapi_app.py`, `interface/tui.py` |
 | F28 | Corporate actions + MCP server | 10 | ✅ | `datalake/corporate_actions.py`, `datalake/mcp_server.py` |
+| F29 | Datalake-backed backtesting | 11 | ✅ | `datalake/backtest_loader.py` (`ParquetBacktestLoader`), `datalake/market_provider.py`, `session.backtest`, `scripts/backtest_datalake.py` (per-symbol + portfolio modes, grid-search + walk-forward) |
 
 ---
 

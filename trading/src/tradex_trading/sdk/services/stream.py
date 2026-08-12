@@ -11,6 +11,7 @@ from tradex_domain.events import OrderFilled
 from tradex_domain.market import Depth, Quote
 
 from tradex_trading.reactive.bus import ReactiveBus
+from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_trading.sdk.streaming import BackendStreamSubscription, StreamSubscription
 
 
@@ -19,7 +20,7 @@ class StreamService:
 
     def __init__(
         self,
-        bus: ReactiveBus,
+        bus: ReactiveBus | ThreadSafeReactiveBus,
         subscriptions: list[StreamSubscription],
         capabilities: BrokerCapabilities,
         backend: Any = None,

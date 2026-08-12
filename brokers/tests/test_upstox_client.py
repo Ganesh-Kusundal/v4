@@ -429,13 +429,13 @@ class TestExtensionOrders:
             trigger_price=Price(value=Decimal("99")),
         )
         result = client.modify_forever_order(OrderId(value="FO1"), request)
-        assert result.status == "modified"
+        assert result.status == OrderStatus.UNKNOWN  # "modified" is not a valid OrderStatus
 
     def test_cancel_forever_order(self):
         response = {"data": {"status": "cancelled"}}
         client, _, _ = _make_client([response])
         result = client.cancel_forever_order(OrderId(value="FO1"))
-        assert result.status == "cancelled"
+        assert result.status == OrderStatus.CANCELLED
 
 
 # ---------------------------------------------------------------------------

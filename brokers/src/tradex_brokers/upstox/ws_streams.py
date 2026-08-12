@@ -14,7 +14,6 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from decimal import Decimal
 from typing import Any, cast
 
 from tradex_domain.errors import (
@@ -25,10 +24,11 @@ from tradex_domain.errors import (
 from tradex_domain.execution import Order, Position
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote
-from tradex_domain.value_objects import InstrumentId, Price, Quantity
+from tradex_domain.value_objects import InstrumentId
 
 from tradex_brokers.common.provider_common import instrument_from_id
 from tradex_brokers.common.ws_reconnect import AutoReconnectMixin
+from tradex_brokers.common.ws_shared import row_to_quote
 
 logger = logging.getLogger(__name__)
 
@@ -49,77 +49,6 @@ def default_ws_factory(url: str) -> Any:
     from websockets.sync.client import connect  # noqa: PLC0415 — optional dep
 
     return connect(url, max_size=2**20)
-
-
-def _row_to_quote(
-    instrument: Instrument,
-    row: dict[str, Any],
-    *,
-    provider: str,
-) -> Quote:
-    """Build a domain ``Quote`` from a REST-shaped row dict."""
-    from datetime import UTC, datetime
-
-    depth_data = row.get("depth") or {}
-    buys = depth_data.get("buy") or []
-    sells = depth_data.get("sell") or []
-    bid = Price(value=Decimal(str(buys[0]["price"]))) if buys else None
-    ask = Price(value=Decimal(str(sells[0]["price"]))) if sells else None
-    ltp = Price(value=Decimal(str(row.get("last_price", 0))))
-    volume = (
-        Quantity(Decimal(str(row["volume"])))
-        if "volume" in row and row["volume"]
-        else None
-    )
-    open_interest = (
-        Quantity(value=Decimal(str(row["oi"]))) if row.get("oi") else None
-    )
-    ts = None
-    if row.get("timestamp"):
-        try:
-            ts = datetime.fromisoformat(str(row["timestamp"]))
-        except (ValueError, TypeError):
-            ts = None
-    depth_obj: Depth | None = None
-    if buys or sells:
-        # Normalize the book (bids price-descending, asks ascending) so the
-        # depth invariant ``Depth.best_bid/best_ask == [0]`` holds even if the
-        # provider streams levels out of order.
-        bid_levels = tuple(
-            sorted(
-                (_level_pair(b) for b in buys),
-                key=lambda level: level[0].value,
-                reverse=True,
-            )
-        )
-        ask_levels = tuple(
-            sorted(
-                (_level_pair(a) for a in sells),
-                key=lambda level: level[0].value,
-            )
-        )
-        depth_obj = Depth(
-            instrument=instrument,
-            bids=bid_levels,
-            asks=ask_levels,
-            timestamp=ts,
-        )
-    metadata: dict[str, object] | None = None
-    greeks = row.get("greeks", row.get("option_greeks"))
-    if isinstance(greeks, dict) and greeks:
-        metadata = {"greeks": dict(greeks)}
-    return Quote(
-        instrument=instrument,
-        ltp=ltp,
-        bid=bid,
-        ask=ask,
-        volume=volume,
-        open_interest=open_interest,
-        depth=depth_obj,
-        metadata=metadata,
-        timestamp=ts or datetime.now(UTC),
-        provider=provider,
-    )
 
 
 class UpstoxPortfolioStreamBackend(AutoReconnectMixin):
@@ -294,14 +223,6 @@ class UpstoxPortfolioStreamBackend(AutoReconnectMixin):
                         pos_handler(position)
                     except Exception:  # noqa: BLE001
                         logger.warning("stream_handler_failed", exc_info=True)
-
-
-def _level_pair(raw: dict[str, Any]) -> tuple[Price, Quantity]:
-    """Build a ``(Price, Quantity)`` depth level from a raw buy/sell row."""
-    return (
-        Price(value=Decimal(str(raw["price"]))),
-        Quantity(value=Decimal(str(raw["quantity"]))),
-    )
 
 
 class UpstoxMarketDataStreamBackend(AutoReconnectMixin):
@@ -649,7 +570,7 @@ class UpstoxMarketDataStreamBackend(AutoReconnectMixin):
             instrument = self._cached_instrument(key)
             if instrument is None:
                 continue
-            quote = _row_to_quote(instrument, row, provider="upstox")
+            quote = row_to_quote(instrument, row, provider="upstox")
             for handler in tuple(self._quote_handlers.values()):
                 try:
                     handler(quote)

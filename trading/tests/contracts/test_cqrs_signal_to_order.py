@@ -106,12 +106,20 @@ class TestCqrsSignalToOrder:
         bus.of_type(OrderFilled).subscribe(on_next=filled.append)
 
         strategy_engine.register(_SignalOnBarStrategy(INSTRUMENT))
+        # Two bars: the bar-1 signal is deferred (next_open model) and filled
+        # at bar 2's open; bar 2's own signal waits for a bar that never comes.
+        # Both candles are open=close=2500, so bar 2's open (the fill price)
+        # equals bar 1's close — the chained-candle construction.
+        bus.publish(_candle())
         bus.publish(_candle())
 
-        # Strategy signal bridged into a CQRS command
+        # Strategy signal bridged into a CQRS command (the bar-1 signal fired
+        # when bar 2 arrived, priced at bar 2's open)
         assert len(commands) == 1
         assert commands[0].request.instrument == INSTRUMENT
         assert commands[0].request.side == OrderSide.BUY
+        assert commands[0].request.price is not None
+        assert commands[0].request.price.value == Decimal("2500")
 
         # Engine processed the command through the FillSource seam
         assert len(placed) == 1
@@ -132,16 +140,20 @@ class TestCqrsSignalToOrder:
         placed: list[OrderPlaced] = []
         bus.of_type(OrderPlaced).subscribe(on_next=placed.append)
 
+        # SimulatedFillSource now requires a positive price (zero-priced fills
+        # corrupted P&L), so direct commands must price the order.
         request = OrderRequest(
             instrument=INSTRUMENT,
             side=OrderSide.BUY,
             order_type=OrderType.MARKET,
             quantity=Quantity(value=Decimal("2")),
+            price=Price(value=Decimal("2500")),
         )
         bus.publish(PlaceOrderCommand(request=request))
 
         assert len(placed) == 1
         assert placed[0].order.instrument == INSTRUMENT
+        assert placed[0].order.price.value == Decimal("2500")
         engine.shutdown()
 
 

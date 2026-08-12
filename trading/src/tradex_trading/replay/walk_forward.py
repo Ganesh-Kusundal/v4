@@ -2,12 +2,20 @@
 
 Provides out-of-sample walk-forward testing with configurable
 train/test windows and strategy re-optimization at each step.
+
+Two windowing modes:
+
+- :func:`run_walk_forward` — index-based windows over a single series.
+- :func:`run_walk_forward_by_date` — calendar windows over (possibly
+  multi-symbol) data, so each train/test window contains every instrument's
+  bars for the covered dates.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Any
 
 from tradex_trading.replay.backtest import BacktestResult
@@ -16,6 +24,7 @@ from tradex_trading.replay.backtest import BacktestResult
 @dataclass(frozen=True, slots=True)
 class WalkForwardStep:
     """One step in walk-forward analysis."""
+
     step_index: int
     train_start: int
     train_end: int
@@ -31,6 +40,7 @@ class WalkForwardStep:
 @dataclass(frozen=True, slots=True)
 class WalkForwardReport:
     """Complete walk-forward analysis report."""
+
     steps: tuple[WalkForwardStep, ...]
     aggregate_oos_return: float = 0.0
     aggregate_oos_sharpe: float = 0.0
@@ -80,7 +90,7 @@ def run_walk_forward(
     step_size: int | None = None,
     score_fn: Callable[[BacktestResult], float] | None = None,
 ) -> WalkForwardReport:
-    """Run walk-forward analysis.
+    """Run walk-forward analysis over index-based windows.
 
     Parameters
     ----------
@@ -103,6 +113,11 @@ def run_walk_forward(
     -------
     WalkForwardReport
         Complete walk-forward analysis report.
+
+    Raises
+    ------
+    ValueError
+        If ``len(data) < train_window + test_window``.
     """
     if len(data) < train_window + test_window:
         raise ValueError(
@@ -117,51 +132,175 @@ def run_walk_forward(
     while start + train_window + test_window <= len(data):
         train_end = start + train_window
         test_end = min(train_end + test_window, len(data))
-
-        train_data = data[start:train_end]
-        test_data = data[train_end:test_end]
-
-        # Optimize on training data
-        try:
-            best_params = optimize_fn(train_data)
-        except Exception:
-            best_params = {}
-
-        # Run in-sample
-        in_sample = None
-        in_score = 0.0
-        try:
-            in_sample = run_fn(best_params, train_data)
-            in_score = score_fn(in_sample) if score_fn else in_sample.total_return
-        except Exception:
-            pass
-
-        # Run out-of-sample
-        oos = None
-        oos_score = 0.0
-        try:
-            oos = run_fn(best_params, test_data)
-            oos_score = score_fn(oos) if score_fn else oos.total_return
-        except Exception:
-            pass
-
-        steps.append(WalkForwardStep(
+        steps.append(_evaluate_step(
             step_index=step_idx,
             train_start=start,
             train_end=train_end,
             test_start=train_end,
             test_end=test_end,
-            best_params=best_params,
-            in_sample_result=in_sample,
-            out_of_sample_result=oos,
-            in_sample_score=in_score,
-            out_of_sample_score=oos_score,
+            train_data=data[start:train_end],
+            test_data=data[train_end:test_end],
+            run_fn=run_fn,
+            optimize_fn=optimize_fn,
+            score_fn=score_fn,
         ))
-
         step_idx += 1
         start += _step
 
-    # Aggregate
+    agg_return, agg_sharpe, successful = _aggregate(steps)
+    return WalkForwardReport(
+        steps=tuple(steps),
+        aggregate_oos_return=agg_return,
+        aggregate_oos_sharpe=agg_sharpe,
+        total_steps=len(steps),
+        successful_steps=successful,
+    )
+
+
+def run_walk_forward_by_date(
+    data: Sequence[Any],
+    run_fn: Callable[[dict[str, Any], Sequence[Any]], BacktestResult],
+    optimize_fn: Callable[[Sequence[Any]], dict[str, Any]],
+    *,
+    train_days: int = 30,
+    test_days: int = 15,
+    score_fn: Callable[[BacktestResult], float] | None = None,
+) -> WalkForwardReport:
+    """Run walk-forward analysis over calendar-date windows.
+
+    Suitable for multi-symbol series where index-based windows would slice
+    interleaved instruments into near-empty pieces: each window contains
+    every instrument's bars for the covered dates.
+
+    Parameters
+    ----------
+    data : Sequence[Any]
+        Full dataset (e.g., list of Candle, possibly multi-symbol
+        interleaved). Each item must expose a ``timestamp`` attribute.
+    run_fn : Callable
+        Function that takes (params, data_subset) and returns BacktestResult.
+    optimize_fn : Callable
+        Function that takes training data and returns best params.
+    train_days : int
+        Training window length in calendar days.
+    test_days : int
+        Testing window length in calendar days.
+    score_fn : Callable | None
+        Scoring function. Defaults to total_return.
+
+    Returns
+    -------
+    WalkForwardReport
+        Complete walk-forward analysis report (step indices are day offsets
+        into the sorted date list, not bar indices).
+
+    Notes
+    -----
+    The step stride is exactly *test_days* (no overlap), unlike
+    :func:`run_walk_forward` which accepts a custom ``step_size``.
+
+    Raises
+    ------
+    ValueError
+        If *data* is empty.
+    """
+    if not data:
+        raise ValueError("run_walk_forward_by_date: data is empty")
+
+    by_date: dict[date, list[Any]] = {}
+    for item in data:
+        by_date.setdefault(item.timestamp.date(), []).append(item)
+    dates = sorted(by_date)
+
+    steps: list[WalkForwardStep] = []
+    step_idx = 0
+    start = 0
+    while start + train_days + test_days <= len(dates):
+        train_dates = dates[start:start + train_days]
+        test_dates = dates[start + train_days:start + train_days + test_days]
+        steps.append(_evaluate_step(
+            step_index=step_idx,
+            train_start=start,
+            train_end=start + train_days,
+            test_start=start + train_days,
+            test_end=start + train_days + test_days,
+            train_data=[c for d in train_dates for c in by_date[d]],
+            test_data=[c for d in test_dates for c in by_date[d]],
+            run_fn=run_fn,
+            optimize_fn=optimize_fn,
+            score_fn=score_fn,
+        ))
+        step_idx += 1
+        start += test_days
+
+    agg_return, agg_sharpe, successful = _aggregate(steps)
+    return WalkForwardReport(
+        steps=tuple(steps),
+        aggregate_oos_return=agg_return,
+        aggregate_oos_sharpe=agg_sharpe,
+        total_steps=len(steps),
+        successful_steps=successful,
+    )
+
+
+# --------------------------------------------------------------------------- helpers
+
+
+def _evaluate_step(
+    *,
+    step_index: int,
+    train_start: int,
+    train_end: int,
+    test_start: int,
+    test_end: int,
+    train_data: Sequence[Any],
+    test_data: Sequence[Any],
+    run_fn: Callable[[dict[str, Any], Sequence[Any]], BacktestResult],
+    optimize_fn: Callable[[Sequence[Any]], dict[str, Any]],
+    score_fn: Callable[[BacktestResult], float] | None,
+) -> WalkForwardStep:
+    """Optimize on the train window, then run in-sample and out-of-sample.
+
+    Every failure mode degrades gracefully: a raising ``optimize_fn`` yields
+    empty params; a raising ``run_fn`` yields a step with no result.
+    """
+    try:
+        best_params = optimize_fn(train_data)
+    except Exception:
+        best_params = {}
+
+    in_sample = None
+    in_score = 0.0
+    try:
+        in_sample = run_fn(best_params, train_data)
+        in_score = score_fn(in_sample) if score_fn else in_sample.total_return
+    except Exception:
+        pass
+
+    oos = None
+    oos_score = 0.0
+    try:
+        oos = run_fn(best_params, test_data)
+        oos_score = score_fn(oos) if score_fn else oos.total_return
+    except Exception:
+        pass
+
+    return WalkForwardStep(
+        step_index=step_index,
+        train_start=train_start,
+        train_end=train_end,
+        test_start=test_start,
+        test_end=test_end,
+        best_params=best_params,
+        in_sample_result=in_sample,
+        out_of_sample_result=oos,
+        in_sample_score=in_score,
+        out_of_sample_score=oos_score,
+    )
+
+
+def _aggregate(steps: Sequence[WalkForwardStep]) -> tuple[float, float, int]:
+    """Average OOS return/sharpe over successful steps."""
     oos_returns = [
         s.out_of_sample_result.total_return
         for s in steps
@@ -172,18 +311,15 @@ def run_walk_forward(
         for s in steps
         if s.out_of_sample_result is not None
     ]
-
     agg_return = sum(oos_returns) / len(oos_returns) if oos_returns else 0.0
     agg_sharpe = sum(oos_sharpes) / len(oos_sharpes) if oos_sharpes else 0.0
     successful = sum(1 for s in steps if s.out_of_sample_result is not None)
-
-    return WalkForwardReport(
-        steps=tuple(steps),
-        aggregate_oos_return=agg_return,
-        aggregate_oos_sharpe=agg_sharpe,
-        total_steps=len(steps),
-        successful_steps=successful,
-    )
+    return agg_return, agg_sharpe, successful
 
 
-__all__ = ["WalkForwardReport", "WalkForwardStep", "run_walk_forward"]
+__all__ = [
+    "WalkForwardReport",
+    "WalkForwardStep",
+    "run_walk_forward",
+    "run_walk_forward_by_date",
+]

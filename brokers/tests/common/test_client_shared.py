@@ -50,6 +50,16 @@ class TestCorrelationId:
         cid2 = correlation_id("garbage", fallback_seed="seed-1")
         assert cid1 == cid2
 
+    def test_non_uuid_text_preserved_verbatim(self) -> None:
+        """A broker echoes the exact id we sent — never hash it away.
+
+        The strategy bridge emits non-UUID ``strat-...`` ids; the live-fill
+        bridge matches broker rows on correlation-id equality, so the echoed
+        value must survive the mapper unchanged.
+        """
+        cid = correlation_id("strat-abc123", fallback_seed="x")
+        assert cid.value == "strat-abc123"
+
     def test_different_text_falls_back_differently(self) -> None:
         assert correlation_id("garbage", fallback_seed="x") != correlation_id(
             "other", fallback_seed="x"

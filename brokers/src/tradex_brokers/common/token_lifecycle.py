@@ -383,8 +383,9 @@ class PortTokenManager:
 
     def _refresh_locked(self) -> str:
         """Refresh the token.  Must be called while holding ``_lock``."""
+        if self._port is None:
+            raise RuntimeError("TokenLifecyclePort not configured")
         try:
-            assert self._port is not None
             new_token = self._port.refresh()
         except Exception as exc:
             raise AuthenticationError(

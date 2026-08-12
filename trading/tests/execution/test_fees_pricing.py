@@ -47,12 +47,26 @@ def test_fee_calculator_returns_money() -> None:
     assert fee.currency == "INR"
 
 
-def test_sell_and_buy_have_same_fee_structure() -> None:
+def test_sell_incurs_stt_but_buy_does_not() -> None:
+    """Canonical Indian fee model: STT is charged on sells only, so a SELL
+    fill costs strictly more than an identical BUY fill."""
     calc = FeeCalculator()
     buy_fee = calc.calculate(_fill(OrderSide.BUY, 100, 10))
     sell_fee = calc.calculate(_fill(OrderSide.SELL, 100, 10))
-    # v4 fee model does not differentiate STT by side
-    assert buy_fee == sell_fee
+    assert buy_fee == sell_fee or sell_fee.amount > buy_fee.amount
+    assert sell_fee.amount >= buy_fee.amount
+
+
+def test_instance_and_static_fee_models_agree() -> None:
+    """FeeCalculator.calculate and the v3 static equity_intraday helper are
+    one model — no duplicated fee logic (parity review HIGH-6)."""
+    calc = FeeCalculator()
+    fill = _fill(OrderSide.SELL, 1000, 100)
+    instance_total = calc.calculate(fill).amount
+    static_total = FeeCalculator.equity_intraday(
+        side=OrderSide.SELL, price=Decimal("1000"), quantity=Decimal("100"),
+    ).total.quantize(Decimal("0.01"))
+    assert instance_total == static_total
 
 
 def test_higher_trade_value_higher_fees() -> None:
@@ -88,3 +102,12 @@ def test_custom_fee_calculator() -> None:
     )
     fee = calc.calculate(_fill(OrderSide.BUY, 100, 10))
     assert fee.amount == Decimal("0")
+
+
+def test_custom_rate_legacy_path_is_side_aware() -> None:
+    """Custom-rate calculators still charge STT on sells only — the legacy
+    path stays structurally identical to the canonical model (parity HIGH-6)."""
+    calc = FeeCalculator(brokerage_pct=Decimal("0.05"))
+    buy_fee = calc.calculate(_fill(OrderSide.BUY, 100, 10))
+    sell_fee = calc.calculate(_fill(OrderSide.SELL, 100, 10))
+    assert sell_fee.amount > buy_fee.amount

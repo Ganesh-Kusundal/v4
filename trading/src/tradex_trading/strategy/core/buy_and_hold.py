@@ -25,6 +25,11 @@ class BuyAndHoldStrategy:
         """Return strategy ID."""
         return self._id
 
+    @property
+    def version(self) -> str:
+        """Version of this strategy's logic (stamped on orders/signals)."""
+        return "1.0.0"
+
     def on_start(self, context: StrategyContext) -> None:
         """Called when the strategy is started — no action for buy-and-hold."""
 
@@ -42,9 +47,14 @@ class BuyAndHoldStrategy:
             direction=OrderSide.BUY,
             strength=1.0,
             reason="buy_and_hold",
+            timestamp=context.timestamp if context is not None else None,
         )
         self._signals.append(signal)
         return signal
+
+    def on_depth(self, context: StrategyContext, depth) -> Signal | None:
+        """Called when a depth snapshot is received — no action for buy-and-hold."""
+        return None
 
     def on_fill(self, context: StrategyContext, fill) -> None:
         """Called when a fill is received — no action for buy-and-hold."""

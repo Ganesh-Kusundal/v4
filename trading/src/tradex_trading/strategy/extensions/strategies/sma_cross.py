@@ -46,6 +46,11 @@ class SmaCrossStrategy:
         return self._id
 
     @property
+    def version(self) -> str:
+        """Version of this strategy's logic (stamped on orders/signals)."""
+        return "1.0.0"
+
+    @property
     def instrument(self):
         """Return the traded instrument."""
         return self._instrument
@@ -65,14 +70,19 @@ class SmaCrossStrategy:
         prev_slow = self._sma(self._slow, self._closes[:-1])
         fast = self._sma(self._fast, self._closes)
         slow = self._sma(self._slow, self._closes)
+        ts = context.timestamp if context is not None else None
         if prev_fast <= prev_slow and fast > slow:
-            return self._signal(OrderSide.BUY, "sma_cross_up")
+            return self._signal(OrderSide.BUY, "sma_cross_up", ts)
         if prev_fast >= prev_slow and fast < slow:
-            return self._signal(OrderSide.SELL, "sma_cross_down")
+            return self._signal(OrderSide.SELL, "sma_cross_down", ts)
         return None
 
     def on_quote(self, context: StrategyContext, quote) -> Signal | None:
         """No quote-driven signals for this strategy."""
+        return None
+
+    def on_depth(self, context: StrategyContext, depth) -> Signal | None:
+        """No depth-driven signals for this strategy."""
         return None
 
     def on_fill(self, context: StrategyContext, fill) -> None:
@@ -93,12 +103,15 @@ class SmaCrossStrategy:
         """Simple moving average over the trailing *period* closes."""
         return sum(closes[-period:]) / period
 
-    def _signal(self, direction: OrderSide, reason: str) -> Signal:
+    def _signal(
+        self, direction: OrderSide, reason: str, timestamp=None,
+    ) -> Signal:
         signal = Signal(
             instrument=self._instrument,
             direction=direction,
             strength=1.0,
             reason=reason,
+            timestamp=timestamp,
         )
         self._signals.append(signal)
         return signal

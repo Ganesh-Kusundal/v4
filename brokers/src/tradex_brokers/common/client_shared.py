@@ -35,18 +35,30 @@ def parse_timestamp_fallback(value: object, fallback: datetime) -> datetime:
     if value is None or value == "":
         return fallback
     try:
-        return parse_timestamp(str(value))
-    except SDKError:
-        return fallback
+        # ponytail: pass value directly — str() breaks epoch int/float parsing
+        return parse_timestamp(value)  # type: ignore[arg-type]
+    except (SDKError, TypeError):
+        try:
+            return parse_timestamp(str(value))
+        except SDKError:
+            return fallback
 
 
 def correlation_id(raw: object, *, fallback_seed: str) -> CorrelationId:
-    """Parse the native correlationId; deterministic uuid5 fallback."""
+    """Parse the native correlationId; deterministic uuid5 fallback for empty.
+
+    A broker echoes back exactly the id we sent (e.g. the strategy bridge's
+    non-UUID ``strat-...`` ids), so a non-empty value is preserved verbatim —
+    hashing it would silently break order matching in the live-fill bridge.
+    Only missing/empty values fall back to a deterministic uuid5 of the seed.
+    """
     text = str(raw or "")
+    if not text:
+        return CorrelationId(value=uuid5(NAMESPACE_URL, fallback_seed))
     try:
         return CorrelationId(value=UUID(text))
     except (ValueError, AttributeError):
-        return CorrelationId(value=uuid5(NAMESPACE_URL, text or fallback_seed))
+        return CorrelationId(value=text)
 
 
 class FetchResiliencePipeline:

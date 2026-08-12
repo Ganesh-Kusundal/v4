@@ -8,6 +8,7 @@ rate limiting, circuit breaking, and caching are delegated to the composed
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -452,8 +453,25 @@ class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin, A
         return DhanOrderStreamBackend(
             token_provider=self._ws_token_provider or (lambda: ""),
             client_id=self._client_id,
-            map_order=lambda row: Order.from_dict(dict(row)),
+            map_order=self._stream_order_from_row,
             ws_factory=ws_factory)
+
+    def _stream_order_from_row(
+        self, row: Mapping[str, Any],
+    ) -> Order:
+        """Map a live order-update row to a domain Order usable by the fill
+        bridge: instrument resolved via the registry, and the fill price set
+        to the row's traded price for TRADED/PART_TRADED rows (order-update
+        ``price`` is the limit price; fills trade at ``tradedPrice``).
+        """
+        order = self._order_from_row(row)
+        traded = row.get("tradedPrice", row.get("traded_price"))
+        if (
+            traded not in (None, "")
+            and order.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+        ):
+            return replace(order, price=_as_price(traded))
+        return order
 
     def market_stream_backend(self, *, ws_factory: Any | None = None) -> Any:
         """Quote tick stream backend; no socket until subscribe."""

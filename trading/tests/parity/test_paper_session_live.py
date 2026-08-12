@@ -194,8 +194,10 @@ class TestPaperSessionLiveParity:
         sub = session.stream.subscribe_fills(fills.append)
         try:
             # 15 strictly rising closes → RSI = 100 → transition into
-            # overbought fires exactly one SELL on the 15th bar.
-            closes = [10.0 + i for i in range(15)]
+            # overbought fires exactly one SELL on the 15th bar. A 16th
+            # neutral bar lets the deferred order fill at its open (next_open
+            # model — same fill timing as BacktestEngine).
+            closes = [10.0 + i for i in range(15)] + [25.0]
             for day, close in enumerate(closes, start=1):
                 session.bus.publish(_candle(strategy.instrument, close, day))
 
@@ -273,9 +275,10 @@ class TestPaperSessionLiveParity:
     def test_backtest_boot_path_lands_order_via_simulated_fill(self) -> None:
         """boot(AppConfig(mode="backtest")) + discovered strategy — the same
         end-to-end flow as paper, through the boot-composed engine and
-        SimulatedFillSource. Mode parity: order → fill → position, with the
-        backtest fill landing at SimulatedFillSource's documented zero price
-        for a price-less MARKET order (vs paper's nominal 1.0).
+        SimulatedFillSource. Mode parity: order → fill → position, and the
+        Signal→Order bridge stamps a reference price from the triggering
+        candle, so the simulated fill lands at a real price (no more
+        zero-priced fills that corrupted P&L).
 
         NOTE: boot() registers BOTH discovered singletons on the shared bus
         (candles broadcast to every strategy), and the sma_cross singleton
@@ -304,10 +307,14 @@ class TestPaperSessionLiveParity:
             for day, close in enumerate(closes, start=1):
                 session.bus.publish(_candle(strategy.instrument, close, day))
 
-            # Scope to the discovered strategy's own orders (its tag is the
-            # strategy_id stamped by the Signal→Order bridge at boot).
+            # Scope to the discovered strategy's own orders (its tag is
+            # strategy_id@version stamped by the Signal→Order bridge at boot,
+            # so the versioned audit trail is preserved — review area #5).
             orders = session.engine.cache.all_orders()
-            mr_orders = [o for o in orders if o.tag == _MEAN_REVERSION_ID]
+            mr_orders = [
+                o for o in orders
+                if o.tag is not None and o.tag.startswith(f"{_MEAN_REVERSION_ID}@")
+            ]
             assert len(mr_orders) == 1
             order = mr_orders[0]
             assert order.side == OrderSide.BUY
@@ -323,9 +330,9 @@ class TestPaperSessionLiveParity:
             ]
             assert len(mr_fills) == 1
             assert mr_fills[0].fill.is_buy
-            # Mode parity discriminator: SimulatedFillSource fills a price-less
-            # MARKET order at zero (documented), unlike paper's nominal 1.0.
-            assert mr_fills[0].fill.price.value == 0
+            # The bridge stamped the triggering candle's close as the order
+            # price, so the simulated fill is at a real, non-zero price.
+            assert mr_fills[0].fill.price.value > 0
 
             # ReactiveBus drains nested publishes causally, so the stream
             # order matches the message log. boot()'s shared bus interleaves
@@ -340,7 +347,15 @@ class TestPaperSessionLiveParity:
             # order, and the order matches the strategy's command.
             assert placed[0].order.order_id == filled[0].fill.order_id
             assert pocs[0].request.side == placed[0].order.side == OrderSide.BUY
-            assert pocs[0].request.tag == _MEAN_REVERSION_ID
+            # Tag is strategy_id@version (versioned audit trail, area #5).
+            assert pocs[0].request.tag == f"{_MEAN_REVERSION_ID}@1.0.0"
+            # The bridge now stamps a reference price + deterministic
+            # correlation id derived from the triggering event (parity fix:
+            # no more price-less MARKET orders filling at zero).
+            assert pocs[0].request.price is not None
+            assert pocs[0].request.price.value > 0
+            assert pocs[0].request.correlation_id is not None
+            assert placed[0].order.correlation_id == pocs[0].request.correlation_id
 
             positions = session.portfolio.positions()
             long = next(

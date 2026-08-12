@@ -22,6 +22,11 @@ class Signal(Serializable):
     strength: float
     reason: str
     metadata: dict[str, Any] = field(default_factory=dict)
+    #: UTC timestamp of the event that produced this signal. ``None`` keeps
+    #: hand-built signals backward-compatible; time-aware engines (backtest,
+    #: replay) use it to align fills to the correct bar instead of matching
+    #: signals to candles sequentially.
+    timestamp: datetime | None = None
 
     @property
     def is_buy(self) -> bool:

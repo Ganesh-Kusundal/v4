@@ -182,6 +182,44 @@ engine fills — so paper fills show up immediately, and the served HTTP API
 (`GET /positions`) reflects them. `session.portfolio.account()` remains the
 canonical account-snapshot call.
 
+### Datalake-backed backtesting — `ParquetBacktestLoader`
+
+Backtest strategies directly against the local parquet datalake (`data/ohlcv`,
+~500 Nifty symbols) — fully offline, no broker needed:
+
+```python
+from tradex_domain import Timeframe
+from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
+from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+    MultiSymbolSmaCross,
+)
+
+loader = ParquetBacktestLoader()
+# Portfolio strategy — one instance trades every instrument, one engine pass:
+result = loader.run(
+    MultiSymbolSmaCross(fast=5, slow=20),
+    universe="nifty100",
+    timeframe=Timeframe.D1,
+    max_workers=4,          # parallel per-symbol reads
+)
+print(result.total_return, result.sharpe, result.num_trades)
+
+# Or assemble the raw candle list for a custom BacktestEngine:
+candles = loader.load(universe="nifty100", timeframe=Timeframe.D1)
+```
+
+Backtest/replay sessions also expose it as `session.backtest`. The CLI script
+does per-symbol runs, portfolio mode, grid-search optimization, and
+walk-forward OOS validation:
+
+```bash
+python trading/scripts/backtest_datalake.py --universe nifty100 \
+    --strategy multi_symbol --timeframe 1d --months 2
+
+python trading/scripts/backtest_datalake.py --universe nifty50 \
+    --strategy sma_cross --optimize --walk-forward
+```
+
 ### HTTP API — `tradex serve`
 
 Expose the session over HTTP (FastAPI + uvicorn):

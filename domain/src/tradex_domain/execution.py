@@ -17,7 +17,7 @@ from tradex_domain.enums import (
     ProductType,
     TimeInForce,
 )
-from tradex_domain.errors import OrderRejectedError
+from tradex_domain.errors import OrderRejectedError, SessionStateError
 from tradex_domain.instruments import Instrument
 from tradex_domain.serialization import Serializable
 from tradex_domain.value_objects import AccountId, CorrelationId, Money, OrderId, Price, Quantity
@@ -54,6 +54,10 @@ class OrderRequest(Serializable):
     product_type: ProductType = ProductType.INTRADAY
     correlation_id: CorrelationId | None = None
     tag: str | None = None
+    #: Market-data timestamp that drove this order (signal bar/quote), so fill
+    #: sources can stamp deterministic fill timestamps instead of ``now()`` —
+    #: reproducible event logs across runs (parity review #5/#8).
+    reference_timestamp: datetime | None = None
     disclosed_quantity: int = 0
     market_protection: int = -1
     target_price: Price | None = None
@@ -93,7 +97,9 @@ class Order(Serializable):
     def transition_to(self, new_status: OrderStatus) -> Order:
         allowed = _LEGAL_TRANSITIONS.get(self.status, frozenset())
         if new_status not in allowed:
-            raise OrderRejectedError(f"illegal order transition {self.status} -> {new_status}")
+            raise SessionStateError(
+                f"illegal order transition {self.status} -> {new_status}"
+            )
         return Order(
             order_id=self.order_id,
             instrument=self.instrument,
@@ -174,8 +180,16 @@ class OrderResult(Serializable):
     """
 
     order_id: OrderId
-    status: str = ""
+    status: OrderStatus = OrderStatus.UNKNOWN
     message: str = ""
+
+    def __post_init__(self) -> None:
+        # Coerce raw strings (from broker payloads) to OrderStatus.
+        if isinstance(self.status, str) and not isinstance(self.status, OrderStatus):
+            try:
+                object.__setattr__(self, "status", OrderStatus(self.status.upper()))
+            except ValueError:
+                object.__setattr__(self, "status", OrderStatus.UNKNOWN)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +200,10 @@ class Fill(Serializable):
     quantity: Quantity
     price: Price
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    #: Exchange/broker trade identifier when the venue provides one (e.g.
+    #: Dhan ``tradeId``). Lets the live-fill bridge distinguish two genuine
+    #: equal-lot partial fills of the same order from a re-published fill.
+    fill_id: str | None = None
 
     @property
     def is_buy(self) -> bool:
@@ -251,14 +269,20 @@ class PortfolioSnapshot(Serializable):
 
     @property
     def total_value(self) -> Money:
-        """Sum of all position market values + account equity."""
+        """Sum of all position market values + account equity.
+
+        When account equity is available, it is the authoritative total
+        (broker-reported). Position values are used only when account
+        equity is absent.
+        """
+        if self.account is not None and self.account.equity is not None:
+            return self.account.equity
         pos_value = sum(
             (p.quantity.value * p.avg_price.value for p in self.positions),
             Decimal("0"),
         )
-        if self.account is not None and self.account.equity is not None:
-            return self.account.equity
-        return Money(amount=pos_value, currency="INR")
+        currency = self.positions[0].instrument.currency if self.positions else "INR"
+        return Money(amount=pos_value, currency=currency)
 
     @property
     def total_pnl(self) -> Money:

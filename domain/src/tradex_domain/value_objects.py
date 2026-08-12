@@ -10,7 +10,7 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
-from tradex_domain.enums import ExchangeId
+from tradex_domain.enums import AssetClass, ExchangeId
 from tradex_domain.serialization import from_dict, to_dict
 
 
@@ -25,13 +25,17 @@ class InstrumentId:
     expiry: date | None = None
     strike: Decimal | None = None
     right: str | None = None
+    asset_class: AssetClass = AssetClass.EQUITY
 
     VALID_EXCHANGES = {item.value for item in ExchangeId}
     VALID_RIGHTS = {"CE", "PE", "FUT"}
 
     def __post_init__(self) -> None:
         exchange = self.exchange.strip().upper()
-        if exchange not in self.VALID_EXCHANGES:
+        # Use known_exchanges() to include runtime-registered exchanges.
+        from tradex_domain.enums import known_exchanges
+        valid = set(known_exchanges())
+        if exchange not in valid:
             raise ValueError(f"Invalid exchange: {self.exchange!r}")
         object.__setattr__(self, "exchange", exchange)
         object.__setattr__(self, "underlying", _normalize_symbol(self.underlying))
@@ -45,11 +49,14 @@ class InstrumentId:
 
     @classmethod
     def equity(cls, exchange: str, symbol: str) -> InstrumentId:
-        return cls(exchange=exchange, underlying=symbol)
+        return cls(exchange=exchange, underlying=symbol, asset_class=AssetClass.EQUITY)
 
     @classmethod
     def future(cls, exchange: str, underlying: str, expiry: date) -> InstrumentId:
-        return cls(exchange=exchange, underlying=underlying, expiry=expiry, right="FUT")
+        return cls(
+            exchange=exchange, underlying=underlying, expiry=expiry,
+            right="FUT", asset_class=AssetClass.FUTURE,
+        )
 
     @classmethod
     def option(
@@ -63,23 +70,23 @@ class InstrumentId:
         return cls(
             exchange=exchange, underlying=underlying, expiry=expiry,
             strike=strike if isinstance(strike, Decimal) else Decimal(str(strike)),
-            right=right,
+            right=right, asset_class=AssetClass.OPTION,
         )
 
     @classmethod
     def index(cls, exchange: str, symbol: str) -> InstrumentId:
         """Create an instrument ID for an index."""
-        return cls(exchange=exchange, underlying=symbol)
+        return cls(exchange=exchange, underlying=symbol, asset_class=AssetClass.INDEX)
 
     @classmethod
     def currency(cls, exchange: str, symbol: str) -> InstrumentId:
         """Create an instrument ID for a currency pair."""
-        return cls(exchange=exchange, underlying=symbol)
+        return cls(exchange=exchange, underlying=symbol, asset_class=AssetClass.CURRENCY)
 
     @classmethod
     def commodity(cls, exchange: str, symbol: str) -> InstrumentId:
         """Create an instrument ID for a commodity."""
-        return cls(exchange=exchange, underlying=symbol)
+        return cls(exchange=exchange, underlying=symbol, asset_class=AssetClass.COMMODITY)
 
     @classmethod
     def parse(cls, value: str) -> InstrumentId:
@@ -113,8 +120,15 @@ class InstrumentId:
             right = parts[4].upper()
         if expiry and right is None:
             right = "FUT"
+        if right == "FUT":
+            asset_class = AssetClass.FUTURE
+        elif right in {"CE", "PE"}:
+            asset_class = AssetClass.OPTION
+        else:
+            asset_class = AssetClass.EQUITY
         return cls(
-            exchange=exchange, underlying=underlying, expiry=expiry, strike=strike, right=right
+            exchange=exchange, underlying=underlying, expiry=expiry, strike=strike,
+            right=right, asset_class=asset_class,
         )
 
     @property
@@ -144,12 +158,18 @@ class InstrumentId:
     def __repr__(self) -> str:
         return (
             f"InstrumentId(exchange={self.exchange!r}, underlying={self.underlying!r}, "
-            f"expiry={self.expiry!r}, strike={self.strike!r}, right={self.right!r})"
+            f"expiry={self.expiry!r}, strike={self.strike!r}, right={self.right!r}, "
+            f"asset_class={self.asset_class!r})"
         )
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, InstrumentId):
             return NotImplemented
+        # Identity is the key (exchange + underlying + derivative fields).
+        # ``asset_class`` is an advisory hint used only for provider-key tag
+        # generation (wire._tag_from_id); it is intentionally excluded from
+        # equality so a registry registered via ``InstrumentId.equity`` still
+        # resolves an ``InstrumentId.index`` with the same exchange/underlying.
         return (
             self.exchange,
             self.underlying,

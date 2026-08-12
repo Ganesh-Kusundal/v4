@@ -8,6 +8,7 @@ rate limiting, circuit breaking, and caching are delegated to the composed
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -245,6 +246,17 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
             filled_quantity=Quantity(value=as_decimal(str(row.get("filled_quantity")))),
             correlation_id=correlation_id(row.get("tag"), fallback_seed="upstox-unknown"))
 
+    def _stream_order_from_row(self, row: Mapping[str, Any]) -> Order:
+        """Map a live order-update row, overriding price with traded price for fills."""
+        order = self._order_from_row(row)
+        traded = row.get("average_price")
+        if (
+            traded not in (None, "", 0)
+            and order.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+        ):
+            return replace(order, price=_as_price(traded))
+        return order
+
     def _quote_from_row(self, instrument: Instrument, row: dict[str, Any]) -> Quote:
         depth = row.get("depth", {}) if isinstance(row.get("depth"), dict) else {}
         bids = depth.get("buy", []) if isinstance(depth.get("buy"), list) else []
@@ -362,7 +374,7 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
             authorize_url=f"{self._base_url}{UPSTOX_PORTFOLIO_AUTHORIZE_PATH}",
             ws_fetch=self._ws_fetch,
             token_provider=self._ws_token_provider,
-            map_order=lambda row: self._order_from_row(dict(row)),
+            map_order=lambda row: self._stream_order_from_row(dict(row)),
             map_position=lambda row: next(iter(self._positions([dict(row)])), None),
             ws_factory=ws_factory)
 

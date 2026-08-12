@@ -206,3 +206,24 @@ class TestReplaceAllAtomicReload:
         assert meta["instrument_type"] == "OPTFUT"
         assert meta["lot_size"] == "250"
         assert registry.resolve("MCX:571200") == iid
+
+
+class TestProviderKeyTagByAssetClass:
+    """Residual review Task 2: the provider key tag must follow the
+    InstrumentId's asset class, not a hard-coded 'EQ'."""
+
+    def test_index_key_uses_idx_tag(self) -> None:
+        iid = InstrumentId.index("NSE", "NIFTY")
+        assert InstrumentRegistry.instrument_key(iid) == "NSE_IDX|NIFTY"
+
+    def test_currency_key_uses_cur_tag(self) -> None:
+        iid = InstrumentId.currency("NSE", "USDINR")
+        assert InstrumentRegistry.instrument_key(iid) == "NSE_CUR|USDINR"
+
+    def test_commodity_key_uses_com_tag(self) -> None:
+        iid = InstrumentId.commodity("MCX", "GOLD")
+        assert InstrumentRegistry.instrument_key(iid) == "MCX_COM|GOLD"
+
+    def test_equity_key_still_eq(self) -> None:
+        iid = InstrumentId.equity("NSE", "TCS")
+        assert InstrumentRegistry.instrument_key(iid) == "NSE_EQ|TCS"

@@ -30,6 +30,8 @@ _BROKERAGE_RATE = Decimal("0.0003")  # 0.03%
 _BROKERAGE_CAP = Decimal(20)  # Rs 20 per order cap
 _EXCHANGE_RATE = Decimal("0.0000345")  # 0.00345% NSE txn charges
 _GST_RATE = Decimal("0.18")  # 18% on (brokerage + exchange)
+_SEBI_RATE = Decimal("0.000002")  # ₹20 per crore
+_STAMP_DUTY_RATE = Decimal("0.00003")  # 0.003%
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,11 +42,17 @@ class FeeBreakdown:
     exchange_fee: Decimal
     stt: Decimal
     gst: Decimal
+    sebi_fee: Decimal = Decimal("0")
+    stamp_duty: Decimal = Decimal("0")
 
     @property
     def total(self) -> Decimal:
         """Sum of all fee components."""
-        return self.stt + self.broker_fee + self.exchange_fee + self.gst
+        components = (
+            self.stt, self.broker_fee, self.exchange_fee,
+            self.gst, self.sebi_fee, self.stamp_duty,
+        )
+        return sum(components, start=Decimal("0"))
 
 
 class FeeCalculator:
@@ -62,6 +70,10 @@ class FeeCalculator:
         stamp_duty_pct: Decimal = Decimal("0.003"),
         gst_pct: Decimal = Decimal("18"),
     ) -> None:
+        # NOTE: the instance defaults mirror the canonical static model rates
+        # (sebi 0.0001% and stamp 0.003% as *rates*, not percent-of-percent),
+        # so the default path delegates to equity_intraday and the two fee
+        # paths agree exactly.
         self._brokerage_pct = brokerage_pct
         self._stt_pct = stt_pct
         self._exchange_charge_pct = exchange_charge_pct
@@ -70,24 +82,69 @@ class FeeCalculator:
         self._gst_pct = gst_pct
 
     def calculate(self, fill: Fill) -> Money:
-        """Calculate total fees for a fill. Returns Money in INR."""
+        """Calculate total fees for a fill. Returns Money in INR.
+
+        Delegates to the canonical equity-intraday model
+        (:meth:`equity_intraday`) so the instance API and the v3-ported static
+        helpers agree exactly — one fee model, not two. Custom-rate
+        constructor overrides (tests, exotic configs) are honored when any
+        deviate from the standard defaults.
+        """
         if fill.price.value <= 0 or fill.quantity.value <= 0:
             raise ValueError("fill price and quantity must be positive")
+
+        # Non-default rates -> legacy percentage-of-value path (kept for
+        # custom calculators; the default path is the canonical flat model).
+        defaults = {
+            "_brokerage_pct": Decimal("0.03"),
+            "_stt_pct": Decimal("0.025"),
+            "_exchange_charge_pct": Decimal("0.00345"),
+            "_sebi_charge_pct": Decimal("0.0001"),
+            "_stamp_duty_pct": Decimal("0.003"),
+            "_gst_pct": Decimal("18"),
+        }
+        if any(
+            getattr(self, name) != default
+            for name, default in defaults.items()
+        ):
+            return self._calculate_legacy(fill)
+
+        # Canonical path (default rates) — same components as legacy path.
+        breakdown = self.equity_intraday(
+            side=fill.side,
+            price=fill.price.value,
+            quantity=fill.quantity.value,
+        )
+        return Money(amount=breakdown.total.quantize(Decimal("0.01")))
+
+    def _calculate_legacy(self, fill: Fill) -> Money:
+        """Percentage-of-value fee path (custom rate overrides).
+
+        Structurally identical to the canonical model — STT on sells only,
+        GST on (brokerage + exchange) — so a custom-rate calculator and the
+        default calculator stay consistent for any rate set.
+        """
         trade_value = fill.price.value * fill.quantity.value
 
         brokerage = min(
             trade_value * self._brokerage_pct / Decimal("100"),
             _BROKERAGE_CAP,
         )
-        stt = trade_value * self._stt_pct / Decimal("100")
+        stt = (
+            Decimal(0)
+            if fill.side is OrderSide.BUY
+            else trade_value * self._stt_pct / Decimal("100")
+        )
         exchange_charge = trade_value * self._exchange_charge_pct / Decimal("100")
         sebi_charge = trade_value * self._sebi_charge_pct / Decimal("100")
         stamp_duty = trade_value * self._stamp_duty_pct / Decimal("100")
 
-        subtotal = brokerage + exchange_charge + sebi_charge + stamp_duty
+        subtotal = brokerage + exchange_charge
         gst = subtotal * self._gst_pct / Decimal("100")
 
-        total = brokerage + stt + exchange_charge + sebi_charge + stamp_duty + gst
+        total = (
+            brokerage + stt + exchange_charge + sebi_charge + stamp_duty + gst
+        )
         return Money(amount=total.quantize(Decimal("0.01")))
 
     # -- v3-ported static helpers ------------------------------------------
@@ -130,14 +187,23 @@ class FeeCalculator:
 
     @staticmethod
     def _common(turnover: Decimal, stt: Decimal) -> FeeBreakdown:
+        """Canonical 6-component equity model (brokerage + exchange + STT + SEBI + stamp + GST).
+
+        broker_fee is the *pure* capped brokerage (Rs 20 cap).  SEBI and stamp
+        duty are included for full parity with the legacy path.
+        """
         brokerage = _q2(min(turnover * _BROKERAGE_RATE, _BROKERAGE_CAP))
         exchange = _q2(turnover * _EXCHANGE_RATE)
-        gst = _q2((brokerage + exchange) * _GST_RATE)
+        sebi = _q2(turnover * _SEBI_RATE)
+        stamp = _q2(turnover * _STAMP_DUTY_RATE)
+        gst = _q2((brokerage + exchange + sebi) * _GST_RATE)
         return FeeBreakdown(
             broker_fee=brokerage,
             exchange_fee=exchange,
             stt=stt,
             gst=gst,
+            sebi_fee=sebi,
+            stamp_duty=stamp,
         )
 
 
@@ -158,7 +224,7 @@ class PricingService:
 
         if fill.side.value == "BUY":
             return Money(amount=(trade_value + fees).quantize(Decimal("0.01")))
-        return Money(amount=(-trade_value + fees).quantize(Decimal("0.01")))
+        return Money(amount=(-trade_value - fees).quantize(Decimal("0.01")))
 
     # -- v3-ported static helpers ------------------------------------------
 

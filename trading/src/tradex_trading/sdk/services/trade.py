@@ -14,6 +14,7 @@ from tradex_domain.value_objects import OrderId
 
 from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.reactive.bus import ReactiveBus
+from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_trading.sdk.services._helpers import _as_order_id
 
 
@@ -30,7 +31,7 @@ class TradeService:
     def __init__(
         self,
         engine: ExecutionEngine,
-        bus: ReactiveBus,
+        bus: ReactiveBus | ThreadSafeReactiveBus,
         broker: BrokerAdapter | None = None,
         capabilities: BrokerCapabilities | None = None,
         order_gate: Callable[[], None] | None = None,

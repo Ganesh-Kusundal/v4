@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from tradex_domain import IndicatorComputer, ScannerDefinition, ScannerResult
 from tradex_domain.enums import Timeframe
@@ -34,7 +34,7 @@ class ScannerEngine:
         if analytics is None:
             from tradex_trading.analytics.engine import AnalyticsEngine
             analytics = AnalyticsEngine()  # type: ignore[assignment]
-        self._analytics = analytics
+        self._analytics: IndicatorComputer = analytics  # type: ignore[assignment]
         self._window_days = window_days
 
     def run(self, definition: ScannerDefinition) -> list[ScannerResult]:
@@ -99,7 +99,9 @@ class ScannerEngine:
             return 0.0
         if name == "close":
             return float(series.candles[-1].ohlc.close.value)
-        indicator = self._analytics.indicator(series, name, **params)
+        # AnalyticsEngine.indicator returns a HistoricalSeries; the
+        # IndicatorComputer protocol widens it to object.
+        indicator = cast(HistoricalSeries, self._analytics.indicator(series, name, **params))
         if not indicator.candles:
             return 0.0
         return float(indicator.candles[-1].ohlc.close.value)

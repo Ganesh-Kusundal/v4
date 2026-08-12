@@ -21,11 +21,13 @@ from tradex_trading.analytics import (
     ema,
     imbalance,
     intrinsic_call,
+    macd,
     max_drawdown,
     pe_ratio,
     poc,
     rank_by_return,
     realized_vol,
+    roc,
     rsi,
     sector_strength,
     sharpe_ratio,
@@ -79,6 +81,55 @@ class TestAnalyticsEngine:
         result = engine.compute(values, ["sma", "ema", "rsi"])
         assert set(result.keys()) == {"sma", "ema", "rsi"}
 
+    def test_compute_roc(self) -> None:
+        engine = AnalyticsEngine()
+        values = [100.0] * 10 + [110.0] * 4
+        result = engine.compute(values, ["roc"])
+        non_none = [v for v in result["roc"] if v is not None]
+        assert non_none
+        assert non_none[-1] == pytest.approx(10.0)
+
+    def test_compute_macd(self) -> None:
+        engine = AnalyticsEngine()
+        values = [float(i) for i in range(1, 30)]
+        result = engine.compute(values, ["macd"])
+        non_none = [v for v in result["macd"] if v is not None]
+        assert non_none
+
+    def test_indicator_roc_via_engine(self) -> None:
+        """ScannerEngine's indicator() path supports roc conditions."""
+        from datetime import UTC, datetime, timedelta
+        from decimal import Decimal
+
+        from tradex_domain import OHLC, Candle
+        from tradex_domain.instruments import Equity
+        from tradex_domain.market import HistoricalSeries
+        from tradex_domain.value_objects import Price, Quantity
+
+        engine = AnalyticsEngine()
+        inst = Equity.of("NSE", "RELIANCE")
+        candles = [
+            Candle(
+                instrument=inst, timeframe="1d",  # type: ignore[arg-type]
+                ohlc=OHLC(
+                    open=Price(value=Decimal(str(c))),
+                    high=Price(value=Decimal(str(c))),
+                    low=Price(value=Decimal(str(c))),
+                    close=Price(value=Decimal(str(c))),
+                ),
+                volume=Quantity(value=Decimal("1000")),
+                timestamp=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=i),
+            )
+            for i, c in enumerate([100.0] * 10 + [110.0, 110.0, 110.0, 110.0])
+        ]
+        series = HistoricalSeries(
+            instrument=inst, timeframe="1d",  # type: ignore[arg-type]
+            candles=candles, start=candles[0].timestamp, end=candles[-1].timestamp,
+        )
+        out = engine.indicator(series, "roc", period=10)
+        assert out.candles
+        assert float(out.candles[-1].ohlc.close.value) == pytest.approx(10.0)
+
     def test_compute_unknown_indicator_raises(self) -> None:
         engine = AnalyticsEngine()
         with pytest.raises(ValueError, match="Unknown indicator"):
@@ -129,6 +180,48 @@ class TestIndicators:
     def test_rsi_insufficient_data(self) -> None:
         result = rsi([1.0, 2.0], 14)
         assert all(v is None for v in result)
+
+    def test_roc_monotonic_uptrend(self) -> None:
+        values = [100.0, 110.0, 121.0]
+        result = roc(values, 1)
+        assert len(result) == 3
+        assert result[0] is None
+        assert result[1] == pytest.approx(10.0)
+        assert result[2] == pytest.approx(10.0)
+
+    def test_roc_period_ten_linear_ramp(self) -> None:
+        # 100..113 ramp: value at t vs value at t-10 → 10% at every non-None point
+        values = [100.0] * 10 + [110.0] * 4
+        result = roc(values, 10)
+        non_none = [v for v in result if v is not None]
+        assert non_none == [pytest.approx(10.0)] * 4
+
+    def test_roc_insufficient_data(self) -> None:
+        result = roc([1.0, 2.0], 5)
+        assert all(v is None for v in result)
+
+    def test_roc_flat_base_is_zero(self) -> None:
+        result = roc([0.0, 5.0], 1)
+        assert result[1] == 0.0
+
+    def test_roc_rejects_zero_period(self) -> None:
+        with pytest.raises(ValueError):
+            roc([1.0, 2.0], 0)
+
+    def test_macd_is_fast_ema_minus_slow_ema(self) -> None:
+        values = [float(i) for i in range(1, 30)]
+        result = macd(values, 8)  # fast=4, slow=8
+        assert len(result) == len(values)
+        # Leading values None-padded (slow period - 1)
+        assert result[0] is None
+        non_none = [v for v in result if v is not None]
+        assert non_none
+        # For a linear ramp, EMA lag ≈ (period-1)/2, so MACD ≈ (8-4)/2 = 2.0
+        assert non_none[-1] == pytest.approx(2.0, abs=0.2)
+
+    def test_macd_rejects_small_period(self) -> None:
+        with pytest.raises(ValueError):
+            macd([1.0, 2.0, 3.0], 1)
 
 
 # ---------------------------------------------------------------------------

@@ -58,6 +58,11 @@ class MeanReversionStrategy:
         return self._id
 
     @property
+    def version(self) -> str:
+        """Version of this strategy's logic (stamped on orders/signals)."""
+        return "1.0.0"
+
+    @property
     def instrument(self):
         """Return the traded instrument."""
         return self._instrument
@@ -76,16 +81,24 @@ class MeanReversionStrategy:
             return None
         if rsi > self._overbought and self._state != "overbought":
             self._state = "overbought"
-            return self._signal(OrderSide.SELL, "rsi_overbought")
+            return self._signal(
+                OrderSide.SELL, "rsi_overbought", context.timestamp
+            )
         if rsi < self._oversold and self._state != "oversold":
             self._state = "oversold"
-            return self._signal(OrderSide.BUY, "rsi_oversold")
+            return self._signal(
+                OrderSide.BUY, "rsi_oversold", context.timestamp
+            )
         if self._oversold <= rsi <= self._overbought and self._state != "neutral":
             self._state = "neutral"
         return None
 
     def on_quote(self, context: StrategyContext, quote) -> Signal | None:
         """No quote-driven signals for this strategy."""
+        return None
+
+    def on_depth(self, context: StrategyContext, depth) -> Signal | None:
+        """No depth-driven signals for this strategy."""
         return None
 
     def on_fill(self, context: StrategyContext, fill) -> None:
@@ -120,12 +133,15 @@ class MeanReversionStrategy:
         rs = avg_gain / avg_loss
         return 100.0 - (100.0 / (1.0 + rs))
 
-    def _signal(self, direction: OrderSide, reason: str) -> Signal:
+    def _signal(
+        self, direction: OrderSide, reason: str, timestamp=None,
+    ) -> Signal:
         signal = Signal(
             instrument=self._instrument,
             direction=direction,
             strength=1.0,
             reason=reason,
+            timestamp=timestamp,
         )
         self._signals.append(signal)
         return signal

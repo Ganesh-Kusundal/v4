@@ -8,6 +8,7 @@ from tradex_trading.replay.optimization import (
     GridSearchResult,
     OptimizationResult,
     grid_search,
+    make_grid_optimizer,
 )
 
 # ---------------------------------------------------------------------------
@@ -134,3 +135,63 @@ class TestGridSearch:
         result = grid_search({"k": [42]}, lambda p: _make_bt(total_return=p["k"]))
         assert result.best.params == {"k": 42}
         assert result.best.score == 42
+
+
+class TestGridSearchParallel:
+    """grid_search(max_workers>1) matches sequential results."""
+
+    def test_parallel_matches_sequential(self):
+        def run_fn(params):
+            return _make_bt(total_return=params["a"] * 10 + params["b"])
+
+        seq = grid_search({"a": [1, 2, 3], "b": [10, 20]}, run_fn)
+        par = grid_search(
+            {"a": [1, 2, 3], "b": [10, 20]}, run_fn, max_workers=4,
+        )
+
+        assert par.total_combinations == seq.total_combinations
+        assert len(par.results) == len(seq.results)
+        assert par.best is not None and seq.best is not None
+        assert par.best.params == seq.best.params
+        assert par.best.score == seq.best.score
+        # Order preserved
+        assert [r.params for r in par.results] == [r.params for r in seq.results]
+
+    def test_parallel_skips_failures_like_sequential(self):
+        def run_fn(params):
+            if params["x"] == 2:
+                raise ValueError("bad")
+            return _make_bt(total_return=params["x"])
+
+        result = grid_search({"x": [1, 2, 3]}, run_fn, max_workers=3)
+        assert result.total_combinations == 3
+        assert len(result.results) == 2
+
+
+class TestMakeGridOptimizer:
+    """make_grid_optimizer — grid search bound into walk-forward optimize_fn."""
+
+    def test_returns_best_params_for_training_data(self):
+        def run_fn(params, train_data):
+            # score improves with params["k"] scaled by data length
+            return _make_bt(total_return=params["k"] * 0.1 * len(train_data))
+
+        optimize_fn = make_grid_optimizer({"k": [1, 2, 3]}, run_fn)
+        best = optimize_fn([1, 2, 3, 4, 5])
+        assert best == {"k": 3}
+
+    def test_empty_result_returns_empty_params(self):
+        def run_fn(params, train_data):
+            raise RuntimeError("always fail")
+
+        optimize_fn = make_grid_optimizer({"k": [1, 2]}, run_fn)
+        assert optimize_fn([1, 2, 3]) == {}
+
+    def test_custom_score_fn(self):
+        def run_fn(params, train_data):
+            return _make_bt(total_return=params["k"], sharpe=params["k"] * 2)
+
+        optimize_fn = make_grid_optimizer(
+            {"k": [1, 2, 3]}, run_fn, score_fn=lambda r: r.sharpe,
+        )
+        assert optimize_fn([1]) == {"k": 3}

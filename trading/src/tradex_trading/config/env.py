@@ -14,7 +14,7 @@ from pathlib import Path
 from tradex_domain import BrokerId
 from tradex_domain.errors import SDKError
 
-from tradex_trading.config.schema import AppConfig, BrokerConfig, RiskConfig
+from tradex_trading.config.schema import AppConfig, BrokerConfig, ExecutionConfig, RiskConfig
 
 
 def _parse_bool(value: str) -> bool:
@@ -35,6 +35,9 @@ def from_env() -> AppConfig:
     - TRADEX_RISK_MAX_POSITION_VALUE: Max position value
     - TRADEX_RISK_MAX_ORDERS_PER_MINUTE: Max orders per minute
     - TRADEX_RISK_MAX_ORDER_NOTIONAL: Max order notional (v3 compat)
+    - TRADEX_FEES_ENABLED: Deduct brokerage/STT/etc from fills (true/false)
+    - TRADEX_SLIPPAGE_BPS: Basis-points slippage on fill prices
+    - TRADEX_FILL_REFERENCE: Strategy order timing (next_open | signal_close)
     """
     broker_id_str = os.environ.get("TRADEX_BROKER", "PAPER")
     try:
@@ -70,6 +73,14 @@ def from_env() -> AppConfig:
         max_order_notional=max_order_notional,
     )
 
+    slippage_bps_str = os.environ.get("TRADEX_SLIPPAGE_BPS")
+    slippage_bps = Decimal(slippage_bps_str) if slippage_bps_str else None
+    execution = ExecutionConfig(
+        fees_enabled=_parse_bool(os.environ.get("TRADEX_FEES_ENABLED", "false")),
+        slippage_bps=slippage_bps,
+        fill_reference=os.environ.get("TRADEX_FILL_REFERENCE", "next_open"),
+    )
+
     return AppConfig(
         broker_id=broker_id,
         mode=mode,
@@ -81,6 +92,7 @@ def from_env() -> AppConfig:
             name=os.environ.get("TRADEX_BROKER_NAME", "paper"),
             environment=os.environ.get("TRADEX_BROKER_ENVIRONMENT", "PAPER"),
         ),
+        execution=execution,
     )
 
 

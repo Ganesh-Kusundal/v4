@@ -23,9 +23,12 @@ from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.errors import CapabilityNotSupportedError, OrderRejectedError
 from tradex_domain.instruments import Equity, Future, Index, Instrument, Option
 from tradex_domain.protocols import BrokerAdapter
+from tradex_domain.strategy import ScannerDefinition
 from tradex_domain.value_objects import Price
 
+from tradex_trading.config.schema import AppConfig
 from tradex_trading.execution.engine import ExecutionEngine
+from tradex_trading.execution.fees import FeeCalculator
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
@@ -78,11 +81,13 @@ class TradingSession:
         broker_id: BrokerId,
         mode: str = "paper",
         scanner_engine: object | None = None,
-        scanner_definitions: Sequence[object] = (),
+        scanner_definitions: Sequence[ScannerDefinition] | None = None,
         strategy_engine: object | None = None,
         stream_backend: object | None = None,
         analytics_engine: object | None = None,
+        backtest_loader: object | None = None,
         live_orders_enabled: bool = True,
+        fill_bridge: object | None = None,
     ) -> None:
         self._broker = broker
         self._bus = bus
@@ -93,11 +98,15 @@ class TradingSession:
         self._state = SessionState.NEW
         self._subscriptions: list[StreamSubscription] = []
         self._scanner_engine = scanner_engine
-        self._scanner_definitions = tuple(scanner_definitions)
+        self._scanner_definitions = tuple(scanner_definitions or ())
         self._strategy_engine = strategy_engine
         self._stream_backend = stream_backend
         self._analytics_engine = analytics_engine
+        self._backtest_loader = backtest_loader
         self._live_orders_enabled = live_orders_enabled
+        #: LiveFillBridge translating broker order-stream updates into bus
+        #: OrderFilled events (live fills reaching the OMS — HIGH-4).
+        self._fill_bridge = fill_bridge
         self._market_feed: Any | None = None
         #: Daily instrument-master refresh daemon (live brokers only). Started
         #: by ``TradingSession.live()`` when the broker carries a cached master
@@ -106,13 +115,28 @@ class TradingSession:
         self._master_scheduler: Any | None = None
 
     def start(self) -> None:
-        """Transition to READY state."""
+        """Transition to READY state.
+
+        Only valid from NEW state. Raises SessionStateError if already
+        started or stopped.
+        """
+        if self._state not in (SessionState.NEW,):
+            raise SessionStateError(
+                f"Cannot start session in {self._state} state (must be NEW)"
+            )
         sid = getattr(self, '_session_id', id(self))
         log.info("Session %s starting", sid)
         self._state = SessionState.READY
 
     def stop(self) -> None:
-        """Transition to STOPPED state. Dispose all subscriptions."""
+        """Transition to STOPPED state. Dispose all subscriptions.
+
+        Idempotent: calling stop() on an already-stopped session is a no-op.
+        """
+        if self._state == SessionState.STOPPED:
+            return  # already stopped
+        if self._state == SessionState.NEW:
+            return  # never started, nothing to stop
         for sub in self._subscriptions:
             sub.cancel()
         self._subscriptions.clear()
@@ -122,6 +146,11 @@ class TradingSession:
             except Exception:  # pragma: no cover – defensive teardown
                 log.warning("market feed stop failed", exc_info=True)
         self._bus.dispose()
+        if self._fill_bridge is not None:
+            try:
+                self._fill_bridge.close()  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover – defensive
+                pass
         if self._stream_backend is not None:
             try:
                 # Note: for live brokers this is the same object as the
@@ -266,6 +295,17 @@ class TradingSession:
         return self._strategy_engine
 
     @property
+    def backtest(self) -> object | None:
+        """Offline datalake backtest loader (backtest/replay modes only).
+
+        Returns a :class:`ParquetBacktestLoader` exposing ``load(...)``
+        (flat candle list for ``BacktestEngine.run``) and ``run(strategy,
+        ...)`` (one-shot backtest) over the local parquet datalake. ``None``
+        in paper/live modes, which trade live data instead.
+        """
+        return self._backtest_loader
+
+    @property
     def mode(self) -> str:
         """Execution mode."""
         return self._mode
@@ -301,6 +341,7 @@ class TradingSession:
         broker_id: str = "PAPER",
         *,
         bus: ReactiveBus | None = None,
+        config: AppConfig | None = None,
     ) -> TradingSession:
         """Create a paper trading session with a simulated broker.
 
@@ -310,6 +351,9 @@ class TradingSession:
             Broker identifier (default: "paper").
         bus : ReactiveBus | None
             Optional reactive bus instance.
+        config : AppConfig | None
+            Optional config honoring ``execution`` fees/slippage (HIGH-6b
+            parity with ``runtime.startup.boot``). Defaults to zero-cost.
 
         Returns
         -------
@@ -319,10 +363,24 @@ class TradingSession:
         from tradex_brokers.paper.adapter import PaperBroker
 
         from tradex_trading.execution.fill_sources import PaperFillSource
+        from tradex_trading.execution.slippage import PercentageSlippageModel
 
+        cfg = config or AppConfig()
+        slippage_model: object | None = None
+        if cfg.execution.slippage_bps is not None:
+            slippage_model = PercentageSlippageModel(
+                pct=cfg.execution.slippage_bps / Decimal("10000"),
+            )
+        fee_calculator = (
+            FeeCalculator() if cfg.execution.fees_enabled else None
+        )
         broker = PaperBroker()
         _bus = bus or ReactiveBus()
-        _engine = ExecutionEngine(bus=_bus, fill_source=PaperFillSource())
+        _engine = ExecutionEngine(
+            bus=_bus,
+            fill_source=PaperFillSource(slippage_model=slippage_model),
+            fee_calculator=fee_calculator,
+        )
         session = cls(
             broker=broker,
             bus=_bus,
@@ -426,6 +484,23 @@ class TradingSession:
         except Exception:  # noqa: BLE001 – best-effort wiring
             stream_backend = None
 
+        # Live fill bridge: translate broker order-stream updates into bus
+        # OrderFilled events so live fills reach the OMS (HIGH-4). Best-effort
+        # — no bridge, no live fills, but boot never fails on it.
+        fill_bridge = None
+        if stream_backend is not None and hasattr(
+            stream_backend, "subscribe_orders"
+        ):
+            try:
+                from tradex_trading.sdk.live_fill_bridge import LiveFillBridge
+
+                fill_bridge = LiveFillBridge(
+                    _bus, _engine, stream_backend.subscribe_orders,
+                )
+            except Exception:  # noqa: BLE001 – best-effort wiring
+                log.warning("live fill bridge unavailable: %s", exc_info=True)
+                fill_bridge = None
+
         session = cls(
             broker=cast(BrokerAdapter, broker),
             bus=_bus,
@@ -434,6 +509,7 @@ class TradingSession:
             cache=_engine.cache,
             broker_id=broker_id,
             stream_backend=stream_backend,
+            fill_bridge=fill_bridge,
         )
         session._market_feed = MarketFeed(broker=broker, bus=_bus)
         # Mirrors ``runtime.startup.boot``: a live session must be READY for

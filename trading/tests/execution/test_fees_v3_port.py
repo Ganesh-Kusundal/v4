@@ -62,7 +62,7 @@ class TestFeeCalculatorEquity:
         assert fb.broker_fee >= 0
         assert fb.exchange_fee >= 0
         assert fb.gst >= 0
-        assert fb.total == fb.stt + fb.broker_fee + fb.exchange_fee + fb.gst
+        assert fb.total == fb.stt + fb.broker_fee + fb.exchange_fee + fb.gst + fb.sebi_fee + fb.stamp_duty
 
     def test_equity_delivery_sell_has_stt(self) -> None:
         fb = FeeCalculator.equity_delivery(

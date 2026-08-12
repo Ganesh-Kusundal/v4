@@ -27,10 +27,18 @@ class FillSource(Protocol):
     def cancel(self, order_id: OrderId) -> None: ...
 
 
-def _make_order(request: OrderRequest, status: OrderStatus = OrderStatus.FILLED) -> Order:
-    """Create an Order from an OrderRequest with a generated order_id."""
+def _make_order(
+    request: OrderRequest,
+    status: OrderStatus = OrderStatus.FILLED,
+    order_id: OrderId | None = None,
+) -> Order:
+    """Create an Order from an OrderRequest.
+
+    Uses *order_id* when provided (broker-assigned), otherwise generates a
+    fresh UUID (paper/simulated paths).
+    """
     return Order(
-        order_id=OrderId(value=str(uuid.uuid4())),
+        order_id=order_id if order_id is not None else OrderId(value=str(uuid.uuid4())),
         instrument=request.instrument,
         side=request.side,
         order_type=request.order_type,
@@ -69,11 +77,16 @@ class SimulatedFillSource:
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
         order = _make_order(request, status=OrderStatus.FILLED)
-        fill_price = (
-            request.price
-            or request.trigger_price
-            or Price(value=Decimal("0"))
-        )
+        fill_price = request.price or request.trigger_price
+        if fill_price is None or fill_price.value <= 0:
+            # ponytail: a zero-priced fill silently corrupts every downstream
+            # P&L number (avg_price=0) and breaks FeeCalculator. Fail loudly so
+            # the caller prices the order (strategy bridge now stamps reference
+            # prices; direct callers must pass price/trigger_price too).
+            raise ValueError(
+                f"SimulatedFillSource cannot fill {request.instrument} "
+                f"({request.side.value}) without a positive price"
+            )
 
         # If portfolio state available, check position constraints
         if self._portfolio_state is not None and hasattr(
@@ -88,7 +101,8 @@ class SimulatedFillSource:
             side=request.side,
             quantity=request.quantity,
             price=fill_price,
-            timestamp=datetime.now(UTC),
+            # Deterministic: the order's reference market timestamp, or now().
+            timestamp=request.reference_timestamp or datetime.now(UTC),
         )
 
         # Apply slippage model if provided
@@ -118,11 +132,17 @@ class PaperFillSource:
 
     If a quote is available in the cache, uses LTP; otherwise falls back
     to the request price. For MARKET orders without a price, uses a
-    nominal value.
+    nominal value. Mirrors ``SimulatedFillSource``: optional slippage and
+    deterministic fill timestamps from the request's reference timestamp.
     """
 
-    def __init__(self, cache: object | None = None) -> None:
+    def __init__(
+        self,
+        cache: object | None = None,
+        slippage_model: object | None = None,
+    ) -> None:
         self._cache = cache
+        self._slippage_model = slippage_model
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
         order = _make_order(request, status=OrderStatus.FILLED)
@@ -147,8 +167,24 @@ class PaperFillSource:
             side=request.side,
             quantity=request.quantity,
             price=Price(value=fill_price_value),
-            timestamp=datetime.now(UTC),
+            timestamp=request.reference_timestamp or datetime.now(UTC),
         )
+
+        # Apply slippage model if provided
+        if self._slippage_model is not None and hasattr(
+            self._slippage_model, "apply"
+        ):
+            adjusted_price = self._slippage_model.apply(
+                fill.price, fill.side, fill.quantity
+            )
+            fill = Fill(
+                order_id=fill.order_id,
+                instrument=fill.instrument,
+                side=fill.side,
+                quantity=fill.quantity,
+                price=adjusted_price,
+                timestamp=fill.timestamp,
+            )
         return order, fill
 
     def cancel(self, order_id: OrderId) -> None:
@@ -185,8 +221,8 @@ class BrokerFillSource:
         # Delegate to broker adapter's submit_order method
         if hasattr(self._broker, "submit_order"):
             self._submission_boundary_crossed = True
-            _ = self._broker.submit_order(request)
-            order = _make_order(request, status=OrderStatus.ACK)
+            broker_order_id = self._broker.submit_order(request)
+            order = _make_order(request, status=OrderStatus.ACK, order_id=broker_order_id)
             return order, None
         # Fallback: create a pending order (fill will come via WebSocket)
         order = _make_order(request, status=OrderStatus.ACK)

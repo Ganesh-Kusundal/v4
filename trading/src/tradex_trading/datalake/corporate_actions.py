@@ -13,7 +13,11 @@ class CorporateAction:
     instrument: str
     action_type: str  # "DIVIDEND", "SPLIT", "BONUS", "RIGHTS"
     ex_date: str  # ISO date string
+    #: Per-share dividend for DIVIDEND actions (shorts pay, so the debit is
+    #: per_share * negative qty). Ignored for SPLIT/BONUS.
     amount: float = 0.0
+    #: Split/bonus ratio — qty × ratio, avg ÷ ratio (e.g. 2.0 for a 2:1
+    #: split or a 1:1 bonus). Ignored for DIVIDEND.
     ratio: float = 1.0
 
 

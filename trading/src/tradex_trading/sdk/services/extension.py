@@ -76,7 +76,7 @@ class ExtensionService:
         self._require_order_gate()
         require_capability(self._capabilities, "supports_super_order")
         order_id = self._broker.submit_super_order(request)
-        return OrderResult(order_id=order_id, status=OrderStatus.SUBMITTED.value)
+        return OrderResult(order_id=order_id, status=OrderStatus.SUBMITTED)
 
     def modify_super(self, order_id: OrderId, request: OrderRequest) -> OrderResult:
         self._require_order_gate()
@@ -98,7 +98,7 @@ class ExtensionService:
         self._require_order_gate()
         require_capability(self._capabilities, "supports_forever_order")
         order_id = self._broker.submit_forever_order(request)
-        return OrderResult(order_id=order_id, status=OrderStatus.SUBMITTED.value)
+        return OrderResult(order_id=order_id, status=OrderStatus.SUBMITTED)
 
     def modify_forever(self, order_id: OrderId, request: OrderRequest) -> OrderResult:
         self._require_order_gate()
@@ -126,7 +126,7 @@ class ExtensionService:
         require_capability(self._capabilities, "supports_slice_order")
         order_ids = self._broker.submit_slice_order(request, slices, interval)
         return [
-            OrderResult(order_id=oid, status=OrderStatus.SUBMITTED.value)
+            OrderResult(order_id=oid, status=OrderStatus.SUBMITTED)
             for oid in order_ids
         ]
 

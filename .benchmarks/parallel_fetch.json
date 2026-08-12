@@ -1,0 +1,107 @@
+[
+  {
+    "n_instruments": 10,
+    "days": 7,
+    "latency_ms": 200.0,
+    "sequential_s": 2.045,
+    "single_parallel_s": 0.608,
+    "dual_parallel_s": 0.612,
+    "dual_speedup": 3.34,
+    "dhan_calls": 5,
+    "upstox_calls": 5
+  },
+  {
+    "n_instruments": 10,
+    "days": 90,
+    "latency_ms": 200.0,
+    "sequential_s": 2.043,
+    "dual_parallel_s": 0.607,
+    "dual_speedup": 3.36,
+    "dhan_calls": 10,
+    "upstox_calls": 0
+  },
+  {
+    "n_instruments": 50,
+    "days": 7,
+    "latency_ms": 200.0,
+    "sequential_s": 10.196,
+    "single_parallel_s": 2.646,
+    "dual_parallel_s": 2.649,
+    "dual_speedup": 3.85,
+    "dhan_calls": 25,
+    "upstox_calls": 25
+  },
+  {
+    "n_instruments": 50,
+    "days": 90,
+    "latency_ms": 200.0,
+    "sequential_s": 10.2,
+    "dual_parallel_s": 2.647,
+    "dual_speedup": 3.85,
+    "dhan_calls": 50,
+    "upstox_calls": 0
+  },
+  {
+    "n_instruments": 100,
+    "days": 7,
+    "latency_ms": 200.0,
+    "sequential_s": 20.389,
+    "single_parallel_s": 5.098,
+    "dual_parallel_s": 5.098,
+    "dual_speedup": 4.0,
+    "dhan_calls": 50,
+    "upstox_calls": 50
+  },
+  {
+    "n_instruments": 100,
+    "days": 90,
+    "latency_ms": 200.0,
+    "sequential_s": 20.379,
+    "dual_parallel_s": 5.095,
+    "dual_speedup": 4.0,
+    "dhan_calls": 100,
+    "upstox_calls": 0
+  },
+  {
+    "n_instruments": 250,
+    "days": 7,
+    "latency_ms": 200.0,
+    "sequential_s": 50.953,
+    "single_parallel_s": 12.828,
+    "dual_parallel_s": 12.851,
+    "dual_speedup": 3.97,
+    "dhan_calls": 125,
+    "upstox_calls": 125
+  },
+  {
+    "n_instruments": 250,
+    "days": 90,
+    "latency_ms": 200.0,
+    "sequential_s": 50.931,
+    "dual_parallel_s": 12.863,
+    "dual_speedup": 3.96,
+    "dhan_calls": 250,
+    "upstox_calls": 0
+  },
+  {
+    "n_instruments": 500,
+    "days": 7,
+    "latency_ms": 200.0,
+    "sequential_s": 101.861,
+    "single_parallel_s": 25.496,
+    "dual_parallel_s": 25.472,
+    "dual_speedup": 4.0,
+    "dhan_calls": 250,
+    "upstox_calls": 250
+  },
+  {
+    "n_instruments": 500,
+    "days": 90,
+    "latency_ms": 200.0,
+    "sequential_s": 101.841,
+    "dual_parallel_s": 25.465,
+    "dual_speedup": 4.0,
+    "dhan_calls": 500,
+    "upstox_calls": 0
+  }
+]

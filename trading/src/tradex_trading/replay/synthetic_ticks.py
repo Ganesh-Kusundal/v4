@@ -27,7 +27,7 @@ from decimal import Decimal
 from typing import Any
 
 from tradex_domain.enums import Timeframe
-from tradex_domain.market import Candle, Quote
+from tradex_domain.market import Candle, Depth, Quote
 from tradex_domain.value_objects import Price, Quantity
 
 from tradex_trading.replay.backtest import FakeClock
@@ -52,6 +52,7 @@ class SyntheticTickGenerator:
         ticks_per_bar: int = 60,
         seed: int | None = None,
         method: str = "anchored",
+        depth_levels: int = 0,
     ) -> None:
         """Initialize the generator.
 
@@ -71,6 +72,9 @@ class SyntheticTickGenerator:
             Price-path method: ``"anchored"`` (default, OHLC-anchored random
             walk) or ``"bridge"`` (Brownian bridge between open and close,
             volatility calibrated from the high-low range).
+        depth_levels:
+            Number of depth levels per side (default 0 = no Depth events).
+            When > 0, a ``Depth`` snapshot is emitted at bar close.
         """
         if ticks_per_bar < 2:
             raise ValueError("ticks_per_bar must be at least 2 (open + close)")
@@ -82,6 +86,7 @@ class SyntheticTickGenerator:
         self._clock = clock or FakeClock()
         self._ticks_per_bar = ticks_per_bar
         self._method = method
+        self._depth_levels = depth_levels
         self._rng = random.Random(seed)
 
     def feed_bar(self, candle: Candle) -> None:
@@ -108,8 +113,39 @@ class SyntheticTickGenerator:
                     timestamp=candle.timestamp + timedelta(seconds=i),
                 )
             )
+        # Emit Depth snapshot at bar close when depth is enabled
+        if self._depth_levels > 0:
+            self._emit_depth(candle, prices[-1])
 
     # -- internals ----------------------------------------------------------
+
+    def _emit_depth(self, candle: Candle, mid_price: float) -> None:
+        """Generate a Depth snapshot around *mid_price*.
+
+        ponytail: exponential-decay quantities, NSE tick size (0.05).
+        Sufficient for E2E testing; real depth requires live WebSocket data.
+        """
+        tick_size = Decimal("0.05")
+        mid = Decimal(str(mid_price))
+        bids = []
+        asks = []
+        for i in range(self._depth_levels):
+            offset = tick_size * (i + 1)
+            raw_qty = self._rng.uniform(50, 500) * (1 + i * 0.3)
+            qty = Quantity(value=Decimal(str(int(raw_qty))))
+            bids.append((Price(value=mid - offset), qty))
+            asks.append((Price(value=mid + offset), qty))
+        # Stamp the snapshot with the last tick's timestamp (ticks run
+        # 0..ticks_per_bar-1 seconds past bar open), so the Depth event is
+        # causally consistent with the ticks it snapshots.
+        self._bus.publish(
+            Depth(
+                instrument=candle.instrument,
+                bids=tuple(bids),
+                asks=tuple(asks),
+                timestamp=candle.timestamp + timedelta(seconds=self._ticks_per_bar - 1),
+            )
+        )
 
     def _walk(self, candle: Candle) -> list[float]:
         """Dispatch to the configured price-path method."""

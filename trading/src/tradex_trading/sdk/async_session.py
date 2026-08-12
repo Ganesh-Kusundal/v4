@@ -222,9 +222,9 @@ class AsyncTradingSession:
         are yielded via the async iterator.
         """
         queue: asyncio.Queue[Quote] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
         def _on_quote(quote: Quote) -> None:
-            loop = asyncio.get_event_loop()
             loop.call_soon_threadsafe(queue.put_nowait, quote)
             if handler is not None:
                 handler(quote)
@@ -242,9 +242,9 @@ class AsyncTradingSession:
     ) -> AsyncIterator[OrderFilled]:
         """Subscribe to fill stream as an async iterator."""
         queue: asyncio.Queue[OrderFilled] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
         def _on_fill(fill: OrderFilled) -> None:
-            loop = asyncio.get_event_loop()
             loop.call_soon_threadsafe(queue.put_nowait, fill)
             if handler is not None:
                 handler(fill)
@@ -262,9 +262,9 @@ class AsyncTradingSession:
     ) -> AsyncIterator[Depth]:
         """Subscribe to depth stream as an async iterator."""
         queue: asyncio.Queue[Depth] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
         def _on_depth(depth: Depth) -> None:
-            loop = asyncio.get_event_loop()
             loop.call_soon_threadsafe(queue.put_nowait, depth)
             if handler is not None:
                 handler(depth)

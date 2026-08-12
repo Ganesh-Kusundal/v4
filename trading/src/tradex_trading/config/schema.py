@@ -78,6 +78,37 @@ class PersistenceConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionConfig:
+    """Execution-cost and strategy-bridge configuration, shared across modes.
+
+    These settings make fees, slippage, and fill timing **consistent** between
+    backtest and the reactive paper/live path (parity review HIGH-6b) — the
+    same models are wired into the fill sources and the execution engine by
+    ``runtime.startup.boot``. Defaults reproduce the historical zero-cost,
+    next-bar-open behavior.
+    """
+
+    fees_enabled: bool = False
+    slippage_bps: Decimal | None = None
+    fill_reference: str = "next_open"
+
+    def __post_init__(self) -> None:
+        if self.slippage_bps is not None and not isinstance(
+            self.slippage_bps, Decimal
+        ):
+            object.__setattr__(
+                self,
+                "slippage_bps",
+                Decimal(str(self.slippage_bps)),
+            )
+        if self.fill_reference not in ("next_open", "signal_close"):
+            raise ValueError(
+                f"fill_reference must be 'next_open' or 'signal_close', "
+                f"got {self.fill_reference!r}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     """Application configuration.
 
@@ -122,6 +153,7 @@ class AppConfig:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AppConfig:
@@ -140,6 +172,7 @@ class AppConfig:
             "logging",
             "observability",
             "persistence",
+            "execution",
         }
         unknown = set(data) - allowed
         if unknown:
@@ -156,6 +189,7 @@ class AppConfig:
         logging_cfg = _build(LoggingConfig, data.get("logging"))
         obs = _build(ObservabilityConfig, data.get("observability"))
         persistence = _build(PersistenceConfig, data.get("persistence"))
+        execution = _build(ExecutionConfig, data.get("execution"))
 
         return cls(
             broker_id=broker_id,
@@ -171,6 +205,7 @@ class AppConfig:
             logging=logging_cfg,
             observability=obs,
             persistence=persistence,
+            execution=execution,
         )
 
 
@@ -190,6 +225,7 @@ def _build(cls: type, data: object) -> Any:
 __all__ = [
     "AppConfig",
     "BrokerConfig",
+    "ExecutionConfig",
     "LoggingConfig",
     "ObservabilityConfig",
     "PersistenceConfig",

@@ -8,6 +8,9 @@ package and importing it below.
 from tradex_trading.strategy.extensions.scanners.momentum import (
     momentum_scanner,
 )
+from tradex_trading.strategy.extensions.scanners.nifty500_technical import (
+    nifty500_technical_scanner,
+)
 from tradex_trading.strategy.extensions.scanners.pullback import pullback_scanner
 
-__all__ = ["momentum_scanner", "pullback_scanner"]
+__all__ = ["momentum_scanner", "nifty500_technical_scanner", "pullback_scanner"]

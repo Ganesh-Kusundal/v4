@@ -13,18 +13,21 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from decimal import Decimal
+from typing import Any, cast
 
 from tradex_brokers import BrokerFactory, DhanBroker, PaperBroker, UpstoxBroker
 from tradex_domain import BrokerId
 
 from tradex_trading.config.schema import AppConfig
 from tradex_trading.execution.engine import ExecutionEngine, RiskManager
+from tradex_trading.execution.fees import FeeCalculator
 from tradex_trading.execution.fill_sources import (
     BrokerFillSource,
     PaperFillSource,
     SimulatedFillSource,
 )
+from tradex_trading.execution.slippage import PercentageSlippageModel
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_trading.runtime.metrics import MetricsRegistry
@@ -84,7 +87,7 @@ class RuntimeContext:
                 log.error("Error shutting down engine: %s", exc)
         if self.strategy_engine is not None:
             try:
-                self.strategy_engine.dispose_all()  # type: ignore[union-attr]
+                self.strategy_engine.dispose_all()  # type: ignore[attr-defined]
             except Exception as exc:  # pragma: no cover
                 log.error("Error disposing strategy engine: %s", exc)
         close_fn = getattr(self.broker, "close", None)
@@ -139,21 +142,33 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # concurrently, and a plain RxPY Subject must never be driven from two
     # threads at once. The feed thread's own quote → pipeline chain is
     # reentrant on the same thread, so the lock never delays it.
-    bus = ReactiveBus(metrics=metrics)
+    bus: ReactiveBus | ThreadSafeReactiveBus = ReactiveBus(metrics=metrics)
     if cfg.mode == "live":
-        from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
-        bus = ThreadSafeReactiveBus(bus)
+        # bus is still the plain ReactiveBus just created above.
+        bus = ThreadSafeReactiveBus(cast(ReactiveBus, bus))
+
+    # 3b. Execution costs — the SAME slippage + fee models used by
+    # BacktestEngine when callers configure them (HIGH-6b parity: backtest and
+    # reactive paper/live net P&L must agree). Off by default (zero-cost model).
+    slippage_model: Any = None
+    if cfg.execution.slippage_bps is not None:
+        slippage_model = PercentageSlippageModel(
+            pct=cfg.execution.slippage_bps / Decimal("10000"),
+        )
+    fee_calculator: FeeCalculator | None = (
+        FeeCalculator() if cfg.execution.fees_enabled else None
+    )
 
     # 4. Create fill source based on mode
     fill_source: Any
     if cfg.mode == "paper":
-        fill_source = PaperFillSource()
+        fill_source = PaperFillSource(slippage_model=slippage_model)
     elif cfg.mode == "backtest":
-        fill_source = SimulatedFillSource()
+        fill_source = SimulatedFillSource(slippage_model=slippage_model)
     elif cfg.mode == "live":
         fill_source = BrokerFillSource(broker)
     elif cfg.mode == "replay":
-        fill_source = SimulatedFillSource()
+        fill_source = SimulatedFillSource(slippage_model=slippage_model)
     else:
         raise ValueError(f"unknown mode: {cfg.mode}")
 
@@ -175,8 +190,11 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # 6. Create execution engine
     engine = ExecutionEngine(
         bus=bus, fill_source=fill_source, risk_manager=risk_manager, metrics=metrics,
-        idempotency_guard=guard,
+        idempotency_guard=guard, fee_calculator=fee_calculator,
     )
+    # Bind the OMS cache as the position source so ``max_position_value`` is
+    # enforced against live cumulative exposure (qty * avg_price + incoming).
+    risk_manager.set_positions_provider(engine.cache.all_positions)
     engine.kill_switch = cfg.kill_switch_default
 
     # 6b. Strategy engine — register every auto-discovered extension strategy
@@ -184,7 +202,9 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # Discovery already isinstance-filters against the Strategy protocol, so
     # registration cannot realistically fail; any error still aborts boot
     # (fail-closed — nothing is swallowed).
-    strategy_engine = ReactiveStrategyEngine(bus)
+    strategy_engine = ReactiveStrategyEngine(
+        bus, fill_reference=cfg.execution.fill_reference,
+    )
     for strategy in all_strategies:
         strategy_engine.register(strategy)
 
@@ -196,6 +216,7 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # instead of falling back to a stub. Paper/backtest brokers expose no
     # backend; any wiring failure degrades to the existing bus fallback.
     stream_backend = None
+    fill_bridge: Any = None
     if cfg.mode == "live":
         try:
             sb = getattr(broker, "stream_backend", None)
@@ -203,10 +224,55 @@ def boot(config: AppConfig | None = None) -> TradingSession:
                 stream_backend = sb()
         except Exception as exc:  # noqa: BLE001 – degrade, don't fail boot
             log.warning("stream backend unavailable at boot: %s", exc)
+        # Live fill bridge: translate broker order-stream updates into bus
+        # OrderFilled events so live fills reach the OMS (HIGH-4). Best-effort
+        # — without it boot still succeeds, but live fills never apply.
+        if stream_backend is not None and hasattr(
+            stream_backend, "subscribe_orders"
+        ):
+            try:
+                from tradex_trading.sdk.live_fill_bridge import (
+                    LiveFillBridge,
+                    TradeBookFillIdResolver,
+                )
+
+                # Stamp live delta fills with the broker's exchange trade ids
+                # (Dhan ``tradeId`` from GET /trades) so equal-lot partials
+                # dedup exactly instead of under-counting (parity review area
+                # #10 — duplicate-event safety). Brokers without a REST trade
+                # book fall back to the composite fingerprint.
+                trade_book = getattr(broker, "trade_book", None)
+                resolver = (
+                    TradeBookFillIdResolver(trade_book)
+                    if callable(trade_book) else None
+                )
+                fill_bridge = LiveFillBridge(
+                    bus, engine, stream_backend.subscribe_orders,
+                    trade_id_resolver=resolver,
+                )
+            except Exception as exc:  # noqa: BLE001 – degrade, don't fail boot
+                log.warning("live fill bridge unavailable at boot: %s", exc)
+                fill_bridge = None
 
     # 7c. Scanner engine — bind the market provider so the session's
     # ScannerService can run every auto-discovered extension scanner.
-    scanner_engine = ScannerEngine(market=broker)
+    # Backtest/replay modes scan the local parquet datalake (offline, full
+    # Nifty universe) instead of the broker; paper/live keep live data.
+    if cfg.mode in ("backtest", "replay"):
+        from tradex_trading.datalake.market_provider import ParquetMarketProvider
+        scanner_market: Any = ParquetMarketProvider()
+    else:
+        scanner_market = broker
+    scanner_engine = ScannerEngine(market=scanner_market)
+
+    # 7d. Backtest loader — backtest/replay modes expose an offline datalake
+    # backtest tool on the session: ``session.backtest.load()``/``.run()``
+    # assemble ``BacktestEngine`` inputs from the parquet store (multi-symbol,
+    # no broker). Paper/live keep None (live data paths instead).
+    backtest_loader: Any = None
+    if cfg.mode in ("backtest", "replay"):
+        from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
+        backtest_loader = ParquetBacktestLoader()
 
     # 8. Create session — strategies registered, scanners bound into the
     # ScannerService (definitions) so ``session.scanner.run_all()`` works.
@@ -221,6 +287,8 @@ def boot(config: AppConfig | None = None) -> TradingSession:
         scanner_definitions=all_scanners,
         strategy_engine=strategy_engine,
         stream_backend=stream_backend,
+        backtest_loader=backtest_loader,
+        fill_bridge=fill_bridge,
     )
 
     # 9. Start session
