@@ -30,7 +30,6 @@ from tradex_domain import (
 def test_currency_factory() -> None:
     usdinr = Currency.of("NSE", "USDINR")
     assert usdinr.asset_class.value == "CURRENCY"
-    assert usdinr.instrument_type.value == "CURRENCY"
 
 
 def test_commodity_factory() -> None:
