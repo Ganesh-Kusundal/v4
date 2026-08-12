@@ -6,8 +6,6 @@ Instrument objects.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 # Segment -> canonical v4 exchange. Single source of truth for Upstox
 # master-row exchange normalization (consumed by ``tradex_brokers.upstox.master``).
 # Includes the BSE/NCDEX/COM variants the trading layer previously re-declared.
@@ -27,13 +25,4 @@ SEGMENT_CANONICAL: dict[str, str] = {
 }
 
 
-def load_upstox_rows(path: Path | None = None) -> list[dict]:
-    """Load Upstox instrument master CSV. Returns empty list if no path."""
-    if path is None:
-        return []
-    from tradex_brokers.common.instruments import load_master_csv
-
-    return load_master_csv(path)
-
-
-__all__ = ["SEGMENT_CANONICAL", "load_upstox_rows"]
+__all__ = ["SEGMENT_CANONICAL"]

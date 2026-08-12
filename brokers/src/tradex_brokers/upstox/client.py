@@ -41,7 +41,6 @@ from tradex_brokers.common.provider_common import (
     as_price,
     first_mapping,
     instrument_from_id,
-    parse_date,
     provider_key,
     unwrap_data,
 )
@@ -57,7 +56,6 @@ from tradex_brokers.upstox._portfolio import PortfolioMixin
 _as_price = as_price
 _unwrap_data = unwrap_data
 _first_mapping = first_mapping
-_parse_date = parse_date
 
 
 class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin, AdminMixin):

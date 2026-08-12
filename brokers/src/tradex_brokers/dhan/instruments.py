@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 
 from tradex_domain.instruments import Future, Instrument, Option
@@ -61,15 +60,6 @@ def _parse_expiry(value: str) -> date:
     if len(parts) == 3 and len(parts[2]) == 4:
         return date(int(parts[2]), int(parts[1]), int(parts[0]))
     raise ValueError(f"invalid instrument expiry: {value!r}")
-
-
-def load_dhan_rows(path: Path | None = None) -> list[dict]:
-    """Load Dhan instrument master CSV. Returns empty list if no path."""
-    if path is None:
-        return []
-    from tradex_brokers.common.instruments import load_master_csv
-
-    return load_master_csv(path)
 
 
 def load_mcx_rows(
@@ -128,4 +118,4 @@ def load_mcx_rows(
     return instruments
 
 
-__all__ = ["SEGMENT_CANONICAL", "load_dhan_rows", "load_mcx_rows"]
+__all__ = ["SEGMENT_CANONICAL", "load_mcx_rows"]

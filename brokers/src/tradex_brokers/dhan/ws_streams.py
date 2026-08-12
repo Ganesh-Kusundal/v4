@@ -44,8 +44,6 @@ DHAN_ORDER_UPDATE_WS_URL = "wss://api-feed.dhan.co/v2/orderUpdate"
 DHAN_MARKET_DATA_WS_URL = "wss://api-feed.dhan.co"
 #: Official Dhan depth-20 websocket (RequestCode 23 binary feed).
 DHAN_DEPTH_20_WS_URL = "wss://depth-api-feed.dhan.co/twentydepth"
-#: Official Dhan depth-200 websocket (RequestCode 23 binary feed).
-DHAN_DEPTH_200_WS_URL = "wss://full-depth-api.dhan.co/twohundreddepth"
 
 
 def default_ws_factory(url: str) -> Any:
@@ -749,7 +747,6 @@ class DhanDepthStreamBackend(AutoReconnectMixin):
 
 
 __all__ = [
-    "DHAN_DEPTH_200_WS_URL",
     "DHAN_DEPTH_20_WS_URL",
     "DHAN_MARKET_DATA_WS_URL",
     "DHAN_ORDER_UPDATE_WS_URL",

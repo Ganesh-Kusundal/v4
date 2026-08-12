@@ -203,62 +203,6 @@ def parse_timestamp(value: str | int | float) -> datetime:
     raise SDKError(f"Cannot parse timestamp of type {type(value).__name__}")
 
 
-def verify_auth_connection(adapter: Any) -> dict:
-    """Verify that the adapter has a working authenticated connection.
-
-    Parameters
-    ----------
-    adapter:
-        A broker adapter instance.  Must implement ``get_access_token()``
-        or have a ``token_manager`` attribute.
-
-    Returns
-    -------
-    dict
-        Status dict with keys ``connected`` (bool), ``broker`` (str),
-        and optionally ``message`` (str).
-    """
-    try:
-        # Try token_manager first
-        token_mgr = getattr(adapter, "token_manager", None)
-        if token_mgr is not None:
-            token = token_mgr.get_token()
-            if token:
-                return {
-                    "connected": True,
-                    "broker": getattr(adapter, "broker_id", "UNKNOWN"),
-                    "message": "Authenticated via token manager",
-                }
-
-        # Try direct get_access_token
-        if hasattr(adapter, "get_access_token"):
-            token = adapter.get_access_token()
-            if token:
-                return {
-                    "connected": True,
-                    "broker": getattr(adapter, "broker_id", "UNKNOWN"),
-                    "message": "Authenticated via access token",
-                }
-
-        return {
-            "connected": False,
-            "broker": getattr(adapter, "broker_id", "UNKNOWN"),
-            "message": "No authentication method found on adapter",
-        }
-    except AuthenticationError as exc:
-        return {
-            "connected": False,
-            "broker": getattr(adapter, "broker_id", "UNKNOWN"),
-            "message": f"Authentication failed: {exc}",
-        }
-    except Exception as exc:
-        return {
-            "connected": False,
-            "broker": getattr(adapter, "broker_id", "UNKNOWN"),
-            "message": f"Connection check failed: {exc}",
-        }
-
-
 def first_mapping(value: object) -> Mapping[str, Any]:
     """Extract first mapping from a value (dict or list of dicts)."""
     if isinstance(value, Mapping):
@@ -291,5 +235,4 @@ __all__ = [
     "require_success",
     "resolve_instrument",
     "unwrap_data",
-    "verify_auth_connection",
 ]
