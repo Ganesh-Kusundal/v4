@@ -40,3 +40,5 @@ Thumbs.db
 # Virtual envs
 .venv/
 venv/
+# superpowers worktrees
+.worktrees/
