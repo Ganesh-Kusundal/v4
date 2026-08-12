@@ -25,7 +25,6 @@ from tradex_domain.protocols import BrokerAdapter, ExtensionAdapter
 from tradex_domain.wire import (
     InstrumentRegistry,
     WireAdapter,
-    normalize_exchange,
     normalize_symbol,
 )
 
@@ -40,7 +39,6 @@ def test_capabilities_defaults_are_fail_closed() -> None:
     assert caps.supports_super_order is False
     assert caps.supports_edis is False
     assert caps.supports_portfolio_stream is False
-    assert caps.max_batch_size >= 1
     assert AssetClass.EQUITY in caps.supported_asset_classes
 
 
@@ -50,7 +48,6 @@ def test_dhan_capability_matrix_is_truthful() -> None:
     assert caps.supports_limit_order is True
     assert caps.supports_stop_order is True
     assert caps.supports_modify is True
-    assert caps.supports_cancel is True
     assert caps.supports_super_order is True
     assert caps.supports_forever_order is True
     assert caps.supports_slice_order is True
@@ -60,7 +57,6 @@ def test_dhan_capability_matrix_is_truthful() -> None:
     assert caps.supports_option_chain is True
     assert caps.supports_future_chain is True
     assert caps.supports_kill_switch is True
-    assert caps.max_batch_size == 1000
     assert caps.depth_levels == 20
     assert caps.max_stream_instruments == 1000
 
@@ -71,7 +67,6 @@ def test_upstox_capability_matrix_is_truthful() -> None:
     assert caps.supports_limit_order is True
     assert caps.supports_stop_order is True
     assert caps.supports_modify is True
-    assert caps.supports_cancel is True
     assert caps.supports_super_order is False
     assert caps.supports_forever_order is True
     assert caps.supports_slice_order is True
@@ -81,7 +76,6 @@ def test_upstox_capability_matrix_is_truthful() -> None:
     assert caps.supports_option_chain is True
     assert caps.supports_future_chain is True
     assert caps.supports_kill_switch is True
-    assert caps.max_batch_size == 500
     assert caps.depth_levels == 30
     assert caps.max_stream_instruments == 500
 
@@ -91,7 +85,6 @@ def test_paper_capabilities_are_conservative() -> None:
     assert caps.supports_market_order is True
     assert caps.supports_limit_order is True
     assert caps.supports_modify is True
-    assert caps.supports_cancel is True
     assert caps.supports_kill_switch is False
     assert caps.supports_super_order is False
     assert caps.supports_forever_order is False
@@ -106,7 +99,7 @@ def test_require_capability_raises_typed_error() -> None:
     caps = BrokerCapabilities()
     with pytest.raises(CapabilityNotSupportedError):
         require_capability(caps, "supports_option_chain")
-    require_capability(paper_capabilities(), "supports_cancel")
+    require_capability(paper_capabilities(), "supports_market_order")
 
 
 # ---------------------------------------------------------------------------
@@ -187,24 +180,16 @@ def _registry() -> InstrumentRegistry:
     return reg
 
 
-def test_normalize_symbol_and_exchange() -> None:
+def test_normalize_symbol() -> None:
     assert normalize_symbol(" reliance-eq ") == "RELIANCE"
     assert normalize_symbol("nifty 50") == "NIFTY 50"
-    assert normalize_exchange(" nse ") == "NSE"
-    assert normalize_exchange("nfo") == "NFO"
 
 
 def test_instrument_key_round_trip() -> None:
     reg = _registry()
     eq = Equity.of("NSE", "RELIANCE")
-    key = reg.instrument_key(eq.instrument_id)
-    assert key == "NSE_EQ|RELIANCE"
-    assert reg.reverse_instrument_key(key) == eq.instrument_id
-
-
-def test_reverse_unknown_key_returns_none() -> None:
-    reg = _registry()
-    assert reg.reverse_instrument_key("BOGUS|NOPE") is None
+    assert reg.provider_key(eq.instrument_id) == "NSE_EQ|RELIANCE"
+    assert reg.resolve("NSE_EQ|RELIANCE") == eq.instrument_id
 
 
 def test_register_duplicate_key_collision_rejected() -> None:
@@ -212,16 +197,6 @@ def test_register_duplicate_key_collision_rejected() -> None:
     other = Equity.of("NSE", "TCS").instrument_id
     with pytest.raises(SDKError):
         reg.register(other, {"key": "NSE_EQ|RELIANCE"})
-
-
-def test_register_bulk_rejects_conflicting_rows() -> None:
-    reg = InstrumentRegistry()
-    rows = [
-        {"symbol": "RELIANCE", "exchange": "NSE", "key": "NSE_EQ|RELIANCE"},
-        {"symbol": "TCS", "exchange": "NSE", "key": "NSE_EQ|RELIANCE"},
-    ]
-    with pytest.raises(SDKError):
-        reg.register_bulk(rows)
 
 
 def test_wire_adapter_protocol_is_satisfied_by_registry() -> None:

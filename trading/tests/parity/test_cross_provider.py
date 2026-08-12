@@ -134,7 +134,7 @@ class TestCapabilityMatrix:
         # Every capability paper claims, dhan should also claim (superset)
         for f in dataclasses.fields(paper):
             field_name = f.name
-            if field_name in ("max_order_quantity", "max_order_value", "supported_asset_classes"):
+            if field_name == "supported_asset_classes":
                 continue
             paper_val = getattr(paper, field_name)
             dhan_val = getattr(dhan, field_name)
@@ -167,11 +167,6 @@ class TestCapabilityMatrix:
         for factory in [paper_capabilities, dhan_capabilities, upstox_capabilities]:
             caps = factory()
             assert caps.supports_market_order is True
-
-    def test_all_brokers_support_cancel(self) -> None:
-        for factory in [paper_capabilities, dhan_capabilities, upstox_capabilities]:
-            caps = factory()
-            assert caps.supports_cancel is True
 
     def test_dhan_supports_all_asset_classes(self) -> None:
         caps = dhan_capabilities()

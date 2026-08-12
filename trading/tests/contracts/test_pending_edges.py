@@ -50,7 +50,7 @@ def test_indicator_short_inputs_and_option_expiry_edges() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_wire_bulk_registration_is_atomic_on_collision() -> None:
+def test_wire_authoritative_registration_is_atomic_on_collision() -> None:
     registry = InstrumentRegistry()
     registry.register(
         InstrumentId.equity("NSE", "BASE"),
@@ -58,26 +58,23 @@ def test_wire_bulk_registration_is_atomic_on_collision() -> None:
     )
 
     with pytest.raises(SDKError):
-        registry.register_bulk(
-            [
-                {"symbol": "NEW", "exchange": "NSE", "key": "NSE_EQ|NEW"},
-                {"symbol": "OTHER", "exchange": "NSE", "key": "NSE_EQ|BASE"},
-            ]
+        registry.register_authoritative(
+            InstrumentId.equity("NSE", "OTHER"),
+            "NSE_EQ|BASE",
         )
 
-    assert registry.reverse_instrument_key("NSE_EQ|NEW") is None
-    assert registry.reverse_instrument_key("NSE_EQ|BASE") == InstrumentId.equity("NSE", "BASE")
+    assert registry.resolve("NSE_EQ|BASE") == InstrumentId.equity("NSE", "BASE")
 
 
-def test_wire_bulk_replacement_removes_stale_provider_key() -> None:
+def test_wire_authoritative_replacement_removes_stale_provider_key() -> None:
     registry = InstrumentRegistry()
     instrument = InstrumentId.equity("NSE", "RELIANCE")
-    registry.register_bulk([{"symbol": "RELIANCE", "exchange": "NSE", "key": "old-key"}])
+    registry.register_authoritative(instrument, "old-key")
 
-    registry.register_bulk([{"symbol": "RELIANCE", "exchange": "NSE", "key": "new-key"}])
+    registry.register_authoritative(instrument, "new-key")
 
-    assert registry.reverse_instrument_key("old-key") is None
-    assert registry.reverse_instrument_key("new-key") == instrument
+    assert registry.resolve("old-key") is None
+    assert registry.resolve("new-key") == instrument
     assert registry.provider_key(instrument) == "new-key"
 
 

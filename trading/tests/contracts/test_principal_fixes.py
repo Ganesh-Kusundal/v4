@@ -130,4 +130,4 @@ def test_wire_provider_key_round_trip() -> None:
     instrument = InstrumentId.equity("NSE", "RELIANCE")
     registry.register(instrument, {"key": "NSE_EQ|RELIANCE"})
     assert registry.provider_key(instrument) == "NSE_EQ|RELIANCE"
-    assert registry.reverse_instrument_key("NSE_EQ|RELIANCE") == instrument
+    assert registry.resolve("NSE_EQ|RELIANCE") == instrument

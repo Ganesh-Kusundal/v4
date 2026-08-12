@@ -29,12 +29,10 @@ def from_env() -> AppConfig:
     - TRADEX_BROKER: BrokerId (PAPER, DHAN, UPSTOX, REPLAY)
     - TRADEX_MODE: Execution mode (paper, backtest, replay, live)
     - TRADEX_RUNTIME_DIR: Runtime directory
-    - TRADEX_LOG_LEVEL: Log level
     - TRADEX_KILL_SWITCH: Kill switch default (true/false)
     - TRADEX_RISK_MAX_ORDER_VALUE: Max order value
     - TRADEX_RISK_MAX_POSITION_VALUE: Max position value
     - TRADEX_RISK_MAX_ORDERS_PER_MINUTE: Max orders per minute
-    - TRADEX_RISK_MAX_ORDER_NOTIONAL: Max order notional (v3 compat)
     - TRADEX_FEES_ENABLED: Deduct brokerage/STT/etc from fills (true/false)
     - TRADEX_SLIPPAGE_BPS: Basis-points slippage on fill prices
     - TRADEX_FILL_REFERENCE: Strategy order timing (next_open | signal_close)
@@ -47,7 +45,6 @@ def from_env() -> AppConfig:
 
     mode = os.environ.get("TRADEX_MODE", "paper")
     runtime_dir = os.environ.get("TRADEX_RUNTIME_DIR", ".tradex_v4")
-    log_level = os.environ.get("TRADEX_LOG_LEVEL", "INFO")
     kill_switch_str = os.environ.get("TRADEX_KILL_SWITCH", "false")
     kill_switch = _parse_bool(kill_switch_str)
 
@@ -61,16 +58,10 @@ def from_env() -> AppConfig:
     max_orders_per_minute_str = os.environ.get("TRADEX_RISK_MAX_ORDERS_PER_MINUTE")
     max_orders_per_minute = int(max_orders_per_minute_str) if max_orders_per_minute_str else None
 
-    max_order_notional_str = os.environ.get("TRADEX_RISK_MAX_ORDER_NOTIONAL")
-    max_order_notional = (
-        Decimal(max_order_notional_str) if max_order_notional_str else None
-    )
-
     risk = RiskConfig(
         max_order_value=max_order_value,
         max_position_value=max_position_value,
         max_orders_per_minute=max_orders_per_minute,
-        max_order_notional=max_order_notional,
     )
 
     slippage_bps_str = os.environ.get("TRADEX_SLIPPAGE_BPS")
@@ -86,7 +77,6 @@ def from_env() -> AppConfig:
         mode=mode,
         risk=risk,
         runtime_dir=runtime_dir,
-        log_level=log_level,
         kill_switch_default=kill_switch,
         broker=BrokerConfig(
             name=os.environ.get("TRADEX_BROKER_NAME", "paper"),

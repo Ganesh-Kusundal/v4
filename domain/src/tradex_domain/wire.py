@@ -20,8 +20,6 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from datetime import date
-from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.errors import SDKError
@@ -48,63 +46,12 @@ def normalize_symbol(value: str) -> str:
     return symbol
 
 
-def normalize_exchange(value: str) -> str:
-    return value.strip().upper()
-
-
-def _instrument_id_from_row(
-    row: dict[str, object], exchange: str, symbol: str
-) -> InstrumentId:
-    """Create the appropriate InstrumentId based on row metadata.
-
-    Inspects asset_class/instrument_type and F&O fields (expiry, strike, right)
-    to dispatch to the correct InstrumentId factory method.
-    """
-    asset_class = str(row.get("asset_class", "")).upper()
-    instrument_type = str(row.get("instrument_type", "")).upper()
-
-    # Check for option first (has strike + right)
-    right = row.get("right") or row.get("option_type")
-    strike = row.get("strike")
-    expiry_raw = row.get("expiry")
-
-    if right and strike is not None:
-        # Option
-        expiry = _parse_expiry(expiry_raw)
-        return InstrumentId.option(
-            exchange, symbol, expiry,
-            Decimal(str(strike)),
-            str(right).strip().upper(),
-        )
-
-    if (expiry_raw is not None
-            and (instrument_type == "FUTURE" or asset_class == "FUTURE" or right == "FUT")):
-        # Future
-        expiry = _parse_expiry(expiry_raw)
-        return InstrumentId.future(exchange, symbol, expiry)
-
-    # Equity/Index/Currency/Commodity — all use bare exchange+underlying
-    return InstrumentId(exchange=exchange, underlying=symbol)
-
-
-def _parse_expiry(value: object) -> date:
-    """Parse an expiry value to a date."""
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str):
-        return date.fromisoformat(value)
-    raise ValueError(f"Cannot parse expiry: {value!r}")
-
-
 @runtime_checkable
 class WireAdapter(Protocol):
     """Reversible instrument mapping surface."""
 
-    def instrument_key(self, instrument_id: InstrumentId) -> str: ...
-    def reverse_instrument_key(self, key: str) -> InstrumentId | None: ...
     def resolve(self, name: str) -> InstrumentId | None: ...
     def register(self, instrument_id: InstrumentId, meta: dict[str, object]) -> None: ...
-    def register_bulk(self, rows: list[dict[str, object]]) -> None: ...
     def add_alias(self, name: str, instrument_id: InstrumentId) -> None: ...
 
 
@@ -133,10 +80,6 @@ class InstrumentRegistry:
         self._state = _RegistryState()
         self._lock = threading.RLock()
 
-    @classmethod
-    def instrument_key(cls, instrument_id: InstrumentId) -> str:
-        return cls._key(instrument_id, cls._tag_from_id(instrument_id))
-
     @staticmethod
     def _tag_from_id(instrument_id: InstrumentId) -> str:
         tag = _TAG_BY_ASSET_CLASS.get(str(instrument_id.asset_class.value))
@@ -164,9 +107,6 @@ class InstrumentRegistry:
         return self._key(instrument_id, tag)
 
     # -- reads (lock-free; snapshot pointer) ----------------------------------
-
-    def reverse_instrument_key(self, key: str) -> InstrumentId | None:
-        return self._state.by_key.get(key)
 
     def provider_key(self, instrument_id: InstrumentId) -> str | None:
         """Return the canonical (first-registered) provider key for *instrument_id*.
@@ -219,32 +159,6 @@ class InstrumentRegistry:
         """
         with self._lock:
             self._replace(key, instrument_id, dict(meta) if meta is not None else {"key": key})
-
-    def register_bulk(self, rows: list[dict[str, object]]) -> None:
-        """Register many rows atomically: validate all, then apply.
-
-    A bulk registration is an *authoritative replacement* (a fresh master
-        reload): each instrument's primary key is set to this batch's key and
-        previously registered stale keys are dropped from reverse resolution.
-        This is intentionally distinct from single ``register`` calls, which
-        are incremental (first key wins, later keys become aliases).
-        """
-        with self._lock:
-            prepared: list[tuple[str, InstrumentId, dict[str, object]]] = []
-            for row in rows:
-                symbol = normalize_symbol(str(row["symbol"]))
-                exchange = normalize_exchange(str(row["exchange"]))
-                iid = _instrument_id_from_row(row, exchange, symbol)
-                key = str(row.get("key") or self._default_key(iid, row))
-                prepared.append((key, iid, dict(row)))
-            pending: dict[str, InstrumentId] = dict(self._state.by_key)
-            for key, iid, _meta in prepared:
-                existing = pending.get(key)
-                if existing is not None and existing != iid:
-                    raise SDKError(f"instrument key collision: {key!r}")
-                pending[key] = iid
-            for key, iid, meta in prepared:
-                self._replace(key, iid, meta)
 
     def add_alias(self, name: str, instrument_id: InstrumentId) -> None:
         with self._lock:
@@ -343,8 +257,8 @@ class InstrumentRegistry:
     def _replace(
         self, key: str, instrument_id: InstrumentId, meta: dict[str, object]
     ) -> None:
-        """Authoritative replacement used by ``register_authoritative`` /
-        ``register_bulk`` (master reload).
+        """Authoritative replacement used by ``register_authoritative``
+        (master reload).
 
         The given key becomes the instrument's primary provider key and all
         previously registered keys for the same instrument are dropped from
@@ -371,6 +285,5 @@ class InstrumentRegistry:
 __all__ = [
     "InstrumentRegistry",
     "WireAdapter",
-    "normalize_exchange",
     "normalize_symbol",
 ]

@@ -7,8 +7,6 @@ from tradex_trading.config.env import _parse_bool, from_env
 from tradex_trading.config.schema import (
     AppConfig,
     BrokerConfig,
-    LoggingConfig,
-    ObservabilityConfig,
     PersistenceConfig,
     RiskConfig,
 )
@@ -16,8 +14,6 @@ from tradex_trading.config.schema import (
 __all__ = [
     "AppConfig",
     "BrokerConfig",
-    "LoggingConfig",
-    "ObservabilityConfig",
     "PersistenceConfig",
     "RiskConfig",
     "_parse_bool",

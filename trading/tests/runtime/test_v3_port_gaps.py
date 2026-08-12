@@ -15,10 +15,7 @@ from tradex_trading.config.env import _parse_bool
 from tradex_trading.config.schema import (
     AppConfig,
     BrokerConfig,
-    LoggingConfig,
-    ObservabilityConfig,
     PersistenceConfig,
-    RiskConfig,
     _build,
 )
 from tradex_trading.runtime.live import (
@@ -37,10 +34,6 @@ from tradex_trading.runtime.startup import RuntimeContext, _broker_matches_confi
 
 
 class TestSchemaPorts:
-    def test_logging_config_defaults(self) -> None:
-        cfg = LoggingConfig()
-        assert cfg.level == "INFO"
-
     def test_persistence_config_defaults(self) -> None:
         cfg = PersistenceConfig()
         assert cfg.path is None
@@ -49,19 +42,6 @@ class TestSchemaPorts:
         cfg = BrokerConfig()
         assert cfg.name == "paper"
         assert cfg.environment == "PAPER"
-
-    def test_observability_config_defaults(self) -> None:
-        cfg = ObservabilityConfig()
-        assert cfg.enabled is True
-
-    def test_risk_config_post_init_converts_notional(self) -> None:
-        cfg = RiskConfig(max_order_notional=100.5)
-        assert isinstance(cfg.max_order_notional, Decimal)
-        assert cfg.max_order_notional == Decimal("100.5")
-
-    def test_risk_config_post_init_none(self) -> None:
-        cfg = RiskConfig()
-        assert cfg.max_order_notional is None
 
     def test_app_config_from_dict_minimal(self) -> None:
         cfg = AppConfig.from_dict({})
@@ -75,18 +55,14 @@ class TestSchemaPorts:
             "live_enabled": True,
             "environment": "LIVE",
             "broker": {"name": "dhan", "environment": "LIVE"},
-            "risk": {"max_order_notional": 50000},
-            "logging": {"level": "DEBUG"},
-            "observability": {"enabled": False},
+            "risk": {"max_order_value": 50000},
             "persistence": {"path": "/tmp/test.db"},
         }
         cfg = AppConfig.from_dict(data)
         assert cfg.mode == "live"
         assert cfg.live_enabled is True
         assert cfg.broker.name == "dhan"
-        assert cfg.risk.max_order_notional == Decimal("50000")
-        assert cfg.logging.level == "DEBUG"
-        assert cfg.observability.enabled is False
+        assert cfg.risk.max_order_value == Decimal("50000")
         assert cfg.persistence.path == "/tmp/test.db"
 
     def test_app_config_from_dict_rejects_unknown(self) -> None:
@@ -102,8 +78,8 @@ class TestSchemaPorts:
             _build(BrokerConfig, {"name": "dhan", "bad_key": True})
 
     def test_build_returns_default_for_none(self) -> None:
-        cfg = _build(LoggingConfig, None)
-        assert cfg.level == "INFO"
+        cfg = _build(PersistenceConfig, None)
+        assert cfg.path is None
 
 
 # ---------------------------------------------------------------------------

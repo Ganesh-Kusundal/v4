@@ -14,7 +14,6 @@ from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.runtime.startup import boot
 from tradex_trading.sdk.session import (
-    AnalyticsService,
     ExtensionService,
     MarketService,
     PortfolioService,
@@ -27,7 +26,6 @@ from tradex_trading.sdk.session import (
 from tradex_trading.sdk.streaming import StreamSubscription
 
 __all__ = [
-    "AnalyticsService",
     "AppConfig",
     "BrokerFillSource",
     "ExecutionEngine",
