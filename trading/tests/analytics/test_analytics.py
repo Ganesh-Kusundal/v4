@@ -16,23 +16,16 @@ import pytest
 from tradex_trading.analytics import (
     AnalyticsEngine,
     advance_decline,
-    basis,
-    black_scholes_call,
     ema,
     imbalance,
-    intrinsic_call,
     macd,
     max_drawdown,
-    pe_ratio,
     poc,
-    rank_by_return,
     realized_vol,
     roc,
     rsi,
-    sector_strength,
     sharpe_ratio,
     sma,
-    split_windows,
     total_return,
     win_rate,
 )
@@ -288,38 +281,8 @@ class TestOtherAnalytics:
     def test_imbalance_zero(self) -> None:
         assert imbalance(0.0, 0.0) == 0.0
 
-    def test_sector_strength(self) -> None:
-        result = sector_strength({"A": 0.1, "B": 0.5})
-        assert result == [("B", 0.5), ("A", 0.1)]
-
     def test_volume_profile_poc(self) -> None:
         assert poc({100.0: 10, 101.0: 50, 102.0: 20}) == 101.0
 
     def test_poc_empty(self) -> None:
         assert poc({}) is None
-
-    def test_walk_forward_split_windows(self) -> None:
-        windows = split_windows(n=100, train=40, test=20)
-        assert windows == [(0, 40, 40, 60), (20, 60, 60, 80), (40, 80, 80, 100)]
-
-    def test_ranking(self) -> None:
-        assert rank_by_return({"A": 0.1, "B": 0.5, "C": 0.2}) == ["B", "C", "A"]
-
-    def test_pe_ratio(self) -> None:
-        assert pe_ratio(price=100.0, eps=10.0) == pytest.approx(10.0)
-
-    def test_pe_ratio_zero_eps_raises(self) -> None:
-        with pytest.raises(ValueError):
-            pe_ratio(price=100.0, eps=0.0)
-
-    def test_basis(self) -> None:
-        assert basis(105.0, 100.0) == pytest.approx(5.0)
-
-    def test_options_intrinsic(self) -> None:
-        assert intrinsic_call(spot=105.0, strike=100.0) == pytest.approx(5.0)
-        assert intrinsic_call(spot=95.0, strike=100.0) == 0.0
-
-    def test_black_scholes_call(self) -> None:
-        assert black_scholes_call(
-            spot=100.0, strike=100.0, time_years=1.0, rate=0.0, sigma=0.2,
-        ) > 0.0

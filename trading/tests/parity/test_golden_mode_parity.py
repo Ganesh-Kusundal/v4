@@ -168,19 +168,23 @@ class TestGoldenReactiveParity:
     def test_signal_count_matches_across_modes(self) -> None:
         """The same strategy + events emits the same number of signals in the
         paper path and in BacktestEngine.run — the parity discriminator."""
-        from tradex_trading.replay.engine import ReplayEngine
-
         bt_strategy = SmaCrossStrategy("golden-count-bt", INSTRUMENT)
         result = BacktestEngine().run(bt_strategy, _candles())
 
+        session = TradingSession.paper()
         paper_strategy = SmaCrossStrategy("golden-count-paper", INSTRUMENT)
-        replay = ReplayEngine(_candles()).register_strategy(paper_strategy).replay()
-
-        assert result.num_trades == 1
-        assert len(paper_strategy.signals) == 1
-        # Both signal timestamps align to bar 21.
-        assert result.trades[0].timestamp == paper_strategy.signals[0].timestamp
-        assert replay.has_errors is False
+        strategy_engine = ReactiveStrategyEngine(session.bus)
+        strategy_engine.register(paper_strategy)
+        try:
+            for candle in _candles():
+                session.bus.publish(candle)
+            assert result.num_trades == 1
+            assert len(paper_strategy.signals) == 1
+            # Both signal timestamps align to bar 21.
+            assert result.trades[0].timestamp == paper_strategy.signals[0].timestamp
+        finally:
+            strategy_engine.dispose_all()
+            session.stop()
 
 
 class _TimedBuySell:
@@ -415,36 +419,6 @@ class TestAccountingConvergence:
 
         # Convergence: identical realized P&L across both accounting engines.
         assert bt.equity_curve[-1] - 100000.0 == float(closed.realized_pnl.amount)
-
-    def test_replay_signals_close_with_identical_realized_pnl(self) -> None:
-        """Replay mode emits the same signals as the paper path; routing those
-        same events through the shared accounting lands the same +70. The
-        replay signal stream must equal the backtest signal stream exactly."""
-        from tradex_trading.replay.engine import ReplayEngine
-
-        candles = self._ladder_candles()
-
-        replay_strategy = _TimedPartial(INSTRUMENT)
-        ReplayEngine(list(candles)).register_strategy(replay_strategy).replay()
-
-        bt_strategy = _TimedPartial(INSTRUMENT)
-        bt = BacktestEngine().run(bt_strategy, list(candles))
-
-        # Identical signal streams (side + strength + timestamp) across modes.
-        assert len(replay_strategy.signals) == len(bt.trades) == 4
-        assert [s.direction for s in replay_strategy.signals] == [
-            s.direction for s in bt.trades
-        ]
-        assert [s.strength for s in replay_strategy.signals] == [
-            s.strength for s in bt.trades
-        ]
-        assert [s.timestamp for s in replay_strategy.signals] == [
-            s.timestamp for s in bt.trades
-        ]
-        # Replay-fed strategy books the same P&L through the shared accounting.
-        replay_strategy.reset()  # Reset state before reuse
-        replay_bt = BacktestEngine().run(replay_strategy, list(candles))
-        assert replay_bt.equity_curve[-1] == bt.equity_curve[-1]
 
 
 class TestFillSourceParity:

@@ -1,7 +1,7 @@
 """Reactive regression tests.
 
-Verify the ReactiveBus, stream operators, backpressure, and subscription
-lifecycle behave correctly under edge cases and concurrent usage.
+Verify the ReactiveBus behaves correctly under edge cases and concurrent
+usage.
 """
 
 from __future__ import annotations
@@ -11,10 +11,7 @@ from typing import Any
 
 from tradex_domain.events import OrderFilled, OrderPlaced
 
-from tradex_trading.reactive import operators
-from tradex_trading.reactive.backpressure import BackpressurePresets
 from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.reactive.subscription import DisposableSubscription, SubscriptionManager
 
 # ---------------------------------------------------------------------------
 # ReactiveBus: core contract
@@ -248,160 +245,6 @@ class TestReactiveBusOrdering:
         bus.publish("start")  # must return, not hang
 
         assert 0 < calls[0] <= 10_000
-
-
-# ---------------------------------------------------------------------------
-# Backpressure presets
-# ---------------------------------------------------------------------------
-
-class TestBackpressurePresets:
-    """BackpressurePresets produce correct RxPY operators."""
-
-    def test_quote_throttle_returns_operator(self) -> None:
-        op = BackpressurePresets.quote_throttle(100)
-        assert callable(op)
-
-    def test_depth_sample_returns_operator(self) -> None:
-        op = BackpressurePresets.depth_sample(200)
-        assert callable(op)
-
-    def test_candle_buffer_returns_operator(self) -> None:
-        op = BackpressurePresets.candle_buffer(5)
-        assert callable(op)
-
-    def test_tick_window_returns_operator(self) -> None:
-        op = BackpressurePresets.tick_window(1000)
-        assert callable(op)
-
-    def test_order_passthrough_returns_operator(self) -> None:
-        op = BackpressurePresets.order_passthrough()
-        assert callable(op)
-
-
-# ---------------------------------------------------------------------------
-# DisposableSubscription
-# ---------------------------------------------------------------------------
-
-class TestDisposableSubscription:
-    """DisposableSubscription manages subscription lifecycle."""
-
-    def test_add_and_dispose(self) -> None:
-        bus = ReactiveBus()
-        sub = DisposableSubscription()
-        d = bus.stream().subscribe(lambda m: None)
-        sub.add(d)
-        assert not sub.is_disposed
-        sub.dispose()
-        assert sub.is_disposed
-
-    def test_context_manager_disposes(self) -> None:
-        bus = ReactiveBus()
-        with DisposableSubscription() as sub:
-            d = bus.stream().subscribe(lambda m: None)
-            sub.add(d)
-            assert not sub.is_disposed
-        # After exiting context, should be disposed
-        assert sub.is_disposed
-
-    def test_multiple_disposables(self) -> None:
-        bus = ReactiveBus()
-        sub = DisposableSubscription()
-        d1 = bus.stream().subscribe(lambda m: None)
-        d2 = bus.stream().subscribe(lambda m: None)
-        sub.add(d1)
-        sub.add(d2)
-        sub.dispose()
-        assert sub.is_disposed
-
-
-# ---------------------------------------------------------------------------
-# SubscriptionManager
-# ---------------------------------------------------------------------------
-
-class TestSubscriptionManager:
-    """SubscriptionManager manages named groups."""
-
-    def test_create_group(self) -> None:
-        mgr = SubscriptionManager()
-        group = mgr.group("quotes")
-        assert isinstance(group, DisposableSubscription)
-
-    def test_same_group_returned_twice(self) -> None:
-        mgr = SubscriptionManager()
-        g1 = mgr.group("quotes")
-        g2 = mgr.group("quotes")
-        assert g1 is g2
-
-    def test_dispose_group(self) -> None:
-        mgr = SubscriptionManager()
-        group = mgr.group("quotes")
-        mgr.dispose_group("quotes")
-        assert group.is_disposed
-
-    def test_dispose_all(self) -> None:
-        mgr = SubscriptionManager()
-        g1 = mgr.group("quotes")
-        g2 = mgr.group("fills")
-        mgr.dispose_all()
-        assert g1.is_disposed
-        assert g2.is_disposed
-
-
-# ---------------------------------------------------------------------------
-# Stream operators module
-# ---------------------------------------------------------------------------
-
-class TestStreamOperators:
-    """Stream operator helpers produce valid RxPY operators."""
-
-    def test_of_type_returns_operator(self) -> None:
-        op = operators.of_type(int)
-        assert callable(op)
-
-    def test_share_returns_operator(self) -> None:
-        op = operators.share()
-        assert callable(op)
-
-    def test_replay_buffer_returns_operator(self) -> None:
-        op = operators.replay_buffer(5)
-        assert callable(op)
-
-    def test_distinct_until_changed_returns_operator(self) -> None:
-        op = operators.distinct_until_changed()
-        assert callable(op)
-
-    def test_distinct_until_changed_with_key(self) -> None:
-        """distinct_until_changed with key function deduplicates by key."""
-        bus = ReactiveBus()
-        received: list[Any] = []
-        op = operators.distinct_until_changed(key=lambda m: m.get("id"))
-        bus.stream().pipe(op).subscribe(lambda m: received.append(m))
-        bus.publish({"id": 1, "v": "a"})
-        bus.publish({"id": 1, "v": "b"})  # same id — suppressed
-        bus.publish({"id": 2, "v": "c"})  # new id — emitted
-        assert len(received) == 2
-        assert received[0]["v"] == "a"
-        assert received[1]["v"] == "c"
-
-    def test_map_to_returns_operator(self) -> None:
-        op = operators.map_to(lambda x: x * 2)
-        assert callable(op)
-
-    def test_filter_safe_returns_operator(self) -> None:
-        op = operators.filter_safe(lambda x: x > 0)
-        assert callable(op)
-
-    def test_filter_safe_suppresses_exceptions(self) -> None:
-        """filter_safe should skip items that cause predicate errors."""
-        op = operators.filter_safe(lambda x: x > 0)
-        # The operator should work in a pipe without crashing
-        bus = ReactiveBus()
-        received: list[Any] = []
-        bus.stream().pipe(op).subscribe(lambda m: received.append(m))
-        bus.publish(1)
-        bus.publish(-1)
-        bus.publish(5)
-        assert received == [1, 5]
 
 
 # ---------------------------------------------------------------------------

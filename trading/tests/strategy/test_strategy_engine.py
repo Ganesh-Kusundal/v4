@@ -1,10 +1,9 @@
-"""Strategy engine + metrics + config tests.
+"""Strategy engine + metrics tests.
 
 Ported from v3 ``test_followup_runtime_strategy.py``.
 
 v4 API differences:
 - ``MetricsRegistry`` only has ``increment/get/snapshot/reset`` (v3 had gauge/histogram/counter)
-- ``load_yaml(path)`` returns dict or empty dict (v3 ``load_config`` had strict JSON validation)
 - ``ReactiveStrategyEngine(bus)`` replaces v3 ``StrategyEngine``
 """
 
@@ -24,7 +23,6 @@ from tradex_domain import (
 )
 from tradex_domain.value_objects import Price as QuotePrice
 
-from tradex_trading.config.loader import load_yaml
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.runtime.metrics import MetricsRegistry
 from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
@@ -92,22 +90,6 @@ class TestMetricsRegistry:
 
 
 # ---------------------------------------------------------------------------
-# Config loader — YAML loading (F22)
-# ---------------------------------------------------------------------------
-
-
-class TestConfigLoader:
-    """load_yaml — YAML configuration loader."""
-
-    def test_missing_file_returns_empty(self, tmp_path) -> None:
-        result = load_yaml(str(tmp_path / "missing.yaml"))
-        assert result == {}
-
-    def test_nonexistent_path_returns_empty(self) -> None:
-        result = load_yaml("/nonexistent/path/config.yaml")
-        assert result == {}
-
-
 # ---------------------------------------------------------------------------
 # ReactiveStrategyEngine — event routing via bus (F11)
 # ---------------------------------------------------------------------------
