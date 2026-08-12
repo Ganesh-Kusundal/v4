@@ -42,3 +42,6 @@ Thumbs.db
 venv/
 # superpowers worktrees
 .worktrees/
+
+# superpowers scratch (ledger, task briefs)
+.superpowers/
