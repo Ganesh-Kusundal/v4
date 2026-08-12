@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 from tradex_brokers.dhan.master import parse_dhan_master
