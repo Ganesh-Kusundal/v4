@@ -7,7 +7,9 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import pytest
 from tradex_domain import OHLC, Candle, Equity, Timeframe
+from tradex_domain.errors import SDKError
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
 
@@ -114,6 +116,43 @@ class TestRouting:
         fetcher = ParallelHistoryFetcher(brokers)
         picked = fetcher._pick_brokers(days=29)
         assert len(picked) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Dhan intraday window guard
+# --------------------------------------------------------------------------- #
+
+class TestDhanIntradayWindowGuard:
+    def test_dhan_intraday_range_beyond_api_window_fails_loud(self):
+        """> 90-day M1 range, Dhan only → fail loud, no silent truncation."""
+        fetcher = ParallelHistoryFetcher({"dhan": _make_broker("dhan")})
+        start, end = datetime(2026, 1, 1), datetime(2026, 5, 1)  # 120 days
+        with pytest.raises(SDKError, match="Dhan intraday history limited to"):
+            fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
+
+    def test_dhan_intraday_range_within_api_window_ok(self):
+        """60-day M1 range, Dhan only → within 90-day window, fetches fine."""
+        fetcher = ParallelHistoryFetcher({"dhan": _make_broker("dhan")})
+        start, end = datetime(2026, 1, 1), datetime(2026, 3, 2)  # 60 days
+        results = fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
+        assert len(results) == 1
+
+    def test_dhan_daily_range_not_limited(self):
+        """> 90-day D1 range, Dhan only → historical endpoint has no cap."""
+        fetcher = ParallelHistoryFetcher({"dhan": _make_broker("dhan")})
+        start, end = datetime(2026, 1, 1), datetime(2026, 8, 1)  # 212 days
+        results = fetcher.fetch([INSTRUMENTS[0]], Timeframe.D1, start, end)
+        assert len(results) == 1
+
+    def test_beyond_window_with_other_broker_available_still_guarded(self):
+        """> 90-day M1 range with dhan+upstox → Dhan is sole selected broker
+        for the range, so it still fails loud rather than truncating."""
+        fetcher = ParallelHistoryFetcher(
+            {"dhan": _make_broker("dhan"), "upstox": _make_broker("upstox")}
+        )
+        start, end = datetime(2026, 1, 1), datetime(2026, 5, 1)  # 120 days
+        with pytest.raises(SDKError, match="Dhan intraday history limited to"):
+            fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
 
 
 # --------------------------------------------------------------------------- #

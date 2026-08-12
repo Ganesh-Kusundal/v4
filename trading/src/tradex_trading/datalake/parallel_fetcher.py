@@ -26,6 +26,7 @@ from datetime import datetime
 from typing import Any
 
 from tradex_domain.enums import Timeframe
+from tradex_domain.errors import SDKError
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import HistoricalSeries
 
@@ -36,6 +37,21 @@ log = logging.getLogger(__name__)
 # instruments across N brokers gives ~Nx throughput.  Above 30 days Dhan's
 # larger chunk size means fewer total API calls.
 _DUAL_BROKER_THRESHOLD_DAYS = 30
+
+# Dhan v2 `/charts/intraday` polls a MAXIMUM of 90 days per request — the
+# official docs say "only 90 days of data can be polled at once" for minute
+# intervals. The older CLAUDE.md note ("last 5 trading days") does NOT match
+# the current v2 API: this repo's own M1 datalake spans 68 trading days of
+# Dhan-sourced bars. Ranges beyond 90 days need chunking, which the fetcher
+# does not do, so they would otherwise be silently truncated.
+_DHAN_INTRADAY_MAX_DAYS = 90
+
+# Timeframes DhanBroker routes to `/charts/intraday` (1m/5m/15m/1h →
+# interval 1/5/15/60). M30/D1/W1 go to `/charts/historical` (data back to
+# inception, no per-poll cap) and are NOT subject to the 90-day window.
+_DHAN_INTRADAY_TIMEFRAMES = frozenset({
+    Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1,
+})
 
 
 def _split(items: list, n: int) -> list[list]:
@@ -77,6 +93,9 @@ class ParallelHistoryFetcher:
         Routing:
           - date range < 30 days → split instruments across all brokers
           - date range >= 30 days → Dhan only (fewer API calls via 90-day chunks)
+
+        A Dhan-only intraday range longer than 90 days raises ``SDKError``
+        instead of silently returning truncated data (see ``_pick_brokers``).
         """
         if not instruments:
             return {}
@@ -85,6 +104,21 @@ class ParallelHistoryFetcher:
 
         days = (end - start).days
         broker_names = self._pick_brokers(days)
+        # Fail loud when Dhan is the sole broker for an intraday range that
+        # exceeds the API's 90-day per-poll window: the fetcher does not
+        # chunk, so the request would otherwise silently truncate. Daily+
+        # timeframes use /charts/historical (unlimited), so they skip this.
+        if (
+            timeframe in _DHAN_INTRADAY_TIMEFRAMES
+            and days > _DHAN_INTRADAY_MAX_DAYS
+            and broker_names == ["dhan"]
+        ):
+            raise SDKError(
+                f"Dhan intraday history limited to {_DHAN_INTRADAY_MAX_DAYS} days "
+                f"per request (requested {days}); the fetcher does not chunk — "
+                "split the range or use trading/scripts/backfill_parquet.py for "
+                "longer windows"
+            )
         log.info("ParallelHistoryFetcher: %d instruments, %d days, brokers=%s",
                  len(instruments), days, broker_names)
 
