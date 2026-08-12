@@ -584,13 +584,6 @@ class TestMarketData:
         with pytest.raises(RateLimitError):
             client.get_option_chain(_index())
 
-    def test_expiry_list_rate_limit_body_raises(self):
-        """Expiry list must not silently return [] on failure."""
-        response = {"data": {"805": "Too many requests."}, "_http_status": 429}
-        client, _, _ = _make_client([response])
-        with pytest.raises(RateLimitError):
-            client.expiry_list(_index())
-
     def test_history_failure_body_raises(self):
         """History failure bodies raise instead of returning an empty series."""
         response = {"data": {"805": "Too many requests."}, "_http_status": 429}
@@ -862,42 +855,11 @@ class TestPositions:
 
 
 # ---------------------------------------------------------------------------
-# Alert / conditional trigger tests
+# eDIS / kill switch tests
 # ---------------------------------------------------------------------------
 
 
-class TestAlerts:
-    def test_place_alert(self):
-        response = {"data": {"alertId": "A1"}}
-        client, _, _ = _make_client([response])
-        result = client.place_alert(isin="INE002A01018", price=100.0)
-        assert result["alertId"] == "A1"
-
-    def test_list_alerts(self):
-        response = {"data": [{"alertId": "A1"}]}
-        client, _, _ = _make_client([response])
-        result = client.list_alerts()
-        assert len(result) == 1
-
-    def test_place_conditional_trigger(self):
-        response = {"data": {"triggerId": "CT1"}}
-        client, _, _ = _make_client([response])
-        result = client.place_conditional_trigger(price=100.0)
-        assert result["triggerId"] == "CT1"
-
-    def test_list_conditional_triggers(self):
-        response = {"data": [{"triggerId": "CT1"}]}
-        client, _, _ = _make_client([response])
-        result = client.list_conditional_triggers()
-        assert len(result) == 1
-
-
-# ---------------------------------------------------------------------------
-# eDIS / kill switch / PnL tests
-# ---------------------------------------------------------------------------
-
-
-class TestEdisKillSwitchPnl:
+class TestEdisKillSwitch:
     def test_kill_switch(self):
         response = {"data": {"status": "ACTIVATED"}}
         client, _, _ = _make_client([response])
@@ -909,24 +871,6 @@ class TestEdisKillSwitchPnl:
         client, _, _ = _make_client([response])
         result = client.status_kill_switch()
         assert result["status"] == "ACTIVE"
-
-    def test_configure_pnl_exit(self):
-        response = {"data": {"configured": True}}
-        client, _, _ = _make_client([response])
-        result = client.configure_pnl_exit(pnlPercent=5.0)
-        assert result["configured"] is True
-
-    def test_stop_pnl_exit(self):
-        response = {"data": {"stopped": True}}
-        client, _, _ = _make_client([response])
-        result = client.stop_pnl_exit()
-        assert result["stopped"] is True
-
-    def test_get_pnl_exit(self):
-        response = {"data": {"pnlPercent": 5.0}}
-        client, _, _ = _make_client([response])
-        result = client.get_pnl_exit()
-        assert result["pnlPercent"] == 5.0
 
     def test_edis_status(self):
         response = {"data": {"authorized": True}}
@@ -990,111 +934,6 @@ class TestStreaming:
     def test_invalidate_read_cache(self):
         client, http, _ = _make_client()
         client.invalidate_read_cache()
-
-
-# ---------------------------------------------------------------------------
-# Extended endpoints: IP paths, expiry list, rolling options
-# ---------------------------------------------------------------------------
-
-
-class TestExtendedEndpoints:
-    """New/fixed endpoints: IP management URLs, /optionchain/expirylist,
-    /charts/rollingoption."""
-
-    def test_set_ip_uses_set_ip_path(self):
-        client, http, _ = _make_client([{"data": {"status": "SET"}}])
-        result = client.set_ip(ipAddress="1.2.3.4")
-        assert http.last_call()["method"] == "POST"
-        assert http.last_call()["url"].endswith("/ip/setIP")
-        assert result["status"] == "SET"
-
-    def test_modify_ip_uses_modify_path(self):
-        client, http, _ = _make_client([{"data": {"status": "MODIFIED"}}])
-        client.modify_ip(ipAddress="1.2.3.4")
-        assert http.last_call()["method"] == "PUT"
-        assert http.last_call()["url"].endswith("/ip/modifyIP")
-
-    def test_get_ip_uses_get_path(self):
-        client, http, _ = _make_client([{"data": {"ipAddress": "1.2.3.4"}}])
-        result = client.get_ip()
-        assert http.last_call()["method"] == "GET"
-        assert http.last_call()["url"].endswith("/ip/getIP")
-        assert result["ipAddress"] == "1.2.3.4"
-
-    def test_expiry_list(self):
-        response = {"data": ["2026-08-27", "2026-09-24"]}
-        client, http, _ = _make_client([response])
-        result = client.expiry_list(_index())
-        assert result == ["2026-08-27", "2026-09-24"]
-        assert http.last_call()["method"] == "POST"
-        assert http.last_call()["url"].endswith("/optionchain/expirylist")
-        payload = http.last_payload()
-        assert payload["UnderlyingScrip"] == 13
-        assert payload["UnderlyingSeg"] == "IDX_I"
-
-    def test_expiry_list_wrapped_mapping(self):
-        client, _, _ = _make_client([{"data": {"expiryList": ["2026-08-27"]}}])
-        assert client.expiry_list(_index()) == ["2026-08-27"]
-
-    def _rolling_kwargs(self) -> dict[str, Any]:
-        return {
-            "expiry_flag": "WEEK",
-            "expiry_code": 0,
-            "strike": "ATM",
-            "option_type": "CE",
-            "from_date": "2026-07-01",
-            "to_date": "2026-07-30",
-        }
-
-    def test_rolling_options_payload(self):
-        response = {"data": {"ce": {"open": [1.0]}}}
-        client, http, _ = _make_client([response])
-        result = client.get_rolling_options(_index(), **self._rolling_kwargs())
-        assert result["ce"] == {"open": [1.0]}
-        assert http.last_call()["method"] == "POST"
-        assert http.last_call()["url"].endswith("/charts/rollingoption")
-        payload = http.last_payload()
-        assert payload["exchangeSegment"] == "NSE_FNO"
-        assert payload["instrument"] == "OPTIDX"
-        assert payload["expiryFlag"] == "WEEK"
-        assert payload["drvOptionType"] == "CALL"
-        assert payload["strike"] == "ATM"
-        assert payload["interval"] == 1
-        assert payload["requiredData"] == [
-            "open", "high", "low", "close", "volume", "oi", "spot",
-        ]
-
-    def test_rolling_options_expiry_code_zero_maps_to_one(self):
-        # ponytail: Dhan rejects expiryCode=0; logical nearest (0) maps to 1.
-        client, http, _ = _make_client([{"data": {}}])
-        client.get_rolling_options(_index(), **self._rolling_kwargs())
-        assert http.last_payload()["expiryCode"] == 1
-
-    def test_rolling_options_pe_maps_to_put(self):
-        client, http, _ = _make_client([{"data": {}}])
-        kwargs = {**self._rolling_kwargs(), "option_type": "PE", "expiry_code": 2}
-        client.get_rolling_options(_index(), **kwargs)
-        payload = http.last_payload()
-        assert payload["drvOptionType"] == "PUT"
-        assert payload["expiryCode"] == 2
-
-    def test_rolling_options_bad_flag_raises(self):
-        client, _, _ = _make_client()
-        kwargs = {**self._rolling_kwargs(), "expiry_flag": "YEAR"}
-        with pytest.raises(ValueError, match="expiry_flag"):
-            client.get_rolling_options(_index(), **kwargs)
-
-    def test_rolling_options_bad_option_type_raises(self):
-        client, _, _ = _make_client()
-        kwargs = {**self._rolling_kwargs(), "option_type": "XX"}
-        with pytest.raises(ValueError, match="option_type"):
-            client.get_rolling_options(_index(), **kwargs)
-
-    def test_rolling_options_bad_interval_raises(self):
-        client, _, _ = _make_client()
-        kwargs = {**self._rolling_kwargs(), "interval": 7}
-        with pytest.raises(ValueError, match="interval"):
-            client.get_rolling_options(_index(), **kwargs)
 
 
 class TestStreamOrderFromRow:

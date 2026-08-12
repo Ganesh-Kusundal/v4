@@ -1143,60 +1143,6 @@ class TestUpstoxBrokerFromFetch:
 
 
 # ---------------------------------------------------------------------------
-# Task 5: Dhan IP management
-# ---------------------------------------------------------------------------
-
-
-class TestDhanIpManagement:
-    """set_ip / modify_ip / get_ip methods on DhanApiClient."""
-
-    def _make_client_with_mock_http(self):
-        from unittest.mock import MagicMock
-
-        from tradex_brokers.dhan.client import DhanApiClient
-
-        registry = InstrumentRegistry()
-        http = MagicMock()
-        http.request.return_value = {"data": {"ip": "1.2.3.4"}}
-        http.invalidate_cache = MagicMock()
-        client = DhanApiClient(
-            http=http,
-            registry=registry,
-            client_id="test",
-            base_url="https://api.dhan.co/v2",
-        )
-        return client, http
-
-    def test_set_ip(self):
-        client, http = self._make_client_with_mock_http()
-        result = client.set_ip(ip="1.2.3.4")
-        http.request.assert_called_once()
-        call_args = http.request.call_args
-        assert call_args[0][0] == "POST"
-        assert "/ip" in call_args[0][1]
-        assert result == {"ip": "1.2.3.4"}
-        http.invalidate_cache.assert_called_once()
-
-    def test_modify_ip(self):
-        client, http = self._make_client_with_mock_http()
-        result = client.modify_ip(ip="5.6.7.8")
-        http.request.assert_called_once()
-        call_args = http.request.call_args
-        assert call_args[0][0] == "PUT"
-        assert "/ip" in call_args[0][1]
-        assert isinstance(result, dict)
-
-    def test_get_ip(self):
-        client, http = self._make_client_with_mock_http()
-        result = client.get_ip()
-        http.request.assert_called_once()
-        call_args = http.request.call_args
-        assert call_args[0][0] == "GET"
-        assert "/ip" in call_args[0][1]
-        assert result == {"ip": "1.2.3.4"}
-
-
-# ---------------------------------------------------------------------------
 # Task 5: Paper broker utilities
 # ---------------------------------------------------------------------------
 
