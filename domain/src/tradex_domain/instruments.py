@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
-from tradex_domain.enums import AssetClass, ExchangeId, InstrumentType
+from tradex_domain.enums import AssetClass, ExchangeId
 from tradex_domain.serialization import Serializable
 from tradex_domain.value_objects import InstrumentId, Price
 
@@ -33,7 +33,6 @@ class Instrument(Serializable):
     exchange: ExchangeId
     asset_class: AssetClass
     currency: str = "INR"
-    instrument_type: InstrumentType = InstrumentType.EQUITY
     expiry: date | None = None
     strike: Decimal | None = None
     option_type: str | None = None
@@ -53,7 +52,6 @@ class Instrument(Serializable):
 @dataclass(frozen=True, slots=True)
 class Equity(Instrument):
     asset_class: AssetClass = AssetClass.EQUITY
-    instrument_type: InstrumentType = InstrumentType.EQUITY
 
     @classmethod
     def of(cls, exchange: str, symbol: str) -> Equity:
@@ -67,7 +65,6 @@ class Equity(Instrument):
 @dataclass(frozen=True, slots=True)
 class Index(Instrument):
     asset_class: AssetClass = AssetClass.INDEX
-    instrument_type: InstrumentType = InstrumentType.INDEX
 
     @classmethod
     def of(cls, exchange: str, symbol: str) -> Index:
@@ -81,7 +78,6 @@ class Index(Instrument):
 @dataclass(frozen=True, slots=True)
 class Future(Instrument):
     asset_class: AssetClass = AssetClass.FUTURE
-    instrument_type: InstrumentType = InstrumentType.FUTURE
 
     @classmethod
     def of(cls, exchange: str, underlying: str, expiry: date) -> Future:
@@ -97,7 +93,6 @@ class Future(Instrument):
 class Option(Instrument):
     right: str = "CE"
     asset_class: AssetClass = AssetClass.OPTION
-    instrument_type: InstrumentType = InstrumentType.OPTION
 
     def __post_init__(self) -> None:
         Instrument.__post_init__(self)
@@ -129,7 +124,6 @@ class Option(Instrument):
 @dataclass(frozen=True, slots=True)
 class Currency(Instrument):
     asset_class: AssetClass = AssetClass.CURRENCY
-    instrument_type: InstrumentType = InstrumentType.CURRENCY
 
     @classmethod
     def of(cls, exchange: str, symbol: str) -> Currency:
@@ -143,7 +137,6 @@ class Currency(Instrument):
 @dataclass(frozen=True, slots=True)
 class Commodity(Instrument):
     asset_class: AssetClass = AssetClass.COMMODITY
-    instrument_type: InstrumentType = InstrumentType.COMMODITY
 
     @classmethod
     def of(cls, exchange: str, symbol: str) -> Commodity:

@@ -128,7 +128,7 @@ def test_depth_rename_ratified() -> None:
     assert Depth.__name__ == "Depth"
 
 
-def test_historical_series_window() -> None:
+def test_historical_series_tail_slice() -> None:
     eq = Equity.of("NSE", "RELIANCE")
     candles = [
         Candle(
@@ -152,7 +152,7 @@ def test_historical_series_window() -> None:
         start=_now(),
         end=_now(),
     )
-    assert series.window(3).candles == candles[-3:]
+    assert series[-3:].candles == candles[-3:]
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,6 @@ Consolidated per D-7 (single ``Timeframe`` StrEnum) and FDS 05 §7.3
 
 from __future__ import annotations
 
-import warnings
 from enum import StrEnum
 
 
@@ -36,8 +35,6 @@ class OrderStatus(StrEnum):
 
 class TimeInForce(StrEnum):
     DAY = "DAY"
-    IOC = "IOC"
-    GTC = "GTC"
 
 
 class ProductType(StrEnum):
@@ -55,8 +52,6 @@ class AssetClass(StrEnum):
     OPTION = "OPTION"
     CURRENCY = "CURRENCY"
     COMMODITY = "COMMODITY"
-    ETF = "ETF"
-    SPOT = "SPOT"
 
 
 class ExchangeId(StrEnum):
@@ -69,24 +64,6 @@ class ExchangeId(StrEnum):
     BCD = "BCD"
     NSE_COMM = "NSE_COMM"
     IDX = "IDX"
-
-
-# DEPRECATED: Use AssetClass instead. InstrumentType will be removed in a future version.
-class InstrumentType(StrEnum):
-    EQUITY = "EQUITY"
-    INDEX = "INDEX"
-    FUTURE = "FUTURE"
-    OPTION = "OPTION"
-    CURRENCY = "CURRENCY"
-    COMMODITY = "COMMODITY"
-    ETF = "ETF"
-
-    def __init__(self, *args: object) -> None:
-        warnings.warn(
-            "InstrumentType is deprecated, use AssetClass instead",
-            DeprecationWarning,
-            stacklevel=3,
-        )
 
 
 class BrokerId(StrEnum):
@@ -170,7 +147,6 @@ __all__ = [
     "AssetClass",
     "BrokerId",
     "ExchangeId",
-    "InstrumentType",
     "OrderSide",
     "OrderStatus",
     "OrderType",

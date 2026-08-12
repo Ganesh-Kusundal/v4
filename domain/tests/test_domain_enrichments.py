@@ -363,54 +363,6 @@ class TestHistoricalSeriesGetitem:
         assert sliced.timeframe == Timeframe.M1
 
 
-class TestHistoricalSeriesFirstLast:
-    def test_first(self):
-        series = _make_series(3)
-        assert series.first is not None
-        assert series.first.ohlc.open.value == Decimal("100")
-
-    def test_last(self):
-        series = _make_series(3)
-        assert series.last is not None
-        assert series.last.ohlc.open.value == Decimal("102")
-
-    def test_first_empty(self):
-        series = HistoricalSeries(
-            instrument=_NSE_RELIANCE,
-            timeframe=Timeframe.M1,
-            candles=[],
-            start=datetime(2024, 1, 1, tzinfo=UTC),
-            end=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert series.first is None
-
-    def test_last_empty(self):
-        series = HistoricalSeries(
-            instrument=_NSE_RELIANCE,
-            timeframe=Timeframe.M1,
-            candles=[],
-            start=datetime(2024, 1, 1, tzinfo=UTC),
-            end=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert series.last is None
-
-
-class TestHistoricalSeriesIsEmpty:
-    def test_not_empty(self):
-        series = _make_series(3)
-        assert series.is_empty is False
-
-    def test_empty(self):
-        series = HistoricalSeries(
-            instrument=_NSE_RELIANCE,
-            timeframe=Timeframe.M1,
-            candles=[],
-            start=datetime(2024, 1, 1, tzinfo=UTC),
-            end=datetime(2024, 1, 1, tzinfo=UTC),
-        )
-        assert series.is_empty is True
-
-
 # ---------------------------------------------------------------------------
 # Task 2.8: Signal, Fill, Candle, OHLC predicates
 # ---------------------------------------------------------------------------
@@ -424,8 +376,7 @@ class TestSignalPredicates:
             strength=0.8,
             reason="test",
         )
-        assert signal.is_buy is True
-        assert signal.is_sell is False
+        assert signal.direction == OrderSide.BUY
 
     def test_is_sell(self):
         signal = Signal(
@@ -434,8 +385,7 @@ class TestSignalPredicates:
             strength=0.8,
             reason="test",
         )
-        assert signal.is_buy is False
-        assert signal.is_sell is True
+        assert signal.direction == OrderSide.SELL
 
 
 class TestFillPredicates:
@@ -447,8 +397,7 @@ class TestFillPredicates:
             quantity=Quantity(Decimal("10")),
             price=Price(Decimal("100")),
         )
-        assert fill.is_buy is True
-        assert fill.is_sell is False
+        assert fill.side == OrderSide.BUY
 
     def test_is_sell(self):
         fill = Fill(
@@ -458,19 +407,7 @@ class TestFillPredicates:
             quantity=Quantity(Decimal("10")),
             price=Price(Decimal("100")),
         )
-        assert fill.is_buy is False
-        assert fill.is_sell is True
-
-    def test_value(self):
-        fill = Fill(
-            order_id=OrderId("ORD-1"),
-            instrument=_NSE_RELIANCE,
-            side=OrderSide.BUY,
-            quantity=Quantity(Decimal("10")),
-            price=Price(Decimal("150")),
-        )
-        assert fill.value.amount == Decimal("1500")
-        assert fill.value.currency == "INR"
+        assert fill.side == OrderSide.SELL
 
 
 class TestCandlePredicates:

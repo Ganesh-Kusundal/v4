@@ -12,7 +12,10 @@ def test_factories_set_asset_class():
     assert InstrumentId.currency("NSE", "USDINR").asset_class is AssetClass.CURRENCY
     assert InstrumentId.commodity("MCX", "GOLD").asset_class is AssetClass.COMMODITY
     assert InstrumentId.future("NSE", "TCS", date(2026, 8, 27)).asset_class is AssetClass.FUTURE
-    assert InstrumentId.option("NSE", "TCS", date(2026, 8, 27), 3000, "CE").asset_class is AssetClass.OPTION
+    assert (
+        InstrumentId.option("NSE", "TCS", date(2026, 8, 27), 3000, "CE").asset_class
+        is AssetClass.OPTION
+    )
 
 
 def test_equity_and_index_carry_distinct_asset_class():

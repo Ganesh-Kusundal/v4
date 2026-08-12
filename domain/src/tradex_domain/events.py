@@ -10,8 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from tradex_domain.execution import Fill, Order, OrderRequest, Position
-from tradex_domain.market import Candle, Quote
+from tradex_domain.execution import Fill, Order, OrderRequest
+from tradex_domain.market import Candle
 from tradex_domain.value_objects import CorrelationId
 
 
@@ -34,24 +34,9 @@ class OrderFilled(DomainEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class OrderCancelled(DomainEvent):
-    order: Order
-
-
-@dataclass(frozen=True, slots=True)
 class OrderRejected(DomainEvent):
     order: Order
     reason: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class PositionUpdated(DomainEvent):
-    position: Position
-
-
-@dataclass(frozen=True, slots=True)
-class QuoteReceived(DomainEvent):
-    quote: Quote
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,39 +50,6 @@ class ErrorOccurred(DomainEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class SessionStarted(DomainEvent):
-    session_id: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class SessionStopped(DomainEvent):
-    session_id: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class RiskLimitBreached(DomainEvent):
-    reason: str = ""
-    limit: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class KillSwitchTripped(DomainEvent):
-    reason: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class ReconciliationDrift(DomainEvent):
-    drift_type: str = ""
-    details: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class DataQualityAlert(DomainEvent):
-    alert_type: str = ""
-    message: str = ""
-
-
-@dataclass(frozen=True, slots=True)
 class PlaceOrderCommand(DomainEvent):
     """CQRS command — strategies publish this instead of calling broker directly."""
 
@@ -106,19 +58,10 @@ class PlaceOrderCommand(DomainEvent):
 
 __all__ = [
     "CandleReceived",
-    "DataQualityAlert",
     "DomainEvent",
     "ErrorOccurred",
-    "KillSwitchTripped",
-    "OrderCancelled",
     "OrderFilled",
     "OrderPlaced",
     "OrderRejected",
     "PlaceOrderCommand",
-    "PositionUpdated",
-    "QuoteReceived",
-    "ReconciliationDrift",
-    "RiskLimitBreached",
-    "SessionStarted",
-    "SessionStopped",
 ]

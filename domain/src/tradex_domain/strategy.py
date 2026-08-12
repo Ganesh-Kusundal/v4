@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal
 from typing import Any
 
 from tradex_domain.enums import OrderSide
@@ -12,7 +11,7 @@ from tradex_domain.execution import Position
 from tradex_domain.instruments import Instrument
 from tradex_domain.protocols import SessionFacade
 from tradex_domain.serialization import Serializable
-from tradex_domain.value_objects import Money, Quantity
+from tradex_domain.value_objects import Money
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,14 +26,6 @@ class Signal(Serializable):
     #: replay) use it to align fills to the correct bar instead of matching
     #: signals to candles sequentially.
     timestamp: datetime | None = None
-
-    @property
-    def is_buy(self) -> bool:
-        return self.direction == OrderSide.BUY
-
-    @property
-    def is_sell(self) -> bool:
-        return self.direction == OrderSide.SELL
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,28 +67,6 @@ class ScannerResult(Serializable):
     indicator_values: dict[str, float]
     rank: int
     metadata: dict[str, Any] = field(default_factory=dict)
-
-    def to_signal(self, quantity: Decimal | None = None) -> Signal:
-        """Convert scanner result to a trading signal.
-
-        Parameters
-        ----------
-        quantity : Decimal | None
-            Order quantity. Defaults to 1.
-
-        Returns
-        -------
-        Signal
-            A buy signal for the scanned instrument.
-        """
-        qty = Quantity(value=quantity or Decimal("1"))
-        return Signal(
-            instrument=self.instrument,
-            direction=OrderSide.BUY,
-            strength=self.score,
-            reason=f"Scanner hit (rank={self.rank}, conditions={self.matched_conditions})",
-            metadata={"source": "scanner", "score": str(self.score), "quantity": str(qty.value)},
-        )
 
 
 __all__ = ["Condition", "ScannerDefinition", "ScannerResult", "Signal", "StrategyContext"]

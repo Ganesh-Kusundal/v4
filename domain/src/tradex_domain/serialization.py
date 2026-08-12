@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import functools
 import importlib
-import json
 from dataclasses import fields, is_dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -159,22 +158,4 @@ def _hints(cls: type) -> dict[str, Any]:
     return get_type_hints(cls)
 
 
-def to_json(obj: Any) -> str:
-    """Serialize object to JSON string."""
-    return json.dumps(to_dict(obj))
-
-
-def from_json(json_str: str, expected_type: type | None = None) -> Any:
-    """Deserialize object from JSON string."""
-    data = json.loads(json_str)
-    if expected_type is not None:
-        return from_dict(expected_type, data)
-    # Auto-resolve from __type__ marker if present
-    if isinstance(data, dict) and _TYPE_KEY in data:
-        resolved = _resolve_type(data[_TYPE_KEY])
-        if resolved is not None:
-            return from_dict(resolved, data)
-    raise SDKError("from_json requires expected_type or a __type__ marker in the data")
-
-
-__all__ = ["Serializable", "from_dict", "from_json", "to_dict", "to_json"]
+__all__ = ["Serializable", "from_dict", "to_dict"]
