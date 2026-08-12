@@ -72,52 +72,6 @@ class AdminMixin:
         return raw if isinstance(raw, dict) else {}
 
 
-    def configure_pnl_exit(self: DhanClientFacade, **params: object) -> dict[str, object]:
-        """Configure PnL exit via POST /pnlExit."""
-        body = self._request("POST", "/pnlExit", json=params)
-        self._invalidate_after_write()
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-
-    def stop_pnl_exit(self: DhanClientFacade) -> dict[str, object]:
-        """Stop PnL exit via DELETE /pnlExit."""
-        body = self._request("DELETE", "/pnlExit")
-        self._invalidate_after_write()
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-
-    def get_pnl_exit(self: DhanClientFacade) -> dict[str, object]:
-        """Get PnL exit config via GET /pnlExit."""
-        body = self._request("GET", "/pnlExit", cache_read=False)
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-
-    def set_ip(self: DhanClientFacade, **params: object) -> dict[str, object]:
-        """Set IP configuration via POST /ip/setIP."""
-        body = self._request("POST", "/ip/setIP", json=params)
-        self._invalidate_after_write()
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-
-    def modify_ip(self: DhanClientFacade, **params: object) -> dict[str, object]:
-        """Modify IP configuration via PUT /ip/modifyIP."""
-        body = self._request("PUT", "/ip/modifyIP", json=params)
-        self._invalidate_after_write()
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-
-    def get_ip(self: DhanClientFacade) -> dict[str, object]:
-        """Get IP configuration via GET /ip/getIP."""
-        body = self._request("GET", "/ip/getIP", cache_read=False)
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-
     def invalidate_read_cache(self: DhanClientFacade) -> None:
         """Drop cached read responses so a verification probe hits the wire."""
         self._http.invalidate_cache()

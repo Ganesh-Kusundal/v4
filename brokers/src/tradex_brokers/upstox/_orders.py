@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.execution import Order, OrderRequest, OrderResult
-from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
+from tradex_domain.value_objects import CorrelationId, OrderId, Quantity
 
 from tradex_brokers.common.client_shared import order_result_from_dict
 from tradex_brokers.common.provider_common import (
@@ -93,24 +93,6 @@ class OrdersMixin:
             if isinstance(row, dict) and str(row.get("tag", "")) == tag:
                 return row
         return {}
-
-    def place_cover_order(self: UptoxFacade, request: OrderRequest, stop_loss: Price) -> OrderId:
-        """Cover order: entry + stop-loss bundled."""
-        payload = self._order_payload(request)
-        payload["stop_loss"] = float(stop_loss.value)
-        body = self._request(
-            "POST", "/order/cover/place", host="hft", json=payload
-        )
-        self._invalidate_after_write()
-        return self._response_order_id(body, "Upstox")
-
-    def exit_cover_order(self: UptoxFacade, order_id: OrderId) -> dict[str, object]:
-        """Cancel/exit a cover order by order_id."""
-        body = self._request(
-            "DELETE", "/order/cover/cancel", host="hft", params={"order_id": order_id.value})
-        self._invalidate_after_write()
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
 
     def submit_super_order(self: UptoxFacade, request: OrderRequest) -> OrderId:
         """Upstox does not support super orders."""

@@ -1,7 +1,7 @@
 """Tests for the ``_http_status`` embedding and status-code visibility chain.
 
-Covers transport, retry, circuit breaker, require_success, AuthRetryPolicy,
-provider_client submit_mutation, and _FetchResiliencePipeline.
+Covers transport, require_success, AuthRetryPolicy, provider_client
+submit_mutation, and _FetchResiliencePipeline.
 """
 
 from __future__ import annotations
@@ -18,13 +18,11 @@ from tradex_domain import (
     SDKError,
 )
 
-from tradex_brokers.common.circuit_breaker import CircuitBreaker, CircuitState
 from tradex_brokers.common.provider_client import (
     AuthRetryPolicy,
     ProviderHttpClient,
 )
 from tradex_brokers.common.provider_common import require_success
-from tradex_brokers.common.retry import RetryableHttpClient
 from tradex_brokers.common.transport import HttpTransport
 
 # ---------------------------------------------------------------------------
@@ -67,85 +65,6 @@ class TestTransportHttpStatus:
         transport = HttpTransport()
         result = transport.request("POST", "https://example.com/create")
         assert result == {"data": "created", "_http_status": 201}
-
-
-# ===========================================================================
-# Retry _http_status embedding
-# ===========================================================================
-
-
-class TestRetryHttpStatus:
-    """RetryableHttpClient.send embeds ``_http_status`` in the result dict."""
-
-    @patch("urllib.request.urlopen")
-    def test_retry_send_embeds_http_status_on_success(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_urlopen_response(200, {"data": "ok"})
-        client = RetryableHttpClient()
-        result = client.send("GET", "https://example.com/test")
-        assert result["_http_status"] == 200
-
-    @patch("urllib.request.urlopen")
-    def test_retry_send_embeds_http_status_for_non_json(self, mock_urlopen):
-        mock_urlopen.return_value = _mock_urlopen_response(200, "raw text")
-        client = RetryableHttpClient()
-        result = client.send("GET", "https://example.com/test")
-        assert result == {"data": "raw text", "_http_status": 200}
-
-
-# ===========================================================================
-# Circuit breaker 5xx detection
-# ===========================================================================
-
-
-class TestCircuitBreaker5xx:
-    """Circuit breaker detects 5xx via embedded ``_http_status``."""
-
-    def test_breaker_records_failure_on_5xx(self):
-        breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
-        # First 5xx — still CLOSED
-        breaker.request(lambda: {"_http_status": 500})
-        assert breaker.state == "CLOSED"
-        # Second 5xx — trips OPEN
-        breaker.request(lambda: {"_http_status": 500})
-        assert breaker.state == "OPEN"
-
-    def test_breaker_records_success_on_2xx(self):
-        breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
-        breaker.request(lambda: {"_http_status": 200})
-        assert breaker._failure_count == 0
-        assert breaker.state == "CLOSED"
-
-    def test_breaker_5xx_then_success_resets(self):
-        breaker = CircuitBreaker(failure_threshold=3, recovery_timeout=60.0)
-        breaker.request(lambda: {"_http_status": 502})
-        assert breaker._failure_count == 1
-        breaker.request(lambda: {"_http_status": 200})
-        assert breaker._failure_count == 0
-
-    def test_breaker_non_dict_result_is_success(self):
-        breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
-        result = breaker.request(lambda: "plain_string")
-        assert result == "plain_string"
-        assert breaker._failure_count == 0
-
-    def test_breaker_dict_without_status_is_success(self):
-        breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
-        result = breaker.request(lambda: {"data": "ok"})
-        assert result == {"data": "ok"}
-        assert breaker._failure_count == 0
-
-    def test_breaker_half_open_5xx_retrips(self):
-        breaker = CircuitBreaker(failure_threshold=1, recovery_timeout=0.01)
-        # Trip the breaker
-        breaker.request(lambda: {"_http_status": 500})
-        assert breaker.state == "OPEN"
-        # Manually set HALF_OPEN
-        breaker._state = CircuitState.HALF_OPEN
-        breaker._opened_at = 0.0
-        breaker._success_count = 0
-        # 503 in HALF_OPEN → back to OPEN
-        breaker.request(lambda: {"_http_status": 503})
-        assert breaker.state == "OPEN"
 
 
 # ===========================================================================

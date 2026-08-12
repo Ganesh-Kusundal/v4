@@ -7,26 +7,19 @@ from unittest.mock import MagicMock, patch
 import pytest
 from tradex_domain import OrderSubmissionUnknownError
 
-from tradex_brokers.common.circuit_breaker import CircuitBreaker
+from tradex_brokers.common.client_shared import FetchResiliencePipeline
 from tradex_brokers.common.provider_client import (
     AuthRetryPolicy,
     ProviderHttpClient,
 )
-from tradex_brokers.common.rate_limit import TokenBucketRateLimiter
-from tradex_brokers.common.resilience import ResiliencePipeline
-from tradex_brokers.common.retry import RetryableHttpClient, RetryConfig
 from tradex_brokers.common.transport import HttpTransport
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_pipeline() -> ResiliencePipeline:
-    return ResiliencePipeline(
-        rate_limiter=TokenBucketRateLimiter(rate=1000.0, burst=1000),
-        retry=RetryableHttpClient(RetryConfig(max_attempts=1, base_delay=0.0, jitter=False)),
-        breaker=CircuitBreaker(failure_threshold=100, recovery_timeout=1.0),
-    )
+def _make_pipeline() -> FetchResiliencePipeline:
+    return FetchResiliencePipeline(lambda _method, _url, **kwargs: {"data": {}})
 
 
 def _make_client(**kwargs) -> ProviderHttpClient:

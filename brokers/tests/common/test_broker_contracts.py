@@ -91,13 +91,6 @@ CAPABILITY_METHODS: dict[str, list[tuple[str, Callable[[], tuple[Any, ...]]]]] =
         ("ltp_batch", lambda: ([_INSTRUMENT],)),
         ("quote_batch", lambda: ([_INSTRUMENT],)),
     ],
-    "supports_fundamentals": [
-        ("get_cash_flow", lambda: ("INE123A",)),
-        ("get_ratios", lambda: ("INE123A",)),
-        ("get_financials", lambda: ("INE123A", "P&L")),
-        ("get_balance_sheet", lambda: ("INE123A",)),
-        ("get_pnl", lambda: ("INE123A",)),
-    ],
     "supports_news": [
         ("get_news", lambda: ()),
     ],

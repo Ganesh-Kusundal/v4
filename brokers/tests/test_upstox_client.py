@@ -317,32 +317,6 @@ class TestOrderMethods:
 
 
 # ---------------------------------------------------------------------------
-# Cover order tests
-# ---------------------------------------------------------------------------
-
-
-class TestCoverOrders:
-    def test_place_cover_order(self):
-        response = {"data": {"order_id": "CO1"}}
-        client, _, _ = _make_client([response])
-        request = OrderRequest(
-            instrument=_equity(),
-            side=OrderSide.BUY,
-            order_type=OrderType.MARKET,
-            quantity=Quantity(value=Decimal("10")),
-            product_type=ProductType.COVER_ORDER,
-        )
-        oid = client.place_cover_order(request, stop_loss=Price(value=Decimal("95")))
-        assert oid.value == "CO1"
-
-    def test_exit_cover_order(self):
-        response = {"data": {"status": "success"}}
-        client, _, _ = _make_client([response])
-        result = client.exit_cover_order(OrderId(value="CO1"))
-        assert result["status"] == "success"
-
-
-# ---------------------------------------------------------------------------
 # Extension order tests
 # ---------------------------------------------------------------------------
 
@@ -671,56 +645,6 @@ class TestPositions:
 # ---------------------------------------------------------------------------
 
 
-class TestFinancialData:
-    def test_get_financials(self):
-        response = {"data": {"revenue": 100000}}
-        client, _, _ = _make_client([response])
-        result = client.get_financials("INE002A01018", "profit-loss")
-        assert result["revenue"] == 100000
-
-    def test_get_balance_sheet(self):
-        response = {"data": {"assets": 50000}}
-        client, _, _ = _make_client([response])
-        result = client.get_balance_sheet("INE002A01018")
-        assert result["assets"] == 50000
-
-    def test_get_pnl(self):
-        response = {"data": {"net_profit": 10000}}
-        client, _, _ = _make_client([response])
-        result = client.get_pnl("INE002A01018")
-        assert result["net_profit"] == 10000
-
-    def test_get_cash_flow(self):
-        response = {"data": {"operating": 5000}}
-        client, _, _ = _make_client([response])
-        result = client.get_cash_flow("INE002A01018")
-        assert result["operating"] == 5000
-
-    def test_get_ratios(self):
-        response = {"data": {"pe": 25.5}}
-        client, _, _ = _make_client([response])
-        result = client.get_ratios("INE002A01018")
-        assert result["pe"] == 25.5
-
-    def test_get_fii_dii(self):
-        response = {"data": {"fii_buy": 1000}}
-        client, _, _ = _make_client([response])
-        result = client.get_fii_dii()
-        assert result["fii_buy"] == 1000
-
-    def test_get_pcr(self):
-        response = {"data": {"pcr": 1.2}}
-        client, _, _ = _make_client([response])
-        result = client.get_pcr("NIFTY")
-        assert result["pcr"] == 1.2
-
-    def test_get_oi(self):
-        response = {"data": {"oi": 100000}}
-        client, _, _ = _make_client([response])
-        result = client.get_oi("NIFTY")
-        assert result["oi"] == 100000
-
-
 class TestNewsExtras:
     def test_get_news(self):
         # Real v2 shape: data maps each instrument key to an array of items.
@@ -766,47 +690,11 @@ class TestNewsExtras:
         assert params["instrument_keys"] == "A,B"
         assert params["page_size"] == 10
 
-    def test_get_smartlists(self):
-        response = {"data": [{"name": "Top Gainers"}]}
-        client, _, _ = _make_client([response])
-        result = client.get_smartlists()
-        assert len(result) == 1
-
-    def test_get_ipo_list(self):
-        response = {"data": [{"name": "Test IPO"}]}
-        client, _, _ = _make_client([response])
-        result = client.get_ipo_list()
-        assert len(result) == 1
-
-    def test_get_mf_orders(self):
-        response = {"data": [{"order_id": "MF1"}]}
-        client, _, _ = _make_client([response])
-        result = client.get_mf_orders()
-        assert len(result) == 1
-
-    def test_get_mf_holdings(self):
-        response = {"data": [{"scheme": "Axis Bluechip"}]}
-        client, _, _ = _make_client([response])
-        result = client.get_mf_holdings()
-        assert len(result) == 1
-
-    def test_get_payouts(self):
-        response = {"data": [{"amount": 1000}]}
-        client, _, _ = _make_client([response])
-        result = client.get_payouts()
-        assert len(result) == 1
-
     def test_get_trade_book(self):
         response = {"data": [{"trade_id": "T1"}]}
         client, _, _ = _make_client([response])
         result = client.get_trade_book()
         assert len(result) == 1
-
-    def test_expiry_list(self):
-        response = {"data": ["2026-08-28", "2026-09-25"]}
-        client, _, _ = _make_client([response])
-        result = client.expiry_list("NSE_INDEX|Nifty 50")
-        assert len(result) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -878,18 +766,6 @@ class TestKillSwitchStaticIP:
         client, _, _ = _make_client([response])
         result = client.status_kill_switch()
         assert result["status"] == "ENABLED"
-
-    def test_get_static_ip(self):
-        response = {"data": {"primary_ip": "1.2.3.4"}}
-        client, _, _ = _make_client([response])
-        result = client.get_static_ip()
-        assert result["primary_ip"] == "1.2.3.4"
-
-    def test_set_static_ip(self):
-        response = {"data": {"status": "updated"}}
-        client, _, _ = _make_client([response])
-        result = client.set_static_ip(primary="1.2.3.4", secondary="5.6.7.8")
-        assert result["status"] == "updated"
 
     def test_exit_all(self):
         response = {"data": {"status": "DISABLED"}}
@@ -1393,14 +1269,6 @@ class TestPortfolioBackendReconnect:
 # ---------------------------------------------------------------------------
 
 
-class TestExpiredOptions:
-    def test_get_expired_option_data(self):
-        response = {"data": {"candles": []}}
-        client, _, _ = _make_client([response])
-        result = client.get_expired_option_data(_equity())
-        assert isinstance(result, dict)
-
-
 class TestExtendedEndpoints:
     def test_get_ohlc(self):
         response = {
@@ -1440,86 +1308,3 @@ class TestExtendedEndpoints:
         client, _, _ = _make_client()
         with pytest.raises(ValueError):
             client.intraday_candles(_equity(), Timeframe.W1)
-
-    def test_get_option_contracts(self):
-        response = {"data": [{"name": "NIFTY", "strike_price": 19650}]}
-        client, _, _ = _make_client([response])
-        result = client.get_option_contracts(_index())
-        assert len(result) == 1
-        assert result[0]["strike_price"] == 19650
-
-    def test_get_change_oi(self):
-        response = {"data": {"total_call_change_oi": 100}}
-        client, _, _ = _make_client([response])
-        result = client.get_change_oi(_index(), "2026-05-29", "2026-05-07", 2)
-        assert result["total_call_change_oi"] == 100
-
-    def test_get_max_pain(self):
-        response = {"data": {"max_pain": 24050.0}}
-        client, _, _ = _make_client([response])
-        result = client.get_max_pain(_index(), "2026-05-29", "2026-05-07")
-        assert result["max_pain"] == 24050.0
-
-    def test_get_market_holidays(self):
-        response = {"data": [{"date": "2024-01-01", "description": "New Year"}]}
-        client, _, _ = _make_client([response])
-        result = client.get_market_holidays()
-        assert len(result) == 1
-        assert result[0]["date"] == "2024-01-01"
-
-    def test_get_market_timings(self):
-        response = {"data": [{"exchange": "NSE", "start_time": 1704080700000}]}
-        client, _, _ = _make_client([response])
-        result = client.get_market_timings("2024-01-22")
-        assert len(result) == 1
-        assert result[0]["exchange"] == "NSE"
-
-    def test_get_exchange_status(self):
-        response = {"data": {"exchange": "NSE", "status": "NORMAL_OPEN"}}
-        client, _, _ = _make_client([response])
-        result = client.get_exchange_status("NSE")
-        assert result["status"] == "NORMAL_OPEN"
-
-    def test_get_company_profile(self):
-        response = {"data": {"sector": "Refineries"}}
-        client, _, _ = _make_client([response])
-        result = client.get_company_profile("INE002A01018")
-        assert result["sector"] == "Refineries"
-
-    def test_get_income_statement(self):
-        response = {"data": {"type": "consolidated", "income_statement": []}}
-        client, _, _ = _make_client([response])
-        result = client.get_income_statement("INE002A01018")
-        assert result["type"] == "consolidated"
-
-    def test_get_share_holdings(self):
-        response = {"data": [{"category": "promoters"}]}
-        client, _, _ = _make_client([response])
-        result = client.get_share_holdings("INE002A01018")
-        assert len(result) == 1
-        assert result[0]["category"] == "promoters"
-
-    def test_get_corporate_actions(self):
-        response = {"data": [{"name": "Dividend", "amount": 5.5}]}
-        client, _, _ = _make_client([response])
-        result = client.get_corporate_actions("INE002A01018")
-        assert len(result) == 1
-        assert result[0]["name"] == "Dividend"
-
-    def test_get_competitors(self):
-        response = {"data": [{"sector": "Refineries"}]}
-        client, _, _ = _make_client([response])
-        result = client.get_competitors("INE002A01018")
-        assert len(result) == 1
-        assert result[0]["sector"] == "Refineries"
-
-    def test_get_trade_pnl(self):
-        response = {
-            "status": "success",
-            "data": [{"quantity": 100, "isin": "INE256A01028"}],
-            "metadata": {"page": {"page_number": 1, "page_size": 100}},
-        }
-        client, _, _ = _make_client([response])
-        result = client.get_trade_pnl("EQ", "2324")
-        assert "data" in result
-        assert result["metadata"]["page"]["page_number"] == 1

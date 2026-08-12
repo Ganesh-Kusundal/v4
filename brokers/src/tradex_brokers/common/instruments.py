@@ -12,13 +12,10 @@ delegates to them and never re-implements resolution.
 
 from __future__ import annotations
 
-import csv
-import json
 import logging
 from collections.abc import Iterable, Mapping
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Any
 
 from tradex_domain import InstrumentNotFoundError, SDKError
@@ -28,90 +25,6 @@ from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
 
 log = logging.getLogger(__name__)
-
-
-def load_master_csv(path: Path) -> list[dict]:
-    """Load a broker's master instrument CSV file.
-
-    The CSV is expected to have a header row.  Each row is returned as a dict
-    keyed by column name.
-
-    Parameters
-    ----------
-    path:
-        Path to the CSV file.
-
-    Returns
-    -------
-    list[dict]
-        List of instrument rows.
-
-    Raises
-    ------
-    InstrumentNotFoundError
-        If the file does not exist or cannot be parsed.
-    """
-    if not path.exists():
-        raise InstrumentNotFoundError(f"Instrument master CSV not found: {path}")
-    try:
-        with path.open(newline="", encoding="utf-8") as fh:
-            reader = csv.DictReader(fh)
-            rows = list(reader)
-        log.debug("Loaded %d instruments from %s", len(rows), path)
-        return rows
-    except (csv.Error, UnicodeDecodeError) as exc:
-        raise InstrumentNotFoundError(
-            f"Failed to parse instrument CSV {path}: {exc}"
-        ) from exc
-
-
-def load_master_json(path: Path) -> list[dict]:
-    """Load a broker's master instrument JSON file.
-
-    The file must contain either a JSON array of objects, or an object with a
-    ``"data"`` key containing an array.
-
-    Parameters
-    ----------
-    path:
-        Path to the JSON file.
-
-    Returns
-    -------
-    list[dict]
-        List of instrument rows.
-
-    Raises
-    ------
-    InstrumentNotFoundError
-        If the file does not exist or cannot be parsed.
-    """
-    if not path.exists():
-        raise InstrumentNotFoundError(f"Instrument master JSON not found: {path}")
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-        raise InstrumentNotFoundError(
-            f"Failed to parse instrument JSON {path}: {exc}"
-        ) from exc
-
-    if isinstance(data, list):
-        rows = data
-    elif isinstance(data, dict):
-        rows: list[Any] = data.get("data", data.get("instruments", []))  # type: ignore[assignment,no-redef]
-        if not isinstance(rows, list):
-            raise InstrumentNotFoundError(
-                f"Expected list in instrument JSON at {path}, "
-                f"got {type(rows).__name__}"
-            )
-    else:
-        raise InstrumentNotFoundError(
-            f"Unexpected top-level type in instrument JSON at {path}: "
-            f"{type(data).__name__}"
-        )
-
-    log.debug("Loaded %d instruments from %s", len(rows), path)
-    return rows
 
 
 def as_decimal(value: str | float | int) -> Decimal:
@@ -336,8 +249,6 @@ __all__ = [
     "build_instrument_from_row",
     "future_chain_from_master",
     "instrument_from_id",
-    "load_master_csv",
-    "load_master_json",
     "option_chain_from_master",
     "parse_date",
     "provider_key",

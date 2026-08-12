@@ -1,8 +1,9 @@
-"""Shared HTTP client composing resilience pipeline + auth + transport.
+"""Shared HTTP client composing pipeline + auth + transport.
 
 ``ProviderHttpClient`` is the main entry point for broker adapters to make
-authenticated HTTP calls with full resilience (rate limiting, retry, circuit
-breaker).
+authenticated HTTP calls.  Production binds ``FetchResiliencePipeline``
+(``common.client_shared``), which routes through an injected ``fetch``; the
+fetch-based path carries no rate limiting, retry, or circuit breaking.
 """
 
 from __future__ import annotations
@@ -11,12 +12,11 @@ import json
 import logging
 import threading
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from tradex_domain import AuthenticationError
 
 from tradex_brokers.common.cache import ReadCache
-from tradex_brokers.common.resilience import ResiliencePipeline
 from tradex_brokers.common.token_lifecycle import PortTokenManager
 from tradex_brokers.common.transport import HttpTransport
 
@@ -75,15 +75,27 @@ class UncertainSubmissionTracker:
             self._reserved.discard(key)
 
 
+class SendPipeline(Protocol):
+    """Minimal ``send`` contract satisfied by ``FetchResiliencePipeline``.
+
+    The production fetch-based path routes through an injected ``fetch`` with
+    no rate limiting, retry, or circuit breaking; this protocol is the sole
+    typing surface ``ProviderHttpClient`` needs from its pipeline.
+    """
+
+    def send(self, method: str, url: str, **kwargs: Any) -> Any: ...
+
+
 class ProviderHttpClient:
-    """HTTP client composing resilience pipeline + auth + transport.
+    """HTTP client composing pipeline + auth + transport.
 
     Parameters
     ----------
     transport:
         The underlying HTTP transport for making requests.
     pipeline:
-        Resilience pipeline (rate limit → retry → circuit breaker).
+        Request pipeline (``send``); production binds
+        ``FetchResiliencePipeline``.
     token_manager:
         Optional token manager for injecting ``Authorization`` headers.
     """
@@ -91,7 +103,7 @@ class ProviderHttpClient:
     def __init__(
         self,
         transport: HttpTransport,
-        pipeline: ResiliencePipeline,
+        pipeline: SendPipeline,
         token_manager: PortTokenManager | None = None,
         *,
         cache_ttl_seconds: float = 0.0,
@@ -342,11 +354,6 @@ class ProviderHttpClient:
             "misses": self._cache.misses,
             "size": self._cache.size,
         }
-
-    @property
-    def circuit_state(self) -> str:
-        """Return the current circuit breaker state (CLOSED, OPEN, or HALF_OPEN)."""
-        return self._pipeline._breaker.state  # noqa: SLF001
 
 
 __all__ = [

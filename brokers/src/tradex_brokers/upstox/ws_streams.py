@@ -40,8 +40,6 @@ MapPosition = Callable[[Mapping[str, Any]], Position | None]
 UPSTOX_MARKET_DATA_AUTHORIZE_PATH = "/feed/market-data-feed/authorize"
 #: Official Upstox V2 portfolio/order stream authorize endpoint path.
 UPSTOX_PORTFOLIO_AUTHORIZE_PATH = "/feed/portfolio-stream-feed/authorize"
-#: Upstox depth-30 mode identifier for protobuf subscriptions.
-UPSTOX_DEPTH_30_LEVELS = 30
 
 
 def default_ws_factory(url: str) -> Any:
@@ -585,7 +583,6 @@ class UpstoxMarketDataStreamBackend(AutoReconnectMixin):
 
 
 __all__ = [
-    "UPSTOX_DEPTH_30_LEVELS",
     "UPSTOX_MARKET_DATA_AUTHORIZE_PATH",
     "UPSTOX_PORTFOLIO_AUTHORIZE_PATH",
     "UpstoxMarketDataStreamBackend",

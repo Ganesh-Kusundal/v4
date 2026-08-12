@@ -6,12 +6,12 @@ facade owns shared state and internal helpers.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
-from tradex_domain.enums import AssetClass, Timeframe
+from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument, Option
 from tradex_domain.market import OHLC, Candle, Depth, HistoricalSeries, Quote
 from tradex_domain.options import Expiry, OptionChain, OptionPair
@@ -374,122 +374,4 @@ class MarketDataMixin:
                     reference_price=spot)
             )
         return OptionChain(underlying=underlying, _expiries=tuple(expiries))
-
-
-    def expiry_list(self: DhanClientFacade, instrument: Instrument) -> list[str]:
-        """Option expiry dates for *instrument* via POST /optionchain/expirylist."""
-        key = self._security_id(instrument.instrument_id)
-        numeric_key = int(key) if str(key).isdigit() else key
-        body = self._validated(
-            self._request(
-                "POST",
-                "/optionchain/expirylist",
-
-                json={
-                    "UnderlyingScrip": numeric_key,
-                    "UnderlyingSeg": self._segment(instrument),
-                },
-                cache_read=True
-            )
-        )
-        data = unwrap_data(body)
-        if isinstance(data, Mapping):
-            data = data.get("expiryList", data.get("expiries", []))
-        if not isinstance(data, list):
-            return []
-        return [str(value) for value in data]
-
-
-    def get_rolling_options(
-        self: DhanClientFacade,
-        instrument: Instrument,
-        *,
-        expiry_flag: str,
-        expiry_code: int,
-        strike: str,
-        option_type: str,
-        from_date: str,
-        to_date: str,
-        required_data: Sequence[str] | None = None,
-        interval: int = 1) -> dict[str, object]:
-        """Continuous expired-option data via POST /charts/rollingoption.
-
-        Returns columnar ``ce``/``pe`` dicts (open/high/low/close/volume/oi/
-        spot/timestamp lists) straight from the API.
-        """
-        flag = str(expiry_flag).strip().upper()
-        if flag not in ("WEEK", "MONTH"):
-            raise ValueError(f"expiry_flag must be 'WEEK' or 'MONTH', got {expiry_flag!r}")
-        opt = str(option_type).strip().upper()
-        if opt in ("CE"):
-            opt = "CALL"
-        elif opt in ("PE"):
-            opt = "PUT"
-        if opt not in ("CALL", "PUT"):
-            raise ValueError(f"option_type must be 'CALL' or 'PUT', got {option_type!r}")
-        if interval not in (1, 5, 15, 25, 60):
-            raise ValueError(f"interval must be one of 1/5/15/25/60, got {interval!r}")
-        # ponytail: Dhan rejects expiryCode=0; logical "nearest" (0) maps to 1.
-        code = expiry_code + 1 if expiry_code == 0 else int(expiry_code)
-        segment = self._segment(instrument)
-        native_type = self._history_instrument_type(instrument)
-        if instrument.asset_class is AssetClass.INDEX:
-            # ponytail: rolling-option rejects IDX_I; index underlyings trade
-            # as OPTIDX on NSE_FNO (Trade_XV2 parity).
-            segment = "NSE_FNO"
-            native_type = "OPTIDX"
-        fields = (
-            list(required_data)
-            if required_data is not None
-            else ["open", "high", "low", "close", "volume", "oi", "spot"]
-        )
-        payload: dict[str, object] = {
-            "securityId": int(self._security_id(instrument.instrument_id)),
-            "exchangeSegment": segment,
-            "instrument": native_type,
-            "expiryFlag": flag,
-            "expiryCode": code,
-            "strike": strike,
-            "drvOptionType": opt,
-            "requiredData": fields,
-            "fromDate": from_date,
-            "toDate": to_date,
-            "interval": interval,
-        }
-        body = self._validated(
-            self._request(
-                "POST", "/charts/rollingoption", json=payload, cache_read=True
-            )
-        )
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-
-    def get_expired_option_data(
-        self: DhanClientFacade,
-        instrument: Instrument,
-        timeframe: str = "1d",
-        start: str | None = None,
-        end: str | None = None) -> dict[str, object]:
-        """Historical data for expired options via POST /charts/historical."""
-        segment = self._segment(instrument)
-        security_id = self._security_id(instrument.instrument_id)
-        native_type = self._history_instrument_type(instrument)
-        params: dict[str, object] = {
-            "securityId": security_id,
-            "exchangeSegment": segment,
-            "instrument": native_type,
-            "expiryCode": 1,
-        }
-        if start:
-            params["fromDate"] = start
-        if end:
-            params["toDate"] = end
-        body = self._validated(
-            self._request(
-                "POST", "/charts/historical", json=params, cache_read=True
-            )
-        )
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
 

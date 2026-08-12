@@ -44,7 +44,6 @@ from tradex_brokers.common.provider_common import (
 )
 from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 from tradex_brokers.dhan._admin import AdminMixin
-from tradex_brokers.dhan._alerts import AlertsMixin
 from tradex_brokers.dhan._marketdata import MarketDataMixin
 from tradex_brokers.dhan._orders import OrdersMixin
 from tradex_brokers.dhan._portfolio import PortfolioMixin
@@ -115,7 +114,7 @@ _first_mapping = first_mapping
 # ---------------------------------------------------------------------------
 
 
-class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin, AdminMixin):
+class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
     """Dhan REST endpoint implementation for the v4 broker adapter."""
 
     BASE_URL = "https://api.dhan.co/v2"

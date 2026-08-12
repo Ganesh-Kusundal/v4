@@ -1,17 +1,14 @@
 """Ported from v3 ``test_provider_api_clients.py`` — ProviderHttpClient basics.
 
-v4 ``ProviderHttpClient`` composes ``HttpTransport`` + ``ResiliencePipeline``
+v4 ``ProviderHttpClient`` composes ``HttpTransport`` + a ``send``-pipeline
 + optional ``DurableTokenManager``.  The constructor is completely different
 from v3.  These tests exercise the composition pattern and auth injection.
 """
 
 from __future__ import annotations
 
-from tradex_brokers.common.circuit_breaker import CircuitBreaker
+from tradex_brokers.common.client_shared import FetchResiliencePipeline
 from tradex_brokers.common.provider_client import ProviderHttpClient, UncertainSubmissionTracker
-from tradex_brokers.common.rate_limit import TokenBucketRateLimiter
-from tradex_brokers.common.resilience import ResiliencePipeline
-from tradex_brokers.common.retry import RetryableHttpClient, RetryConfig
 from tradex_brokers.common.token_lifecycle import DurableTokenManager
 from tradex_brokers.common.transport import HttpTransport
 
@@ -33,15 +30,9 @@ class _FakePort:
         return self._expired
 
 
-def _make_pipeline() -> ResiliencePipeline:
-    """Build a permissive resilience pipeline for testing."""
-    return ResiliencePipeline(
-        rate_limiter=TokenBucketRateLimiter(rate=1000.0, burst=1000),
-        retry=RetryableHttpClient(
-            RetryConfig(max_attempts=1, base_delay=0.0, jitter=False),
-        ),
-        breaker=CircuitBreaker(failure_threshold=100, recovery_timeout=1.0),
-    )
+def _make_pipeline() -> FetchResiliencePipeline:
+    """Build a permissive fetch-routed pipeline for testing."""
+    return FetchResiliencePipeline(lambda _method, _url, **kwargs: {"data": {}})
 
 
 # ---------------------------------------------------------------------------
@@ -214,33 +205,3 @@ def test_provider_client_resolve_uncertain_submission() -> None:
     assert client._uncertain.is_unresolved("corr-1")
     client.resolve_uncertain_submission("corr-1")
     assert not client._uncertain.is_unresolved("corr-1")
-
-
-# ---------------------------------------------------------------------------
-# ProviderHttpClient — circuit_state property
-# ---------------------------------------------------------------------------
-
-
-def test_provider_client_circuit_state_default_closed() -> None:
-    transport = HttpTransport(base_url="https://api.example.com")
-    client = ProviderHttpClient(transport=transport, pipeline=_make_pipeline())
-    assert client.circuit_state == "CLOSED"
-
-
-def test_provider_client_circuit_state_reflects_breaker() -> None:
-    transport = HttpTransport(base_url="https://api.example.com")
-    breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=60.0)
-    pipeline = ResiliencePipeline(
-        rate_limiter=TokenBucketRateLimiter(rate=1000.0, burst=1000),
-        retry=RetryableHttpClient(
-            RetryConfig(max_attempts=1, base_delay=0.0, jitter=False),
-        ),
-        breaker=breaker,
-    )
-    client = ProviderHttpClient(transport=transport, pipeline=pipeline)
-    assert client.circuit_state == "CLOSED"
-    # Force failures to trip the breaker
-    breaker._failure_count = 2  # noqa: SLF001
-    breaker._state = breaker._state.__class__.OPEN  # noqa: SLF001
-    breaker._opened_at = __import__("time").monotonic()  # noqa: SLF001
-    assert client.circuit_state == "OPEN"

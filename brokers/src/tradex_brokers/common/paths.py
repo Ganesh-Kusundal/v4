@@ -47,24 +47,6 @@ def default_token_state_path(broker_id: str) -> Path:
     return path / "token_state.json"
 
 
-def default_instrument_cache_path(broker_id: str) -> Path:
-    """Return the default path for a broker's instrument cache.
-
-    Parameters
-    ----------
-    broker_id:
-        Broker identifier (e.g. ``"DHAN"``, ``"UPSTOX"``, ``"PAPER"``).
-
-    Returns
-    -------
-    Path
-        ``<runtime_dir>/<broker_id>/instruments.json``
-    """
-    path = default_runtime_dir() / broker_id.lower()
-    path.mkdir(parents=True, exist_ok=True)
-    return path / "instruments.json"
-
-
 def default_totp_cooldown_path(broker: str) -> Path:
     """Return the default path for a broker's TOTP cooldown state.
 
@@ -85,7 +67,6 @@ def default_totp_cooldown_path(broker: str) -> Path:
 
 __all__ = [
     "default_totp_cooldown_path",
-    "default_instrument_cache_path",
     "default_runtime_dir",
     "default_token_state_path",
 ]

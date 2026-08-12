@@ -1,7 +1,7 @@
 """Facade contract for the Dhan REST client mixins.
 
-The ``OrdersMixin``/``PortfolioMixin``/``MarketDataMixin``/``AlertsMixin``/
-``AdminMixin`` classes are mixed into :class:`~tradex_brokers.dhan.client.DhanApiClient`,
+The ``OrdersMixin``/``PortfolioMixin``/``MarketDataMixin``/``AdminMixin``
+classes are mixed into :class:`~tradex_brokers.dhan.client.DhanApiClient`,
 which owns the shared instance state (``_http``, ``_registry``, …) and the
 internal helpers (``_request``, ``_order_payload``, …).  This Protocol is a
 type-checking-only contract so mypy can resolve ``self.<member>`` inside the
@@ -22,7 +22,6 @@ from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.provider_client import ProviderHttpClient
 from tradex_brokers.dhan._admin import AdminMixin
-from tradex_brokers.dhan._alerts import AlertsMixin
 from tradex_brokers.dhan._marketdata import MarketDataMixin
 from tradex_brokers.dhan._orders import OrdersMixin
 from tradex_brokers.dhan._portfolio import PortfolioMixin
@@ -34,7 +33,6 @@ class DhanClientFacade(
     OrdersMixin,
     PortfolioMixin,
     MarketDataMixin,
-    AlertsMixin,
     AdminMixin,
     Protocol,
 ):
