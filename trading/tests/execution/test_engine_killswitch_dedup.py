@@ -21,7 +21,6 @@ from tradex_domain import (
     Price,
     Quantity,
 )
-from tradex_domain.events import ErrorOccurred
 
 from tradex_trading.execution.engine import ExecutionEngine, MemoryIdempotencyGuard
 from tradex_trading.execution.fill_sources import SimulatedFillSource

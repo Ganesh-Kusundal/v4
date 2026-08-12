@@ -2,13 +2,14 @@
 
 A FillSource is what turns an OrderRequest into an Order + optional Fill.
 Different implementations serve backtesting, paper trading, live broker
-execution, and historical replay.
+execution, and historical replay. All price-resolving sources delegate to the
+shared ``FillModel`` so identical input events fill identically in every mode
+(cross-mode parity, HIGH-6b).
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
@@ -16,6 +17,8 @@ from tradex_domain.enums import OrderStatus
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.protocols import TradingCacheProtocol
 from tradex_domain.value_objects import OrderId, Price
+
+from tradex_trading.execution.fill_model import FillModel
 
 
 @runtime_checkable
@@ -58,7 +61,7 @@ def _make_order(
     )
 
 
-class SimulatedFillSource:
+class SimulatedFillSource(FillModel):
     """Backtest fill source — immediate fill at requested price.
 
     If no price is specified (MARKET order), uses the trigger_price or
@@ -77,21 +80,18 @@ class SimulatedFillSource:
         portfolio_state: object | None = None,
         slippage_model: object | None = None,
     ) -> None:
+        super().__init__(slippage_model=slippage_model)
         self._portfolio_state = portfolio_state
-        self._slippage_model = slippage_model
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
         order = _make_order(request, status=OrderStatus.FILLED)
-        fill_price = request.price or request.trigger_price
-        if fill_price is None or fill_price.value <= 0:
-            # ponytail: a zero-priced fill silently corrupts every downstream
-            # P&L number (avg_price=0) and breaks FeeCalculator. Fail loudly so
-            # the caller prices the order (strategy bridge now stamps reference
-            # prices; direct callers must pass price/trigger_price too).
-            raise ValueError(
-                f"SimulatedFillSource cannot fill {request.instrument} "
-                f"({request.side.value}) without a positive price"
-            )
+
+        # Shared FillModel: request/trigger price -> positive-price guard ->
+        # slippage. A zero-priced fill silently corrupts every downstream P&L
+        # number (avg_price=0) and breaks FeeCalculator — fail loudly so the
+        # caller prices the order (strategy bridge now stamps reference prices;
+        # direct callers must pass price/trigger_price too).
+        fill_price = self.resolve_fill_price(request)
 
         # If portfolio state available, check position constraints
         if self._portfolio_state is not None and hasattr(
@@ -100,31 +100,7 @@ class SimulatedFillSource:
             self._portfolio_state.get_position(request.instrument.symbol)
             # Could add position limit checks here
 
-        fill = Fill(
-            order_id=order.order_id,
-            instrument=request.instrument,
-            side=request.side,
-            quantity=request.quantity,
-            price=fill_price,
-            # Deterministic: the order's reference market timestamp, or now().
-            timestamp=request.reference_timestamp or datetime.now(UTC),
-        )
-
-        # Apply slippage model if provided
-        if self._slippage_model is not None and hasattr(
-            self._slippage_model, "apply"
-        ):
-            adjusted_price = self._slippage_model.apply(
-                fill.price, fill.side, fill.quantity
-            )
-            fill = Fill(
-                order_id=fill.order_id,
-                instrument=fill.instrument,
-                side=fill.side,
-                quantity=fill.quantity,
-                price=adjusted_price,
-                timestamp=fill.timestamp,
-            )
+        fill = self.make_fill(order, fill_price, self.fill_timestamp(request))
 
         return order, fill
 
@@ -132,7 +108,7 @@ class SimulatedFillSource:
         """No-op for simulated fills."""
 
 
-class PaperFillSource:
+class PaperFillSource(FillModel):
     """Paper fill source — immediate fill at latest quote or request price.
 
     If a quote is available in the cache, uses LTP; otherwise falls back
@@ -146,57 +122,41 @@ class PaperFillSource:
         cache: object | None = None,
         slippage_model: object | None = None,
     ) -> None:
+        super().__init__(slippage_model=slippage_model)
         self._cache = cache
-        self._slippage_model = slippage_model
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
         order = _make_order(request, status=OrderStatus.FILLED)
 
-        # Try to get price from cache quote
-        fill_price_value = None
-        if self._cache is not None and hasattr(self._cache, "get_quote"):
-            quote = self._cache.get_quote(request.instrument.symbol)
-            if quote is not None:
-                fill_price_value = quote.ltp.value
+        # Paper-specific: prefer the LTP from the cache quote (mode-specific
+        # market reference). Resolved through the shared FillModel so slippage
+        # and the zero-price guard match every other mode.
+        ltp = self._ltp_from_cache(request)
+        if ltp is not None:
+            fill_price = self.resolve_fill_price(request, market_price=ltp)
+        elif request.price is not None:
+            fill_price = self.resolve_fill_price(request)
+        else:
+            # Nominal paper price when no market reference is available.
+            fill_price = Price(value=Decimal("1.0"))
 
-        # Fallback to request price, then to a nominal value
-        if fill_price_value is None:
-            if request.price is not None:
-                fill_price_value = request.price.value
-            else:
-                fill_price_value = Decimal("1.0")  # nominal paper price
-
-        fill = Fill(
-            order_id=order.order_id,
-            instrument=request.instrument,
-            side=request.side,
-            quantity=request.quantity,
-            price=Price(value=fill_price_value),
-            timestamp=request.reference_timestamp or datetime.now(UTC),
-        )
-
-        # Apply slippage model if provided
-        if self._slippage_model is not None and hasattr(
-            self._slippage_model, "apply"
-        ):
-            adjusted_price = self._slippage_model.apply(
-                fill.price, fill.side, fill.quantity
-            )
-            fill = Fill(
-                order_id=fill.order_id,
-                instrument=fill.instrument,
-                side=fill.side,
-                quantity=fill.quantity,
-                price=adjusted_price,
-                timestamp=fill.timestamp,
-            )
+        fill = self.make_fill(order, fill_price, self.fill_timestamp(request))
         return order, fill
+
+    def _ltp_from_cache(self, request: OrderRequest) -> Price | None:
+        """Latest traded price from the cache quote, if any."""
+        if self._cache is None or not hasattr(self._cache, "get_quote"):
+            return None
+        quote = self._cache.get_quote(request.instrument.symbol)
+        if quote is None:
+            return None
+        return Price(value=quote.ltp.value)
 
     def cancel(self, order_id: OrderId) -> None:
         """No-op for paper fills."""
 
 
-class BrokerFillSource:
+class BrokerFillSource(FillModel):
     """Live fill source — delegates to broker adapter.
 
     Exposes boundary/projection metadata so the execution engine can
@@ -204,6 +164,7 @@ class BrokerFillSource:
     """
 
     def __init__(self, broker: object) -> None:
+        super().__init__()
         self._broker = broker
         self._submission_boundary_crossed = False
 
@@ -239,10 +200,11 @@ class BrokerFillSource:
             self._broker.cancel_order(order_id)
 
 
-class ReplayFillSource:
+class ReplayFillSource(FillModel):
     """Replay fill source — replays historical fills in sequence."""
 
     def __init__(self, fills: list[Fill]) -> None:
+        super().__init__()
         self._fills = list(fills)
         self._index = 0
 
@@ -255,15 +217,9 @@ class ReplayFillSource:
         fill = self._fills[self._index]
         self._index += 1
         order = _make_order(request, status=OrderStatus.FILLED)
-        # Override fill's order_id to match the new order
-        fill = Fill(
-            order_id=order.order_id,
-            instrument=fill.instrument,
-            side=fill.side,
-            quantity=fill.quantity,
-            price=fill.price,
-            timestamp=fill.timestamp,
-        )
+        # Replay-specific: preserve the recorded fill but re-stamp its
+        # order_id to match the freshly minted order (via the shared FillModel).
+        fill = self.restamp_fill(fill, order.order_id)
         return order, fill
 
     def cancel(self, order_id: OrderId) -> None:
