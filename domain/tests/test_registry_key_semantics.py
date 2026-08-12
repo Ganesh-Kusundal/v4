@@ -74,8 +74,8 @@ class TestFirstRegistrationWins:
         iid = _mcx_option()
         registry.register(iid, {"key": "MCX:560977"})
         registry.register(iid, {"key": "560977"})
-        assert registry.reverse_instrument_key("MCX:560977") == iid
-        assert registry.reverse_instrument_key("560977") == iid
+        assert registry.resolve("MCX:560977") == iid
+        assert registry.resolve("560977") == iid
 
 
 class TestAuthoritativeMasterReload:
@@ -101,8 +101,8 @@ class TestAuthoritativeMasterReload:
         registry.register_authoritative(iid, "MCX:571200", {"asset_class": "OPTION"})
 
         assert registry.provider_key(iid) == "MCX:571200"
-        assert registry.reverse_instrument_key("MCX:571200") == iid
-        assert registry.reverse_instrument_key("MCX:560977") is None  # stale dropped
+        assert registry.resolve("MCX:571200") == iid
+        assert registry.resolve("MCX:560977") is None  # stale dropped
 
     def test_refresh_does_not_kill_chain_alias(self) -> None:
         """Re-pointing on refresh keeps the bare-id alias resolvable (Dhan WS
@@ -148,8 +148,8 @@ class TestReplaceAllAtomicReload:
         registry.replace_all(fresh)
 
         assert registry.provider_key(iid) == "MCX:571200"
-        assert registry.reverse_instrument_key("MCX:571200") == iid
-        assert registry.reverse_instrument_key("MCX:560977") is None  # stale dropped
+        assert registry.resolve("MCX:571200") == iid
+        assert registry.resolve("MCX:560977") is None  # stale dropped
         assert registry.resolve("571200") == iid
 
     def test_reload_keeps_unrelated_registrations(self) -> None:
@@ -213,17 +213,25 @@ class TestProviderKeyTagByAssetClass:
     InstrumentId's asset class, not a hard-coded 'EQ'."""
 
     def test_index_key_uses_idx_tag(self) -> None:
+        registry = InstrumentRegistry()
         iid = InstrumentId.index("NSE", "NIFTY")
-        assert InstrumentRegistry.instrument_key(iid) == "NSE_IDX|NIFTY"
+        registry.register(iid, {})
+        assert registry.resolve("NSE_IDX|NIFTY") == iid
 
     def test_currency_key_uses_cur_tag(self) -> None:
+        registry = InstrumentRegistry()
         iid = InstrumentId.currency("NSE", "USDINR")
-        assert InstrumentRegistry.instrument_key(iid) == "NSE_CUR|USDINR"
+        registry.register(iid, {})
+        assert registry.resolve("NSE_CUR|USDINR") == iid
 
     def test_commodity_key_uses_com_tag(self) -> None:
+        registry = InstrumentRegistry()
         iid = InstrumentId.commodity("MCX", "GOLD")
-        assert InstrumentRegistry.instrument_key(iid) == "MCX_COM|GOLD"
+        registry.register(iid, {})
+        assert registry.resolve("MCX_COM|GOLD") == iid
 
     def test_equity_key_still_eq(self) -> None:
+        registry = InstrumentRegistry()
         iid = InstrumentId.equity("NSE", "TCS")
-        assert InstrumentRegistry.instrument_key(iid) == "NSE_EQ|TCS"
+        registry.register(iid, {})
+        assert registry.resolve("NSE_EQ|TCS") == iid

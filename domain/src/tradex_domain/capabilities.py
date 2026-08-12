@@ -8,7 +8,6 @@ single capability-loud gate used by the SDK services (D-8).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
 
 from tradex_domain.enums import AssetClass
 from tradex_domain.errors import CapabilityNotSupportedError
@@ -22,23 +21,17 @@ class BrokerCapabilities:
     supports_limit_order: bool = False
     supports_stop_order: bool = False
     supports_modify: bool = False
-    supports_cancel: bool = False
     supports_super_order: bool = False
     supports_forever_order: bool = False
     supports_slice_order: bool = False
     supports_edis: bool = False
     supports_batch_market_data: bool = False
     supports_portfolio_stream: bool = False
-    supports_quote_stream: bool = False
-    supports_depth_stream: bool = False
     supports_option_chain: bool = False
     supports_future_chain: bool = False
     supports_kill_switch: bool = False
     supports_news: bool = False
     supports_fundamentals: bool = False
-    max_order_quantity: int | None = None
-    max_order_value: Decimal | None = None
-    max_batch_size: int = 1
     #: Levels in the deepest market-depth stream (0 = no depth feed).
     #: Dhan depth-20 -> 20; Upstox full_d30 -> 30.
     depth_levels: int = 0
@@ -54,23 +47,17 @@ def dhan_capabilities() -> BrokerCapabilities:
         supports_limit_order=True,
         supports_stop_order=True,
         supports_modify=True,
-        supports_cancel=True,
         supports_super_order=True,
         supports_forever_order=True,
         supports_slice_order=True,
         supports_edis=True,
         supports_batch_market_data=True,
         supports_portfolio_stream=False,
-        supports_quote_stream=True,
-        supports_depth_stream=True,
         supports_option_chain=True,
         supports_future_chain=True,
         supports_kill_switch=True,
         supports_news=False,
         supports_fundamentals=False,
-        max_order_quantity=None,
-        max_order_value=None,
-        max_batch_size=1000,
         depth_levels=20,
         max_stream_instruments=1000,
         supported_asset_classes=(
@@ -90,23 +77,17 @@ def upstox_capabilities() -> BrokerCapabilities:
         supports_limit_order=True,
         supports_stop_order=True,
         supports_modify=True,
-        supports_cancel=True,
         supports_super_order=False,
         supports_forever_order=True,
         supports_slice_order=True,
         supports_edis=False,
         supports_batch_market_data=True,
         supports_portfolio_stream=True,
-        supports_quote_stream=True,
-        supports_depth_stream=True,
         supports_option_chain=True,
         supports_future_chain=True,
         supports_kill_switch=True,
         supports_news=True,
         supports_fundamentals=False,
-        max_order_quantity=None,
-        max_order_value=None,
-        max_batch_size=500,
         depth_levels=30,
         max_stream_instruments=500,
         supported_asset_classes=(
@@ -124,23 +105,17 @@ def paper_capabilities() -> BrokerCapabilities:
         supports_limit_order=True,
         supports_stop_order=True,
         supports_modify=True,
-        supports_cancel=True,
         supports_super_order=False,
         supports_forever_order=False,
         supports_slice_order=False,
         supports_edis=False,
         supports_batch_market_data=False,
         supports_portfolio_stream=False,
-        supports_quote_stream=False,
-        supports_depth_stream=False,
         supports_option_chain=False,
         supports_future_chain=False,
         supports_kill_switch=False,
         supports_news=False,
         supports_fundamentals=False,
-        max_order_quantity=None,
-        max_order_value=None,
-        max_batch_size=1,
         supported_asset_classes=(
             AssetClass.EQUITY,
             AssetClass.INDEX,

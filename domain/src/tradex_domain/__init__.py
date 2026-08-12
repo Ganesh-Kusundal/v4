@@ -91,7 +91,6 @@ from tradex_domain.value_objects import (
 from tradex_domain.wire import (
     InstrumentRegistry,
     WireAdapter,
-    normalize_exchange,
     normalize_symbol,
 )
 
@@ -168,7 +167,6 @@ __all__ = [
     "SessionFacade",
     "WireAdapter",
     "dhan_capabilities",
-    "normalize_exchange",
     "normalize_symbol",
     "paper_capabilities",
     "require_capability",
