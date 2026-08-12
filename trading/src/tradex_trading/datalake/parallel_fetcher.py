@@ -51,8 +51,9 @@ _DUAL_BROKER_THRESHOLD_DAYS = 30
 _DHAN_INTRADAY_MAX_DAYS = 90
 
 # Timeframes DhanBroker routes to `/charts/intraday` (1m/5m/15m/1h →
-# interval 1/5/15/60). M30/D1/W1 go to `/charts/historical` (data back to
-# inception, no per-poll cap) and are NOT subject to the 90-day window.
+# interval 1/5/15/60). Only D1 routes to `/charts/historical` (data back to
+# inception, no per-poll cap); M30/W1 are unsupported by Dhan's `requested_timeframe`
+# map and raise ValueError, so they are not covered by this fetcher.
 _DHAN_INTRADAY_TIMEFRAMES = frozenset({
     Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1,
 })
@@ -120,8 +121,9 @@ class ParallelHistoryFetcher:
             raise SDKError(
                 f"Dhan intraday history limited to {_DHAN_INTRADAY_MAX_DAYS} days "
                 f"per request (requested {days}); the fetcher does not chunk — "
-                "split the range or use trading/scripts/backfill_parquet.py for "
-                "longer windows"
+                f"split the date range into chunks of {_DHAN_INTRADAY_MAX_DAYS} days "
+                "or fewer (backfill_parquet.py also passes the full window to fetch, "
+                "so it hits the same guard)"
             )
         log.info("ParallelHistoryFetcher: %d instruments, %d days, brokers=%s",
                  len(instruments), days, broker_names)

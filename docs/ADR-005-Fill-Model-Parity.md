@@ -60,7 +60,10 @@ paper produce the same fills they would live.
   resolves to the identical fill price in backtest, replay, paper, and live —
   net P&L agrees across modes (HIGH-6b acceptance).
 - The non-positive-price `ValueError` guard is enforced in every mode, closing
-  the zero/nominal-1.0 fill class of bugs (CRITICAL-2).
+  the zero-fill bug class for the price-resolving paths (CRITICAL-2).
+  Documented limitation: `PaperFillSource` still fills a price-less MARKET
+  order at nominal ₹1, bypassing `resolve_fill_price` and slippage — a
+  price-less MARKET order with no LTP fills at ₹1 without slippage.
 - Slippage models apply identically per mode, so backtested slippage assumptions
   hold live.
 - Deterministic timestamps and deterministic `Fill` construction make event

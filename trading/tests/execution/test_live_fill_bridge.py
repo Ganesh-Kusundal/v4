@@ -97,7 +97,6 @@ class TestLiveFillBridge:
 
     def test_broker_receipt_order_id_is_wrapped(self) -> None:
         """Broker-returned order ids must be OrderId-wrapped for the OMS."""
-        from tradex_trading.sdk.live_fill_bridge import LiveFillBridge  # noqa: F401
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, BrokerFillSource(_AckBroker()))
         try:
