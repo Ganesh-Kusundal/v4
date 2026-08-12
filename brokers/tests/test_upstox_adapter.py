@@ -490,25 +490,6 @@ class TestExtensionMethods:
         result = broker.list_forever_orders()
         assert result == []
 
-    def test_place_cover_order(self):
-        broker, transport = _make_broker()
-        transport.place_cover_order.return_value = OrderId(value="CO1")
-        request = OrderRequest(
-            instrument=_equity(),
-            side=OrderSide.BUY,
-            order_type=OrderType.MARKET,
-            quantity=Quantity(value=Decimal("10")),
-            product_type=ProductType.COVER_ORDER,
-        )
-        result = broker.place_cover_order(request, stop_loss=Price(value=Decimal("95")))
-        assert result.value == "CO1"
-
-    def test_exit_cover_order(self):
-        broker, transport = _make_broker()
-        transport.exit_cover_order.return_value = {"status": "exited"}
-        result = broker.exit_cover_order(OrderId(value="CO1"))
-        assert result["status"] == "exited"
-
 
 # ---------------------------------------------------------------------------
 # Kill switch / auxiliary account
@@ -571,42 +552,6 @@ class TestKillSwitchAuxiliary:
 
 
 class TestUpstoxSpecificExtensions:
-    def test_expiry_list(self):
-        broker, transport = _make_broker()
-        transport.expiry_list.return_value = ["2026-08-28", "2026-09-25"]
-        result = broker.expiry_list("NSE_INDEX|Nifty 50")
-        assert len(result) == 2
-
-    def test_get_cash_flow(self):
-        broker, transport = _make_broker()
-        transport.get_cash_flow.return_value = {"operating": 5000}
-        result = broker.get_cash_flow("INE002A01018")
-        assert result["operating"] == 5000
-
-    def test_get_ratios(self):
-        broker, transport = _make_broker()
-        transport.get_ratios.return_value = {"pe": 25.5}
-        result = broker.get_ratios("INE002A01018")
-        assert result["pe"] == 25.5
-
-    def test_get_financials(self):
-        broker, transport = _make_broker()
-        transport.get_financials.return_value = {"revenue": 100000}
-        result = broker.get_financials("INE002A01018", "profit-loss")
-        assert result["revenue"] == 100000
-
-    def test_get_balance_sheet(self):
-        broker, transport = _make_broker()
-        transport.get_balance_sheet.return_value = {"assets": 50000}
-        result = broker.get_balance_sheet("INE002A01018")
-        assert result["assets"] == 50000
-
-    def test_get_pnl(self):
-        broker, transport = _make_broker()
-        transport.get_pnl.return_value = {"net_profit": 10000}
-        result = broker.get_pnl("INE002A01018")
-        assert result["net_profit"] == 10000
-
     def test_get_news(self):
         broker, transport = _make_broker()
         transport.get_news.return_value = [{"heading": "Market update"}]
@@ -615,18 +560,6 @@ class TestUpstoxSpecificExtensions:
         transport.get_news.assert_called_once_with(
             "positions", instrument_keys=None, page_number=None, page_size=None
         )
-
-    def test_get_static_ip(self):
-        broker, transport = _make_broker()
-        transport.get_static_ip.return_value = {"primary_ip": "1.2.3.4"}
-        result = broker.get_static_ip()
-        assert result["primary_ip"] == "1.2.3.4"
-
-    def test_set_static_ip(self):
-        broker, transport = _make_broker()
-        transport.set_static_ip.return_value = {"status": "updated"}
-        result = broker.set_static_ip(primary="1.2.3.4")
-        assert result["status"] == "updated"
 
 
 class TestExtendedEndpoints:
@@ -652,84 +585,6 @@ class TestExtendedEndpoints:
         transport.intraday_candles.return_value = series
         result = broker.intraday_candles(_equity(), Timeframe.M5)
         assert result is series
-
-    def test_get_option_contracts(self):
-        broker, transport = _make_broker()
-        transport.get_option_contracts.return_value = [{"strike_price": 19650}]
-        result = broker.get_option_contracts(_index())
-        assert result[0]["strike_price"] == 19650
-
-    def test_get_change_oi(self):
-        broker, transport = _make_broker()
-        transport.get_change_oi.return_value = {"total_call_change_oi": 100}
-        result = broker.get_change_oi(_index(), "2026-05-29", "2026-05-07", 2)
-        assert result["total_call_change_oi"] == 100
-
-    def test_get_max_pain(self):
-        broker, transport = _make_broker()
-        transport.get_max_pain.return_value = {"max_pain": 19600}
-        result = broker.get_max_pain(_index(), "2026-05-29", "2026-05-07")
-        assert result["max_pain"] == 19600
-
-    def test_get_market_holidays(self):
-        broker, transport = _make_broker()
-        transport.get_market_holidays.return_value = [{"holiday": "2026-08-15"}]
-        result = broker.get_market_holidays()
-        assert result[0]["holiday"] == "2026-08-15"
-
-    def test_get_market_timings(self):
-        broker, transport = _make_broker()
-        transport.get_market_timings.return_value = [{"exchange": "NSE"}]
-        result = broker.get_market_timings("2026-08-06")
-        assert result[0]["exchange"] == "NSE"
-
-    def test_get_exchange_status(self):
-        broker, transport = _make_broker()
-        transport.get_exchange_status.return_value = {"status": "open"}
-        result = broker.get_exchange_status("NSE")
-        assert result["status"] == "open"
-
-    def test_get_company_profile(self):
-        broker, transport = _make_broker()
-        transport.get_company_profile.return_value = {"name": "Reliance"}
-        result = broker.get_company_profile("INE002A01018")
-        assert result["name"] == "Reliance"
-
-    def test_get_income_statement(self):
-        broker, transport = _make_broker()
-        transport.get_income_statement.return_value = {"type": "consolidated"}
-        result = broker.get_income_statement("INE002A01018")
-        assert result["type"] == "consolidated"
-
-    def test_get_share_holdings(self):
-        broker, transport = _make_broker()
-        transport.get_share_holdings.return_value = [{"category": "promoters"}]
-        result = broker.get_share_holdings("INE002A01018")
-        assert result[0]["category"] == "promoters"
-
-    def test_get_corporate_actions(self):
-        broker, transport = _make_broker()
-        transport.get_corporate_actions.return_value = [{"name": "Dividend"}]
-        result = broker.get_corporate_actions("INE002A01018")
-        assert result[0]["name"] == "Dividend"
-
-    def test_get_competitors(self):
-        broker, transport = _make_broker()
-        transport.get_competitors.return_value = [{"sector": "Refineries"}]
-        result = broker.get_competitors("INE002A01018")
-        assert result[0]["sector"] == "Refineries"
-
-    def test_get_trade_pnl(self):
-        broker, transport = _make_broker()
-        transport.get_trade_pnl.return_value = {"metadata": {"page": {"page_number": 1}}}
-        result = broker.get_trade_pnl("EQ", "2324")
-        assert result["metadata"]["page"]["page_number"] == 1
-
-    def test_get_expired_option_data(self):
-        broker, transport = _make_broker()
-        transport.get_expired_option_data.return_value = {"candles": []}
-        result = broker.get_expired_option_data(_equity())
-        assert result == {"candles": []}
 
 
 # ---------------------------------------------------------------------------

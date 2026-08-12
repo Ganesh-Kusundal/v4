@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -30,15 +30,13 @@ from tradex_brokers.common.provider_common import (
 _UPSTOX_MAX_BATCH_SIZE = 500
 
 
-def _unit_interval(value: str, *, allow_months: bool = False) -> tuple[str, str]:
+def _unit_interval(value: str) -> tuple[str, str]:
     """Map a timeframe string to the Upstox v3 (unit, interval) pair."""
     mapping = {
         "1m": ("minutes", "1"), "5m": ("minutes", "5"),
         "15m": ("minutes", "15"), "30m": ("minutes", "30"),
         "1h": ("hours", "1"), "1d": ("days", "1"), "1w": ("weeks", "1"),
     }
-    if allow_months:
-        mapping["1M"] = ("months", "1")
     pair = mapping.get(value)
     if pair is None:
         raise ValueError(f"unsupported Upstox timeframe: {value!r}")
@@ -355,58 +353,6 @@ class MarketDataMixin:
         )
         return OptionChain(underlying=underlying, _expiries=expiries)
 
-    def expiry_list(self: UptoxFacade, instrument_id: str) -> list[str]:
-        """Option expiry list via GET /option/chain/expiry."""
-        body = self._request(
-            "GET",
-            "/option/chain/expiry",
-            cache_read=True,
-            params={"instrument_key": instrument_id})
-        raw = unwrap_data(body)
-        if isinstance(raw, list):
-            return [str(e) for e in raw]
-        if isinstance(raw, dict):
-            expiries = raw.get("expiry_list", raw.get("expiries", raw.get("data", [])))
-            return [str(e) for e in expiries] if isinstance(expiries, list) else []
-        return []
-
-    def get_option_contracts(
-        self: UptoxFacade, instrument: Instrument, expiry: str | None = None
-    ) -> list[dict[str, object]]:
-        """Option contracts via GET /option/contract (?expiry_date=)."""
-        key = provider_key(self._registry, instrument.instrument_id)
-        params: dict[str, object] = {"instrument_key": key}
-        if expiry:
-            params["expiry_date"] = expiry
-        body = self._request(
-            "GET", "/option/contract", cache_read=True, params=params)
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_expired_option_data(
-        self: UptoxFacade,
-        instrument: Instrument,
-        timeframe: str = "1d",
-        start: str | None = None,
-        end: str | None = None) -> dict[str, object]:
-        """Historical data for expired options via V3 historical candle endpoint."""
-        key = provider_key(self._registry, instrument.instrument_id)
-        unit, interval = _unit_interval(timeframe, allow_months=True)
-        end_date = end or str(date.today())
-        start_date = start or str(date.today() - timedelta(days=30))
-        path = f"/historical-candle/{key}/{unit}/{interval}/{end_date}/{start_date}"
-        body = self._request("GET", path, host="v3", cache_read=True)
-        if isinstance(body, dict) and body.get("status") == "error":
-            errors = body.get("errors", [])
-            msg = (
-                errors[0].get("message", "unknown")
-                if errors and isinstance(errors, list)
-                else str(body)
-            )
-            raise SDKError(f"Upstox expired option data failed: {msg}")
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
     def get_news(
         self: UptoxFacade,
         category: str,
@@ -460,176 +406,3 @@ class MarketDataMixin:
         if isinstance(rows, list):
             return [r for r in rows if isinstance(r, dict)]
         return []
-
-    def get_smartlists(self: UptoxFacade) -> list[dict[str, object]]:
-        """Smartlists via GET /smartlists."""
-        body = self._request("GET", "/smartlists", cache_read=True)
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_ipo_list(self: UptoxFacade) -> list[dict[str, object]]:
-        """Active IPO list via GET /ipo."""
-        body = self._request("GET", "/ipo", cache_read=True)
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_mf_orders(self: UptoxFacade) -> list[dict[str, object]]:
-        """Mutual fund order list via GET /mf/orders."""
-        body = self._request("GET", "/mf/orders", cache_read=False)
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_mf_holdings(self: UptoxFacade) -> list[dict[str, object]]:
-        """Mutual fund holdings via GET /mf/holdings."""
-        body = self._request("GET", "/mf/holdings", cache_read=True)
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_payouts(self: UptoxFacade) -> list[dict[str, object]]:
-        """Payout history via GET /user/payouts."""
-        body = self._request("GET", "/user/payouts", cache_read=True)
-        raw = unwrap_data(body)
-        if isinstance(raw, list):
-            return [r for r in raw if isinstance(r, dict)]
-        if isinstance(raw, dict):
-            items = raw.get("payouts", raw.get("data", []))
-            return [r for r in items if isinstance(r, dict)] if isinstance(items, list) else []
-        return []
-
-    def get_financials(self: UptoxFacade, isin: str, statement: str) -> dict[str, object]:
-        """Financial statement via GET /fundamentals/{isin}/{statement}."""
-        body = self._request(
-            "GET", f"/fundamentals/{isin}/{statement}", cache_read=True)
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-    def get_balance_sheet(self: UptoxFacade, isin: str) -> dict[str, object]:
-        return self.get_financials(isin, "balance-sheet")
-
-    def get_pnl(self: UptoxFacade, isin: str) -> dict[str, object]:
-        return self.get_financials(isin, "profit-loss")
-
-    def get_cash_flow(self: UptoxFacade, isin: str) -> dict[str, object]:
-        return self.get_financials(isin, "cash-flow")
-
-    def get_ratios(self: UptoxFacade, isin: str) -> dict[str, object]:
-        return self.get_financials(isin, "ratios")
-
-    def get_company_profile(self: UptoxFacade, isin: str) -> dict[str, object]:
-        """Company profile via GET /fundamentals/{isin}/profile."""
-        return self.get_financials(isin, "profile")
-
-    def get_income_statement(
-        self: UptoxFacade,
-        isin: str,
-        *,
-        statement_type: str = "consolidated",
-        time_period: str = "yearly",
-        fs: bool = False) -> dict[str, object]:
-        """Income statement via GET /fundamentals/{isin}/income-statement."""
-        params: dict[str, object] = {
-            "type": statement_type,
-            "time_period": time_period,
-            "fs": str(fs).lower(),
-        }
-        body = self._request(
-            "GET", f"/fundamentals/{isin}/income-statement", cache_read=True, params=params)
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-    def get_share_holdings(self: UptoxFacade, isin: str) -> list[dict[str, object]]:
-        """Shareholding pattern via GET /fundamentals/{isin}/share-holdings."""
-        body = self._request(
-            "GET", f"/fundamentals/{isin}/share-holdings", cache_read=True)
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_corporate_actions(self: UptoxFacade, isin: str) -> list[dict[str, object]]:
-        """Corporate actions via GET /fundamentals/{isin}/corporate-actions."""
-        body = self._request(
-            "GET", f"/fundamentals/{isin}/corporate-actions", cache_read=True)
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_competitors(self: UptoxFacade, isin: str) -> list[dict[str, object]]:
-        """Competitor list via GET /fundamentals/{isin}/competitors."""
-        body = self._request(
-            "GET", f"/fundamentals/{isin}/competitors", cache_read=True)
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_fii_dii(self: UptoxFacade) -> dict[str, object]:
-        """FII/DII activity via GET /market-data/fii-dii."""
-        body = self._request("GET", "/market-data/fii-dii", cache_read=True)
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-    def get_pcr(self: UptoxFacade, symbol: str) -> dict[str, object]:
-        """Put-call ratio via GET /market-data/pcr/{symbol}."""
-        body = self._request(
-            "GET", f"/market-data/pcr/{symbol}", cache_read=True
-        )
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-    def get_oi(self: UptoxFacade, symbol: str) -> dict[str, object]:
-        """Open interest data via GET /market-data/oi/{symbol}."""
-        body = self._request(
-            "GET", f"/market-data/oi/{symbol}", cache_read=True
-        )
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-    def get_change_oi(
-        self: UptoxFacade, instrument: Instrument, expiry: str, date: str, interval: int
-    ) -> dict[str, object]:
-        """Change in open interest via GET /market/change-oi."""
-        key = provider_key(self._registry, instrument.instrument_id)
-        body = self._request(
-            "GET", "/market/change-oi", cache_read=True,
-            params={
-                "instrument_key": key, "expiry": expiry,
-                "date": date, "interval": interval,
-            })
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-    def get_max_pain(
-        self: UptoxFacade, instrument: Instrument, expiry: str, date: str, bucket_interval: int = 60
-    ) -> dict[str, object]:
-        """Max pain via GET /market/max-pain."""
-        key = provider_key(self._registry, instrument.instrument_id)
-        body = self._request(
-            "GET", "/market/max-pain", cache_read=True,
-            params={
-                "instrument_key": key, "expiry": expiry,
-                "date": date, "bucket_interval": bucket_interval,
-            })
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-
-    def get_market_holidays(self: UptoxFacade, date: str | None = None) -> list[dict[str, object]]:
-        """Holiday calendar via GET /market/holidays."""
-        params = {"date": date} if date else None
-        body = self._request(
-            "GET", "/market/holidays", cache_read=True, params=params
-        )
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_market_timings(self: UptoxFacade, date: str) -> list[dict[str, object]]:
-        """Exchange session timings via GET /market/timings/{date}."""
-        body = self._request(
-            "GET", f"/market/timings/{date}", cache_read=True
-        )
-        rows = unwrap_data(body)
-        return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
-
-    def get_exchange_status(self: UptoxFacade, exchange: str) -> dict[str, object]:
-        """Market status via GET /market/status/{exchange}."""
-        body = self._request(
-            "GET", f"/market/status/{exchange}", cache_read=True
-        )
-        raw = unwrap_data(body)
-        return raw if isinstance(raw, dict) else {}
-

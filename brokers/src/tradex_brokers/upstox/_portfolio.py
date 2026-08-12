@@ -157,31 +157,6 @@ class PortfolioMixin:
             return []
         return [r for r in rows if isinstance(r, dict)]
 
-    def get_trade_pnl(
-        self: UptoxFacade,
-        segment: str,
-        financial_year: str,
-        *,
-        from_date: str | None = None,
-        to_date: str | None = None,
-        page_number: int = 1,
-        page_size: int = 100) -> dict[str, object]:
-        """Trade-wise realised P&L via GET /trade/profit-loss/data."""
-        params: dict[str, object] = {
-            "segment": segment,
-            "financial_year": financial_year,
-            "page_number": page_number,
-            "page_size": page_size,
-        }
-        if from_date:
-            params["from_date"] = from_date
-        if to_date:
-            params["to_date"] = to_date
-        body = self._request(
-            "GET", "/trade/profit-loss/data", cache_read=False, params=params
-        )
-        return body if isinstance(body, dict) else {}
-
     def exit_all(self: UptoxFacade) -> dict[str, object]:
         """Exit all open positions via POST /order/positions/exit."""
         body = self._request("POST", "/order/positions/exit")

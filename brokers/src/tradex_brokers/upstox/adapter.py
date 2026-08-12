@@ -18,11 +18,10 @@ from typing import Any
 from tradex_domain.capabilities import require_capability, upstox_capabilities
 from tradex_domain.enums import OrderSide, ProductType, Timeframe
 from tradex_domain.errors import BrokerUnavailableError, CapabilityNotSupportedError
-from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import OHLC, HistoricalSeries
 from tradex_domain.options import OptionChain
-from tradex_domain.value_objects import InstrumentId, OrderId, Price
+from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.base import BaseBroker
@@ -206,18 +205,6 @@ class UpstoxBroker(BaseBroker):
     def registry(self) -> InstrumentRegistry:
         return self._registry
 
-    # ------------------------------------------------------------------
-    # ExtensionAdapter — Upstox-specific: cover orders
-    # ------------------------------------------------------------------
-
-    def place_cover_order(self, request: OrderRequest, stop_loss: Price) -> OrderId:
-        self._require_mutation()
-        return self._require().place_cover_order(request, stop_loss)
-
-    def exit_cover_order(self, order_id: OrderId) -> dict[str, object]:
-        self._require_mutation()
-        return self._require().exit_cover_order(order_id)
-
     # -- auxiliary account surface ---------------------------------------
 
     def margin(
@@ -240,31 +227,6 @@ class UpstoxBroker(BaseBroker):
     def get_trade_book(self) -> list[dict[str, object]]:
         return list(self._require().get_trade_book())
 
-    # -- Upstox-specific extensions --------------------------------------
-
-    def expiry_list(self, instrument_id: str) -> list[str]:
-        return list(self._require().expiry_list(instrument_id))
-
-    def get_cash_flow(self, isin: str) -> dict[str, object]:
-        require_capability(self.capabilities, "supports_fundamentals")
-        return self._require().get_cash_flow(isin)
-
-    def get_ratios(self, isin: str) -> dict[str, object]:
-        require_capability(self.capabilities, "supports_fundamentals")
-        return self._require().get_ratios(isin)
-
-    def get_financials(self, isin: str, statement: str) -> dict[str, object]:
-        require_capability(self.capabilities, "supports_fundamentals")
-        return self._require().get_financials(isin, statement)
-
-    def get_balance_sheet(self, isin: str) -> dict[str, object]:
-        require_capability(self.capabilities, "supports_fundamentals")
-        return self._require().get_balance_sheet(isin)
-
-    def get_pnl(self, isin: str) -> dict[str, object]:
-        require_capability(self.capabilities, "supports_fundamentals")
-        return self._require().get_pnl(isin)
-
     def get_news(
         self,
         category: str,
@@ -282,34 +244,6 @@ class UpstoxBroker(BaseBroker):
             )
         )
 
-    # -- market analytics ------------------------------------------------
-
-    def get_fii_dii(self) -> dict[str, object]:
-        return self._require().get_fii_dii()
-
-    def get_pcr(self, symbol: str) -> dict[str, object]:
-        return self._require().get_pcr(symbol)
-
-    def get_oi(self, symbol: str) -> dict[str, object]:
-        return self._require().get_oi(symbol)
-
-    def get_smartlists(self) -> list[dict[str, object]]:
-        return list(self._require().get_smartlists())
-
-    def get_ipo_list(self) -> list[dict[str, object]]:
-        return list(self._require().get_ipo_list())
-
-    def get_mf_orders(self) -> list[dict[str, object]]:
-        return list(self._require().get_mf_orders())
-
-    def get_mf_holdings(self) -> list[dict[str, object]]:
-        return list(self._require().get_mf_holdings())
-
-    def get_payouts(self) -> list[dict[str, object]]:
-        return list(self._require().get_payouts())
-
-    # -- extended endpoints ----------------------------------------------
-
     def get_ohlc(
         self, instruments: Iterable[Instrument], interval: str = "1d"
     ) -> dict[InstrumentId, OHLC]:
@@ -319,94 +253,6 @@ class UpstoxBroker(BaseBroker):
         self, instrument: Instrument, timeframe: Timeframe | str
     ) -> HistoricalSeries:
         return self._require().intraday_candles(instrument, timeframe)
-
-    def get_option_contracts(
-        self, instrument: Instrument, expiry: str | None = None
-    ) -> list[dict[str, object]]:
-        return list(self._require().get_option_contracts(instrument, expiry))
-
-    def get_change_oi(
-        self, instrument: Instrument, expiry: str, date: str, interval: int
-    ) -> dict[str, object]:
-        return self._require().get_change_oi(instrument, expiry, date, interval)
-
-    def get_max_pain(
-        self, instrument: Instrument, expiry: str, date: str, bucket_interval: int = 60
-    ) -> dict[str, object]:
-        return self._require().get_max_pain(instrument, expiry, date, bucket_interval)
-
-    def get_market_holidays(self, date: str | None = None) -> list[dict[str, object]]:
-        return list(self._require().get_market_holidays(date))
-
-    def get_market_timings(self, date: str) -> list[dict[str, object]]:
-        return list(self._require().get_market_timings(date))
-
-    def get_exchange_status(self, exchange: str) -> dict[str, object]:
-        return self._require().get_exchange_status(exchange)
-
-    def get_company_profile(self, isin: str) -> dict[str, object]:
-        return self._require().get_company_profile(isin)
-
-    def get_income_statement(
-        self,
-        isin: str,
-        *,
-        statement_type: str = "consolidated",
-        time_period: str = "yearly",
-        fs: bool = False,
-    ) -> dict[str, object]:
-        return self._require().get_income_statement(
-            isin,
-            statement_type=statement_type,
-            time_period=time_period,
-            fs=fs,
-        )
-
-    def get_share_holdings(self, isin: str) -> list[dict[str, object]]:
-        return list(self._require().get_share_holdings(isin))
-
-    def get_corporate_actions(self, isin: str) -> list[dict[str, object]]:
-        return list(self._require().get_corporate_actions(isin))
-
-    def get_competitors(self, isin: str) -> list[dict[str, object]]:
-        return list(self._require().get_competitors(isin))
-
-    def get_trade_pnl(
-        self,
-        segment: str,
-        financial_year: str,
-        *,
-        from_date: str | None = None,
-        to_date: str | None = None,
-        page_number: int = 1,
-        page_size: int = 100,
-    ) -> dict[str, object]:
-        return self._require().get_trade_pnl(
-            segment,
-            financial_year,
-            from_date=from_date,
-            to_date=to_date,
-            page_number=page_number,
-            page_size=page_size,
-        )
-
-    def get_expired_option_data(
-        self,
-        instrument: Instrument,
-        timeframe: str = "1d",
-        start: str | None = None,
-        end: str | None = None,
-    ) -> dict[str, object]:
-        return self._require().get_expired_option_data(instrument, timeframe, start, end)
-
-    def get_static_ip(self) -> dict[str, object]:
-        return self._require().get_static_ip()
-
-    def set_static_ip(
-        self, primary: str | None = None, secondary: str | None = None
-    ) -> dict[str, object]:
-        self._require_mutation()
-        return self._require().set_static_ip(primary, secondary)
 
     # -- streaming -------------------------------------------------------
 
