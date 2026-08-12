@@ -10,8 +10,6 @@ from tradex_trading.strategy.core import (
     ReactiveStrategyEngine,
     ScannerEngine,
     Strategy,
-    StrategyEnsemble,
-    StrategyEntry,
 )
 from tradex_trading.strategy.extensions import all_scanners, all_strategies
 
@@ -20,8 +18,6 @@ __all__ = [
     "ReactiveStrategyEngine",
     "ScannerEngine",
     "BuyAndHoldStrategy",
-    "StrategyEnsemble",
-    "StrategyEntry",
     "all_strategies",
     "all_scanners",
 ]
