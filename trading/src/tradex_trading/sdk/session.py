@@ -115,11 +115,9 @@ class TradingSession:
         self._master_scheduler: Any | None = None
 
     def start(self) -> None:
-        """Transition to READY state.
-
-        Only valid from NEW state. Raises SessionStateError if already
-        started or stopped.
-        """
+        """Transition to READY state. Idempotent: no-op if already READY."""
+        if self._state == SessionState.READY:
+            return  # already ready, no-op
         if self._state not in (SessionState.NEW,):
             raise SessionStateError(
                 f"Cannot start session in {self._state} state (must be NEW)"

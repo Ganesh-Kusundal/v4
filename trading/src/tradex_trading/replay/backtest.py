@@ -8,11 +8,8 @@ from decimal import Decimal
 from typing import Any
 
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
-from tradex_domain.enums import OrderSide, OrderStatus, OrderType
+from tradex_domain.enums import OrderStatus
 from tradex_domain.events import OrderFilled
-from tradex_domain.execution import OrderRequest
-from tradex_domain.strategy import StrategyContext
-from tradex_domain.value_objects import OrderId, Price, Quantity
 
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
 from tradex_trading.datalake.corporate_actions import CorporateActionStore
@@ -20,13 +17,10 @@ from tradex_trading.execution.cash_ledger import CashLedger
 from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fees import FeeCalculator
 from tradex_trading.execution.fill_sources import SimulatedFillSource
+from tradex_trading.execution.position_manager import PositionManager
 from tradex_trading.execution.position_math import (
     _q2,
-    apply_dividend,
-    apply_fill,
-    apply_split,
 )
-from tradex_trading.execution.position_manager import PositionManager
 from tradex_trading.execution.slippage import SlippageModel
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus

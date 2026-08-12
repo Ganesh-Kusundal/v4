@@ -17,7 +17,7 @@ from tradex_domain.enums import (
     ProductType,
     TimeInForce,
 )
-from tradex_domain.errors import OrderRejectedError, SessionStateError
+from tradex_domain.errors import SessionStateError
 from tradex_domain.instruments import Instrument
 from tradex_domain.serialization import Serializable
 from tradex_domain.value_objects import AccountId, CorrelationId, Money, OrderId, Price, Quantity

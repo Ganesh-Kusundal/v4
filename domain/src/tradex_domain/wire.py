@@ -77,7 +77,8 @@ def _instrument_id_from_row(
             str(right).strip().upper(),
         )
 
-    if expiry_raw is not None and (instrument_type == "FUTURE" or asset_class == "FUTURE" or right == "FUT"):
+    if (expiry_raw is not None
+            and (instrument_type == "FUTURE" or asset_class == "FUTURE" or right == "FUT")):
         # Future
         expiry = _parse_expiry(expiry_raw)
         return InstrumentId.future(exchange, symbol, expiry)
@@ -221,8 +222,8 @@ class InstrumentRegistry:
 
     def register_bulk(self, rows: list[dict[str, object]]) -> None:
         """Register many rows atomically: validate all, then apply.
-    
-        A bulk registration is an *authoritative replacement* (a fresh master
+
+    A bulk registration is an *authoritative replacement* (a fresh master
         reload): each instrument's primary key is set to this batch's key and
         previously registered stale keys are dropped from reverse resolution.
         This is intentionally distinct from single ``register`` calls, which
