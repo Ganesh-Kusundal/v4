@@ -8,8 +8,10 @@ from decimal import Decimal
 from typing import Any
 
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
-from tradex_domain.enums import OrderStatus
-from tradex_domain.events import OrderFilled
+from tradex_domain.enums import OrderStatus, OrderType
+from tradex_domain.events import OrderFilled, PlaceOrderCommand
+from tradex_domain.execution import OrderRequest
+from tradex_domain.value_objects import CorrelationId, Price, Quantity
 
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
 from tradex_trading.datalake.corporate_actions import CorporateActionStore
@@ -82,11 +84,12 @@ class BacktestResult:
     sharpe: float
     max_drawdown: float
     #: Signals emitted by the strategy — INCLUDING any the risk manager
-    #: rejected and any with no bar to fill at (a signal on the final bar
-    #: never trades). Metrics are computed solely from ``equity_curve``
-    #: (which only moves on actual fills), so return/sharpe/drawdown are
-    #: unaffected by rejected or unmatched signals; use ``num_rejected``
-    #: to see how many the risk gate suppressed.
+    #: rejected and any with no bar to fill at (a signal for an instrument
+    #: that never appears in the data never trades). Metrics are computed
+    #: solely from ``equity_curve`` (which only moves on actual fills), so
+    #: return/sharpe/drawdown are unaffected by rejected or unmatched
+    #: signals; use ``num_rejected`` to see how many the risk gate
+    #: suppressed.
     num_trades: int
     #: Emitted signals (see ``num_trades``) — the full audit trail, not a
     #: list of executed fills.
@@ -266,6 +269,41 @@ class BacktestEngine:
         # from the strategy object after the stream (parity area #5).
         version = str(getattr(strategy, "version", "1.0.0"))
 
+        # --- Recorded-signal bridge (parity with the next_open engine) --------
+        # A strategy that RECORDS signals (appends to ``strategy.signals``)
+        # instead of returning them from its callbacks never reaches the
+        # strategy engine — the engine only bridges signals that ``on_bar`` /
+        # ``on_quote`` RETURN. Track which signals the engine has claimed
+        # (returned + queued for next_open) so this bridge publishes orders
+        # ONLY for signals the engine has not already claimed: a strategy that
+        # returns signals keeps its orders flowing through the engine exactly
+        # as before (no double-counting), while a recording-only strategy's
+        # signals still reach the unified pipeline and produce fills.
+        claimed_signal_ids: set[int] = set()
+        bridged_signal_ids: set[int] = set()
+        bridge_seq = 0
+
+        def _capture_claimed() -> None:
+            for pending in strategy_engine._pending:
+                claimed_signal_ids.add(id(pending["signal"]))
+
+        def _bridge_signal(signal: Signal, price: Price, ts: datetime | None) -> None:
+            nonlocal bridge_seq
+            bridge_seq += 1
+            qty_value = abs(signal.strength) if signal.strength else 1.0
+            request = OrderRequest(
+                instrument=signal.instrument,
+                side=signal.direction,
+                order_type=OrderType.MARKET,
+                quantity=Quantity(Decimal(str(qty_value))),
+                price=price,
+                correlation_id=CorrelationId(value=f"backtest-bridge-{bridge_seq}"),
+                tag=f"{getattr(strategy, 'strategy_id', 'strategy')}@{version}",
+                reference_timestamp=ts,
+            )
+            bridged_signal_ids.add(id(signal))
+            bus.publish(PlaceOrderCommand(request=request))
+
         # Stream historical events through the unified pipeline.
         equity_curve_dec: list[Decimal] = [initial_capital]
         for event in data:
@@ -273,6 +311,26 @@ class BacktestEngine:
                 # Apply due corporate actions BEFORE the bar's open fill.
                 _apply_ca_for(event.timestamp)
                 bus.publish(event)
+                _capture_claimed()
+                # Recording-only strategies: bridge their next unmatched signal
+                # at this candle's close (legacy sequential signal→candle
+                # matching, "signal N consumes candle N"). Never bridge once the
+                # engine is driving orders from returned signals (next_open) —
+                # its fill at the next bar's open would then double-count.
+                if not claimed_signal_ids:
+                    for signal in getattr(strategy, "signals", []) or []:
+                        if (
+                            id(signal) in bridged_signal_ids
+                            or signal.instrument.instrument_id
+                            != event.instrument.instrument_id
+                        ):
+                            continue
+                        _bridge_signal(
+                            signal,
+                            Price(value=Decimal(str(event.ohlc.close.value))),
+                            event.timestamp,
+                        )
+                        break
                 # Point-in-time MTM at this bar's close.
                 positions_now = {
                     p.instrument.instrument_id: p for p in cache.all_positions()
@@ -283,8 +341,35 @@ class BacktestEngine:
                 )
             elif isinstance(event, Quote):
                 bus.publish(event)
+                _capture_claimed()
             elif isinstance(event, Fill):
                 bus.publish(event)
+                _capture_claimed()
+
+        # --- Flush orders deferred past the last bar (next_open) --------------
+        # next_open fills a signal at the FOLLOWING candle's open, so a signal
+        # emitted on the final event (e.g. a quote after the last candle) would
+        # otherwise be dropped by the engine's dispose. Flush deferred engine
+        # orders at the last known bar, then bridge any recorded signal that was
+        # never returned by the strategy and never matched during the stream.
+        last_candle_by_id = {
+            inst_id: candles[-1] for inst_id, candles in candles_by_id.items()
+        }
+        for inst_id in {p["instrument_id"] for p in strategy_engine._pending}:
+            candle = last_candle_by_id.get(inst_id)
+            if candle is not None:
+                strategy_engine._flush_pending(candle)
+        for signal in getattr(strategy, "signals", []) or []:
+            if id(signal) in bridged_signal_ids or id(signal) in claimed_signal_ids:
+                continue
+            candle = last_candle_by_id.get(signal.instrument.instrument_id)
+            if candle is None:
+                continue
+            _bridge_signal(
+                signal,
+                Price(value=Decimal(str(candle.ohlc.close.value))),
+                candle.timestamp,
+            )
 
         engine.shutdown()
         strategy_engine.dispose_all()

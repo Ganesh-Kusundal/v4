@@ -18,9 +18,11 @@ from tradex_domain import (
     OHLC,
     Candle,
     Equity,
+    OrderSide,
     Price,
     Quantity,
     Quote,
+    Signal,
     Timeframe,
 )
 from tradex_domain.strategy import StrategyContext
@@ -53,6 +55,30 @@ def _candle(close: float, ts: datetime) -> Candle:
         volume=Quantity(value=Decimal("1000")),
         timestamp=ts,
     )
+
+
+class _RecordingStrategy:
+    """Strategy that records signals but never returns them from callbacks."""
+
+    def __init__(self, signals: list[Signal]) -> None:
+        self._signals = list(signals)
+
+    @property
+    def signals(self) -> list[Signal]:
+        return list(self._signals)
+
+    @property
+    def strategy_id(self) -> str:
+        return "recording"
+
+    def on_bar(self, context, candle) -> None:
+        pass
+
+    def on_quote(self, context, quote) -> None:
+        pass
+
+    def on_fill(self, context, fill) -> None:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -163,3 +189,18 @@ class TestBacktestEngine:
         strategy = BuyAndHoldStrategy("bh-1", _eq())
         result = engine.run(strategy, [])
         assert result.num_trades == 0
+
+    def test_manual_strategy_signals_become_trades(self) -> None:
+        """A strategy that records signals must still generate fills."""
+        engine = BacktestEngine()
+        eq = _eq()
+        signals = [
+            Signal(instrument=eq, direction=OrderSide.BUY, strength=1.0, reason="t"),
+            Signal(instrument=eq, direction=OrderSide.SELL, strength=1.0, reason="t"),
+        ]
+        now = _now()
+        result = engine.run(
+            _RecordingStrategy(signals),
+            [_candle(100.0, now), _candle(110.0, now)],
+        )
+        assert result.num_trades == 2

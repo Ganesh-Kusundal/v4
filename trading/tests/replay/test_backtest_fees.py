@@ -101,7 +101,9 @@ class TestBacktestFees:
         data = [_candle(100.0, now), _candle(100.0, datetime(2026, 8, 1, 10, 30, tzinfo=UTC))]
 
         result_no_fee = BacktestEngine().run(_ManualStrategy(signals), data)
-        result_with_fee = BacktestEngine(fee_calculator=FeeCalculator()).run(_ManualStrategy(signals), data)
+        result_with_fee = BacktestEngine(
+            fee_calculator=FeeCalculator()
+        ).run(_ManualStrategy(signals), data)
 
         assert result_with_fee.total_fees > 0.0
         assert result_with_fee.total_return < result_no_fee.total_return
@@ -153,12 +155,11 @@ class TestBacktestSlippageAndEquityCurve:
             Signal(instrument=eq, direction=OrderSide.SELL, strength=10.0, reason="t"),
         ]
         data = [_candle(100.0, now), _candle(110.0, now)]
-        strategy = _ManualStrategy(signals)
 
-        result_plain = BacktestEngine().run(strategy, data)
+        result_plain = BacktestEngine().run(_ManualStrategy(signals), data)
         result_slipped = BacktestEngine(
             slippage_model=PercentageSlippageModel(pct=Decimal("0.01"))
-        ).run(strategy, data)
+        ).run(_ManualStrategy(signals), data)
 
         assert result_slipped.total_return < result_plain.total_return
 

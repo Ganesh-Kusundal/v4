@@ -339,10 +339,16 @@ class TestParquetBacktestLoader:
             start=_WINDOW[0],
             end=_WINDOW[1],
         )
-        # No slippage: buy @100, sell @200 → 100100. 1% slippage: buy @101,
-        # sell @198 → 100097 (BUY pays more, SELL receives less).
-        assert base.equity_curve[-1] == 100100.0
-        assert slipped.equity_curve[-1] == 100097.0
+        # next_open fills: BUY (bar-1 signal) fills at bar-2's open (200);
+        # SELL (bar-2 signal) settles at the post-loop flush (last candle's
+        # open, 200). The last equity point is the bar-2 close mark with the
+        # position still open, so the base run stays at 100000.0. With 1%
+        # slippage the BUY pays 202 instead of 200 — that loss is fully
+        # visible in the close mark: 100000 - 202 + 200 = 99998. (The SELL
+        # slippage, 198 vs 200, lands in the post-loop flush, after the last
+        # equity point — BUY pays more, SELL receives less.)
+        assert base.equity_curve[-1] == 100000.0
+        assert slipped.equity_curve[-1] == 99998.0
         assert slipped.equity_curve[-1] < base.equity_curve[-1]
 
     def test_backtest_engine_consumes_loader_output(self, tmp_path) -> None:
@@ -361,9 +367,13 @@ class TestParquetBacktestLoader:
         result = BacktestEngine().run(strategy, candles)
 
         assert result.num_trades == len(candles) == 2
-        # One point per fill plus the final close-marked point (open position
-        # at series end is valued at the last close, not the last fill).
-        assert len(result.equity_curve) == result.num_trades + 2
+        # next_open fills: the bar-1 BUY fills at bar-2's open (100) and the
+        # bar-2 BUY settles in the post-loop flush. The equity curve is the
+        # initial capital plus one point-in-time mark per candle — the open
+        # position is marked at the final close (101), so the last point is
+        # 100000 - 100 + 101 = 100001.
+        assert len(result.equity_curve) == len(candles) + 1
+        assert result.equity_curve == [100000.0, 100000.0, 100001.0]
 
 
 class TestLoaderGapDetection:

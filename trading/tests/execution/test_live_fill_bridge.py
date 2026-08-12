@@ -60,6 +60,19 @@ class _AsyncFillBroker:
         return "broker-order-id"
 
 
+class _AckBroker:
+    """Broker that ACKs orders synchronously (no fill) and returns a broker id."""
+
+    owns_position_projection = False
+
+    def __init__(self) -> None:
+        self.submitted: list[OrderRequest] = []
+
+    def submit_order(self, request: OrderRequest) -> object:
+        self.submitted.append(request)
+        return "dhan-order-1"
+
+
 def _fill(
     order_id: str,
     qty: int = 10,
@@ -81,6 +94,18 @@ def _fill(
 
 class TestLiveFillBridge:
     """Broker async fills reach PositionManager via the bus bridge."""
+
+    def test_broker_receipt_order_id_is_wrapped(self) -> None:
+        """Broker-returned order ids must be OrderId-wrapped for the OMS."""
+        from tradex_trading.sdk.live_fill_bridge import LiveFillBridge  # noqa: F401
+        bus = ReactiveBus()
+        engine = ExecutionEngine(bus, BrokerFillSource(_AckBroker()))
+        try:
+            bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-wrap")))
+            order = engine.cache.all_orders()[0]
+            assert order.order_id.value == "dhan-order-1"
+        finally:
+            engine.shutdown()
 
     def test_async_broker_fill_reaches_position_manager(self) -> None:
         bus = ReactiveBus()

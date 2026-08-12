@@ -35,10 +35,15 @@ def _make_order(
     """Create an Order from an OrderRequest.
 
     Uses *order_id* when provided (broker-assigned), otherwise generates a
-    fresh UUID (paper/simulated paths).
+    fresh UUID (paper/simulated paths). Raw string ids from broker adapters
+    are wrapped in ``OrderId`` so the OMS always sees a value object.
     """
+    if order_id is not None and not isinstance(order_id, OrderId):
+        order_id = OrderId(value=str(order_id))
+    if order_id is None:
+        order_id = OrderId(value=str(uuid.uuid4()))
     return Order(
-        order_id=order_id if order_id is not None else OrderId(value=str(uuid.uuid4())),
+        order_id=order_id,
         instrument=request.instrument,
         side=request.side,
         order_type=request.order_type,

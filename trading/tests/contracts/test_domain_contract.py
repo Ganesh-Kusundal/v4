@@ -305,7 +305,7 @@ def test_order_lifecycle_transitions() -> None:
 
 def test_order_rejects_illegal_transition() -> None:
     order = _order()
-    with pytest.raises(OrderRejectedError):
+    with pytest.raises(SessionStateError, match="illegal order transition"):
         order.transition_to(OrderStatus.FILLED)
 
 
