@@ -5,7 +5,7 @@ Per D-10: ``to_dict()`` / ``from_dict()`` on all domain objects.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from uuid import UUID
