@@ -6,7 +6,6 @@ Covers all missing methods listed in the porting spec:
   _require_order_gate, bind_execution_engine
 - PortfolioService: positions, account, portfolio, get_holdings
 - StreamService: subscribe_orders, subscribe_positions, unsubscribe, close
-- AnalyticsService: indicator, report
 - ExtensionService: all extension methods
 - ScannerService: run, top
 - TradingSession: stop, bind_execution_engine, equity, index, future, option, _require_ready
@@ -58,7 +57,6 @@ from tradex_domain.value_objects import (
 
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.sdk.session import (
-    AnalyticsService,
     EdisStatus,
     ExtensionService,
     KillSwitchResult,
@@ -100,7 +98,6 @@ def _make_session(
     live_orders_enabled: bool = True,
     scanner_engine: Any = None,
     stream_backend: Any = None,
-    analytics_engine: Any = None,
 ) -> TradingSession:
     """Create a minimal READY session for testing."""
     from tradex_trading.execution.engine import ExecutionEngine
@@ -120,7 +117,6 @@ def _make_session(
         mode="paper",
         scanner_engine=scanner_engine,
         stream_backend=stream_backend,
-        analytics_engine=analytics_engine,
         live_orders_enabled=live_orders_enabled,
     )
     session.start()
@@ -139,7 +135,6 @@ class _MockBroker:
             supports_limit_order=True,
             supports_stop_order=True,
             supports_modify=True,
-            supports_cancel=True,
             supports_batch_market_data=True,
             supports_option_chain=True,
             supports_future_chain=True,
@@ -703,51 +698,6 @@ class TestStreamService:
         session.stop()
         assert backend.unsubscribed == ["order-1"]
         assert backend.closed is True
-
-
-# ===========================================================================
-# AnalyticsService
-# ===========================================================================
-
-
-class TestAnalyticsService:
-    """AnalyticsService v3-parity methods."""
-
-    def test_indicator_with_engine(self) -> None:
-        engine = MagicMock()
-        series = MagicMock()
-        engine.indicator.return_value = series
-        svc = AnalyticsService(engine)
-        result = svc.indicator(series, "sma", period=14)
-        engine.indicator.assert_called_once_with(series, "sma", period=14)
-        assert result is series
-
-    def test_indicator_without_engine_raises(self) -> None:
-        svc = AnalyticsService(None)
-        series = MagicMock()
-        with pytest.raises(CapabilityNotSupportedError):
-            svc.indicator(series, "sma")
-
-    def test_report_with_engine(self) -> None:
-        engine = MagicMock()
-        expected = {"sharpe": 1.5}
-        engine.report.return_value = expected
-        svc = AnalyticsService(engine)
-        series = MagicMock()
-        result = svc.report("performance", series)
-        engine.report.assert_called_once()
-        assert result == expected
-
-    def test_report_without_engine_raises(self) -> None:
-        svc = AnalyticsService(None)
-        with pytest.raises(CapabilityNotSupportedError):
-            svc.report("performance", MagicMock())
-
-    def test_indicators_stub_without_engine(self) -> None:
-        svc = AnalyticsService(None)
-        data = [1.0, 2.0]
-        with pytest.raises(CapabilityNotSupportedError):
-            svc.indicators(data, ["sma"])
 
 
 # ===========================================================================

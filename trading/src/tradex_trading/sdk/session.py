@@ -1,6 +1,6 @@
 """TradingSession — main entry point for the v4 trading platform.
 
-Provides 7 services: market, trade, portfolio, stream, scanner, analytics, extension.
+Provides 6 services: market, trade, portfolio, stream, scanner, extension.
 Lifecycle: NEW -> READY -> STOPPED.
 
 Ported from v3 SDK session (WS-B, FDS 05 §5, D-8/D-9/D-15/D-16/D-17).
@@ -33,7 +33,6 @@ from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_trading.sdk.services import (
-    AnalyticsService,
     EdisStatus,
     ExtensionService,
     KillSwitchResult,
@@ -84,7 +83,6 @@ class TradingSession:
         scanner_definitions: Sequence[ScannerDefinition] | None = None,
         strategy_engine: object | None = None,
         stream_backend: object | None = None,
-        analytics_engine: object | None = None,
         backtest_loader: object | None = None,
         live_orders_enabled: bool = True,
         fill_bridge: object | None = None,
@@ -101,7 +99,6 @@ class TradingSession:
         self._scanner_definitions = tuple(scanner_definitions or ())
         self._strategy_engine = strategy_engine
         self._stream_backend = stream_backend
-        self._analytics_engine = analytics_engine
         self._backtest_loader = backtest_loader
         self._live_orders_enabled = live_orders_enabled
         #: LiveFillBridge translating broker order-stream updates into bus
@@ -240,12 +237,6 @@ class TradingSession:
         return ScannerService(
             self._scanner_engine, definitions=self._scanner_definitions
         )
-
-    @cached_property
-    def analytics(self) -> AnalyticsService:
-        """AnalyticsService — indicators, reports."""
-        self._check_ready()
-        return AnalyticsService(self._analytics_engine)
 
     @cached_property
     def extension(self) -> ExtensionService:
@@ -554,7 +545,6 @@ class TradingSession:
 
 
 __all__ = [
-    "AnalyticsService",
     "EdisStatus",
     "ExtensionService",
     "KillSwitchResult",

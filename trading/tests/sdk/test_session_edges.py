@@ -6,7 +6,6 @@ v4 API differences:
 - ``TradingSession`` requires ``broker, bus, engine, cache, broker_id``
 - Services are properties (not methods) that check READY state
 - ``StreamService`` has ``subscribe_quotes`` / ``subscribe_fills`` (not orders/positions)
-- ``AnalyticsService.indicators()`` is stub
 - ``ExtensionService.is_extension_adapter()`` checks protocol conformance
 """
 
@@ -41,8 +40,6 @@ class TestSessionStateEdges:
             _ = session.stream
         with pytest.raises(SessionStateError):
             _ = session.scanner
-        with pytest.raises(SessionStateError):
-            _ = session.analytics
         with pytest.raises(SessionStateError):
             _ = session.extension
 
@@ -160,22 +157,6 @@ class TestScannerServiceEdges:
             assert isinstance(results, list)
         finally:
             session.stop()
-
-
-# ---------------------------------------------------------------------------
-# AnalyticsService — stub
-# ---------------------------------------------------------------------------
-
-
-class TestAnalyticsServiceEdges:
-    """AnalyticsService is a stub."""
-
-    def test_indicators_returns_series(self) -> None:
-        session = boot()
-        data = [1.0, 2.0, 3.0]
-        with pytest.raises(CapabilityNotSupportedError, match="analytics engine"):
-            session.analytics.indicators(data, ["sma"])
-        session.stop()
 
 
 # ---------------------------------------------------------------------------

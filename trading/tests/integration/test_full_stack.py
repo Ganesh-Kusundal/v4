@@ -70,7 +70,6 @@ class TestSessionLifecycle:
         assert session.portfolio is not None
         assert session.stream is not None
         assert session.scanner is not None
-        assert session.analytics is not None
         assert session.extension is not None
 
         session.stop()
