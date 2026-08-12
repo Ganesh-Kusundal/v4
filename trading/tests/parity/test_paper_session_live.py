@@ -207,7 +207,7 @@ class TestPaperSessionLiveParity:
             assert order.side == OrderSide.SELL
             assert order.instrument.instrument_id == strategy.instrument.instrument_id
             assert len(fills) == 1
-            assert fills[0].fill.is_sell
+            assert fills[0].fill.side == OrderSide.SELL
 
             # The exact CQRS event spine — a SELL flows through the same
             # contract as the BUY case above.
@@ -329,7 +329,7 @@ class TestPaperSessionLiveParity:
                 if f.fill.instrument.instrument_id == strategy.instrument.instrument_id
             ]
             assert len(mr_fills) == 1
-            assert mr_fills[0].fill.is_buy
+            assert mr_fills[0].fill.side == OrderSide.BUY
             # The bridge stamped the triggering candle's close as the order
             # price, so the simulated fill is at a real, non-zero price.
             assert mr_fills[0].fill.price.value > 0

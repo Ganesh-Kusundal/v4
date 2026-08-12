@@ -36,8 +36,6 @@ class OrderStatus(StrEnum):
 
 class TimeInForce(StrEnum):
     DAY = "DAY"
-    IOC = "IOC"
-    GTC = "GTC"
 
 
 class ProductType(StrEnum):
@@ -55,8 +53,6 @@ class AssetClass(StrEnum):
     OPTION = "OPTION"
     CURRENCY = "CURRENCY"
     COMMODITY = "COMMODITY"
-    ETF = "ETF"
-    SPOT = "SPOT"
 
 
 class ExchangeId(StrEnum):

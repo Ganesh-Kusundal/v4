@@ -87,7 +87,6 @@ from tradex_domain.value_objects import (
     Money,
     OrderId,
     Price,
-    ProviderMetadata,
     Quantity,
 )
 from tradex_domain.wire import (
@@ -160,7 +159,6 @@ __all__ = [
     "Money",
     "OrderId",
     "Price",
-    "ProviderMetadata",
     "Quantity",
     # capabilities + protocols
     "BrokerAdapter",

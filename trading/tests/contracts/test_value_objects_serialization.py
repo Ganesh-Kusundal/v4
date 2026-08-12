@@ -91,16 +91,8 @@ def test_instrument_id_parse_infer_future_without_right() -> None:
 
 
 # ---------------------------------------------------------------------------
-# display_symbol + __str__ formatting
+# __str__ formatting
 # ---------------------------------------------------------------------------
-
-
-def test_instrument_id_display_symbol() -> None:
-    assert InstrumentId.equity("NSE", "RELIANCE").display_symbol == "RELIANCE"
-    fut = InstrumentId.future("NFO", "NIFTY", date(2026, 7, 30))
-    assert fut.display_symbol == "NIFTY 30 Jul FUT"
-    opt = InstrumentId.option("NFO", "NIFTY", date(2026, 7, 30), Decimal("25000"), "CE")
-    assert opt.display_symbol == "NIFTY 30 Jul 25000 CE"
 
 
 def test_instrument_id_str_formatting() -> None:

@@ -131,16 +131,6 @@ class InstrumentId:
             right=right, asset_class=asset_class,
         )
 
-    @property
-    def display_symbol(self) -> str:
-        if self.right == "FUT":
-            if self.expiry is None:
-                return self.underlying
-            return f"{self.underlying} {self.expiry:%d %b} FUT"
-        if self.right in {"CE", "PE"} and self.strike is not None:
-            return f"{self.underlying} {self.expiry:%d %b} {int(self.strike)} {self.right}"
-        return self.underlying
-
     def __str__(self) -> str:
         parts = [self.exchange, self.underlying]
         if self.expiry is not None:
@@ -429,22 +419,6 @@ class Money:
         return from_dict(cls, data)
 
 
-@dataclass(frozen=True, slots=True)
-class ProviderMetadata:
-    """Opaque provider-native diagnostics. Never business data (D-10/FDS 4.3)."""
-
-    provider: str
-    native_id: str | None = None
-    raw: dict[str, object] = field(default_factory=dict)
-
-    def to_dict(self) -> dict[str, object]:
-        return to_dict(self)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, object]) -> ProviderMetadata:
-        return from_dict(cls, data)
-
-
 __all__ = [
     "AccountId",
     "CorrelationId",
@@ -452,6 +426,5 @@ __all__ = [
     "Money",
     "OrderId",
     "Price",
-    "ProviderMetadata",
     "Quantity",
 ]

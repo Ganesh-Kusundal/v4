@@ -16,7 +16,6 @@ from tradex_domain.execution import (
     Account,
     Order,
     OrderRequest,
-    OrderResult,
     PortfolioSnapshot,
     Position,
 )
@@ -155,65 +154,6 @@ class ExtensionAdapter(BrokerAdapter, Protocol):
 
 
 @runtime_checkable
-class SuperOrderAdapter(Protocol):
-    """Broker surface gated by ``supports_super_order`` (D-16).
-
-    Includes the full super-order lifecycle so consumers can bind a broker
-    structurally (``isinstance``) instead of ``cast`` before mutating.
-    """
-
-    def submit_super_order(self, request: OrderRequest) -> OrderId: ...
-    def modify_super_order(
-        self, order_id: OrderId, request: OrderRequest
-    ) -> OrderResult: ...
-    def cancel_super_order(
-        self, order_id: OrderId, leg: str = "ENTRY"
-    ) -> OrderResult: ...
-    def list_super_orders(self) -> list[OrderResult]: ...
-
-
-@runtime_checkable
-class ForeverOrderAdapter(Protocol):
-    """Broker surface gated by ``supports_forever_order`` (D-16)."""
-
-    def submit_forever_order(self, request: OrderRequest) -> OrderId: ...
-    def modify_forever_order(
-        self, order_id: OrderId, request: OrderRequest
-    ) -> OrderResult: ...
-    def cancel_forever_order(self, order_id: OrderId) -> OrderResult: ...
-    def list_forever_orders(self) -> list[OrderResult]: ...
-
-
-@runtime_checkable
-class SliceOrderAdapter(Protocol):
-    """Broker surface gated by ``supports_slice_order`` (D-16)."""
-
-    def submit_slice_order(
-        self,
-        request: OrderRequest,
-        slices: int,
-        interval: timedelta | None = None,
-    ) -> list[OrderId]: ...
-
-
-@runtime_checkable
-class EdisAdapter(Protocol):
-    """Broker surface gated by ``supports_edis`` (D-16)."""
-
-    def submit_edis(self, request: OrderRequest) -> OrderId: ...
-    def generate_tpin(self) -> dict[str, object]: ...
-    def edis_status(self, isin: str) -> dict[str, object]: ...
-
-
-@runtime_checkable
-class KillSwitchAdapter(Protocol):
-    """Broker surface gated by ``supports_kill_switch`` (D-16)."""
-
-    def kill_switch(self, enable: bool = True) -> dict[str, object]: ...
-    def status_kill_switch(self) -> dict[str, object]: ...
-
-
-@runtime_checkable
 class SessionFacade(Protocol):
     """Minimal session surface a strategy needs (D-12).
 
@@ -282,13 +222,8 @@ class IndicatorComputer(Protocol):
 __all__ = [
     "BrokerAdapter",
     "Clock",
-    "EdisAdapter",
     "ExtensionAdapter",
-    "ForeverOrderAdapter",
     "IndicatorComputer",
-    "KillSwitchAdapter",
     "SessionFacade",
-    "SliceOrderAdapter",
-    "SuperOrderAdapter",
     "TradingCacheProtocol",
 ]

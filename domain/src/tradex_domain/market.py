@@ -11,7 +11,7 @@ from tradex_domain.enums import ExchangeId, Timeframe
 from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.instruments import Instrument
 from tradex_domain.serialization import Serializable
-from tradex_domain.value_objects import Price, ProviderMetadata, Quantity
+from tradex_domain.value_objects import Price, Quantity
 
 #: Venue-wide depth constraint: every broker provides order-book depth for
 #: NSE instruments only. BSE/MCX/NFO/… quotes stream but carry no depth feed.
@@ -133,7 +133,6 @@ class Quote(Serializable):
     exchange: str = ""
     provider: str = ""
     metadata: dict[str, object] | None = None
-    provider_metadata: ProviderMetadata | None = None
 
     @property
     def spread(self) -> Price | None:

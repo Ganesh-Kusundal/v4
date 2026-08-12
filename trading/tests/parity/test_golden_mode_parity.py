@@ -122,7 +122,7 @@ class TestGoldenReactiveParity:
                 session.bus.publish(candle)
             assert len(fills) == 1
             fill = fills[0].fill
-            assert fill.is_buy
+            assert fill.side == OrderSide.BUY
             # Unified next-open model: the bar-21 signal fills at bar 22's
             # OPEN = 12.0 — never the signal close (11.0), final close (13.0),
             # or a nominal 1.0.

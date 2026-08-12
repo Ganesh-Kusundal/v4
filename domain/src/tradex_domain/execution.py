@@ -205,19 +205,6 @@ class Fill(Serializable):
     #: equal-lot partial fills of the same order from a re-published fill.
     fill_id: str | None = None
 
-    @property
-    def is_buy(self) -> bool:
-        return self.side == OrderSide.BUY
-
-    @property
-    def is_sell(self) -> bool:
-        return self.side == OrderSide.SELL
-
-    @property
-    def value(self) -> Money:
-        """Trade value = price * quantity."""
-        return Money(amount=self.price.value * self.quantity.value, currency="INR")
-
 
 @dataclass(frozen=True, slots=True)
 class Position(Serializable):
