@@ -2,7 +2,11 @@
 
 Routes by date range:
   < 30 days → split instruments across all brokers (both serve fast)
-  >= 30 days → Dhan only (90-day chunks = fewer API calls)
+  >= 30 days → Dhan only (90-day chunks = fewer API calls; Upstox caps
+  minute intervals at 1 month, so it cannot cover multi-month minute ranges)
+
+Dhan intraday minute ranges (> 90 days) fail loud instead of silently
+truncating, since the fetcher does not chunk across the 90-day per-poll cap.
 
 Each broker's existing rate limiter handles throttling — the fetcher just
 fans out work across ThreadPoolExecutor.  If a broker fails for a symbol,
@@ -191,11 +195,21 @@ class ParallelHistoryFetcher:
 
         < 30 days → all available brokers (split instruments for speed)
         >= 30 days → Dhan only (90-day chunks = fewer calls)
+
+        Upstox V3 `/historical-candle` caps retrieval at ONE MONTH for
+        1-15-minute intervals (1 quarter for >15-min minutes and hours,
+        1 decade for daily) — so for the M1 datalake backfill Upstox cannot
+        serve a multi-month range without truncation. Dhan's `/charts/intraday`
+        polls up to 90 days per request, making it the only broker that covers
+        >= 30-day minute ranges. Long Dhan-only minute ranges (> 90 days) raise
+        in ``fetch()`` (the fetcher does not chunk); daily+ timeframes use Dhan
+        `/charts/historical` (unlimited) and are unaffected.
         """
         names = list(self._brokers.keys())
         if days < _DUAL_BROKER_THRESHOLD_DAYS:
             return names  # use all brokers
-        # Prefer dhan for longer ranges (90-day chunks vs Upstox 1-month)
+        # Prefer dhan for longer ranges: 90-day intraday chunks vs Upstox's
+        # 1-month cap on minute intervals (V3 /historical-candle).
         if "dhan" in names:
             return ["dhan"]
         return names  # fallback: whatever we have
