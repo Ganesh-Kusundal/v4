@@ -558,7 +558,7 @@ NEW ──────→ PENDING ──→ ACK ──→ PARTIALLY_FILLED ─�
 
 Terminal states: FILLED, CANCELLED, REJECTED (no outgoing transitions).
 
-**`Order.transition_to(new_status)`** — returns a new frozen Order with the updated status; raises `OrderRejectedError` for illegal transitions.
+**`Order.transition_to(new_status)`** — returns a new frozen Order with the updated status; raises `SessionStateError` for illegal transitions.
 
 **Assessment:** Excellent. The frozen Order with explicit state machine transitions is the correct pattern for financial order records. The `_LEGAL_TRANSITIONS` dict is a clear, testable representation of the lifecycle. `OrderRequest.__post_init__` validates quantity > 0 and price >= 0.
 
@@ -1339,7 +1339,7 @@ All financial calculations use `Decimal`. The `Price` and `Quantity` value objec
 ### 12.2 Data Integrity
 
 **Order State Machine (A+)**
-The `_LEGAL_TRANSITIONS` dict enforces valid transitions. `Order.transition_to()` raises `OrderRejectedError` for illegal transitions. Terminal states (FILLED, CANCELLED, REJECTED) have no outgoing transitions.
+The `_LEGAL_TRANSITIONS` dict enforces valid transitions. `Order.transition_to()` raises `SessionStateError` for illegal transitions. Terminal states (FILLED, CANCELLED, REJECTED) have no outgoing transitions.
 
 **Idempotency (A)**
 `MemoryIdempotencyGuard` with reservation + release prevents duplicate submissions. The `submission_boundary_crossed` flag in `BrokerFillSource` ensures the idempotency key is not released if the order may have reached the broker.
