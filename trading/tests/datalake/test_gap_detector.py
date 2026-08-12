@@ -39,16 +39,21 @@ class TestGapDetector:
 
     def test_complete_data_means_no_gap(self, tmp_path):
         store = ParquetStorage(tmp_path)
+        inst = _FakeInst("RELIANCE")
+        # Bars must be within market hours (09:15-15:30 IST) or read() strips
+        # them; 60 contiguous minutes starting at 09:15 cover the window below.
         rows = [
             dict(timestamp=f"2026-07-01 09:{i:02d}:00", open=100, high=101, low=99, close=100)
-            for i in range(60)
+            for i in range(15, 60)
+        ] + [
+            dict(timestamp=f"2026-07-01 10:{i:02d}:00", open=100, high=101, low=99, close=100)
+            for i in range(0, 15)
         ]
         store.upsert(_frame(rows))
         detector = GapDetector(store)
-        inst = _FakeInst("RELIANCE")
         gaps = detector.detect(
-            [inst], start=datetime(2026, 7, 1, 9, 0),
-            end=datetime(2026, 7, 1, 9, 59), timeframe="1m", bar_freq="1min",
+            [inst], start=datetime(2026, 7, 1, 9, 15),
+            end=datetime(2026, 7, 1, 10, 14), timeframe="1m", bar_freq="1min",
         )
         assert len(gaps) == 0 or all(len(ranges) == 0 for _, ranges in gaps)
 

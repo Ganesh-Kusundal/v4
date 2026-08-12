@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
 
 import pandas as pd
-import pytest
 
 from tradex_trading.datalake.parquet_storage import ParquetStorage
 
@@ -47,7 +46,8 @@ class TestParquetStorage:
         """New data for same timestamp replaces old values."""
         store = ParquetStorage(tmp_path)
         df1 = _frame([dict(timestamp="2026-07-01 09:15:00", open=100, high=101, low=99, close=100)])
-        df2 = _frame([dict(timestamp="2026-07-01 09:15:00", open=200, high=201, low=199, close=200)])
+        df2 = _frame([dict(timestamp="2026-07-01 09:15:00",
+                           open=200, high=201, low=199, close=200)])
         store.upsert(df1)
         store.upsert(df2)
         result = store.read(symbols=["RELIANCE"])
@@ -90,7 +90,8 @@ class TestParquetStorage:
     def test_multiple_symbols(self, tmp_path):
         store = ParquetStorage(tmp_path)
         df1 = _frame([dict(timestamp="2026-07-01 09:15:00", open=100, high=101, low=99, close=100)])
-        df2 = _frame([dict(timestamp="2026-07-01 09:15:00", open=200, high=201, low=199, close=200)])
+        df2 = _frame([dict(timestamp="2026-07-01 09:15:00",
+                           open=200, high=201, low=199, close=200)])
         df2["symbol"] = "TCS"
         store.upsert(pd.concat([df1, df2], ignore_index=True))
         syms = store.symbols()
@@ -110,3 +111,26 @@ class TestParquetStorage:
         result = store.read(symbols=["RELIANCE"],
                            start=datetime(2026, 7, 1), end=datetime(2026, 7, 31))
         assert len(result) == 1
+
+    def test_read_strips_post_market_bars_by_default(self, tmp_path):
+        """Bars outside 09:15-15:30 IST are excluded from read() by default."""
+        store = ParquetStorage(tmp_path)
+        df = _frame([
+            dict(timestamp="2026-07-01 09:15:00", open=100, high=101, low=99, close=100),
+            dict(timestamp="2026-07-01 17:00:00", open=100, high=101, low=99, close=100),
+        ])
+        store.upsert(df)
+        result = store.read(symbols=["RELIANCE"])
+        assert len(result) == 1
+        assert result["timestamp"].dt.time.max() <= time(15, 30)
+
+    def test_read_keeps_post_market_bars_when_disabled(self, tmp_path):
+        """strip_post_market=False returns the raw stored bars."""
+        store = ParquetStorage(tmp_path)
+        df = _frame([
+            dict(timestamp="2026-07-01 09:15:00", open=100, high=101, low=99, close=100),
+            dict(timestamp="2026-07-01 17:00:00", open=100, high=101, low=99, close=100),
+        ])
+        store.upsert(df)
+        result = store.read(symbols=["RELIANCE"], strip_post_market=False)
+        assert len(result) == 2

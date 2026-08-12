@@ -14,7 +14,7 @@ Adapted from nTrade's ParquetStorage.
 from __future__ import annotations
 
 import shutil
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
 
 import pandas as pd
@@ -27,6 +27,12 @@ _BASE_COLUMNS = [
     "symbol", "exchange", "kind", "timeframe", "timestamp",
     "open", "high", "low", "close", "volume",
 ]
+
+# NSE/equity cash session in IST (tz-naive wall time in this store). Dhan
+# emits phantom post-market bars up to 20:00; the store's contract is
+# market-hours-only, so read() strips bars outside this window by default.
+_MARKET_OPEN = time(9, 15)
+_MARKET_CLOSE = time(15, 30)
 
 
 class ParquetStorage:
@@ -137,8 +143,17 @@ class ParquetStorage:
         start: datetime | str | None = None,
         end: datetime | str | None = None,
         timeframe: str | None = None,
+        strip_post_market: bool = True,
     ) -> pd.DataFrame:
-        """Read OHLCV data with partition pruning."""
+        """Read OHLCV data with partition pruning.
+
+        Parameters
+        ----------
+        strip_post_market : bool
+            Drop bars outside the 09:15-15:30 IST market session (default
+            True). Dhan emits phantom post-market bars up to 20:00; pass
+            ``False`` to read the raw stored bars (e.g. for audit).
+        """
         if symbols is not None and len(symbols) == 0:
             return pd.DataFrame(columns=_BASE_COLUMNS)
 
@@ -176,6 +191,11 @@ class ParquetStorage:
             result = result[result["timestamp"] <= end_ts]
         if timeframe is not None:
             result = result[result["timeframe"] == timeframe]
+        if strip_post_market:
+            result = result[
+                (result["timestamp"].dt.time >= _MARKET_OPEN)
+                & (result["timestamp"].dt.time <= _MARKET_CLOSE)
+            ]
         return result.sort_values(["symbol", "timestamp"]).reset_index(drop=True)
 
     def _resolve_partitions(
