@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -178,58 +177,6 @@ class HistoricalSeries(Serializable):
     start: datetime
     end: datetime
 
-    def to_dataframe(self) -> object:
-        try:
-            import pandas as pd  # type: ignore[import-not-found]
-        except ImportError as exc:
-            raise CapabilityNotSupportedError("to_dataframe requires pandas") from exc
-        rows = [
-            {
-                "timestamp": c.timestamp,
-                "open": c.ohlc.open.value,
-                "high": c.ohlc.high.value,
-                "low": c.ohlc.low.value,
-                "close": c.ohlc.close.value,
-                "volume": c.volume.value,
-            }
-            for c in self.candles
-        ]
-        return pd.DataFrame(rows)
-
-    def to_polars(self) -> object:
-        """Return a Polars DataFrame of the candles (lazy import; fails loudly if absent)."""
-        try:
-            import polars as pl  # type: ignore[import-not-found]
-        except ImportError as exc:
-            raise CapabilityNotSupportedError("to_polars requires polars") from exc
-        return pl.DataFrame(
-            {
-                "timestamp": [c.timestamp for c in self.candles],
-                "open": [c.ohlc.open.value for c in self.candles],
-                "high": [c.ohlc.high.value for c in self.candles],
-                "low": [c.ohlc.low.value for c in self.candles],
-                "close": [c.ohlc.close.value for c in self.candles],
-                "volume": [c.volume.value for c in self.candles],
-            }
-        )
-
-    def to_arrow(self) -> object:
-        """Return an Arrow Table of the candles (lazy import; fails loudly if absent)."""
-        try:
-            import pyarrow as pa  # type: ignore[import-not-found]
-        except ImportError as exc:
-            raise CapabilityNotSupportedError("to_arrow requires pyarrow") from exc
-        return pa.Table.from_pydict(
-            {
-                "timestamp": [c.timestamp for c in self.candles],
-                "open": [c.ohlc.open.value for c in self.candles],
-                "high": [c.ohlc.high.value for c in self.candles],
-                "low": [c.ohlc.low.value for c in self.candles],
-                "close": [c.ohlc.close.value for c in self.candles],
-                "volume": [c.volume.value for c in self.candles],
-            }
-        )
-
     def resample(self, timeframe: Timeframe) -> HistoricalSeries:
         from tradex_domain.market import _bucketize
 
@@ -239,62 +186,6 @@ class HistoricalSeries(Serializable):
             instrument=self.instrument,
             timeframe=timeframe,
             candles=candles,
-            start=self.start,
-            end=self.end,
-        )
-
-    def slice(self, start: datetime, end: datetime) -> HistoricalSeries:
-        candles = [c for c in self.candles if start <= c.timestamp <= end]
-        return HistoricalSeries(
-            instrument=self.instrument,
-            timeframe=self.timeframe,
-            candles=candles,
-            start=start,
-            end=end,
-        )
-
-    def window(self, size: int) -> HistoricalSeries:
-        if size <= 0:
-            raise ValueError("window size must be positive")
-        candles = self.candles[-size:]
-        return HistoricalSeries(
-            instrument=self.instrument,
-            timeframe=self.timeframe,
-            candles=candles,
-            start=candles[0].timestamp if candles else self.start,
-            end=candles[-1].timestamp if candles else self.end,
-        )
-
-    def rolling(
-        self,
-        window: int,
-        func: Callable[[list[Candle]], Candle] | None = None,
-    ) -> HistoricalSeries:
-        """Rolling-window aggregation over the series.
-
-        Unlike :meth:`window` (which slices the tail), this applies *func* over
-        a sliding window of *window* bars to produce each output candle.
-
-        Parameters
-        ----------
-        window:
-            Number of bars in each rolling window (must be positive).
-        func:
-            Aggregation function receiving a ``list[Candle]`` chunk and returning
-            a single :class:`Candle`.  Defaults to the standard OHLCV aggregator
-            (open=first, high=max, low=min, close=last, volume=sum).
-        """
-        if window <= 0:
-            raise ValueError("rolling window must be positive")
-        agg = func if func is not None else _aggregate
-        out: list[Candle] = []
-        for i in range(len(self.candles)):
-            chunk = self.candles[max(0, i - window + 1) : i + 1]
-            out.append(agg(chunk))
-        return HistoricalSeries(
-            instrument=self.instrument,
-            timeframe=self.timeframe,
-            candles=out,
             start=self.start,
             end=self.end,
         )
@@ -316,84 +207,6 @@ class HistoricalSeries(Serializable):
                 end=sliced_candles[-1].timestamp if sliced_candles else self.end,
             )
         return self.candles[index]
-
-    @property
-    def first(self) -> Candle | None:
-        """First candle or None."""
-        return self.candles[0] if self.candles else None
-
-    @property
-    def last(self) -> Candle | None:
-        """Last candle or None."""
-        return self.candles[-1] if self.candles else None
-
-    @property
-    def is_empty(self) -> bool:
-        return len(self.candles) == 0
-
-    def plot(self, *, title: str = "", show_volume: bool = True) -> object:
-        """Plot candlestick chart (requires matplotlib).
-
-        Parameters
-        ----------
-        title : str
-            Chart title.
-        show_volume : bool
-            Whether to show volume subplot.
-
-        Returns
-        -------
-        object
-            matplotlib Figure object.
-        """
-        try:
-            import matplotlib.pyplot as plt  # type: ignore[import-not-found]
-        except ImportError:
-            raise ImportError(
-                "matplotlib is required for plotting. "
-                "Install it with: pip install matplotlib"
-            )
-
-        if self.is_empty:
-            raise ValueError("Cannot plot empty series")
-
-        if show_volume:
-            fig, (ax_price, ax_vol) = plt.subplots(
-                2,
-                1,
-                figsize=(12, 6),
-                sharex=True,
-                gridspec_kw={"height_ratios": [3, 1]},
-            )
-        else:
-            fig, ax_price = plt.subplots(
-                1,
-                1,
-                figsize=(12, 6),
-            )
-            ax_vol = None
-
-        timestamps = [c.timestamp for c in self.candles]
-        highs = [float(c.ohlc.high.value) for c in self.candles]
-        lows = [float(c.ohlc.low.value) for c in self.candles]
-        closes = [float(c.ohlc.close.value) for c in self.candles]
-
-        ax_price.plot(timestamps, closes, linewidth=1)
-        ax_price.fill_between(timestamps, lows, highs, alpha=0.2)
-        ax_price.set_ylabel("Price")
-        if title:
-            ax_price.set_title(title)
-
-        if ax_vol is not None:
-            volumes = [float(c.volume.value) if c.volume else 0 for c in self.candles]
-            ax_vol.bar(timestamps, volumes, alpha=0.5)
-            ax_vol.set_ylabel("Volume")
-
-        ax_price.grid(True, alpha=0.3)
-        fig.autofmt_xdate()
-        plt.tight_layout()
-
-        return fig
 
 
 def _aggregate(chunk: list[Candle]) -> Candle:
