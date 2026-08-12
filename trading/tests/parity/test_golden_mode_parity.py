@@ -30,12 +30,25 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from tradex_domain import OHLC, Candle, OrderSide, Signal, Timeframe
+from tradex_domain import (
+    OHLC,
+    Candle,
+    OrderRequest,
+    OrderSide,
+    OrderType,
+    Signal,
+    Timeframe,
+    TimeInForce,
+)
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
 
 from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import SimulatedFillSource
+from tradex_trading.execution.fill_sources import (
+    PaperFillSource,
+    SimulatedFillSource,
+)
+from tradex_trading.execution.slippage import FixedSlippageModel
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.replay.backtest import BacktestEngine
 from tradex_trading.sdk.session import TradingSession
@@ -432,3 +445,47 @@ class TestAccountingConvergence:
         replay_strategy.reset()  # Reset state before reuse
         replay_bt = BacktestEngine().run(replay_strategy, list(candles))
         assert replay_bt.equity_curve[-1] == bt.equity_curve[-1]
+
+
+class TestFillSourceParity:
+    """HIGH-6b: every price-resolving fill source shares ONE price-resolution
+    path (``FillModel``), so the same request + market reference resolves to
+    the identical fill price in backtest, replay, paper, and live."""
+
+    @staticmethod
+    def _request() -> OrderRequest:
+        return OrderRequest(
+            instrument=INSTRUMENT,
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity(value=Decimal("10")),
+            price=Price(value=Decimal("100")),
+            time_in_force=TimeInForce.DAY,
+            reference_timestamp=datetime(2026, 8, 1, tzinfo=UTC),
+        )
+
+    def test_all_fill_sources_agree_on_same_input(self) -> None:
+        """The same request + LTP resolves the identical fill price in
+        Simulated (backtest) and Paper — the shared FillModel must return one
+        price for every mode (LTP wins over the limit price)."""
+        req = self._request()
+        ltp = Price(value=Decimal("101"))
+        simulated = SimulatedFillSource().resolve_fill_price(req, market_price=ltp)
+        paper = PaperFillSource().resolve_fill_price(req, market_price=ltp)
+        assert simulated == paper == Price(value=Decimal("101"))
+
+    def test_fill_source_parity_with_slippage(self) -> None:
+        """The same slippage model moves the fill price identically in every
+        mode — identical net P&L across backtest/paper (HIGH-6b)."""
+        slippage = FixedSlippageModel(constant=Decimal("0.25"))
+        req = self._request()
+        ltp = Price(value=Decimal("100"))
+        simulated = SimulatedFillSource(slippage_model=slippage).resolve_fill_price(
+            req, market_price=ltp
+        )
+        paper = PaperFillSource(slippage_model=slippage).resolve_fill_price(
+            req, market_price=ltp
+        )
+        assert simulated == paper
+        # 100 + 0.25 — both modes applied the identical adjustment.
+        assert simulated.value == Decimal("100.25")
