@@ -1,7 +1,7 @@
-"""Smoke test — synthetic 1-second ticks from M1 candles through ReplayEngine.
+"""Smoke test — synthetic 1-second ticks from M1 candles via SyntheticTickGenerator.
 
-Replays two M1 candles through ``ReplayEngine(synthetic_ticks=True, seed=1)``
-and asserts the tick-stream invariants:
+Feeds two M1 candles through ``SyntheticTickGenerator`` (anchored OHLC random
+walk, seeded) and asserts the tick-stream invariants:
 
   - 60 synthetic Quote events per bar (120 total), no raw candles on the bus
   - per-bar timestamps stepping one second, strictly monotonic
@@ -10,6 +10,7 @@ and asserts the tick-stream invariants:
     purpose to exercise the clamp)
   - tick volumes summing exactly to the bar volume (20,000 over two bars)
   - bid < ask on every quote (0.05% fixed spread, 0.01 floor)
+  - the shared FakeClock tracks the emitted timestamps (120s after both bars)
 
 Also prints the bus **stream order vs the message-log order** (equal here —
 nothing subscribes reentrantly to the quote stream; contrast the CQRS
@@ -45,7 +46,7 @@ from tradex_domain import (  # noqa: E402
     Timeframe,
 )
 from tradex_trading.reactive.bus import ReactiveBus  # noqa: E402
-from tradex_trading.replay.engine import ReplayEngine  # noqa: E402
+from tradex_trading.replay.backtest import FakeClock  # noqa: E402
 from tradex_trading.replay.synthetic_ticks import SyntheticTickGenerator  # noqa: E402
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
@@ -87,35 +88,31 @@ def main() -> int:
         m1_candle(now + timedelta(minutes=1), close="112"),
     ]
 
-    print("=== Synthetic ticks through ReplayEngine (smoke) ===")
-    print(f"Bars : 2x M1 ({INSTRUMENT.instrument_id})  mode: synthetic_ticks, seed=1")
+    print("=== Synthetic ticks via SyntheticTickGenerator (smoke) ===")
+    print(f"Bars : 2x M1 ({INSTRUMENT.instrument_id})  mode: anchored, seed=1")
     print()
 
-    # --- 1. Replay: capture both the stream and the message log ------------
+    # --- 1. Feed both bars: capture both the stream and the message log ----
     log: list[object] = []
     bus = ReactiveBus(message_log=log)
     stream: list[object] = []
     bus.stream().subscribe(stream.append)
-    engine = ReplayEngine(events, synthetic_ticks=True, seed=1)
-    result = engine.replay(bus)
+    clock = FakeClock(start=now)
+    gen = SyntheticTickGenerator(bus, clock=clock, seed=1, method="anchored")
+    for candle in events:
+        gen.feed_bar(candle)
 
     quotes = [e for e in log if isinstance(e, Quote)]
     candles_on_bus = sum(1 for e in log if isinstance(e, Candle))
     ts = [q.timestamp for q in quotes]
     total_vol = sum((q.volume.value for q in quotes), Decimal("0"))
 
-    print("[1/4] Replay event flow")
-    check("ReplayResult: 2 events, 2 candles, 0 errors", (
-        result.events_processed == 2
-        and result.candles_processed == 2
-        and not result.has_errors
-    ))
-    check("120 quotes on bus, 0 raw candles (replace semantics)", (
+    print("[1/4] Tick event flow")
+    check("120 quotes on bus, 0 raw candles (generator publishes quotes only)", (
         len(quotes) == 120 and candles_on_bus == 0
     ))
-    check("tick_clock seeded to first bar, tracks ticks (120s after replay)", (
-        engine.tick_clock is not None
-        and engine.tick_clock.now() == now + timedelta(seconds=120)
+    check("clock tracks ticks (120s after both bars)", (
+        clock.now() == now + timedelta(seconds=120)
     ))
 
     def compact(events: list[object]) -> str:
@@ -162,13 +159,7 @@ def main() -> int:
     print(f"    bar 1 first quote: bid {first.bid.value} / ltp {first.ltp.value} / ask {first.ask.value}")
     print()
 
-    print("[4/4] Regression + price-path sanity")
-    log2: list[object] = []
-    ReplayEngine([m1_candle(now)]).replay(ReactiveBus(message_log=log2))
-    check("default mode still publishes the raw candle", (
-        len(log2) == 1 and isinstance(log2[0], Candle)
-    ))
-
+    print("[4/4] Price-path sanity (anchored vs bridge, reproducibility)")
     def path(method: str, seed: int = 1) -> list[Decimal]:
         lg: list[object] = []
         SyntheticTickGenerator(ReactiveBus(message_log=lg), seed=seed, method=method).feed_bar(
