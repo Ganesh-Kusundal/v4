@@ -102,10 +102,10 @@ DHAN_RATE_LIMITS: dict[str, dict[str, float | int | tuple[tuple[int, float], ...
         "cooldown_seconds": 60.0,
     },
     "option_chain": {
-        "rate_per_second": 5.0,
-        "capacity": 10,
-        "min_interval": 0.2,
-        "cooldown_seconds": 60.0,
+        "rate_per_second": 0.34,
+        "capacity": 1,
+        "min_interval": 3.0,
+        "cooldown_seconds": 130.0,
     },
     "admin": {
         "rate_per_second": 20.0,
