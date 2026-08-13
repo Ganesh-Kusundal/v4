@@ -1,29 +1,41 @@
-"""Regression tests for the resilience error-handling contract (Task 2 review).
+"""Tests for the consolidated broker resilience stack (Task 4).
 
-Covers the two major spec-compliance gaps found in review:
+Covers the full stack restored in ``tradex_brokers.common.resilience``:
 
-- 429 responses must ``trigger_cooldown`` on the rate-limit bucket and count
-  as circuit-breaker failures (spec: "429 response → ``trigger_cooldown`` on
-  the bucket; circuit breaker counts it as a failure").
-- Status-based safe retry must actually fire on the injected-transport branch:
-  5xx/429 responses (and transport exceptions) retry on GET/HEAD/OPTIONS up to
-  ``max_attempts``; mutations (POST/PUT/DELETE) never retry.
+- **Rate limiting** — token-bucket gating, cooldown, multi-bucket
+  classification (``bucket_for_path`` / ``limiter_for_provider``).
+- **Circuit breaker** — tripping on consecutive failures and recovery via
+  a HALF_OPEN probe.
+- **Safe retry** — status-based and exception-based retry on idempotent
+  methods (GET/HEAD/OPTIONS); mutations are never auto-retried.
+- **Composite pipeline** — rate-limit gate is applied *before* the HTTP call.
+
+Also carries the two spec-compliance gaps found in Task 2 review: 429
+responses trigger bucket cooldown and count as circuit-breaker failures, and
+the injected-transport branch retries 5xx/429 (and transport exceptions) on
+safe methods only.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable
+import time
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 from tradex_domain import BrokerUnavailableError, RateLimitError
 
 from tradex_brokers.common.resilience import (
     CircuitBreaker,
+    CircuitState,
     MultiBucketRateLimiter,
     RateLimitConfig,
     ResiliencePipeline,
-    RetryConfig,
     RetryableHttpClient,
+    RetryConfig,
+    TokenBucketRateLimiter,
+    bucket_for_path,
+    limiter_for_provider,
 )
 
 HISTORICAL_URL = "https://api.dhan.co/v2/charts/intraday/2885/1/2026-08-01/2026-08-05"
@@ -218,3 +230,144 @@ class TestStatusBasedRetry:
 
         assert len(seen) == 1
         assert result["_http_status"] == 404
+
+
+# ---------------------------------------------------------------------------
+# RATE LIMITING — token bucket
+# ---------------------------------------------------------------------------
+
+
+def test_token_bucket_blocks_until_refill() -> None:
+    limiter = TokenBucketRateLimiter(rate=10.0, burst=1)
+    assert limiter.try_acquire() is True
+    assert limiter.try_acquire() is False
+    time.sleep(0.12)  # ~1 token refilled at 10/s
+    assert limiter.try_acquire() is True
+
+
+def test_token_bucket_cooldown_blocks() -> None:
+    limiter = TokenBucketRateLimiter(rate=10.0, burst=5, cooldown_seconds=60.0)
+    limiter.trigger_cooldown()
+    assert limiter.try_acquire() is False
+    with pytest.raises(TimeoutError):
+        limiter.acquire(timeout=0.01)
+
+
+# ---------------------------------------------------------------------------
+# RATE LIMITING — multi-bucket classification
+# ---------------------------------------------------------------------------
+
+
+def test_bucket_for_path_classifies() -> None:
+    assert bucket_for_path("/v2/historical/foo", "GET") == "historical"
+    assert bucket_for_path("/v2/charts/intraday", "GET") == "historical"
+    assert bucket_for_path("/v2/order", "POST") == "orders"
+    assert bucket_for_path("/v2/orders/super", "POST") == "orders"
+    assert bucket_for_path("/v2/marketfeed", "GET") == "quotes"
+    assert bucket_for_path("/v2/positions", "GET") == "admin"
+
+
+def test_multibucket_respects_categories() -> None:
+    limiter = limiter_for_provider("dhan")
+    assert "historical" in limiter.categories()
+    assert "orders" in limiter.categories()
+
+
+# ---------------------------------------------------------------------------
+# CIRCUIT BREAKER — trip + recovery
+# ---------------------------------------------------------------------------
+
+
+def test_circuit_breaker_trips_and_recovers() -> None:
+    breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=0.05)
+    calls = {"n": 0}
+
+    def failing() -> dict:
+        calls["n"] += 1
+        return {"_http_status": 500}
+
+    # 2 consecutive 500s trip OPEN; the responses are returned, not raised.
+    breaker.request(failing)
+    breaker.request(failing)
+    assert breaker.state == CircuitState.OPEN.value
+    # Next call fails fast with BrokerUnavailableError without invoking fn.
+    with pytest.raises(BrokerUnavailableError):
+        breaker.request(failing)
+    assert calls["n"] == 2  # fn not called while OPEN
+    time.sleep(0.06)
+    # After recovery_timeout the HALF_OPEN probe passes; success closes it.
+
+    def ok() -> dict:
+        return {"_http_status": 200}
+
+    breaker.request(ok)
+    assert breaker.state == CircuitState.CLOSED.value
+
+
+# ---------------------------------------------------------------------------
+# SAFE RETRY — transient exceptions and mutation guard
+# ---------------------------------------------------------------------------
+
+
+def test_retry_safe_method_retries_transient() -> None:
+    """A transient exception on GET retries with backoff and then succeeds.
+
+    Uses the default ``RetryConfig`` (real backoff + jitter) rather than the
+    zero-delay test client, exercising the delay branch; the injected
+    ``(status, body)`` tuple is normalised to the ``data``/``_http_status``
+    dict contract.
+    """
+    attempts = {"n": 0}
+
+    def transport(method: str, url: str, **kwargs: Any):
+        attempts["n"] += 1
+        if attempts["n"] < 2:
+            raise TimeoutError("transient")
+        return 200, {"ok": True}
+
+    client = RetryableHttpClient(transport=transport)
+    result = client.send("GET", "https://x.test")
+    assert result["ok"] is True
+    assert result["_http_status"] == 200
+    assert attempts["n"] == 2
+
+
+def test_retry_never_retries_mutation() -> None:
+    """A 503 on a mutation returns after a single attempt — never retried."""
+    attempts = {"n": 0}
+
+    def transport(method: str, url: str, **kwargs: Any):
+        attempts["n"] += 1
+        return 503, {"error": "boom"}
+
+    client = RetryableHttpClient(transport=transport)
+    result = client.send("DELETE", "https://x.test/order")
+    assert attempts["n"] == 1  # mutations are never auto-retried
+    assert result["_http_status"] == 503
+
+
+# ---------------------------------------------------------------------------
+# COMPOSITE PIPELINE — rate-limit gate ordering
+# ---------------------------------------------------------------------------
+
+
+def test_pipeline_orders_rate_then_send() -> None:
+    """The pipeline acquires a rate-limit token BEFORE issuing the HTTP call."""
+    order: list[str] = []
+
+    def transport(method: str, url: str, **kwargs: Any):
+        order.append("send")
+        return 200, {"ok": True}
+
+    class _Gated(MultiBucketRateLimiter):
+        def acquire(self, category, tokens=1, timeout=None):
+            order.append("gate")
+            return super().acquire(category, tokens, timeout)
+
+    pipeline = ResiliencePipeline(
+        rate_limiter=_Gated(default=RateLimitConfig(rate_per_second=1000.0, capacity=1000)),
+        retry=RetryableHttpClient(transport=transport),
+        breaker=CircuitBreaker(),
+    )
+    pipeline.send("GET", "https://x.test")
+    assert order == ["gate", "send"]
