@@ -101,6 +101,7 @@ class TestBuildProviderClient:
             base_url="https://api.example.com/v2",
             auth_headers=lambda token: {"Authorization": f"Bearer {token}"},
             access_token="tok",
+            provider="paper",
         )
         assert http is not None
         assert callable(ws)
@@ -118,6 +119,7 @@ class TestBuildProviderClient:
             base_url="https://api.example.com/v2",
             auth_headers=lambda token: {"Authorization": f"Bearer {token}"},
             access_token="static-token",
+            provider="paper",
         )
         http.request("GET", "/orders", cache_read=False)
         assert any(h.get("Authorization") == "Bearer static-token" for h in seen)

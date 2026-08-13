@@ -102,7 +102,7 @@ def build_provider_client(
     auth_headers: Callable[[str], dict[str, str]],
     token_manager: TokenLifecyclePort | None = None,
     access_token: str = "",
-    provider: str = "paper",
+    provider: str,
 ) -> tuple[ProviderHttpClient, Callable[[], str] | None]:
     """Compose a ``ProviderHttpClient`` around an injected *fetch*.
 
@@ -114,10 +114,16 @@ def build_provider_client(
     circuit-breaker → safe retry).  The injected *fetch* becomes the retry
     client's transport, so the same fetch-injection seam that tests rely on
     also carries every production HTTP call — nothing touches ``urllib``.
+    The retry client inspects the returned ``_http_status``, so a 429/5xx
+    response on a safe method (GET/HEAD/OPTIONS) is retried before it reaches
+    the downstream status chain, and a 429 additionally puts its rate-limit
+    bucket into cooldown.
 
     Returns ``(http, ws_token_provider)`` — the provider-specific clients keep
     their own base/host defaults and registry wiring.
     """
+    if (provider or "").strip().lower() not in ("dhan", "upstox", "paper"):
+        raise ValueError(f"unknown provider: {provider!r}")
     # Adapter: funnels the injected fetch into the retry client's transport
     # slot.  ``RetryableHttpClient.send`` normalises the result to the
     # ``(status, body)`` contract, preserving the legacy FetchResiliencePipeline

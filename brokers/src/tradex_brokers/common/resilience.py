@@ -682,7 +682,10 @@ class CircuitBreaker:
             self._record_failure()
             raise
         else:
-            if isinstance(result, dict) and result.get("_http_status", 0) >= 500:
+            status = result.get("_http_status", 0) if isinstance(result, dict) else 0
+            if status >= 500 or status == 429:
+                # 429 rate-limiting counts as a failure too (spec error-handling
+                # contract) so repeated throttling trips the breaker OPEN.
                 self._record_failure()
             else:
                 self._record_success()
@@ -827,7 +830,11 @@ class RetryableHttpClient:
         tuple carries ``_http_status`` (merged into dict bodies), plain
         dicts pass through, and anything else is wrapped in
         ``{"data": ...}``.  This keeps network calls out of tests while
-        preserving the downstream ``_http_status`` contract.
+        preserving the downstream ``_http_status`` contract.  The transport
+        branch shares the same retry loop as the urllib branch: a 5xx/429
+        ``_http_status`` (or a raised transport exception) is retried with
+        backoff on idempotent methods (GET/HEAD/OPTIONS) only; mutations
+        return/raise after the first attempt.
     """
 
     def __init__(
@@ -846,6 +853,15 @@ class RetryableHttpClient:
     def is_safe_method(method: str) -> bool:
         """Return ``True`` for idempotent HTTP methods (GET/HEAD/OPTIONS)."""
         return method.upper() in _SAFE_METHODS
+
+    @staticmethod
+    def _retryable_status(status: object) -> bool:
+        """Return ``True`` for HTTP statuses that warrant a retry on safe methods.
+
+        Server-side errors (5xx) and rate limiting (429) are transient; other
+        4xx client errors are not.
+        """
+        return isinstance(status, int) and (status >= 500 or status == 429)
 
     # -- public API ---------------------------------------------------------
 
@@ -874,66 +890,111 @@ class RetryableHttpClient:
             After all retry attempts are exhausted (subclass of
             ``BrokerUnavailableError`` for zero-parity with the transport layer).
         """
-        if self._transport is not None:
-            result = self._transport(method, url, **kwargs)
-            return _normalize_transport_result(result)
-
         headers: dict[str, str] = kwargs.get("headers") or {}
         body: bytes | None = None
-        json_payload = kwargs.get("json")
-        if json_payload is not None:
-            body = json.dumps(json_payload).encode()
-            headers.setdefault("Content-Type", "application/json")
-
-        params = kwargs.get("params")
-        if params:
-            qs = urllib.parse.urlencode(params)
-            sep = "&" if "?" in url else "?"
-            url = f"{url}{sep}{qs}"
-
         timeout: float = kwargs.get("timeout", 30.0)
         last_exc: Exception | None = None
+        last_result: Any = None
+        transport = self._transport
+        use_transport = transport is not None
+
+        # urllib-only request preparation: the injected transport receives the
+        # original URL + kwargs untouched (params stay in kwargs for it to use).
+        if not use_transport:
+            json_payload = kwargs.get("json")
+            if json_payload is not None:
+                body = json.dumps(json_payload).encode()
+                headers.setdefault("Content-Type", "application/json")
+            params = kwargs.get("params")
+            if params:
+                qs = urllib.parse.urlencode(params)
+                sep = "&" if "?" in url else "?"
+                url = f"{url}{sep}{qs}"
 
         for attempt in range(self._config.max_attempts):
+            retryable_status: int | None = None
             try:
-                req = urllib.request.Request(
-                    url,
-                    data=body,
-                    headers=headers,
-                    method=method.upper(),
-                )
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    raw = resp.read().decode()
-                    try:
-                        result = json.loads(raw)
-                    except (json.JSONDecodeError, ValueError):
-                        result = {"data": raw}
-                    result["_http_status"] = resp.status
-                    return result
+                if transport is not None:
+                    result = _normalize_transport_result(
+                        transport(method, url, **kwargs)
+                    )
+                    # Status-based safe retry: 5xx/429 on idempotent methods
+                    # (GET/HEAD/OPTIONS) are retried; mutations and non-5xx/429
+                    # responses return after the first attempt.
+                    if retryable(method) and self._retryable_status(
+                        result.get("_http_status")
+                    ):
+                        last_result = result
+                        retryable_status = result.get("_http_status")  # type: ignore[assignment]
+                    else:
+                        return result
+                else:
+                    req = urllib.request.Request(
+                        url,
+                        data=body,
+                        headers=headers,
+                        method=method.upper(),
+                    )
+                    with urllib.request.urlopen(req, timeout=timeout) as resp:
+                        raw = resp.read().decode()
+                        try:
+                            result = json.loads(raw)
+                        except (json.JSONDecodeError, ValueError):
+                            result = {"data": raw}
+                        result["_http_status"] = resp.status
+                        return result
             except tuple(self._config.retryable_exceptions) as exc:
                 # Non-retryable 4xx client errors (except 408 Timeout, 429 Rate Limit)
                 if isinstance(exc, urllib.error.HTTPError) and 400 <= exc.code < 500:
                     if exc.code not in (408, 429):
                         raise  # e.g. 401 Unauthorized, 403 Forbidden
+                # Injected transport: mutations never retry on exceptions either —
+                # a 5xx/timeout on a mutation raises so reconciliation resolves it.
+                if use_transport and not retryable(method):
+                    raise
                 last_exc = exc
-                if attempt < self._config.max_attempts - 1:
-                    delay = self._config.delay_for_attempt(attempt)
+
+            if attempt < self._config.max_attempts - 1:
+                delay = self._config.delay_for_attempt(attempt)
+                if retryable_status is not None:
+                    log.warning(
+                        "Request to %s returned HTTP %d (attempt %d/%d) — retrying in %.2fs",
+                        url,
+                        retryable_status,
+                        attempt + 1,
+                        self._config.max_attempts,
+                        delay,
+                    )
+                else:
                     log.warning(
                         "Request to %s failed (attempt %d/%d): %s — retrying in %.2fs",
                         url,
                         attempt + 1,
                         self._config.max_attempts,
-                        exc,
+                        last_exc,
                         delay,
                     )
-                    time.sleep(delay)
+                time.sleep(delay)
+            else:
+                if retryable_status is not None:
+                    log.error(
+                        "Request to %s returned HTTP %d after %d attempts",
+                        url,
+                        retryable_status,
+                        self._config.max_attempts,
+                    )
                 else:
                     log.error(
                         "Request to %s failed after %d attempts: %s",
                         url,
                         self._config.max_attempts,
-                        exc,
+                        last_exc,
                     )
+
+        # Transport branch: every attempt returned a retryable status — hand the
+        # final result back so the downstream status chain classifies it.
+        if use_transport and last_result is not None:
+            return last_result
 
         raise RetryExhaustedError(
             f"Request to {url} failed after {self._config.max_attempts} attempts",
@@ -1040,7 +1101,16 @@ class ResiliencePipeline:
         def _call() -> Any:
             return self._retry.send(method, url, **kwargs)
 
-        return self._breaker.request(_call)
+        result = self._breaker.request(_call)
+
+        # 4. A 429 response means the broker is rate-limiting us — put the same
+        # bucket that gated this request into cooldown so subsequent sends fail
+        # fast instead of hammering the endpoint.  The breaker already counted
+        # it as a failure (spec error-handling contract).
+        if isinstance(result, dict) and result.get("_http_status") == 429:
+            self._rate_limiter.trigger_cooldown(bucket)
+
+        return result
 
 
 __all__ = [
