@@ -6,7 +6,7 @@ facade owns shared state and internal helpers.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from tradex_domain.enums import OrderSide, OrderType, ProductType
 from tradex_domain.errors import AuthenticationError
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from tradex_brokers.dhan._facade import DhanClientFacade
 
 
-class PortfolioMixin:
+class PortfolioMixin(Protocol):
     def get_account(self: DhanClientFacade) -> Account:
         """Account snapshot via GET /fundlimit."""
         body = self._request("GET", "/fundlimit", cache_read=True)

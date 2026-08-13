@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from tradex_brokers.upstox._facade import UptoxFacade
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 from tradex_brokers.common.provider_common import unwrap_data
 
 
-class AdminMixin:
+class AdminMixin(Protocol):
     def kill_switch(self: UptoxFacade, enable: bool = True) -> dict[str, object]:
         """Broker-side kill switch via PUT /user/kill-switch."""
         status = "ENABLED" if enable else "DISABLED"

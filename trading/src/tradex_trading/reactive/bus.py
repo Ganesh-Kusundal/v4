@@ -96,7 +96,7 @@ class ReactiveBus:
             bus.of_type(Order).pipe(filter(...), map(...)).subscribe(...)
         """
         return self._subject.pipe(
-            ops.filter(lambda m, _t=msg_type: isinstance(m, _t)),
+            ops.filter(lambda m: isinstance(m, msg_type)),
             ops.share(),
         )
 

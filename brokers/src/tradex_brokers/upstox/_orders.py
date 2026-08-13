@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
 from tradex_domain.errors import CapabilityNotSupportedError
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from tradex_brokers.upstox._facade import UptoxFacade
 
 
-class OrdersMixin:
+class OrdersMixin(Protocol):
     def submit_order(self: UptoxFacade, request: OrderRequest) -> OrderId:
         """Place a new order via POST /order/place (HFT host)."""
         url = self._url("/order/place", host="hft")

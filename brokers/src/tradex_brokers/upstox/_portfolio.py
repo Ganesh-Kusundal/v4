@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from tradex_domain.enums import OrderSide, ProductType
 from tradex_domain.errors import AuthenticationError
@@ -23,7 +23,7 @@ from tradex_brokers.common.provider_common import (
 )
 
 
-class PortfolioMixin:
+class PortfolioMixin(Protocol):
     def get_account(self: UptoxFacade) -> Account:
         """Account snapshot via GET /user/get-funds-and-margin (v3 host)."""
         body = self._request(

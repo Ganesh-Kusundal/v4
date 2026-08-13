@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.errors import CapabilityNotSupportedError, SDKError
@@ -80,7 +80,7 @@ def _candles_from_rows(
     return candles
 
 
-class MarketDataMixin:
+class MarketDataMixin(Protocol):
     def ltp(self: UptoxFacade, instrument: Instrument) -> Price:
         """Last traded price via V3 GET /market-quote/ltp."""
         key = provider_key(self._registry, instrument.instrument_id)
