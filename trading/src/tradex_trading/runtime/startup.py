@@ -131,8 +131,15 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     if cfg.mode == "live" and not cfg.live_enabled:
         raise ValueError("live mode requires live_enabled=true in config")
 
-    # 1. Create broker via BrokerFactory
-    broker = BrokerFactory.create(cfg.broker_id)
+    # 1. Create broker. Live brokers bind a real transport via the standard
+    # interface (build_broker_from_env) — BrokerFactory.create builds a
+    # transport-less adapter whose REST calls raise "broker not connected".
+    # Paper/backtest/replay keep the factory (paper is transport-less by design).
+    if cfg.mode == "live":
+        from tradex_trading.runtime.live import build_broker_from_env
+        broker = build_broker_from_env(cfg.broker_id.value)
+    else:
+        broker = BrokerFactory.create(cfg.broker_id)
 
     # 2. Create metrics registry
     metrics = MetricsRegistry()

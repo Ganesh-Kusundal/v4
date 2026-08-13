@@ -78,11 +78,11 @@ class TestBootStreamBackendWiring:
         return broker
 
     def test_live_boot_wires_stream_backend(self, monkeypatch) -> None:
-        from tradex_brokers import BrokerFactory
+        from tradex_trading.runtime import live as live_mod
 
         backend = MagicMock()
         broker = self._fake_broker(backend)
-        monkeypatch.setattr(BrokerFactory, "create", lambda _bid, **_kw: broker)
+        monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
 
         cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True)
         session = boot(cfg)
@@ -93,11 +93,11 @@ class TestBootStreamBackendWiring:
             session.stop()
 
     def test_live_boot_degrades_when_backend_fails(self, monkeypatch) -> None:
-        from tradex_brokers import BrokerFactory
+        from tradex_trading.runtime import live as live_mod
 
         broker = self._fake_broker()
         broker.stream_backend.side_effect = RuntimeError("no ws transport")
-        monkeypatch.setattr(BrokerFactory, "create", lambda _bid, **_kw: broker)
+        monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
 
         cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True)
         session = boot(cfg)  # must not raise

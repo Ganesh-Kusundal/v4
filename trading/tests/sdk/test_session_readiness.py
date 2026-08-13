@@ -84,21 +84,22 @@ def test_boot_backtest_returns_ready() -> None:
 def test_boot_live_returns_ready(monkeypatch) -> None:
     """boot(live) returns READY without touching the network.
 
-    ``startup.boot`` builds the broker through ``BrokerFactory.create`` — patch
-    the module-level name with a fake factory (restored cleanly after the test;
-    avoids monkeypatching the shared classmethod descriptor), so the
+    ``startup.boot`` builds the live broker through
+    ``build_broker_from_env`` — patch the module-level name with a fake
+    factory (restored cleanly after the test), so the
     connect/stream-backend/fill-source wiring runs offline.
     """
+    from tradex_trading.runtime import live as live_mod
     from tradex_trading.runtime import startup
 
     fake = _fake_live_broker()
 
     class _FakeFactory:
         @staticmethod
-        def create(_broker_id: BrokerId) -> MagicMock:
+        def build_broker_from_env(_broker_id: str, **_kw: object) -> MagicMock:
             return fake
 
-    monkeypatch.setattr(startup, "BrokerFactory", _FakeFactory)
+    monkeypatch.setattr(live_mod, "build_broker_from_env", _FakeFactory.build_broker_from_env)
 
     session = startup.boot(
         AppConfig(broker_id=BrokerId.DHAN, mode="live", live_enabled=True)

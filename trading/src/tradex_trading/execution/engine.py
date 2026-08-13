@@ -665,7 +665,10 @@ class ExecutionEngine:
 
     def _submit_impl(self, request: OrderRequest) -> OrderReceipt:
         """Synchronous submit logic — delegates to the shared pipeline."""
-        return self._run_pipeline(request, sync=True)
+        receipt = self._run_pipeline(request, sync=True)
+        if receipt is None:
+            raise RuntimeError("sync submit produced no receipt")  # pragma: no cover
+        return receipt
 
     def trip_kill_switch(self, reason: str = "") -> list[str]:
         """Halt new submissions and cancel every open order."""
