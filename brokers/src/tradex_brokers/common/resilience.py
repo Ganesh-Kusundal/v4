@@ -40,7 +40,7 @@ import urllib.request
 from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from tradex_domain import BrokerUnavailableError, RateLimitError
 
@@ -235,7 +235,14 @@ def table_for_provider(
     table = _RATE_TABLES_BY_PROVIDER.get(name)
     if table is None:
         raise ValueError(f"unknown rate-limit provider: {provider!r}")
-    return {**{k: dict(v) for k, v in table.items()}, **_env_overrides(name)}  # type: ignore[return-value]
+    # Env overrides replace whole buckets; the base rows pass through as-is
+    # (each is already the typed rate-table shape).
+    merged = {k: v for k, v in table.items()}  # type: ignore[misc]
+    merged.update(_env_overrides(name))
+    return cast(
+        "dict[str, dict[str, float | int | tuple[tuple[int, float], ...]]]",
+        merged,
+    )
 
 
 def _env_overrides(provider: str) -> dict[str, dict[str, object]]:
