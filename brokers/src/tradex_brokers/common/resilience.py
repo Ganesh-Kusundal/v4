@@ -75,7 +75,7 @@ DHAN_RATE_LIMITS: dict[str, dict[str, float | int | tuple[tuple[int, float], ...
         "capacity": 20,
         "min_interval": 0.1,
         "cooldown_seconds": 130.0,
-        "extra_windows": ((250, 60.0), (7000, 86400.0)),
+        "extra_windows": ((250, 60.0), (1000, 3600.0), (7000, 86400.0)),
     },
     "quotes": {
         "rate_per_second": 1.0,
@@ -101,10 +101,16 @@ DHAN_RATE_LIMITS: dict[str, dict[str, float | int | tuple[tuple[int, float], ...
         "min_interval": 0.2,
         "cooldown_seconds": 60.0,
     },
+    "option_chain": {
+        "rate_per_second": 5.0,
+        "capacity": 10,
+        "min_interval": 0.2,
+        "cooldown_seconds": 60.0,
+    },
     "admin": {
-        "rate_per_second": 10.0,
-        "capacity": 20,
-        "min_interval": 0.1,
+        "rate_per_second": 20.0,
+        "capacity": 40,
+        "min_interval": 0.05,
         "cooldown_seconds": 130.0,
     },
 }
@@ -124,51 +130,51 @@ UPSTOX_RATE_LIMITS: dict[str, dict[str, float | int | tuple[tuple[int, float], .
         "cooldown_seconds": 60.0,
     },
     "historical": {
-        "rate_per_second": 5.0,
-        "capacity": 10,
-        "min_interval": 0.2,
+        "rate_per_second": 50.0,
+        "capacity": 100,
+        "min_interval": 0.02,
         "cooldown_seconds": 60.0,
     },
     "option_chain": {
-        "rate_per_second": 5.0,
-        "capacity": 10,
-        "min_interval": 0.2,
+        "rate_per_second": 50.0,
+        "capacity": 100,
+        "min_interval": 0.02,
         "cooldown_seconds": 60.0,
     },
     "funds": {
-        "rate_per_second": 5.0,
-        "capacity": 10,
-        "min_interval": 0.2,
+        "rate_per_second": 50.0,
+        "capacity": 100,
+        "min_interval": 0.02,
         "cooldown_seconds": 60.0,
     },
     "positions": {
-        "rate_per_second": 5.0,
-        "capacity": 10,
-        "min_interval": 0.2,
+        "rate_per_second": 50.0,
+        "capacity": 100,
+        "min_interval": 0.02,
         "cooldown_seconds": 60.0,
     },
     "holdings": {
-        "rate_per_second": 2.0,
-        "capacity": 5,
-        "min_interval": 0.5,
+        "rate_per_second": 50.0,
+        "capacity": 100,
+        "min_interval": 0.02,
         "cooldown_seconds": 60.0,
     },
     "options_historical": {
-        "rate_per_second": 5.0,
-        "capacity": 10,
-        "min_interval": 0.2,
+        "rate_per_second": 50.0,
+        "capacity": 100,
+        "min_interval": 0.02,
         "cooldown_seconds": 60.0,
     },
     "expired_historical": {
-        "rate_per_second": 5.0,
-        "capacity": 10,
-        "min_interval": 0.2,
+        "rate_per_second": 50.0,
+        "capacity": 100,
+        "min_interval": 0.02,
         "cooldown_seconds": 60.0,
     },
     "admin": {
-        "rate_per_second": 10.0,
-        "capacity": 20,
-        "min_interval": 0.1,
+        "rate_per_second": 50.0,
+        "capacity": 100,
+        "min_interval": 0.02,
         "cooldown_seconds": 60.0,
     },
 }
@@ -215,12 +221,65 @@ _RATE_TABLES_BY_PROVIDER: dict[str, Mapping[str, object]] = {
 def table_for_provider(
     provider: str,
 ) -> dict[str, dict[str, float | int | tuple[tuple[int, float], ...]]]:
-    """Return the rate-limit table for a provider name (dhan/upstox/paper)."""
+    """Return the rate-limit table for a provider name (dhan/upstox/paper).
+
+    The defaults reflect each broker's documented standard rate limits
+    (Dhan: orders 10/s·250/min·1000/hr·7000/day, data 5/s, quotes 1/s,
+    non-trading 20/s; Upstox: orders 10/s·500/min·2000/30min, standard
+    APIs 50/s).  Every bucket can be overridden at runtime via
+    ``<PROVIDER>_RATE_<BUCKET>`` env vars (e.g.
+    ``DHAN_RATE_OPTION_CHAIN="1,2,1.0,60"``), so operators tune limits
+    without code changes.
+    """
     name = (provider or "paper").strip().lower()
     table = _RATE_TABLES_BY_PROVIDER.get(name)
     if table is None:
         raise ValueError(f"unknown rate-limit provider: {provider!r}")
-    return table  # type: ignore[return-value]
+    return {**{k: dict(v) for k, v in table.items()}, **_env_overrides(name)}  # type: ignore[return-value]
+
+
+def _env_overrides(provider: str) -> dict[str, dict[str, object]]:
+    """Apply ``<PROVIDER>_RATE_<BUCKET>`` env overrides to a rate table.
+
+    Format per bucket: ``rate,capacity,min_interval,cooldown[,win_req/win_sec,...]``
+    (extra windows optional, repeated).  Malformed values are ignored with a
+    warning — a bad override must never crash the limiter build.
+    """
+    import logging
+    import os
+
+    log = logging.getLogger(__name__)
+    prefix = f"{provider.upper()}_RATE_"
+    out: dict[str, dict[str, object]] = {}
+    for key, raw in os.environ.items():
+        if not key.startswith(prefix):
+            continue
+        bucket = key[len(prefix):].lower()
+        try:
+            parts = [p.strip() for p in raw.split(",") if p.strip()]
+            if len(parts) < 4:
+                raise ValueError("expected rate,capacity,min_interval,cooldown")
+            rate, capacity, min_interval, cooldown = (float(p) for p in parts[:4])
+            if rate <= 0 or capacity < 1:
+                raise ValueError("rate must be > 0, capacity >= 1")
+            row: dict[str, object] = {
+                "rate_per_second": rate,
+                "capacity": int(capacity),
+                "min_interval": min_interval,
+                "cooldown_seconds": cooldown,
+            }
+            windows: list[tuple[int, float]] = []
+            for w in parts[4:]:
+                req, sec = w.split("/")
+                windows.append((int(req), float(sec)))
+            if windows:
+                row["extra_windows"] = tuple(windows)
+            out[bucket] = row
+        except (ValueError, IndexError) as exc:
+            log.warning(
+                "ignoring malformed rate-limit override %s=%r: %s", key, raw, exc,
+            )
+    return out
 
 
 def limiter_from_table(
@@ -272,6 +331,8 @@ def bucket_for_path(path: str, method: str) -> str:
     lower = path.lower()
     if any(part in lower for part in ("/order", "/super", "/forever", "/exit", "/edis")):
         return "orders"
+    if "optionchain" in lower:
+        return "option_chain"
     if any(part in lower for part in ("/historical", "/charts", "/candle")):
         return "historical"
     if any(part in lower for part in ("/quote", "/ltp", "/marketfeed", "/market-quote", "/depth")):

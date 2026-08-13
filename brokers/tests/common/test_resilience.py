@@ -43,6 +43,7 @@ from tradex_brokers.common.resilience import (
     TokenBucketRateLimiter,
     bucket_for_path,
     limiter_for_provider,
+    table_for_provider,
 )
 
 HISTORICAL_URL = "https://api.dhan.co/v2/charts/intraday/2885/1/2026-08-01/2026-08-05"
@@ -319,8 +320,43 @@ def test_bucket_for_path_classifies() -> None:
     assert bucket_for_path("/v2/charts/intraday", "GET") == "historical"
     assert bucket_for_path("/v2/order", "POST") == "orders"
     assert bucket_for_path("/v2/orders/super", "POST") == "orders"
+    assert bucket_for_path("/v2/optionchain", "POST") == "option_chain"
+    assert bucket_for_path("/v2/optionchain/expirylist", "POST") == "option_chain"
     assert bucket_for_path("/v2/marketfeed", "GET") == "quotes"
     assert bucket_for_path("/v2/positions", "GET") == "admin"
+
+
+def test_table_defaults_match_broker_standards() -> None:
+    dhan = table_for_provider("dhan")
+    upstox = table_for_provider("upstox")
+    # Dhan: orders 10/s·250/min·1000/hr·7000/day; data 5/s; quotes 1/s; non-trading 20/s
+    assert dhan["orders"]["rate_per_second"] == 10.0
+    assert dhan["orders"]["extra_windows"] == ((250, 60.0), (1000, 3600.0), (7000, 86400.0))
+    assert dhan["quotes"]["rate_per_second"] == 1.0
+    assert dhan["historical"]["rate_per_second"] == 5.0
+    assert dhan["option_chain"]["rate_per_second"] == 5.0
+    assert dhan["admin"]["rate_per_second"] == 20.0
+    # Upstox: orders 10/s·500/min·2000/30min; standard APIs 50/s
+    assert upstox["orders"]["rate_per_second"] == 10.0
+    assert upstox["orders"]["extra_windows"] == ((500, 60.0), (2000, 1800.0))
+    assert upstox["historical"]["rate_per_second"] == 50.0
+    assert upstox["option_chain"]["rate_per_second"] == 50.0
+
+
+def test_env_override_tunes_bucket(monkeypatch) -> None:
+    monkeypatch.setenv("DHAN_RATE_OPTION_CHAIN", "1,2,1.0,60")
+    dhan = table_for_provider("dhan")
+    assert dhan["option_chain"]["rate_per_second"] == 1.0
+    assert dhan["option_chain"]["capacity"] == 2
+    assert dhan["option_chain"]["cooldown_seconds"] == 60.0
+    # other buckets untouched
+    assert dhan["orders"]["rate_per_second"] == 10.0
+
+
+def test_malformed_env_override_is_ignored(monkeypatch) -> None:
+    monkeypatch.setenv("DHAN_RATE_QUOTES", "garbage")
+    dhan = table_for_provider("dhan")
+    assert dhan["quotes"]["rate_per_second"] == 1.0
 
 
 def test_multibucket_respects_categories() -> None:
