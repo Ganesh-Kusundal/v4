@@ -8,9 +8,9 @@ Routes by date range:
 Dhan intraday minute ranges (> 90 days) fail loud instead of silently
 truncating, since the fetcher does not chunk across the 90-day per-poll cap.
 
-Each broker's existing rate limiter handles throttling — the fetcher just
-fans out work across ThreadPoolExecutor.  If a broker fails for a symbol,
-the remaining brokers get a chance (failover).
+The fetcher throttles through a shared per-provider historical rate-limit
+bucket (5/s for Dhan/Upstox) so fan-out never exceeds the broker's documented
+historical-data quota; broker failures still trigger bounded failover.
 
 Failover fan-out is bounded: once a broker fails for any symbol in a batch
 it is skipped as a failover target for the rest of the batch, so a
@@ -29,6 +29,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Any
 
+from tradex_brokers.common.resilience import (
+    MultiBucketRateLimiter,
+    limiter_for_provider,
+)
 from tradex_domain.enums import Timeframe
 from tradex_domain.errors import SDKError
 from tradex_domain.instruments import Instrument
@@ -78,11 +82,23 @@ class ParallelHistoryFetcher:
     max_workers : int
         Total concurrent fetch threads (default 4 — matches Dhan DATA quota
         of 5/s with one slot free for gate overhead).
+    rate_limiter : MultiBucketRateLimiter | None
+        Shared per-provider rate limiter.  ``acquire("historical", ...)`` is
+        called before every ``history()`` call so fan-out throttles to the
+        broker's historical-data rate (defaults to ``limiter_for_provider("dhan")``).
     """
 
-    def __init__(self, brokers: dict[str, Any], max_workers: int = 4) -> None:
+    def __init__(
+        self,
+        brokers: dict[str, Any],
+        max_workers: int = 4,
+        rate_limiter: MultiBucketRateLimiter | None = None,
+    ) -> None:
         self._brokers = brokers
         self._max_workers = max_workers
+        # Shared per-provider limiter: fan-out throttles to the broker's
+        # documented historical rate instead of firing N workers unbounded.
+        self._rate_limiter = rate_limiter or limiter_for_provider("dhan")
 
     # ------------------------------------------------------------------ public
 
@@ -148,6 +164,12 @@ class ParallelHistoryFetcher:
         def _fetch_one(broker_name: str, broker: Any, inst: Instrument) -> None:
             first_exc: Exception | None = None
             try:
+                if not self._rate_limiter.acquire("historical", timeout=30.0):
+                    log.warning(
+                        "ParallelHistoryFetcher: rate-limit gate timed out for "
+                        "%s via %s — proceeding anyway",
+                        inst.instrument_id, broker_name,
+                    )
                 series = broker.history(inst, timeframe, start, end)
                 if series is not None and len(series.candles) > 0:
                     with lock:
@@ -165,6 +187,12 @@ class ParallelHistoryFetcher:
                     if other_name in failed_brokers:
                         continue
                 try:
+                    if not self._rate_limiter.acquire("historical", timeout=30.0):
+                        log.warning(
+                            "ParallelHistoryFetcher: rate-limit gate timed out for "
+                            "%s via %s — proceeding anyway",
+                            inst.instrument_id, other_name,
+                        )
                     series = other_broker.history(inst, timeframe, start, end)
                     if series is not None and len(series.candles) > 0:
                         with lock:
