@@ -303,3 +303,33 @@ def test_fetch_respects_historical_rate_bucket() -> None:
     )
     elapsed = time.monotonic() - t0
     assert elapsed >= 0.35
+
+
+def test_failover_throttled_by_failover_broker_limiter(monkeypatch) -> None:
+    """A symbol that fails over to Upstox is throttled by Upstox's limiter.
+
+    Upstox's historical table is patched to 1 token/s (capacity 1): the
+    second Upstox call must wait ~1s for a token refill.  If the fetcher
+    wrongly routed the failover through a shared Dhan limiter (5/s, capacity
+    10), both Upstox calls would be instant and the fetch would finish in
+    milliseconds — the elapsed-time check proves the failover call acquired
+    Upstox's own per-broker bucket.
+    """
+    from tradex_brokers.common.resilience import UPSTOX_RATE_LIMITS
+
+    monkeypatch.setitem(
+        UPSTOX_RATE_LIMITS, "historical",
+        {"rate_per_second": 1.0, "capacity": 1, "min_interval": 0.0, "cooldown_seconds": 0.0},
+    )
+    all_symbols = {str(i.instrument_id) for i in INSTRUMENTS}
+    fetcher = ParallelHistoryFetcher(
+        {"dhan": _make_broker("dhan", fail_symbols=all_symbols), "upstox": _make_broker("upstox")},
+        max_workers=1,
+    )
+    end = BASE + timedelta(days=7)
+    t0 = time.monotonic()
+    results = fetcher.fetch(INSTRUMENTS[:2], Timeframe.M1, BASE, end)
+    elapsed = time.monotonic() - t0
+
+    assert len(results) == 2  # both symbols served via Upstox (failover)
+    assert elapsed >= 0.5
