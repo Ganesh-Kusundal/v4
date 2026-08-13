@@ -7,10 +7,13 @@ the broker-independent pieces of the per-provider API clients:
   fallback for empty values.
 - :func:`correlation_id` — parse a native correlation id with a deterministic
   uuid5 fallback seed.
-- :class:`FetchResiliencePipeline` — route the composed
-  :class:`~tradex_brokers.common.provider_client.ProviderHttpClient` through
-  an injected ``fetch`` callable so tests and offline tools never touch the
-  network.
+- :class:`FetchResiliencePipeline` — legacy fetch-only pipeline (no rate
+  limiting/retry/breaker), kept for direct unit testing.
+- :class:`~tradex_brokers.common.resilience.ResiliencePipeline` — the composed
+  rate-limit → circuit-breaker → safe-retry pipeline ``build_provider_client``
+  binds into :class:`~tradex_brokers.common.provider_client.ProviderHttpClient`;
+  its retry client's transport is the injected ``fetch``, so tests and offline
+  tools never touch the network.
 """
 
 from __future__ import annotations
@@ -26,6 +29,12 @@ from tradex_domain.value_objects import CorrelationId, OrderId
 
 from tradex_brokers.common.provider_client import ProviderHttpClient
 from tradex_brokers.common.provider_common import parse_timestamp
+from tradex_brokers.common.resilience import (
+    CircuitBreaker,
+    ResiliencePipeline,
+    RetryableHttpClient,
+    limiter_for_provider,
+)
 from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 from tradex_brokers.common.transport import HttpTransport
 
@@ -93,6 +102,7 @@ def build_provider_client(
     auth_headers: Callable[[str], dict[str, str]],
     token_manager: TokenLifecyclePort | None = None,
     access_token: str = "",
+    provider: str = "paper",
 ) -> tuple[ProviderHttpClient, Callable[[], str] | None]:
     """Compose a ``ProviderHttpClient`` around an injected *fetch*.
 
@@ -100,10 +110,26 @@ def build_provider_client(
     the two clients differ only in their ``auth_headers`` mapping (Dhan uses
     ``access-token``/``client-id``, Upstox a ``Bearer`` header).
 
+    The request pipeline is a :class:`ResiliencePipeline` (rate-limit →
+    circuit-breaker → safe retry).  The injected *fetch* becomes the retry
+    client's transport, so the same fetch-injection seam that tests rely on
+    also carries every production HTTP call — nothing touches ``urllib``.
+
     Returns ``(http, ws_token_provider)`` — the provider-specific clients keep
     their own base/host defaults and registry wiring.
     """
-    pipeline = FetchResiliencePipeline(fetch)
+    # Adapter: funnels the injected fetch into the retry client's transport
+    # slot.  ``RetryableHttpClient.send`` normalises the result to the
+    # ``(status, body)`` contract, preserving the legacy FetchResiliencePipeline
+    # shapes the seam tests exercise.
+    def _fetch_transport(method: str, url: str, **kwargs: Any) -> Any:
+        return fetch(method, url, **kwargs)
+
+    pipeline = ResiliencePipeline(
+        rate_limiter=limiter_for_provider(provider),
+        retry=RetryableHttpClient(transport=_fetch_transport),
+        breaker=CircuitBreaker(),
+    )
     on_auth_failure: Callable[[str], None] | None
     if token_manager is not None:
         token_provider = token_manager.ensure_token

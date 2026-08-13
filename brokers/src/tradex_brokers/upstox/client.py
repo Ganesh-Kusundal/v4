@@ -86,6 +86,7 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
             auth_headers=auth_headers,
             token_manager=token_manager,
             access_token=access_token,
+            provider="upstox",
         )
         return cls(
             http=http,

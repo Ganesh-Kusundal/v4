@@ -371,7 +371,14 @@ class TokenBucketRateLimiter:
                     self._tokens -= 1.0
                     self._last_acquire = now
                     return
-                wait = (1.0 - self._tokens) / max(self._rate, 0.01)
+                # Wait for whichever gate blocks first: the min_interval
+                # spacing or the next token refill (never negative — a full
+                # bucket may still be min_interval-spaced).
+                wait = 0.0
+                if now - self._last_acquire < self._min_interval:
+                    wait = max(wait, self._min_interval - (now - self._last_acquire))
+                if self._tokens < 1.0:
+                    wait = max(wait, (1.0 - self._tokens) / max(self._rate, 0.01))
             if deadline is not None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
@@ -784,6 +791,25 @@ class RetryConfig:
         return delay
 
 
+def _normalize_transport_result(result: Any) -> Any:
+    """Normalize an injected-fetch result to the downstream dict contract.
+
+    Mirrors the legacy ``FetchResiliencePipeline.send`` semantics so the
+    fetch-injection seam produces identical shapes: a ``(status, body)``
+    tuple carries ``_http_status`` (merged into dict bodies), plain dicts
+    pass through, and anything else is wrapped in ``{"data": ...}``.
+    """
+    if isinstance(result, tuple) and len(result) == 2:
+        status, body = result
+        if isinstance(body, dict):
+            body["_http_status"] = status
+            return body
+        return {"data": body, "_http_status": status}
+    if isinstance(result, dict):
+        return result
+    return {"data": result}
+
+
 class RetryableHttpClient:
     """HTTP client with automatic retry on transient failures.
 
@@ -796,10 +822,11 @@ class RetryableHttpClient:
     transport:
         Optional injected fetch seam (used by tests / replay backends).
         When provided, ``send()`` delegates to ``transport(method, url,
-        **kwargs)`` instead of ``urllib`` and normalises the result: a
-        ``(status, body)`` tuple becomes ``{"data": body,
-        "_http_status": status}`` and any plain ``dict`` becomes
-        ``{"data": result}``.  This keeps network calls out of tests while
+        **kwargs)`` instead of ``urllib`` and normalises the result exactly
+        like the legacy ``FetchResiliencePipeline``: a ``(status, body)``
+        tuple carries ``_http_status`` (merged into dict bodies), plain
+        dicts pass through, and anything else is wrapped in
+        ``{"data": ...}``.  This keeps network calls out of tests while
         preserving the downstream ``_http_status`` contract.
     """
 
@@ -849,10 +876,7 @@ class RetryableHttpClient:
         """
         if self._transport is not None:
             result = self._transport(method, url, **kwargs)
-            if isinstance(result, tuple) and len(result) == 2:
-                status, body = result
-                return {"data": body, "_http_status": status}
-            return {"data": result}
+            return _normalize_transport_result(result)
 
         headers: dict[str, str] = kwargs.get("headers") or {}
         body: bytes | None = None
@@ -935,14 +959,16 @@ class ResiliencePipeline:
 
     The pipeline is applied in the following order:
 
-    1. **Rate limiter** — wait for a token before issuing the call.
+    1. **Rate limiter** — classify the URL into its rate-limit bucket and wait
+       for a token before issuing the call.
     2. **Circuit breaker** — fail fast if the downstream is tripped.
     3. **Retry** — transparently retry transient failures with backoff.
 
     Parameters
     ----------
     rate_limiter:
-        Token-bucket limiter that gates outbound call rate.
+        Multi-bucket token limiter that gates outbound call rate per endpoint
+        category (orders/quotes/historical/…).
     retry:
         HTTP client with built-in retry logic.
     breaker:
@@ -956,7 +982,7 @@ class ResiliencePipeline:
 
     def __init__(
         self,
-        rate_limiter: TokenBucketRateLimiter,
+        rate_limiter: MultiBucketRateLimiter,
         retry: RetryableHttpClient,
         breaker: CircuitBreaker,
         *,
@@ -1003,12 +1029,12 @@ class ResiliencePipeline:
         # Strip rate_limit_timeout from kwargs so it is not forwarded to the
         # underlying HTTP client (which only understands transport timeouts).
         kwargs.pop("rate_limit_timeout", None)
-        try:
-            self._rate_limiter.acquire(timeout=rl_timeout)
-        except TimeoutError as exc:
+        # Classify the URL into its rate-limit bucket (orders/quotes/...).
+        bucket = bucket_for_path(url, method)
+        if not self._rate_limiter.acquire(bucket, timeout=rl_timeout):
             raise RateLimitError(
                 f"Rate limiter could not provide a token within {rl_timeout}s for {url}"
-            ) from exc
+            )
 
         # 2+3. Circuit breaker wraps the retry client call
         def _call() -> Any:
