@@ -12,8 +12,14 @@ Covers the full stack restored in ``tradex_brokers.common.resilience``:
 
 Also carries the two spec-compliance gaps found in Task 2 review: 429
 responses trigger bucket cooldown and count as circuit-breaker failures, and
-the injected-transport branch retries 5xx/429 (and transport exceptions) on
-safe methods only.
+the injected-transport branch retries 5xx (and transport exceptions) on safe
+methods only — a 429 on a safe GET returns after a single call so the
+pipeline's cooldown engages instead of hammering the endpoint.
+
+Follow-up NIT fixes also covered here: a final-attempt transport exception
+must not return a stale 5xx result from an earlier attempt (it raises
+``RetryExhaustedError`` instead), and a persistent 429 is exactly one call
+then bucket cooldown (never ``max_attempts`` immediate retries).
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ from tradex_brokers.common.resilience import (
     ResiliencePipeline,
     RetryableHttpClient,
     RetryConfig,
+    RetryExhaustedError,
     TokenBucketRateLimiter,
     bucket_for_path,
     limiter_for_provider,
@@ -106,6 +113,30 @@ class Test429Cooldown:
         # A different bucket (orders) must be unaffected by the historical cooldown.
         assert limiter.acquire("orders", timeout=0.01) is True
 
+    def test_429_persistent_get_is_single_call_then_cooldown(self) -> None:
+        """A persistent 429 on a safe GET is exactly one call, then bucket
+        cooldown engages — never the full max_attempts (3x) hammering."""
+        seen: list[str] = []
+
+        def transport(method: str, url: str, **kwargs: Any):
+            seen.append(method)
+            return 429, {"data": {"805": "Too many requests."}}
+
+        limiter = _make_limiter(cooldown=60.0)
+        pipeline = ResiliencePipeline(
+            rate_limiter=limiter,
+            retry=_fast_client(transport, max_attempts=3),
+            breaker=CircuitBreaker(failure_threshold=100, recovery_timeout=1.0),
+            rate_limit_timeout=0.05,
+        )
+
+        result = pipeline.send("GET", HISTORICAL_URL)
+
+        assert len(seen) == 1
+        assert result["_http_status"] == 429
+        # Cooldown is now active on the historical bucket → acquire fails fast.
+        assert limiter.acquire("historical", timeout=0.01) is False
+
 
 class TestCircuitBreakerCounts429:
     def test_breaker_counts_429_as_failure_and_trips_open(self) -> None:
@@ -174,20 +205,45 @@ class TestStatusBasedRetry:
         assert len(seen) == 1
         assert result["_http_status"] == 500
 
-    def test_429_on_get_is_retried_on_safe_method(self) -> None:
+    def test_429_on_get_returns_immediately(self) -> None:
+        """429 means back off NOW — a safe GET returns after a single call (no
+        immediate retries), leaving cooldown to the pipeline."""
         seen: list[str] = []
 
         def transport(method: str, url: str, **kwargs: Any):
             seen.append(method)
-            if len(seen) < 2:
-                return 429, {"data": {"805": "Too many requests."}}
-            return 200, {"data": "ok"}
+            return 429, {"data": {"805": "Too many requests."}}
 
-        client = _fast_client(transport, max_attempts=2)
+        client = _fast_client(transport, max_attempts=3)
         result = client.send("GET", HISTORICAL_URL)
 
-        assert len(seen) == 2
-        assert result["_http_status"] == 200
+        assert len(seen) == 1
+        assert result["_http_status"] == 429
+
+    def test_final_attempt_transport_exception_raises_not_stale_503(self) -> None:
+        """A final-attempt transport exception must not return a stale 5xx dict
+        from an earlier attempt — raise RetryExhaustedError instead, and the
+        breaker still counts it as a failure."""
+        seen: list[str] = []
+
+        def transport(method: str, url: str, **kwargs: Any):
+            seen.append(method)
+            if len(seen) < 3:
+                return 503, {"error": "server busy"}
+            raise ConnectionError("connection reset by peer")
+
+        pipeline = ResiliencePipeline(
+            rate_limiter=_make_limiter(),
+            retry=_fast_client(transport, max_attempts=3),
+            breaker=CircuitBreaker(failure_threshold=100, recovery_timeout=1.0),
+            rate_limit_timeout=0.05,
+        )
+
+        with pytest.raises(RetryExhaustedError):
+            pipeline.send("GET", "https://api.dhan.co/v2/orders")
+
+        assert len(seen) == 3
+        assert pipeline._breaker.metrics["failure_count"] == 1
 
     def test_transport_connection_error_retried_on_get(self) -> None:
         seen: list[str] = []
