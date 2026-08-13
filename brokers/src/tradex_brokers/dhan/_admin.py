@@ -6,7 +6,7 @@ facade owns shared state and internal helpers.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from tradex_domain.execution import OrderRequest
 from tradex_domain.value_objects import OrderId
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from tradex_brokers.dhan._facade import DhanClientFacade
 
 
-class AdminMixin:
+class AdminMixin(Protocol):
     def submit_edis(self: DhanClientFacade, request: OrderRequest) -> OrderId:
         """Authorize eDIS via POST /edis/authorize."""
         isin = request.instrument.meta.isin or request.instrument.symbol

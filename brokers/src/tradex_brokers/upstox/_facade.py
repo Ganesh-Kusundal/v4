@@ -21,7 +21,6 @@ from tradex_domain.value_objects import OrderId
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.provider_client import ProviderHttpClient
-from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 from tradex_brokers.upstox._admin import AdminMixin
 from tradex_brokers.upstox._alerts import AlertsMixin
 from tradex_brokers.upstox._marketdata import MarketDataMixin
@@ -44,7 +43,6 @@ class UptoxFacade(
     _http: ProviderHttpClient
     _registry: InstrumentRegistry
     _access_token: str
-    _token_manager: TokenLifecyclePort | None
 
     def _url(self, path: str, *, host: str = "v2") -> str: ...
     def _request(

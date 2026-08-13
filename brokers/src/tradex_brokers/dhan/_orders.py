@@ -7,7 +7,7 @@ facade owns shared state and internal helpers.
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from tradex_domain.enums import OrderSide
 from tradex_domain.errors import CapabilityNotSupportedError
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from tradex_brokers.dhan._facade import DhanClientFacade
 
 
-class OrdersMixin:
+class OrdersMixin(Protocol):
     def submit_order(self: DhanClientFacade, request: OrderRequest) -> OrderId:
         """Place a new order via POST /orders."""
         correlation = (

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument, Option
@@ -36,7 +36,7 @@ _DEFAULT_SESSION_OPEN = "09:15:00"
 _DEFAULT_SESSION_CLOSE = "15:30:00"
 
 
-class MarketDataMixin:
+class MarketDataMixin(Protocol):
     def _validated(self: DhanClientFacade, body: object) -> object:
         """Reject failure bodies before parsing (never fabricate zeros).
 
