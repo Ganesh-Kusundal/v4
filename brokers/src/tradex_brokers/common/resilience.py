@@ -557,10 +557,6 @@ class CircuitBreakerConfig:
     half_open_max: int = 1
 
 
-class CircuitBreakerOpenError(RuntimeError):
-    """Raised when the breaker is OPEN and a request fails fast."""
-
-
 class CircuitBreaker:
     """Thread-safe three-state circuit breaker.
 
@@ -831,10 +827,11 @@ class RetryableHttpClient:
         dicts pass through, and anything else is wrapped in
         ``{"data": ...}``.  This keeps network calls out of tests while
         preserving the downstream ``_http_status`` contract.  The transport
-        branch shares the same retry loop as the urllib branch: a 5xx/429
+        branch shares the same retry loop as the urllib branch: a 5xx
         ``_http_status`` (or a raised transport exception) is retried with
-        backoff on idempotent methods (GET/HEAD/OPTIONS) only; mutations
-        return/raise after the first attempt.
+        backoff on idempotent methods (GET/HEAD/OPTIONS) only; 429 returns
+        immediately after a single call so the pipeline can trigger cooldown;
+        mutations return/raise after the first attempt.
     """
 
     def __init__(
@@ -858,10 +855,13 @@ class RetryableHttpClient:
     def _retryable_status(status: object) -> bool:
         """Return ``True`` for HTTP statuses that warrant a retry on safe methods.
 
-        Server-side errors (5xx) and rate limiting (429) are transient; other
-        4xx client errors are not.
+        Only server-side errors (5xx) are retried.  429 is intentionally
+        excluded: it means "you're rate-limited, back off NOW", so it returns
+        after a single call and lets :class:`ResiliencePipeline` trigger bucket
+        cooldown instead of hammering the endpoint with immediate retries.
+        Other 4xx client errors are not retried either.
         """
-        return isinstance(status, int) and (status >= 500 or status == 429)
+        return isinstance(status, int) and status >= 500
 
     # -- public API ---------------------------------------------------------
 
@@ -913,6 +913,7 @@ class RetryableHttpClient:
 
         for attempt in range(self._config.max_attempts):
             retryable_status: int | None = None
+            last_result = None
             try:
                 if transport is not None:
                     result = _normalize_transport_result(
@@ -1116,7 +1117,6 @@ class ResiliencePipeline:
 __all__ = [
     "CircuitBreaker",
     "CircuitBreakerConfig",
-    "CircuitBreakerOpenError",
     "CircuitState",
     "DHAN_RATE_LIMITS",
     "MultiBucketRateLimiter",
