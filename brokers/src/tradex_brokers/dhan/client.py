@@ -144,6 +144,7 @@ class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
             auth_headers=auth_headers,
             token_manager=token_manager,
             access_token=access_token or "",
+            provider="dhan",
         )
         return cls(
             http=http,

@@ -215,7 +215,12 @@ class TestParallelFetch:
         """Parallel fetch is faster than sequential (mock delay proves it)."""
         delay = 0.05  # 50ms per call
         brokers = {"dhan": _make_broker("dhan", delay=delay)}
-        fetcher = ParallelHistoryFetcher(brokers, max_workers=4)
+        # Inject an effectively-unthrottled limiter: this test measures
+        # ThreadPoolExecutor parallelism, not historical-rate throttling
+        # (that is covered by test_fetch_respects_historical_rate_bucket).
+        from tradex_brokers.common.resilience import limiter_from_table
+        fast = limiter_from_table({"historical": {"rate_per_second": 1000.0, "capacity": 1000}})
+        fetcher = ParallelHistoryFetcher(brokers, max_workers=4, rate_limiter=fast)
         end = BASE + timedelta(days=7)
 
         t0 = time.monotonic()
@@ -275,3 +280,26 @@ class TestFailoverFanout:
         # (no retrying upstox per symbol, and dhan is not re-tried)
         assert dhan.history.call_count <= len(INSTRUMENTS)
         assert upstox.history.call_count == len(INSTRUMENTS)
+
+
+# --------------------------------------------------------------------------- #
+# Rate-limit throttling
+# --------------------------------------------------------------------------- #
+
+def test_fetch_respects_historical_rate_bucket() -> None:
+    """Fan-out across N workers must still throttle to the historical rate."""
+    class _SlowBroker:
+        def history(self, inst, timeframe, start, end):
+            return _series(5)
+
+    fetcher = ParallelHistoryFetcher({"dhan": _SlowBroker()}, max_workers=8)
+    # The fetcher builds its own limiter via limiter_for_provider("dhan"),
+    # whose "historical" bucket is 5/s cap 10. A 12-instrument batch must
+    # take >= ~0.4s (12 tokens / 5 per sec) rather than finishing instantly.
+    t0 = time.monotonic()
+    fetcher.fetch(
+        [Equity.of("NSE", f"THR{i}") for i in range(12)],
+        Timeframe.M1, BASE, BASE + timedelta(days=7),
+    )
+    elapsed = time.monotonic() - t0
+    assert elapsed >= 0.35
