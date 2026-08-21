@@ -165,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         print(f"\nLive session ready: broker={args.broker} mode=live env={args.environment}")
-        print("session.market.history(...), session.market.ltp(...), session.trade, ...")
+        print("session.broker.history(...), session.broker.ltp(...), session.trade, ...")
     finally:
         session.stop()
 

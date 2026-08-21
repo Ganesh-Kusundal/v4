@@ -362,7 +362,14 @@ def create_app(
         if s is None:
             raise HTTPException(status_code=404, detail="No session bound")
         try:
-            quote = s.market.quote(exchange=exchange, symbol=symbol)
+            from tradex_brokers.common.provider_common import instrument_from_id
+            from tradex_domain.instruments import Equity
+            from tradex_domain.value_objects import InstrumentId
+            
+            # Resolve instrument from exchange:symbol
+            iid = InstrumentId.parse(f"{exchange}:{symbol}")
+            instrument = instrument_from_id(iid)
+            quote = s.broker.get_quote(instrument)
             return dict(quote) if not isinstance(quote, dict) else quote
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e)) from e
@@ -373,7 +380,7 @@ def create_app(
         if s is None:
             return []
         try:
-            results = s.market.search(q)
+            results = s.broker.search(q)
             return list(results)
         except Exception:
             return []
@@ -393,8 +400,10 @@ def create_app(
             from tradex_domain.value_objects import InstrumentId
 
             iid = InstrumentId.parse(instrument_id)
+            from tradex_brokers.common.provider_common import instrument_from_id
+            instrument = instrument_from_id(iid)
             tf = Timeframe(timeframe)
-            history = s.market.history(iid, tf)
+            history = s.broker.history(instrument, tf)
             bars = []
             for bar in history:
                 bars.append({
@@ -430,7 +439,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="no session bound")
         try:
             inst = _resolve_underlying_instrument(s, underlying)
-            chain = s.market.option_chain(inst, expiry)
+            chain = s.broker.get_option_chain(inst, expiry)
             if live:
                 return _enrich_chain_live(s, chain)
             return _serialize_option_chain(chain)
@@ -449,7 +458,7 @@ def create_app(
             raise HTTPException(status_code=400, detail="no session bound")
         try:
             inst = _resolve_underlying_instrument(s, underlying)
-            futures = s.market.future_chain(inst)
+            futures = s.broker.future_chain(inst)
             return {
                 "underlying": str(inst.instrument_id),
                 "futures": [
@@ -856,7 +865,7 @@ def _resolve_underlying_instrument(session: Any, raw: str) -> Any:
         if iid is not None:
             return instrument_from_id(iid)
     try:
-        results = list(session.market.search(stripped))
+        results = list(session.broker.search(stripped))
     except Exception:  # noqa: BLE001 — search is best-effort resolution
         results = []
     for inst in results:
@@ -917,7 +926,7 @@ def _enrich_chain_live(session: Any, chain: Any, max_strikes: int = 11) -> dict:
     quotes: dict[Any, Any] = {}
     if batch_supported:
         try:
-            quotes = session.market.quote_batch(instruments)
+            quotes = session.broker.quote_batch(instruments)
         except Exception:  # noqa: BLE001 — live enrichment is best-effort
             quotes = {}
     by_id = {str(iid): quote for iid, quote in quotes.items()}
@@ -933,7 +942,7 @@ def _enrich_chain_live(session: Any, chain: Any, max_strikes: int = 11) -> dict:
         if quote is None and not batch_supported:
             # MCX: no REST batch quotes — fetch LTP per-leg (ATM window only).
             try:
-                quote = session.market.ltp(inst)
+                quote = session.broker.ltp(inst)
             except Exception:  # noqa: BLE001 — best-effort LTP
                 return None
             return {"ltp": str(quote.value)}

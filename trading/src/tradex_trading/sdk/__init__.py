@@ -5,7 +5,6 @@ Provides the main TradingSession entry point and 6 service classes.
 
 from tradex_trading.sdk.services import (
     ExtensionService,
-    MarketService,
     PortfolioService,
     ScannerService,
     StreamService,
@@ -18,7 +17,6 @@ from tradex_trading.sdk.streaming import StreamSubscription
 
 __all__ = [
     "ExtensionService",
-    "MarketService",
     "PortfolioService",
     "ScannerService",
     "SessionState",

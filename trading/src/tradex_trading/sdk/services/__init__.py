@@ -8,7 +8,6 @@ from tradex_trading.sdk.services.extension import (
     OrderResult,
     TpinResult,
 )
-from tradex_trading.sdk.services.market import MarketService
 from tradex_trading.sdk.services.portfolio import PortfolioService
 from tradex_trading.sdk.services.scanner import ScannerService
 from tradex_trading.sdk.services.stream import StreamService
@@ -18,7 +17,6 @@ __all__ = [
     "EdisStatus",
     "ExtensionService",
     "KillSwitchResult",
-    "MarketService",
     "PortfolioService",
     "ScannerService",
     "StreamService",

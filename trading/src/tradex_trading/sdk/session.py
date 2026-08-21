@@ -36,7 +36,6 @@ from tradex_trading.sdk.services import (
     EdisStatus,
     ExtensionService,
     KillSwitchResult,
-    MarketService,
     OrderResult,
     PortfolioService,
     ScannerService,
@@ -189,11 +188,6 @@ class TradingSession:
 
     # --- 7 Services ---
 
-    @cached_property
-    def market(self) -> MarketService:
-        """MarketService — quotes, depth, history, batch, search, chains."""
-        self._check_ready()
-        return MarketService(self._broker, _broker_capabilities(self._broker))
 
     @cached_property
     def trade(self) -> TradeService:
@@ -536,7 +530,6 @@ __all__ = [
     "EdisStatus",
     "ExtensionService",
     "KillSwitchResult",
-    "MarketService",
     "PortfolioService",
     "ScannerService",
     "SessionState",

@@ -288,10 +288,32 @@ class BaseBroker:
     def history(
         self,
         instrument: Instrument,
-        timeframe: object,
-        start: datetime,
-        end: datetime,
+        timeframe: object = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        *,
+        interval: str | None = None,
+        lookback_days: int | None = None,
     ) -> HistoricalSeries:
+        """Get historical data.
+        
+        Canonical: history(inst, timeframe, start, end).
+        Convenience: history(inst, interval="5m", lookback_days=5).
+        """
+        from tradex_domain.enums import Timeframe
+        
+        if interval is not None:
+            timeframe = Timeframe(interval)
+        if timeframe is None:
+            raise ValueError("history requires a timeframe or interval")
+        if not isinstance(timeframe, Timeframe):
+            timeframe = Timeframe(timeframe)
+        if start is None or end is None:
+            if lookback_days is None:
+                lookback_days = 30
+            from datetime import UTC
+            end = end or datetime.now(UTC)
+            start = start or (end - timedelta(days=lookback_days))
         return self._require().history(instrument, timeframe, start, end)
 
     def search(self, query: str) -> list[Instrument]:

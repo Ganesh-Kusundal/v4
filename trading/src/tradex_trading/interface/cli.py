@@ -151,7 +151,7 @@ def run_cli(argv: list[str] | None = None, runtime: Any | None = None) -> int:
         session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
         try:
             eq = Equity.of(args.exchange, args.symbol)
-            quote = session.market.ltp(eq)
+            quote = session.broker.ltp(eq)
             print(json.dumps({"symbol": args.symbol, "ltp": str(quote.value)}, indent=2))
         except KeyError:
             print(f"no quote for {args.symbol}")
@@ -397,7 +397,7 @@ def cmd_watch(args: object) -> None:
     try:
         for i in range(count):
             try:
-                quote = session.market.quote(instrument)
+                quote = session.broker.get_quote(instrument)
                 if quote:
                     print(f"  LTP: {quote.ltp}")
                 else:
