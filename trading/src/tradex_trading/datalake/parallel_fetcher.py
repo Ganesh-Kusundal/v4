@@ -72,13 +72,22 @@ def _date_windows(start: datetime, end: datetime, *, max_days: int) -> list[tupl
 
 
 def _chunk_cap_for(timeframe: Timeframe | str, broker_names: list[str]) -> int | None:
-    """Return max window days if this brokerage+timeframe must be chunked, else None."""
+    """Return max window days if this brokerage+timeframe must be chunked, else None.
+
+    ponytail: caps key off the *known* providers only.  Unknown broker names
+    (custom test doubles) get the conservative Upstox-style 30-day cap when
+    they are the sole broker — a truncated-looking window is better than a
+    silently-truncated full range.  D1 is never capped.
+    """
     tf = Timeframe(timeframe) if isinstance(timeframe, str) else timeframe
-    if tf in _DHAN_INTRADAY_TIMEFRAMES and broker_names == ["dhan"]:
+    if tf not in _DHAN_INTRADAY_TIMEFRAMES:
+        return None  # D1/W1/M30 have no per-poll cap
+    if broker_names == ["dhan"]:
         return _DHAN_INTRADAY_MAX_DAYS
-    if tf in _UPSTOX_MINUTE_TIMEFRAMES and "dhan" not in broker_names and "upstox" in broker_names:
-        return _UPSTOX_INTRADAY_MAX_DAYS
-    return None
+    if "dhan" in broker_names:
+        return _DHAN_INTRADAY_MAX_DAYS  # dhan serving → its own cap applies
+    # upstox-only or unknown-provider-only: conservative minute cap
+    return _UPSTOX_INTRADAY_MAX_DAYS
 
 
 def _split(items: list, n: int) -> list[list]:

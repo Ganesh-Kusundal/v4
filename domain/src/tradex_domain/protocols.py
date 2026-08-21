@@ -224,15 +224,19 @@ class BrokerClientPort(Protocol):
     """Minimal shared surface for provider REST facades (SMELL-11).
 
     The three client facades (Dhan, Upstox, Paper via adapter) were coupled
-    only by a naming convention (``_transport``, ``_registry`` ...).  This
+    only by a naming convention (``_http``, ``_registry``, ...).  This
     Protocol makes that contract explicit and checkable with ``isinstance``,
     so a rename in one facade is caught by type-checking rather than at
     runtime.  Kept intentionally thin — ponytail: the laziest interface that
     eliminates the shotgun rename.
+
+    Note: adapter-level pass-throughs live on ``BaseBroker._transport``
+    (a different layer); this port is the client-facade layer where the
+    mixins actually bind.
     """
 
     _registry: object
-    _transport: object
+    _http: object
 
 
 __all__ = [
