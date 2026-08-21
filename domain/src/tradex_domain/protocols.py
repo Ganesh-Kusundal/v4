@@ -219,8 +219,25 @@ class IndicatorComputer(Protocol):
     def indicator(self, series: object, name: str, **params: object) -> object: ...
 
 
+@runtime_checkable
+class BrokerClientPort(Protocol):
+    """Minimal shared surface for provider REST facades (SMELL-11).
+
+    The three client facades (Dhan, Upstox, Paper via adapter) were coupled
+    only by a naming convention (``_transport``, ``_registry`` ...).  This
+    Protocol makes that contract explicit and checkable with ``isinstance``,
+    so a rename in one facade is caught by type-checking rather than at
+    runtime.  Kept intentionally thin — ponytail: the laziest interface that
+    eliminates the shotgun rename.
+    """
+
+    _registry: object
+    _transport: object
+
+
 __all__ = [
     "BrokerAdapter",
+    "BrokerClientPort",
     "Clock",
     "ExtensionAdapter",
     "IndicatorComputer",

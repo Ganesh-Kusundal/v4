@@ -123,12 +123,16 @@ class TestRouting:
 # --------------------------------------------------------------------------- #
 
 class TestDhanIntradayWindowGuard:
-    def test_dhan_intraday_range_beyond_api_window_fails_loud(self):
-        """> 90-day M1 range, Dhan only → fail loud, no silent truncation."""
+    def test_dhan_intraday_range_beyond_api_window_auto_chunks(self):
+        """> 90-day M1 range, Dhan only → auto-chunked into 90d windows (was loud guard, now stitched)."""
         fetcher = ParallelHistoryFetcher({"dhan": _make_broker("dhan")})
         start, end = datetime(2026, 1, 1), datetime(2026, 5, 1)  # 120 days
-        with pytest.raises(SDKError, match="Dhan intraday history limited to"):
-            fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
+        dhan = _make_broker("dhan")
+        fetcher = ParallelHistoryFetcher({"dhan": dhan})
+        results = fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
+        assert len(results) == 1
+        # 120d / 90d cap = 2 windows, so 2 underlying history calls
+        assert dhan.history.call_count == 2
 
     def test_dhan_intraday_range_within_api_window_ok(self):
         """60-day M1 range, Dhan only → within 90-day window, fetches fine."""
@@ -144,15 +148,14 @@ class TestDhanIntradayWindowGuard:
         results = fetcher.fetch([INSTRUMENTS[0]], Timeframe.D1, start, end)
         assert len(results) == 1
 
-    def test_beyond_window_with_other_broker_available_still_guarded(self):
-        """> 90-day M1 range with dhan+upstox → Dhan is sole selected broker
-        for the range, so it still fails loud rather than truncating."""
-        fetcher = ParallelHistoryFetcher(
-            {"dhan": _make_broker("dhan"), "upstox": _make_broker("upstox")}
-        )
+    def test_beyond_window_with_other_broker_available_auto_chunks(self):
+        """> 90-day M1 range with dhan+upstox → Dhan is sole broker for the range, auto-chunked."""
+        dhan = _make_broker("dhan")
+        fetcher = ParallelHistoryFetcher({"dhan": dhan, "upstox": _make_broker("upstox")})
         start, end = datetime(2026, 1, 1), datetime(2026, 5, 1)  # 120 days
-        with pytest.raises(SDKError, match="Dhan intraday history limited to"):
-            fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
+        results = fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
+        assert len(results) == 1
+        assert dhan.history.call_count == 2
 
 
 # --------------------------------------------------------------------------- #

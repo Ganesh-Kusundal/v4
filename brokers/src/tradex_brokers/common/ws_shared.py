@@ -50,28 +50,15 @@ def row_to_quote(
             ts = datetime.fromisoformat(str(row["timestamp"]))
         except (ValueError, TypeError):
             ts = None
+    # ponytail: depth construction single-sourced via build_depth (SMELL-04)
     depth_obj: Depth | None = None
     if buys or sells:
-        # Normalize the book (bids price-descending, asks ascending) so the
-        # depth invariant ``Depth.best_bid/best_ask == [0]`` holds even if the
-        # provider streams levels out of order.
-        bid_levels = tuple(
-            sorted(
-                (level_pair(b) for b in buys),
-                key=lambda level: level[0].value,
-                reverse=True,
-            )
-        )
-        ask_levels = tuple(
-            sorted(
-                (level_pair(a) for a in sells),
-                key=lambda level: level[0].value,
-            )
-        )
-        depth_obj = Depth(
-            instrument=instrument,
-            bids=bid_levels,
-            asks=ask_levels,
+        from tradex_brokers.common.market_builders import build_depth
+
+        depth_obj = build_depth(
+            instrument,
+            bids_raw=[b for b in buys if isinstance(b, dict)],
+            asks_raw=[a for a in sells if isinstance(a, dict)],
             timestamp=ts,
         )
     metadata: dict[str, object] | None = None
