@@ -11,7 +11,7 @@ from tradex_domain import Candle, Clock, Fill, Quote, Signal
 from tradex_domain.enums import OrderStatus, OrderType
 from tradex_domain.events import OrderFilled, PlaceOrderCommand
 from tradex_domain.execution import OrderRequest
-from tradex_domain.utils import _q2
+from tradex_domain.utils import q2
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
 
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
@@ -461,7 +461,7 @@ class BacktestEngine:
                 ledger.restate(old_basis - new_basis)
             elif kind == "DIVIDEND":
                 per_share = Decimal(str(action.amount))
-                ledger.credit(_q2(per_share * existing.quantity.value))
+                ledger.credit(q2(per_share * existing.quantity.value))
                 position_manager.on_corporate_action(
                     instrument, "DIVIDEND", per_share=action.amount,
                 )

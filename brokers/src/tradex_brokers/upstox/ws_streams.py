@@ -30,7 +30,7 @@ from tradex_brokers.common.provider_common import instrument_from_id
 from tradex_brokers.common.ws_reconnect import AutoReconnectMixin
 from tradex_brokers.common.ws_shared import row_to_quote
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 WsFactory = Callable[[str], Any]
 MapOrder = Callable[[Mapping[str, Any]], Order]
@@ -173,13 +173,13 @@ class UpstoxPortfolioStreamBackend(AutoReconnectMixin):
                     if current:
                         self._ws = None
                 if not closing and current:
-                    logger.warning("upstox_portfolio_ws_recv_failed", exc_info=True)
+                    log.warning("upstox_portfolio_ws_recv_failed", exc_info=True)
                     self._schedule_reconnect()
                 return
             try:
                 self.feed_raw(raw)
             except Exception:  # noqa: BLE001
-                logger.warning("upstox_portfolio_frame_dispatch_failed", exc_info=True)
+                log.warning("upstox_portfolio_frame_dispatch_failed", exc_info=True)
 
     def feed_raw(self, raw: bytes | str) -> None:
         """Decode one JSON portfolio-stream frame and dispatch to handlers."""
@@ -202,25 +202,25 @@ class UpstoxPortfolioStreamBackend(AutoReconnectMixin):
             try:
                 order = self._map_order(payload)
             except Exception:  # noqa: BLE001
-                logger.warning("upstox_order_update_unmapped", exc_info=True)
+                log.warning("upstox_order_update_unmapped", exc_info=True)
                 return
             for handler in tuple(self._order_handlers.values()):
                 try:
                     handler(order)
                 except Exception:  # noqa: BLE001
-                    logger.warning("stream_handler_failed", exc_info=True)
+                    log.warning("stream_handler_failed", exc_info=True)
         elif "position" in update_type and self._map_position is not None:
             try:
                 position = self._map_position(payload)
             except Exception:  # noqa: BLE001
-                logger.warning("upstox_position_update_unmapped", exc_info=True)
+                log.warning("upstox_position_update_unmapped", exc_info=True)
                 return
             if position is not None:
                 for pos_handler in tuple(self._position_handlers.values()):
                     try:
                         pos_handler(position)
                     except Exception:  # noqa: BLE001
-                        logger.warning("stream_handler_failed", exc_info=True)
+                        log.warning("stream_handler_failed", exc_info=True)
 
 
 class UpstoxMarketDataStreamBackend(AutoReconnectMixin):
@@ -493,7 +493,7 @@ class UpstoxMarketDataStreamBackend(AutoReconnectMixin):
             try:
                 self._resubscribe(ws)
             except Exception:  # noqa: BLE001 — best-effort replay
-                logger.warning("stream reopen resubscribe failed", exc_info=True)
+                log.warning("stream reopen resubscribe failed", exc_info=True)
             if hasattr(ws, "recv"):
                 threading.Thread(target=self._receive_loop, daemon=True).start()
 
@@ -540,14 +540,14 @@ class UpstoxMarketDataStreamBackend(AutoReconnectMixin):
                     if current:
                         self._ws = None
                 if not closing and current:
-                    logger.warning("upstox_market_ws_recv_failed", exc_info=True)
+                    log.warning("upstox_market_ws_recv_failed", exc_info=True)
                     self._schedule_reconnect()
                 return
             try:
                 if isinstance(raw, (bytes, bytearray)):
                     self.feed_raw(bytes(raw))
             except Exception:  # noqa: BLE001
-                logger.warning("upstox_market_frame_dispatch_failed", exc_info=True)
+                log.warning("upstox_market_frame_dispatch_failed", exc_info=True)
 
     def _cached_instrument(self, key: str) -> Instrument | None:
         if key in self._instrument_cache:
@@ -573,13 +573,13 @@ class UpstoxMarketDataStreamBackend(AutoReconnectMixin):
                 try:
                     handler(quote)
                 except Exception:  # noqa: BLE001
-                    logger.warning("stream_handler_failed", exc_info=True)
+                    log.warning("stream_handler_failed", exc_info=True)
             if quote.depth is not None:
                 for depth_handler in tuple(self._depth_handlers.values()):
                     try:
                         depth_handler(quote.depth)
                     except Exception:  # noqa: BLE001
-                        logger.warning("stream_handler_failed", exc_info=True)
+                        log.warning("stream_handler_failed", exc_info=True)
 
 
 __all__ = [

@@ -10,7 +10,7 @@ from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import Money
 
 from tradex_trading.execution.position_math import (
-    _q2,
+    q2,
     apply_dividend,
     apply_fill,
     apply_split,
@@ -66,7 +66,7 @@ class PositionManager:
             instrument=existing.instrument,
             quantity=existing.quantity,
             avg_price=existing.avg_price,
-            realized_pnl=Money(amount=_q2(existing.realized_pnl.amount - fee.amount)),
+            realized_pnl=Money(amount=q2(existing.realized_pnl.amount - fee.amount)),
             unrealized_pnl=existing.unrealized_pnl,
         )
         self._cache.update_position(pos)

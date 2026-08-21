@@ -15,7 +15,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from tradex_domain.execution import Fill, Position
-from tradex_domain.utils import _q2
+from tradex_domain.utils import q2
 from tradex_domain.value_objects import Money, Price, Quantity
 
 
@@ -37,7 +37,7 @@ def apply_split(position: Position, ratio: Decimal) -> Position:
     return Position(
         instrument=position.instrument,
         quantity=Quantity(value=position.quantity.value * ratio),
-        avg_price=Price(value=_q2(position.avg_price.value / ratio)),
+        avg_price=Price(value=q2(position.avg_price.value / ratio)),
         realized_pnl=position.realized_pnl,
         unrealized_pnl=position.unrealized_pnl,
     )
@@ -56,7 +56,7 @@ def apply_dividend(position: Position, per_share: Decimal) -> Position:
         quantity=position.quantity,
         avg_price=position.avg_price,
         realized_pnl=Money(
-            amount=_q2(
+            amount=q2(
                 position.realized_pnl.amount + per_share * position.quantity.value
             )
         ),
@@ -112,7 +112,7 @@ def apply_fill(position: Position | None, fill: Fill) -> Position:
         instrument=fill.instrument,
         quantity=Quantity(value=new_qty),
         avg_price=Price(value=new_avg),
-        realized_pnl=Money(amount=_q2(realized)),
+        realized_pnl=Money(amount=q2(realized)),
         unrealized_pnl=Money(amount=Decimal("0")),  # updated when quotes arrive
     )
 

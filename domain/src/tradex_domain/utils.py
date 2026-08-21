@@ -19,9 +19,4 @@ def q2(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-# Legacy alias kept for backward compatibility with private imports
-# in ``fees.py`` and ``position_math.py`` (``from ... import _q2``).
-_q2 = q2
-
-
-__all__ = ["q2", "_q2"]
+__all__ = ["q2"]

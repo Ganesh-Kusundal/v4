@@ -32,7 +32,7 @@ from tradex_brokers.common.ws_shared import row_to_quote
 from tradex_brokers.dhan.client import dhan_segment
 from tradex_brokers.dhan.tick_parser import SEGMENT_EXCHANGE, parse_tick_frame
 
-logger = logging.getLogger(__name__)
+log = logging.getLogger(__name__)
 
 WsFactory = Callable[[str], Any]
 MapOrder = Callable[[Mapping[str, Any]], Order]
@@ -156,13 +156,13 @@ class DhanOrderStreamBackend(AutoReconnectMixin):
                     if current:
                         self._ws = None
                 if not closing and current:
-                    logger.warning("dhan_order_ws_recv_failed", exc_info=True)
+                    log.warning("dhan_order_ws_recv_failed", exc_info=True)
                     self._schedule_reconnect()
                 return
             try:
                 self.feed_raw(raw)
             except Exception:  # noqa: BLE001
-                logger.warning("dhan_order_frame_dispatch_failed", exc_info=True)
+                log.warning("dhan_order_frame_dispatch_failed", exc_info=True)
 
     def feed_raw(self, raw: bytes | str) -> None:
         """Decode one JSON order-update frame (single row or list) and dispatch."""
@@ -184,13 +184,13 @@ class DhanOrderStreamBackend(AutoReconnectMixin):
             try:
                 order = self._map_order(row)
             except Exception:  # noqa: BLE001
-                logger.warning("dhan_order_update_unmapped", exc_info=True)
+                log.warning("dhan_order_update_unmapped", exc_info=True)
                 continue
             for handler in tuple(self._order_handlers.values()):
                 try:
                     handler(order)
                 except Exception:  # noqa: BLE001
-                    logger.warning("stream_handler_failed", exc_info=True)
+                    log.warning("stream_handler_failed", exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -349,7 +349,7 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
             try:
                 self._resubscribe(ws)
             except Exception:  # noqa: BLE001 — best-effort replay
-                logger.warning("stream reopen resubscribe failed", exc_info=True)
+                log.warning("stream reopen resubscribe failed", exc_info=True)
             if hasattr(ws, "recv"):
                 threading.Thread(target=self._receive_loop, daemon=True).start()
 
@@ -391,13 +391,13 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
                     if current:
                         self._ws = None
                 if not closing and current:
-                    logger.warning("dhan_market_ws_recv_failed", exc_info=True)
+                    log.warning("dhan_market_ws_recv_failed", exc_info=True)
                     self._schedule_reconnect()
                 return
             try:
                 self.feed_raw(raw)
             except Exception:  # noqa: BLE001
-                logger.warning("dhan_market_frame_dispatch_failed", exc_info=True)
+                log.warning("dhan_market_frame_dispatch_failed", exc_info=True)
 
     def _cached_instrument(
         self, key: str, segment: int | None = None
@@ -443,7 +443,7 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
             try:
                 handler(quote)
             except Exception:  # noqa: BLE001
-                logger.warning("stream_handler_failed", exc_info=True)
+                log.warning("stream_handler_failed", exc_info=True)
 
     def _handle_server_disconnect(self) -> None:
         """Close the socket on a server disconnect frame and schedule reconnect.
@@ -474,7 +474,7 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
             row = parse_tick_frame(bytes(raw))
             if row is not None:
                 if row.get("type") == "disconnect":
-                    logger.warning(
+                    log.warning(
                         "dhan_market_feed_disconnect code=%s", row.get("error_code")
                     )
                     self._handle_server_disconnect()
@@ -508,7 +508,7 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
             try:
                 handler(quote)
             except Exception:  # noqa: BLE001
-                logger.warning("stream_handler_failed", exc_info=True)
+                log.warning("stream_handler_failed", exc_info=True)
 
 
 class DhanDepthStreamBackend(AutoReconnectMixin):
@@ -648,7 +648,7 @@ class DhanDepthStreamBackend(AutoReconnectMixin):
             try:
                 self._resubscribe(ws)
             except Exception:  # noqa: BLE001 — best-effort replay
-                logger.warning("stream reopen resubscribe failed", exc_info=True)
+                log.warning("stream reopen resubscribe failed", exc_info=True)
             if hasattr(ws, "recv"):
                 threading.Thread(target=self._receive_loop, daemon=True).start()
 
@@ -689,14 +689,14 @@ class DhanDepthStreamBackend(AutoReconnectMixin):
                     if current:
                         self._ws = None
                 if not closing and current:
-                    logger.warning("dhan_depth_ws_recv_failed", exc_info=True)
+                    log.warning("dhan_depth_ws_recv_failed", exc_info=True)
                     self._schedule_reconnect()
                 return
             try:
                 if isinstance(raw, (bytes, bytearray)):
                     self.feed_raw(bytes(raw))
             except Exception:  # noqa: BLE001
-                logger.warning("dhan_depth_frame_dispatch_failed", exc_info=True)
+                log.warning("dhan_depth_frame_dispatch_failed", exc_info=True)
 
     def _cached_instrument(self, key: str) -> Instrument | None:
         if key in self._instrument_cache:
@@ -743,7 +743,7 @@ class DhanDepthStreamBackend(AutoReconnectMixin):
                 try:
                     handler(depth)
                 except Exception:  # noqa: BLE001
-                    logger.warning("stream_handler_failed", exc_info=True)
+                    log.warning("stream_handler_failed", exc_info=True)
 
 
 __all__ = [

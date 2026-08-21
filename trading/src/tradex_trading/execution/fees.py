@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from tradex_domain.enums import OrderSide
 from tradex_domain.execution import Fill
-from tradex_domain.utils import _q2
+from tradex_domain.utils import q2
 from tradex_domain.value_objects import Money
 
 # ---------------------------------------------------------------------------
@@ -166,7 +166,7 @@ class FeeCalculator:
         stt = (
             Decimal(0)
             if side is OrderSide.BUY
-            else _q2(turnover * _STT_DELIVERY_SELL)
+            else q2(turnover * _STT_DELIVERY_SELL)
         )
         return FeeCalculator._common(turnover, stt)
 
@@ -184,7 +184,7 @@ class FeeCalculator:
         stt = (
             Decimal(0)
             if side is OrderSide.BUY
-            else _q2(turnover * _STT_INTRADAY_SELL)
+            else q2(turnover * _STT_INTRADAY_SELL)
         )
         return FeeCalculator._common(turnover, stt)
 
@@ -195,11 +195,11 @@ class FeeCalculator:
         broker_fee is the *pure* capped brokerage (Rs 20 cap).  SEBI and stamp
         duty are included for full parity with the legacy path.
         """
-        brokerage = _q2(min(turnover * _BROKERAGE_RATE, _BROKERAGE_CAP))
-        exchange = _q2(turnover * _EXCHANGE_RATE)
-        sebi = _q2(turnover * _SEBI_RATE)
-        stamp = _q2(turnover * _STAMP_DUTY_RATE)
-        gst = _q2((brokerage + exchange + sebi) * _GST_RATE)
+        brokerage = q2(min(turnover * _BROKERAGE_RATE, _BROKERAGE_CAP))
+        exchange = q2(turnover * _EXCHANGE_RATE)
+        sebi = q2(turnover * _SEBI_RATE)
+        stamp = q2(turnover * _STAMP_DUTY_RATE)
+        gst = q2((brokerage + exchange + sebi) * _GST_RATE)
         return FeeBreakdown(
             broker_fee=brokerage,
             exchange_fee=exchange,

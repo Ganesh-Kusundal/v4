@@ -42,6 +42,9 @@ from tradex_domain.timeframe import UPSTOX_MINUTE as _UPSTOX_MINUTE_TIMEFRAMES
 
 log = logging.getLogger(__name__)
 
+#: Rate-limiter acquire timeout (seconds) — single-sourced [REF-10a].
+ACQUIRE_TIMEOUT_S = 30.0
+
 # ponytail: 30-day threshold.  Dhan serves 90 days/call, Upstox 1 month.
 # Below 30 days both brokers are equally efficient per-call, so splitting
 # instruments across N brokers gives ~Nx throughput.  Above 30 days Dhan's
@@ -221,7 +224,7 @@ class ParallelHistoryFetcher:
             for ws, we in windows:
                 # Rate-limit per window call (was per-instrument before)
                 limiter = self._limiters[broker_name]
-                if not limiter.acquire("historical", timeout=30.0):
+                if not limiter.acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
                     log.warning("rate-limit gate timed out for %s via %s — proceeding anyway", inst.instrument_id, broker_name)
                 part = _call_history(broker, inst, s=ws, e=we)
                 if part is not None and part.candles:
@@ -253,7 +256,7 @@ class ParallelHistoryFetcher:
                     # Empty stitched result -> let failover try (if any), else record error below
                     # Fall through to failover loop without marking broker as failed yet
                     raise RuntimeError(f"{broker_name}: empty stitched series for {inst.instrument_id}")
-                if not limiter.acquire("historical", timeout=30.0):
+                if not limiter.acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
                     log.warning(
                         "ParallelHistoryFetcher: rate-limit gate timed out for "
                         "%s via %s — proceeding anyway",
@@ -282,7 +285,7 @@ class ParallelHistoryFetcher:
                         windows = _date_windows(start, end, max_days=other_cap)
                         stitched2: list = []
                         for ws, we in windows:
-                            if not self._limiters[other_name].acquire("historical", timeout=30.0):
+                            if not self._limiters[other_name].acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
                                 log.warning("rate-limit gate timed out for %s via %s — proceeding anyway", inst.instrument_id, other_name)
                             part2 = _call_history(other_broker, inst, s=ws, e=we)
                             if part2 is not None and part2.candles:
@@ -300,7 +303,7 @@ class ParallelHistoryFetcher:
                                 results[str(inst.instrument_id)] = series
                             return
                         raise RuntimeError(f"{other_name}: empty stitched failover for {inst.instrument_id}")
-                    if not self._limiters[other_name].acquire("historical", timeout=30.0):
+                    if not self._limiters[other_name].acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
                         log.warning(
                             "ParallelHistoryFetcher: rate-limit gate timed out for "
                             "%s via %s — proceeding anyway",
