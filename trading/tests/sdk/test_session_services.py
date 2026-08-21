@@ -913,14 +913,6 @@ class TestTradingSessionLifecycle:
         with pytest.raises(SessionStateError):
             _ = session.trade
 
-    def test_account_alias(self) -> None:
-        """session.account is the portfolio facade (positions/funds/holdings)."""
-        session = _make_session()
-        assert session.account is session.portfolio
-        assert isinstance(session.account.positions(), list)
-        assert isinstance(session.account.holdings(), list)
-        assert "available_cash" in session.account.funds()
-
     def test_instrument_factories_work_in_any_state(self) -> None:
         """Instrument factories are pure value constructors (D-1)."""
         from tradex_trading.execution.engine import ExecutionEngine

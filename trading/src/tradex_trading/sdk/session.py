@@ -209,18 +209,6 @@ class TradingSession:
         self._check_ready()
         return PortfolioService(self._broker, self._cache)
 
-    @property
-    def account(self) -> PortfolioService:
-        """Account/portfolio facade — positions, holdings, funds.
-
-        Alias of :attr:`portfolio` so ``session.account.positions()``,
-        ``session.account.funds()`` and ``session.account.holdings()`` read
-        the same surface as ``session.portfolio.*`` (v3-style convenience;
-        ``session.portfolio.account()`` remains the canonical account
-        snapshot call).
-        """
-        return self.portfolio
-
     @cached_property
     def stream(self) -> StreamService:
         """StreamService — reactive market data, order, and position streams."""
