@@ -95,7 +95,13 @@ class RuntimeContext:
             close_fn()
 
 
-def boot(config: AppConfig | None = None) -> TradingSession:
+def boot(
+    config: AppConfig | None = None,
+    *,
+    bus: ReactiveBus | ThreadSafeReactiveBus | None = None,
+    broker: Any | None = None,
+    wire_strategies: bool = True,
+) -> TradingSession:
     """Fail-closed boot: compose all components into a ready TradingSession.
 
     This is the composition root — the ONLY place that wires everything together.
@@ -135,11 +141,13 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # interface (build_broker_from_env) — BrokerFactory.create builds a
     # transport-less adapter whose REST calls raise "broker not connected".
     # Paper/backtest/replay keep the factory (paper is transport-less by design).
-    if cfg.mode == "live":
-        from tradex_trading.runtime.live import build_broker_from_env
-        broker = build_broker_from_env(cfg.broker_id.value)
-    else:
-        broker = BrokerFactory.create(cfg.broker_id)
+    # An injected broker (seam for tests and the SDK factories) wins.
+    if broker is None:
+        if cfg.mode == "live":
+            from tradex_trading.runtime.live import build_broker_from_env
+            broker = build_broker_from_env(cfg.broker_id.value)
+        else:
+            broker = BrokerFactory.create(cfg.broker_id)
 
     # 2. Create metrics registry
     metrics = MetricsRegistry()
@@ -149,10 +157,11 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # concurrently, and a plain RxPY Subject must never be driven from two
     # threads at once. The feed thread's own quote → pipeline chain is
     # reentrant on the same thread, so the lock never delays it.
-    bus: ReactiveBus | ThreadSafeReactiveBus = ReactiveBus(metrics=metrics)
-    if cfg.mode == "live":
-        # bus is still the plain ReactiveBus just created above.
-        bus = ThreadSafeReactiveBus(cast(ReactiveBus, bus))
+    if bus is None:
+        bus = ReactiveBus(metrics=metrics)
+        if cfg.mode == "live":
+            # bus is still the plain ReactiveBus just created above.
+            bus = ThreadSafeReactiveBus(cast(ReactiveBus, bus))
 
     # 3b. Execution costs — the SAME slippage + fee models used by
     # BacktestEngine when callers configure them (HIGH-6b parity: backtest and
@@ -209,11 +218,13 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # Discovery already isinstance-filters against the Strategy protocol, so
     # registration cannot realistically fail; any error still aborts boot
     # (fail-closed — nothing is swallowed).
-    strategy_engine = ReactiveStrategyEngine(
-        bus, fill_reference=cfg.execution.fill_reference,
-    )
-    for strategy in all_strategies:
-        strategy_engine.register(strategy)
+    strategy_engine: Any = None
+    if wire_strategies:
+        strategy_engine = ReactiveStrategyEngine(
+            bus, fill_reference=cfg.execution.fill_reference,
+        )
+        for strategy in all_strategies:
+            strategy_engine.register(strategy)
 
     # 7. Connect broker (loads instruments/registry for live brokers)
     broker.connect()
@@ -266,12 +277,14 @@ def boot(config: AppConfig | None = None) -> TradingSession:
     # ScannerService can run every auto-discovered extension scanner.
     # Backtest/replay modes scan the local parquet datalake (offline, full
     # Nifty universe) instead of the broker; paper/live keep live data.
-    if cfg.mode in ("backtest", "replay"):
-        from tradex_trading.datalake.market_provider import ParquetMarketProvider
-        scanner_market: Any = ParquetMarketProvider()
-    else:
-        scanner_market = broker
-    scanner_engine = ScannerEngine(market=scanner_market)
+    scanner_engine: Any = None
+    if wire_strategies:
+        if cfg.mode in ("backtest", "replay"):
+            from tradex_trading.datalake.market_provider import ParquetMarketProvider
+            scanner_market: Any = ParquetMarketProvider()
+        else:
+            scanner_market = broker
+        scanner_engine = ScannerEngine(market=scanner_market)
 
     # 7d. Backtest loader — backtest/replay modes expose an offline datalake
     # backtest tool on the session: ``session.backtest.load()``/``.run()``
@@ -284,6 +297,27 @@ def boot(config: AppConfig | None = None) -> TradingSession:
 
     # 8. Create session — strategies registered, scanners bound into the
     # ScannerService (definitions) so ``session.scanner.run_all()`` works.
+    # Live mode additionally wires the market feed and the daily master
+    # refresh scheduler HERE (moved from ``TradingSession.live`` — the
+    # composition root owns all wiring [REF-6]). The scheduler is started
+    # only after the session is READY.
+    market_feed: Any = None
+    master_scheduler: Any = None
+    if cfg.mode == "live":
+        from tradex_trading.runtime.master_lifecycle import (
+            InstrumentRefreshScheduler,
+            MasterLoader,
+        )
+        from tradex_trading.runtime.market_feed import MarketFeed
+
+        market_feed = MarketFeed(broker=broker, bus=bus)
+        loader = getattr(broker, "master_loader", None)
+        refresh_hook = getattr(broker, "ensure_master_fresh", None)
+        if isinstance(loader, MasterLoader) and callable(refresh_hook):
+            master_scheduler = InstrumentRefreshScheduler(
+                cfg.broker_id.value.lower(), refresh_hook
+            )
+
     session = TradingSession(
         broker=broker,
         bus=bus,
@@ -292,15 +326,20 @@ def boot(config: AppConfig | None = None) -> TradingSession:
         broker_id=cfg.broker_id,
         mode=cfg.mode,
         scanner_engine=scanner_engine,
-        scanner_definitions=all_scanners,
+        scanner_definitions=all_scanners if wire_strategies else (),
         strategy_engine=strategy_engine,
         stream_backend=stream_backend,
         backtest_loader=backtest_loader,
         fill_bridge=fill_bridge,
+        market_feed=market_feed,
+        master_scheduler=master_scheduler,
     )
 
-    # 9. Start session
+    # 9. Start session, then the refresh daemon (started last so nothing
+    # after it can strand it).
     session.start()
+    if master_scheduler is not None:
+        master_scheduler.start()
 
     log.info("Runtime context ready")
     return session

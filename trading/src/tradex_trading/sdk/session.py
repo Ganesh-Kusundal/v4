@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 from functools import cached_property
-from typing import Any, cast
+from typing import Any
 
 from tradex_domain import BrokerId, SessionStateError
 from tradex_domain.capabilities import BrokerCapabilities
@@ -28,7 +29,6 @@ from tradex_domain.value_objects import Price
 
 from tradex_trading.config.schema import AppConfig
 from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fees import FeeCalculator
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
@@ -322,45 +322,21 @@ class TradingSession:
         TradingSession
             A session configured for paper trading.
         """
-        # ponytail: wiring overlaps with runtime.startup.boot() — extract to
-        # shared builder if a third factory appears.
+        # Thin wrapper over the single composition root [REF-6]: the broker
+        # is injected so paper() keeps its always-simulated semantics even
+        # for a non-PAPER label; everything else is boot()'s wiring.
         from tradex_brokers.paper.adapter import PaperBroker
 
-        from tradex_trading.execution.fill_sources import PaperFillSource
-        from tradex_trading.execution.slippage import PercentageSlippageModel
+        from tradex_trading.runtime.startup import boot
 
         cfg = config or AppConfig()
-        slippage_model: object | None = None
-        if cfg.execution.slippage_bps is not None:
-            slippage_model = PercentageSlippageModel(
-                pct=cfg.execution.slippage_bps / Decimal("10000"),
-            )
-        fee_calculator = (
-            FeeCalculator() if cfg.execution.fees_enabled else None
-        )
-        broker = PaperBroker()
-        _bus = bus or ReactiveBus()
-        _engine = ExecutionEngine(
-            bus=_bus,
-            fill_source=PaperFillSource(slippage_model=slippage_model),
-            fee_calculator=fee_calculator,
-        )
-        session = cls(
-            broker=broker,
-            bus=_bus,
-            engine=_engine,
-            # Mirrors ``runtime.startup.boot``: the session shares the engine's
-            # OMS cache so fills/positions land where ``portfolio.positions()``
-            # and the HTTP API read them (a second cache would silently show
-            # empty positions/orders).
-            cache=_engine.cache,
+        cfg = replace(
+            cfg,
+            mode="paper",
             broker_id=BrokerId(broker_id) if broker_id else BrokerId.PAPER,
         )
-        # Mirrors ``TradingSession.live()`` and ``runtime.startup.boot``: every
-        # factory returns a READY session so its services are usable without an
-        # explicit ``start()``. The raw constructor stays NEW by design.
-        session.start()
-        return session
+        # Historical minimal component set: no reactive strategy/scanner wiring.
+        return boot(cfg, bus=bus, broker=PaperBroker(), wire_strategies=False)
 
     @property
     def market_feed(self) -> Any | None:
@@ -421,87 +397,18 @@ class TradingSession:
                 "Pass confirm=True to proceed."
             )
 
-        # ponytail: wiring overlaps with runtime.startup.boot() — extract to
-        # shared builder if a third factory appears.
-        from tradex_trading.execution.fill_sources import BrokerFillSource
-        from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
-        from tradex_trading.runtime.live import build_broker_from_env
+        # Thin wrapper over the single composition root [REF-6]: boot() owns
+        # broker construction (env auth), the thread-safe bus, fill source,
+        # stream backend, fill bridge, market feed and master scheduler.
+        from tradex_trading.runtime.startup import boot
 
-        broker = build_broker_from_env(broker_id.value)
-        # Thread-safe bus: live ticks arrive on the broker feed thread while
-        # engine workers and API callers publish concurrently — serializing
-        # publishes (RLock) prevents Subject delivery from interleaving.
-        _bus = bus or ThreadSafeReactiveBus()
-        _engine = ExecutionEngine(bus=_bus, fill_source=BrokerFillSource(broker=broker))
-        from tradex_trading.runtime.market_feed import MarketFeed
-
-        # Load the instrument master (registry) so feed subscriptions resolve
-        # provider keys. Mirrors ``runtime.startup.boot`` which connects the
-        # broker before starting the session.
-        broker.connect()
-        # Bind the order/portfolio stream backend so
-        # session.stream.subscribe_orders/positions reaches the broker
-        # WebSocket. Degrades to None if the broker exposes no backend.
-        stream_backend = None
-        try:
-            sb = getattr(broker, "stream_backend", None)
-            if callable(sb):
-                stream_backend = sb()
-        except Exception:  # noqa: BLE001 – best-effort wiring
-            stream_backend = None
-
-        # Live fill bridge: translate broker order-stream updates into bus
-        # OrderFilled events so live fills reach the OMS (HIGH-4). Best-effort
-        # — no bridge, no live fills, but boot never fails on it.
-        fill_bridge = None
-        if stream_backend is not None and hasattr(
-            stream_backend, "subscribe_orders"
-        ):
-            try:
-                from tradex_trading.sdk.live_fill_bridge import LiveFillBridge
-
-                fill_bridge = LiveFillBridge(
-                    _bus, _engine, stream_backend.subscribe_orders,
-                    unsubscribe=getattr(stream_backend, "unsubscribe", None),
-                )
-            except Exception:  # noqa: BLE001 – best-effort wiring
-                log.warning("live fill bridge unavailable: %s", exc_info=True)
-                fill_bridge = None
-
-        # Daily master refresh (v3 parity): only when the broker carries a
-        # cached master loader. The scheduler is constructed before the
-        # session (passed via the constructor — no post-init private
-        # mutation [REF-5]) but started AFTER session.start(), so nothing
-        # after it can strand the daemon. Best-effort — the warm load already
-        # ran on ``broker.connect()``; failures are counted, never raised.
-        # The ``isinstance`` guard keeps test doubles (MagicMock brokers) out.
-        from tradex_trading.runtime.master_lifecycle import InstrumentRefreshScheduler, MasterLoader
-
-        loader = getattr(broker, "master_loader", None)
-        refresh_hook = getattr(broker, "ensure_master_fresh", None)
-        scheduler: InstrumentRefreshScheduler | None = None
-        if isinstance(loader, MasterLoader) and callable(refresh_hook):
-            scheduler = InstrumentRefreshScheduler(broker_id.value.lower(), refresh_hook)
-
-        session = cls(
-            broker=cast(BrokerAdapter, broker),
-            bus=_bus,
-            engine=_engine,
-            # Mirrors ``runtime.startup.boot``: share the engine's OMS cache.
-            cache=_engine.cache,
+        cfg = AppConfig(
             broker_id=broker_id,
-            stream_backend=stream_backend,
-            fill_bridge=fill_bridge,
-            market_feed=MarketFeed(broker=broker, bus=_bus),
-            master_scheduler=scheduler,
+            mode="live",
+            live_enabled=True,
         )
-        # Mirrors ``runtime.startup.boot``: a live session must be READY for
-        # its services (market/stream/trade) to be accessible.
-        session.start()
-        # Started last so nothing after it can strand the daemon.
-        if scheduler is not None:
-            scheduler.start()
-        return session
+        return boot(cfg, bus=bus, wire_strategies=False)
+
 
     # --- Context manager protocol ---
 
