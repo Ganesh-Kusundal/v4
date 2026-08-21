@@ -25,6 +25,7 @@ from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.base import BaseBroker
+from tradex_brokers.common.endpoints import DHAN_REST_BASE_URL
 from tradex_brokers.common.provider_common import (
     future_chain_from_master,
     option_chain_from_master,
@@ -74,7 +75,7 @@ class DhanBroker(BaseBroker):
         client_id: str = "",
         access_token: str | None = None,
         token_manager: TokenLifecyclePort | None = None,
-        base_url: str = "https://api.dhan.co/v2",
+        base_url: str = DHAN_REST_BASE_URL,
         allow_order_operations: bool = True,
         instrument_loader: Callable[[], Iterable[Mapping[str, Any]]] | None = None,
         **http_options: Any,

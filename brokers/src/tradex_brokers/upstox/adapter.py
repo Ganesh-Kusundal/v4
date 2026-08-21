@@ -25,6 +25,11 @@ from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.base import BaseBroker
+from tradex_brokers.common.endpoints import (
+    UPSTOX_HFT_BASE_URL,
+    UPSTOX_REST_BASE_URL,
+    UPSTOX_V3_BASE_URL,
+)
 from tradex_brokers.common.provider_common import option_chain_from_master
 from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 from tradex_brokers.upstox.client import UpstoxApiClient
@@ -74,9 +79,9 @@ class UpstoxBroker(BaseBroker):
         registry: InstrumentRegistry | None = None,
         access_token: str = "",
         token_manager: TokenLifecyclePort | None = None,
-        base_url: str = "https://api.upstox.com/v2",
-        base_hft: str = "https://api-hft.upstox.com/v3",
-        base_v3: str = "https://api.upstox.com/v3",
+        base_url: str = UPSTOX_REST_BASE_URL,
+        base_hft: str = UPSTOX_HFT_BASE_URL,
+        base_v3: str = UPSTOX_V3_BASE_URL,
         allow_order_operations: bool = True,
         instrument_loader: Callable[[], Iterable[Mapping[str, Any]]] | None = None,
         **http_options: Any,

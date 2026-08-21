@@ -28,6 +28,13 @@ from tradex_brokers.common import (
     upstox_refresh_mint,
     upstox_totp_mint,
 )
+from tradex_brokers.common.endpoints import (
+    DHAN_REST_BASE_URL,
+    DHAN_SANDBOX_REST_BASE_URL,
+    UPSTOX_HFT_BASE_URL,
+    UPSTOX_REST_BASE_URL,
+    UPSTOX_V3_BASE_URL,
+)
 from tradex_brokers.common.transport import Fetch
 from tradex_brokers.dhan.master import dhan_master_download, parse_dhan_master
 from tradex_brokers.upstox.master import parse_upstox_master, upstox_master_download
@@ -228,26 +235,26 @@ def resolve_fetch(timeout: float = 30.0) -> Fetch:
 
 def _dhan_base(environment: str) -> str:
     if environment == "SANDBOX":
-        return os.environ.get("DHAN_SANDBOX_REST_BASE_URL", "https://sandbox.dhan.co/v2").rstrip(
-            "/"
-        )
+        return os.environ.get(
+            "DHAN_SANDBOX_REST_BASE_URL", DHAN_SANDBOX_REST_BASE_URL
+        ).rstrip("/")
     return _env_with_deprecated_fallback(
-        "DHAN_REST_BASE_URL", "DHAN_BASE_URL", "https://api.dhan.co/v2"
+        "DHAN_REST_BASE_URL", "DHAN_BASE_URL", DHAN_REST_BASE_URL
     ).rstrip("/")
 
 
 def _upstox_bases(environment: str) -> tuple[str, str, str]:
     prefix = "UPSTOX_SANDBOX_" if environment == "SANDBOX" else "UPSTOX_"
-    base_url = os.environ.get(f"{prefix}BASE_URL", "https://api.upstox.com/v2").rstrip("/")
+    base_url = os.environ.get(f"{prefix}BASE_URL", UPSTOX_REST_BASE_URL).rstrip("/")
     if environment == "SANDBOX":
-        base_hft = os.environ.get("UPSTOX_SANDBOX_BASE_HFT", "https://api-hft.upstox.com/v3")
-        base_v3 = os.environ.get("UPSTOX_SANDBOX_BASE_V3", "https://api.upstox.com/v3")
+        base_hft = os.environ.get("UPSTOX_SANDBOX_BASE_HFT", UPSTOX_HFT_BASE_URL)
+        base_v3 = os.environ.get("UPSTOX_SANDBOX_BASE_V3", UPSTOX_V3_BASE_URL)
     else:
         base_hft = _env_with_deprecated_fallback(
-            "UPSTOX_BASE_HFT", "UPSTOX_HFT_BASE_URL", "https://api-hft.upstox.com/v3"
+            "UPSTOX_BASE_HFT", "UPSTOX_HFT_BASE_URL", UPSTOX_HFT_BASE_URL
         )
         base_v3 = _env_with_deprecated_fallback(
-            "UPSTOX_BASE_V3", "UPSTOX_V3_BASE_URL", "https://api.upstox.com/v3"
+            "UPSTOX_BASE_V3", "UPSTOX_V3_BASE_URL", UPSTOX_V3_BASE_URL
         )
     return base_url, base_hft.rstrip("/"), base_v3.rstrip("/")
 

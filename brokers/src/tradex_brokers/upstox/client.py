@@ -35,6 +35,12 @@ from tradex_brokers.common.client_shared import (
     correlation_id,
     parse_timestamp_fallback,
 )
+from tradex_brokers.common.endpoints import (
+    UPSTOX_HFT_BASE_URL,
+    UPSTOX_REST_BASE_URL,
+    UPSTOX_V3_BASE_URL,
+)
+
 from tradex_brokers.common.provider_client import ProviderHttpClient
 from tradex_brokers.common.provider_common import (
     as_decimal,
@@ -69,9 +75,9 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
         registry: InstrumentRegistry,
         access_token: str = "",
         token_manager: TokenLifecyclePort | None = None,
-        base_url: str = "https://api.upstox.com/v2",
-        base_hft: str = "https://api-hft.upstox.com/v3",
-        base_v3: str = "https://api.upstox.com/v3",
+        base_url: str = UPSTOX_REST_BASE_URL,
+        base_hft: str = UPSTOX_HFT_BASE_URL,
+        base_v3: str = UPSTOX_V3_BASE_URL,
         **http_options: Any) -> UpstoxApiClient:
         """Build a client around an injected fetch and optional token manager."""
 
@@ -104,9 +110,9 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
         http: ProviderHttpClient,
         registry: InstrumentRegistry,
         access_token: str = "",
-        base_url: str = "https://api.upstox.com/v2",
-        base_hft: str = "https://api-hft.upstox.com/v3",
-        base_v3: str = "https://api.upstox.com/v3",
+        base_url: str = UPSTOX_REST_BASE_URL,
+        base_hft: str = UPSTOX_HFT_BASE_URL,
+        base_v3: str = UPSTOX_V3_BASE_URL,
         ws_fetch: Callable[..., tuple[int, Any]] | None = None,
         ws_token_provider: Callable[[], str] | None = None) -> None:
         self._http = http

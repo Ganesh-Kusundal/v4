@@ -33,6 +33,7 @@ from tradex_brokers.common.client_shared import (
     correlation_id,
     parse_timestamp_fallback,
 )
+from tradex_brokers.common.endpoints import DHAN_REST_BASE_URL
 from tradex_brokers.common.provider_client import ProviderHttpClient
 from tradex_brokers.common.provider_common import (
     as_decimal,
@@ -117,7 +118,7 @@ _first_mapping = first_mapping
 class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
     """Dhan REST endpoint implementation for the v4 broker adapter."""
 
-    BASE_URL = "https://api.dhan.co/v2"
+    BASE_URL = DHAN_REST_BASE_URL
 
     @classmethod
     def from_fetch(
@@ -128,7 +129,7 @@ class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
         client_id: str = "",
         access_token: str | None = None,
         token_manager: TokenLifecyclePort | None = None,
-        base_url: str = "https://api.dhan.co/v2",
+        base_url: str = DHAN_REST_BASE_URL,
         **http_options: Any) -> DhanApiClient:
         """Build a client around an injected fetch and optional token manager."""
 
