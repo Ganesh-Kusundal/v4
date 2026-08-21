@@ -15,6 +15,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
+
 
 def clean_parquet_file(path: Path) -> tuple[int, int]:
     """Filter a single parquet file to market hours. Returns (before, after) row counts."""
@@ -25,12 +27,11 @@ def clean_parquet_file(path: Path) -> tuple[int, int]:
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-    # NSE market hours: 9:15 - 15:30
-    mask = (
-        ((df["timestamp"].dt.hour == 9) & (df["timestamp"].dt.minute >= 15))
-        | ((df["timestamp"].dt.hour >= 10) & (df["timestamp"].dt.hour < 15))
-        | ((df["timestamp"].dt.hour == 15) & (df["timestamp"].dt.minute <= 30))
-    )
+    # NSE market hours, single-sourced from domain/market_calendar.py.
+    # ponytail: boundary seconds differ from the old hour/minute mask only for
+    # sub-minute timestamps; 1-min bars sit on :00 so this is equivalent.
+    t = df["timestamp"].dt.time
+    mask = (t >= MARKET_OPEN) & (t <= MARKET_CLOSE)
     cleaned = df[mask]
     after = len(cleaned)
 

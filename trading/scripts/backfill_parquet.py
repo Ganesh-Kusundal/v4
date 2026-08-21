@@ -53,14 +53,12 @@ def _date_args(months: int) -> tuple[datetime, datetime]:
 
 def _series_to_frame(series, symbol: str) -> pd.DataFrame:
     """Convert a HistoricalSeries to a DataFrame for ParquetStorage.upsert."""
-    from datetime import timezone, timedelta
-    ist = timezone(timedelta(hours=5, minutes=30))
+    from tradex_domain.market_calendar import to_ist_naive
+
     rows = []
     for c in series.candles:
-        ts = c.timestamp
         # Convert tz-aware timestamps to IST (datalake contract: tz-naive IST)
-        if ts.tzinfo is not None:
-            ts = ts.astimezone(ist).replace(tzinfo=None)
+        ts = to_ist_naive(c.timestamp)
         rows.append({
             "symbol": symbol,
             "exchange": str(c.instrument.exchange),
