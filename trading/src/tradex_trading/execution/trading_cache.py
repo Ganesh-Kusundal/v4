@@ -33,6 +33,19 @@ class _ReadWriteLock:
         self._readers = 0
         self._writer = False
 
+    def acquire_write(self) -> None:
+        """Block until exclusive write access is granted."""
+        with self._cond:
+            while self._writer or self._readers > 0:
+                self._cond.wait()
+            self._writer = True
+
+    def release_write(self) -> None:
+        """Release exclusive write access and wake waiters."""
+        with self._cond:
+            self._writer = False
+            self._cond.notify_all()
+
     def reader(self):
         """Return a context manager for a read lock."""
 
@@ -62,15 +75,10 @@ class _ReadWriteLock:
                 self._lock = lock
 
             def __enter__(self) -> None:
-                with self._lock._cond:
-                    while self._lock._writer or self._lock._readers > 0:
-                        self._lock._cond.wait()
-                    self._lock._writer = True
+                self._lock.acquire_write()
 
             def __exit__(self, *exc: object) -> None:
-                with self._lock._cond:
-                    self._lock._writer = False
-                    self._lock._cond.notify_all()
+                self._lock.release_write()
 
         return _Writer(self)
 

@@ -105,6 +105,18 @@ class ReactiveStrategyEngine:
             return result
         return handler
 
+    def pending_snapshot(self) -> tuple[dict, ...]:
+        """Read-only view of deferred next_open orders (backtest bridge) [REF-5].
+
+        Public seam replacing the former ``strategy_engine._pending`` reach-in
+        from ``replay/backtest.py``.
+        """
+        return tuple(self._pending)
+
+    def flush_pending(self, candle: Any) -> None:
+        """Public flush of deferred orders for *candle* (replay drivers) [REF-5]."""
+        self._flush_pending(candle)
+
     def _flush_pending(self, candle: Any) -> None:
         """Fill deferred orders for *candle*'s instrument at the candle's OPEN.
 

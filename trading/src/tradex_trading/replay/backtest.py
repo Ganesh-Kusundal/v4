@@ -282,7 +282,7 @@ class BacktestEngine:
         bridge_seq = 0
 
         def _capture_claimed() -> None:
-            for pending in strategy_engine._pending:
+            for pending in strategy_engine.pending_snapshot():
                 claimed_signal_ids.add(id(pending["signal"]))
 
         def _bridge_signal(signal: Signal, price: Price, ts: datetime | None) -> None:
@@ -353,10 +353,10 @@ class BacktestEngine:
         last_candle_by_id = {
             inst_id: candles[-1] for inst_id, candles in candles_by_id.items()
         }
-        for inst_id in {p["instrument_id"] for p in strategy_engine._pending}:
+        for inst_id in {p["instrument_id"] for p in strategy_engine.pending_snapshot()}:
             candle = last_candle_by_id.get(inst_id)
             if candle is not None:
-                strategy_engine._flush_pending(candle)
+                strategy_engine.flush_pending(candle)
         for signal in getattr(strategy, "signals", []) or []:
             if id(signal) in bridged_signal_ids or id(signal) in claimed_signal_ids:
                 continue

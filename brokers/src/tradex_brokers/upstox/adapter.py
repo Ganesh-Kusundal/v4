@@ -104,7 +104,7 @@ class UpstoxBroker(BaseBroker):
             allow_order_operations=allow_order_operations,
             instrument_loader=instrument_loader,
         )
-        broker._token_manager = token_manager
+        broker.set_token_manager(token_manager)
         return broker
 
     # ------------------------------------------------------------------

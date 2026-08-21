@@ -484,7 +484,7 @@ def build_dhan_from_env(
     broker.master_loader = _dhan_loader
     # Wire WebSocket market-data stream backend through the adapter's declared
     # surface (no transport reach-in).
-    broker._ws_backend = broker.market_stream_backend()
+    broker.bind_stream_backend("market", broker.market_stream_backend())
     return broker
 
 
@@ -558,7 +558,7 @@ def build_upstox_from_env(
     # Wire WebSocket market-data stream backend through the adapter's declared
     # surface: the transport materializes the real UpstoxMarketDataStreamBackend
     # when a WS transport is bound (no transport reach-in here).
-    broker._ws_backend = broker.market_stream_backend()
+    broker.bind_stream_backend("market", broker.market_stream_backend())
     return broker
 
 

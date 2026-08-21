@@ -32,9 +32,10 @@ class ThreadSafeReactiveBus:
         # active drain) instead of deadlocking.
         self._lock = threading.RLock()
         self._bus = bus if bus is not None else ReactiveBus()
-        # Replace the bus's unbounded log with a bounded deque.
+        # Replace the bus's unbounded log with a bounded deque via the
+        # declared seam (no private-attribute write across objects).
         self._log: deque[Any] = deque(maxlen=max_log)
-        self._bus._log = self._log  # type: ignore[assignment]
+        self._bus.set_message_log(self._log)
 
     # ------------------------------------------------------------------
     # Publishing (serialised)

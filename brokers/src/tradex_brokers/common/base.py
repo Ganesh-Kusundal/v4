@@ -142,6 +142,32 @@ class BaseBroker:
         self.load_instruments(loader.load(force_refresh=force_refresh))
 
     # ------------------------------------------------------------------
+    # declared binding seams [REF-5] — replaces cross-object private writes
+    # ------------------------------------------------------------------
+
+    def set_token_manager(self, token_manager: TokenLifecyclePort | None) -> None:
+        """Bind a token lifecycle manager post-construction.
+
+        Public seam used by ``DhanBroker.from_fetch`` / ``UpstoxBroker.from_fetch``.
+        """
+        self._token_manager = token_manager
+
+    def bind_stream_backend(self, kind: str, backend: Any) -> None:
+        """Attach a stream backend: ``kind`` ∈ {"market", "order", "depth"}.
+
+        Public seam used by ``runtime/live.py``; replaces the former
+        ``broker._ws_backend = ...`` private-attribute write.
+        """
+        attr = {
+            "market": "_ws_backend",
+            "order": "_order_backend",
+            "depth": "_depth_backend",
+        }.get(kind)
+        if attr is None:
+            raise ValueError(f"unknown stream backend kind: {kind!r}")
+        setattr(self, attr, backend)
+
+    # ------------------------------------------------------------------
     # gating / requirement helpers
     # ------------------------------------------------------------------
 

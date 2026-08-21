@@ -46,6 +46,14 @@ class ReactiveBus:
         self._pending: deque[Any] = deque()
         self._draining = False
 
+    def set_message_log(self, log: Any) -> None:
+        """Install an alternative message log (e.g. a bounded deque).
+
+        Declared seam for :class:`ThreadSafeReactiveBus` — replaces the former
+        ``wrapper._bus._log = ...`` private-attribute poke [REF-5].
+        """
+        self._log = log
+
     # ------------------------------------------------------------------
     # Publishing
     # ------------------------------------------------------------------

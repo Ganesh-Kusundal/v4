@@ -80,6 +80,8 @@ class TradingSession:
         backtest_loader: object | None = None,
         live_orders_enabled: bool = True,
         fill_bridge: object | None = None,
+        market_feed: object | None = None,
+        master_scheduler: object | None = None,
     ) -> None:
         self._broker = broker
         self._bus = bus
@@ -98,12 +100,14 @@ class TradingSession:
         #: LiveFillBridge translating broker order-stream updates into bus
         #: OrderFilled events (live fills reaching the OMS — HIGH-4).
         self._fill_bridge = fill_bridge
-        self._market_feed: Any | None = None
-        #: Daily instrument-master refresh daemon (live brokers only). Started
-        #: by ``TradingSession.live()`` when the broker carries a cached master
-        #: loader; stopped here so a long-running session re-downloads the
-        #: master (new option series post monthly expiry) without leaking.
-        self._master_scheduler: Any | None = None
+        #: Wired in by the composition path (``live()``/``boot``) via the
+        #: constructor — no post-init private mutation [REF-5].
+        self._market_feed = market_feed
+        #: Daily instrument-master refresh daemon (live brokers only). Passed
+        #: in by ``TradingSession.live()`` when the broker carries a cached
+        #: master loader; stopped here so a long-running session re-downloads
+        #: the master (new option series post monthly expiry) without leaking.
+        self._master_scheduler = master_scheduler
 
     def start(self) -> None:
         """Transition to READY state. Idempotent: no-op if already READY."""
@@ -464,6 +468,21 @@ class TradingSession:
                 log.warning("live fill bridge unavailable: %s", exc_info=True)
                 fill_bridge = None
 
+        # Daily master refresh (v3 parity): only when the broker carries a
+        # cached master loader. The scheduler is constructed before the
+        # session (passed via the constructor — no post-init private
+        # mutation [REF-5]) but started AFTER session.start(), so nothing
+        # after it can strand the daemon. Best-effort — the warm load already
+        # ran on ``broker.connect()``; failures are counted, never raised.
+        # The ``isinstance`` guard keeps test doubles (MagicMock brokers) out.
+        from tradex_trading.runtime.master_lifecycle import InstrumentRefreshScheduler, MasterLoader
+
+        loader = getattr(broker, "master_loader", None)
+        refresh_hook = getattr(broker, "ensure_master_fresh", None)
+        scheduler: InstrumentRefreshScheduler | None = None
+        if isinstance(loader, MasterLoader) and callable(refresh_hook):
+            scheduler = InstrumentRefreshScheduler(broker_id.value.lower(), refresh_hook)
+
         session = cls(
             broker=cast(BrokerAdapter, broker),
             bus=_bus,
@@ -473,24 +492,15 @@ class TradingSession:
             broker_id=broker_id,
             stream_backend=stream_backend,
             fill_bridge=fill_bridge,
+            market_feed=MarketFeed(broker=broker, bus=_bus),
+            master_scheduler=scheduler,
         )
-        session._market_feed = MarketFeed(broker=broker, bus=_bus)
         # Mirrors ``runtime.startup.boot``: a live session must be READY for
         # its services (market/stream/trade) to be accessible.
         session.start()
-        # Daily master refresh (v3 parity): only when the broker carries a
-        # cached master loader. Started last so nothing after it can strand the
-        # daemon. Best-effort — the warm load already ran on ``broker.connect()``;
-        # failures are counted, never raised. The ``isinstance`` guard keeps
-        # test doubles (MagicMock brokers) out.
-        from tradex_trading.runtime.master_lifecycle import InstrumentRefreshScheduler, MasterLoader
-
-        loader = getattr(broker, "master_loader", None)
-        refresh_hook = getattr(broker, "ensure_master_fresh", None)
-        if isinstance(loader, MasterLoader) and callable(refresh_hook):
-            scheduler = InstrumentRefreshScheduler(broker_id.value.lower(), refresh_hook)
+        # Started last so nothing after it can strand the daemon.
+        if scheduler is not None:
             scheduler.start()
-            session._master_scheduler = scheduler
         return session
 
     # --- Context manager protocol ---
