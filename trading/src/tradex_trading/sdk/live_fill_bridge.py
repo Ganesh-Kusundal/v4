@@ -113,16 +113,20 @@ class LiveFillBridge:
         engine,
         subscribe_orders,
         trade_id_resolver: TradeBookFillIdResolver | None = None,
+        unsubscribe: Callable[[object], None] | None = None,
     ) -> None:
         """``subscribe_orders`` is the broker stream backend's subscribe method
         (``backend.subscribe_orders(handler)``); the bridge owns the returned
-        subscription and disposes it in :meth:`close`. ``trade_id_resolver``,
-        when provided, stamps each delta ``Fill.fill_id`` with the broker's
-        exchange trade id so equal-lot partials dedup exactly (see
-        :class:`TradeBookFillIdResolver`)."""
+        subscription and disposes it in :meth:`close`. ``unsubscribe``, when
+        provided, is called with the subscription token (real brokers return
+        a string id); otherwise the subscription's ``.dispose()`` is called
+        (test doubles). ``trade_id_resolver``, when provided, stamps each
+        delta ``Fill.fill_id`` with the broker's exchange trade id so
+        equal-lot partials dedup exactly (see :class:`TradeBookFillIdResolver`)."""
         self._bus = bus
         self._engine = engine
         self._resolver = trade_id_resolver
+        self._unsubscribe = unsubscribe
         self._subscription = subscribe_orders(self._on_order)
 
     def _on_order(self, order: Order) -> None:
@@ -186,7 +190,10 @@ class LiveFillBridge:
     def close(self) -> None:
         """Dispose the stream subscription."""
         try:
-            self._subscription.dispose()
+            if self._unsubscribe is not None:
+                self._unsubscribe(self._subscription)
+            else:
+                self._subscription.dispose()
         except Exception as exc:  # pragma: no cover
             log.error("error disposing live fill bridge: %s", exc)
 

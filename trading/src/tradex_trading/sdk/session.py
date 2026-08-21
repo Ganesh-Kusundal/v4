@@ -458,6 +458,7 @@ class TradingSession:
 
                 fill_bridge = LiveFillBridge(
                     _bus, _engine, stream_backend.subscribe_orders,
+                    unsubscribe=getattr(stream_backend, "unsubscribe", None),
                 )
             except Exception:  # noqa: BLE001 – best-effort wiring
                 log.warning("live fill bridge unavailable: %s", exc_info=True)

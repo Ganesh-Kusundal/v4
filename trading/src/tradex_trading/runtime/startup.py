@@ -256,6 +256,7 @@ def boot(config: AppConfig | None = None) -> TradingSession:
                 fill_bridge = LiveFillBridge(
                     bus, engine, stream_backend.subscribe_orders,
                     trade_id_resolver=resolver,
+                    unsubscribe=getattr(stream_backend, "unsubscribe", None),
                 )
             except Exception as exc:  # noqa: BLE001 – degrade, don't fail boot
                 log.warning("live fill bridge unavailable at boot: %s", exc)
