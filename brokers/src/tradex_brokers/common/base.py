@@ -48,7 +48,7 @@ class BaseBroker:
 
     #: Subclasses assign the composed API client here (``DhanApiClient``,
     #: ``UpstoxApiClient`` …). Pass-throughs delegate to it.
-    _client: Any
+    _transport: Any
 
     #: Fallback universe used when no master rows are loaded (``search`` /
     #: ``_universe``). Subclasses override with their broker constants.
@@ -64,9 +64,6 @@ class BaseBroker:
         allow_order_operations: bool = True,
         instrument_loader: Callable[[], Iterable[Mapping[str, Any]]] | None = None,
     ) -> None:
-        self._client = transport
-        # ``_transport`` kept as an alias so broker streaming code that already
-        # references it continues to work after extraction.
         self._transport = transport
         self._registry = registry or InstrumentRegistry()
         self._loaded_instruments: list[Instrument] = []
@@ -95,7 +92,7 @@ class BaseBroker:
 
     def connect(self) -> None:
         """Establish connection; load instruments from the loader if present."""
-        if self._client is None:
+        if self._transport is None:
             # No transport — stay capability-loud but logically connected.
             self._connected = True
             return
@@ -118,12 +115,16 @@ class BaseBroker:
                 setattr(self, attr, None)
 
     def verify_connection(self) -> bool:
-        """Auth-verification probe; returns True on success."""
-        transport = self._require()
-        if hasattr(transport, "invalidate_read_cache"):
-            transport.invalidate_read_cache()
+        """Non-destructive health check: local state first, cheap probe second.
+
+        Returns True only when the broker is connected AND the transport
+        can reach the provider account endpoint.  Does NOT invalidate the
+        read cache — verification must not mutate state.
+        """
+        if self._transport is None or not self._connected:
+            return False
         try:
-            transport.get_account()
+            self._transport.get_account()
             return True
         except Exception:
             return False
@@ -140,11 +141,11 @@ class BaseBroker:
     # ------------------------------------------------------------------
 
     def _require(self) -> Any:
-        if self._client is None or not self._connected:
+        if self._transport is None or not self._connected:
             raise BrokerUnavailableError(
                 f"{type(self).__name__} not connected"
             )
-        return self._client
+        return self._transport
 
     def _require_mutation(self) -> None:
         if not self._allow_order_operations:
