@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.errors import SDKError
-from tradex_domain.value_objects import InstrumentId
+from tradex_domain.value_objects import InstrumentId, normalize_symbol
 
 _TAG_BY_ASSET_CLASS = {
     "EQUITY": "EQ",
@@ -34,16 +34,6 @@ _TAG_BY_ASSET_CLASS = {
     "COMMODITY": "COM",
     "ETF": "ETF",
 }
-
-
-def normalize_symbol(value: str) -> str:
-    """Upper-case, strip whitespace, and drop common provider suffixes."""
-    symbol = value.strip().upper()
-    for suffix in ("-EQ", "-BE", "-FUT"):
-        if symbol.endswith(suffix):
-            symbol = symbol[: -len(suffix)]
-            break
-    return symbol
 
 
 @runtime_checkable

@@ -23,3 +23,12 @@ def test_to_ist_naive_passthrough_naive() -> None:
 
 def test_market_hours_pinned() -> None:
     assert (MARKET_OPEN, MARKET_CLOSE) == (time(9, 15), time(15, 30))
+
+
+def test_normalize_symbol_flag() -> None:
+    from tradex_domain.value_objects import normalize_symbol
+
+    # public default preserves wire behavior (strip suffixes)
+    assert normalize_symbol(" reliance-eq ") == "RELIANCE"
+    # InstrumentId path opts out: raw underlying preserved
+    assert normalize_symbol("reliance-eq", strip_provider_suffixes=False) == "RELIANCE-EQ"

@@ -14,8 +14,21 @@ from tradex_domain.enums import AssetClass, ExchangeId
 from tradex_domain.serialization import from_dict, to_dict
 
 
-def _normalize_symbol(value: str) -> str:
-    return value.strip().upper()
+def normalize_symbol(value: str, *, strip_provider_suffixes: bool = True) -> str:
+    """Upper-case and strip whitespace; optionally drop provider suffixes.
+
+    Single source of symbol normalization (merged the former divergent
+    ``_normalize_symbol`` here [REF-3]).  ``InstrumentId`` normalizes with
+    ``strip_provider_suffixes=False`` (raw underlying preserved); the wire
+    registry's public helper strips ``-EQ/-BE/-FUT`` as before.
+    """
+    symbol = value.strip().upper()
+    if strip_provider_suffixes:
+        for suffix in ("-EQ", "-BE", "-FUT"):
+            if symbol.endswith(suffix):
+                symbol = symbol[: -len(suffix)]
+                break
+    return symbol
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +51,7 @@ class InstrumentId:
         if exchange not in valid:
             raise ValueError(f"Invalid exchange: {self.exchange!r}")
         object.__setattr__(self, "exchange", exchange)
-        object.__setattr__(self, "underlying", _normalize_symbol(self.underlying))
+        object.__setattr__(self, "underlying", normalize_symbol(self.underlying, strip_provider_suffixes=False))
         if self.strike is not None and not isinstance(self.strike, Decimal):
             object.__setattr__(self, "strike", Decimal(str(self.strike)))
         if self.right is not None:
