@@ -318,6 +318,8 @@ class TradingSession:
         TradingSession
             A session configured for paper trading.
         """
+        # ponytail: wiring overlaps with runtime.startup.boot() — extract to
+        # shared builder if a third factory appears.
         from tradex_brokers.paper.adapter import PaperBroker
 
         from tradex_trading.execution.fill_sources import PaperFillSource
@@ -415,6 +417,8 @@ class TradingSession:
                 "Pass confirm=True to proceed."
             )
 
+        # ponytail: wiring overlaps with runtime.startup.boot() — extract to
+        # shared builder if a third factory appears.
         from tradex_trading.execution.fill_sources import BrokerFillSource
         from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
         from tradex_trading.runtime.live import build_broker_from_env
