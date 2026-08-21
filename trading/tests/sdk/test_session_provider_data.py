@@ -86,12 +86,11 @@ class TestSessionServicesInModes:
     def test_all_services_accessible(self, mode: str) -> None:
         config = AppConfig(mode=mode)
         session = boot(config)
-        assert session.market is not None
+        assert session.broker is not None
         assert session.trade is not None
         assert session.portfolio is not None
         assert session.stream is not None
         assert session.scanner is not None
-        assert session.extension is not None
         session.stop()
 
     @pytest.mark.parametrize("mode", ["paper", "backtest", "replay"])

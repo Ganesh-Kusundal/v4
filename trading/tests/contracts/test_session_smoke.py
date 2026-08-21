@@ -71,13 +71,12 @@ class TestBootSmoke:
         from tradex_trading.runtime.startup import boot
 
         session = boot()
-        # Access all 7 services — should not raise
-        assert session.market is not None
+        # Access all services — should not raise
+        assert session.broker is not None
         assert session.trade is not None
         assert session.portfolio is not None
         assert session.stream is not None
         assert session.scanner is not None
-        assert session.extension is not None
         session.stop()
 
     def test_boot_session_has_capabilities(self) -> None:
@@ -139,23 +138,23 @@ class TestOrderSubmissionSmoke:
             assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
         session.stop()
 
-    def test_market_service_returns_quote(self) -> None:
+    def test_broker_returns_quote(self) -> None:
         from tradex_domain.market import Quote
 
         from tradex_trading.runtime.startup import boot
 
         session = boot()
-        quote = session.market.quote(_make_equity())
+        quote = session.broker.get_quote(_make_equity())
         assert isinstance(quote, Quote)
         session.stop()
 
-    def test_market_service_returns_ltp(self) -> None:
+    def test_broker_returns_ltp(self) -> None:
         from tradex_domain.value_objects import Price
 
         from tradex_trading.runtime.startup import boot
 
         session = boot()
-        ltp = session.market.ltp(_make_equity())
+        ltp = session.broker.ltp(_make_equity())
         assert isinstance(ltp, Price)
         session.stop()
 

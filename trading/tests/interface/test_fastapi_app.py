@@ -321,12 +321,12 @@ def _make_chain_session():
             ),
         ),
     )
-    session.market.option_chain.return_value = chain
-    session.market.future_chain.return_value = [
+    session.broker.get_option_chain.return_value = chain
+    session.broker.future_chain.return_value = [
         Future.of("MCX", "GOLD", date(2026, 9, 4)),
         Future.of("MCX", "GOLD", date(2026, 10, 30)),
     ]
-    session.market.search.return_value = []
+    session.broker.search.return_value = []
     return session
 
 
@@ -378,8 +378,8 @@ def test_option_chain_endpoint_passes_expiry_filter():
 
     r = client.get("/option-chain/MCX:GOLD?expiry=2026-10-30")
     assert r.status_code == 200
-    session.market.option_chain.assert_called()
-    _inst, expiry = session.market.option_chain.call_args.args
+    session.broker.get_option_chain.assert_called()
+    _inst, expiry = session.broker.get_option_chain.call_args.args
     assert expiry == "2026-10-30"
 
 
@@ -414,7 +414,7 @@ def test_option_chain_live_mcx_keeps_ltp_window_no_batch():
     from tradex_domain.value_objects import Price
 
     session = _make_chain_session()
-    session.market.ltp.return_value = Price(value=Decimal("120100"))
+    session.broker.ltp.return_value = Price(value=Decimal("120100"))
     app = create_app(session=session)
     client = TestClient(app)
 
@@ -427,7 +427,7 @@ def test_option_chain_live_mcx_keeps_ltp_window_no_batch():
     assert pair["call_live"] == {"ltp": "120100"}
     assert pair["put_live"] == {"ltp": "120100"}
     # quote_batch must NOT have been attempted for MCX.
-    session.market.quote_batch.assert_not_called()
+    session.broker.quote_batch.assert_not_called()
 
 
 def _make_nfo_chain_session():
@@ -468,8 +468,8 @@ def _make_nfo_chain_session():
             ),
         ),
     )
-    session.market.option_chain.return_value = chain
-    session.market.search.return_value = []
+    session.broker.get_option_chain.return_value = chain
+    session.broker.search.return_value = []
 
     def _quote(instrument, ltp, delta):
         return Quote(
@@ -479,7 +479,7 @@ def _make_nfo_chain_session():
                                   "vega": 8.0, "rho": 0.02}},
         )
 
-    session.market.quote_batch.return_value = {
+    session.broker.quote_batch.return_value = {
         pairs[0].call.instrument_id: _quote(pairs[0].call, "45.5", 0.62),
         pairs[0].put.instrument_id: _quote(pairs[0].put, "38.2", -0.38),
     }

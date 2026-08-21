@@ -42,7 +42,7 @@ def test_paper_factory_returns_ready() -> None:
     session = TradingSession.paper()
     assert session.state == SessionState.READY
     # Services are immediately usable — no explicit start() needed.
-    assert session.market is not None
+    assert session.broker is not None
     session.stop()
 
 
@@ -54,7 +54,7 @@ def test_live_factory_returns_ready(monkeypatch) -> None:
     )
     session = TradingSession.live(BrokerId.DHAN, confirm=True)
     assert session.state == SessionState.READY
-    assert session.market is not None
+    assert session.broker is not None
     session.stop()
 
 
@@ -68,7 +68,7 @@ def test_boot_paper_returns_ready() -> None:
 
     session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
     assert session.state == SessionState.READY
-    assert session.market is not None
+    assert session.broker is not None
     session.stop()
 
 
@@ -77,7 +77,7 @@ def test_boot_backtest_returns_ready() -> None:
 
     session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="backtest"))
     assert session.state == SessionState.READY
-    assert session.market is not None
+    assert session.broker is not None
     session.stop()
 
 
@@ -105,7 +105,7 @@ def test_boot_live_returns_ready(monkeypatch) -> None:
         AppConfig(broker_id=BrokerId.DHAN, mode="live", live_enabled=True)
     )
     assert session.state == SessionState.READY
-    assert session.market is not None
+    assert session.broker is not None
     assert session.stream is not None
     assert fake.connect.called
     session.stop()
@@ -116,6 +116,6 @@ def test_boot_context_returns_ready_session() -> None:
 
     ctx = boot_context(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
     assert ctx.session.state == SessionState.READY
-    assert ctx.session.market is not None
+    assert ctx.session.broker is not None
     ctx.close()
     assert ctx.session.state == SessionState.STOPPED

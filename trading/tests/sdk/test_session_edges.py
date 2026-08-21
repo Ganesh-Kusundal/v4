@@ -6,7 +6,6 @@ v4 API differences:
 - ``TradingSession`` requires ``broker, bus, engine, cache, broker_id``
 - Services are properties (not methods) that check READY state
 - ``StreamService`` has ``subscribe_quotes`` / ``subscribe_fills`` (not orders/positions)
-- ``ExtensionService.is_extension_adapter()`` checks protocol conformance
 """
 
 from __future__ import annotations
@@ -31,8 +30,6 @@ class TestSessionStateEdges:
         session = boot()
         session.stop()
         with pytest.raises(SessionStateError):
-            _ = session.market
-        with pytest.raises(SessionStateError):
             _ = session.trade
         with pytest.raises(SessionStateError):
             _ = session.portfolio
@@ -40,8 +37,6 @@ class TestSessionStateEdges:
             _ = session.stream
         with pytest.raises(SessionStateError):
             _ = session.scanner
-        with pytest.raises(SessionStateError):
-            _ = session.extension
 
     def test_state_property_reflects_lifecycle(self) -> None:
         session = boot()
@@ -157,22 +152,6 @@ class TestScannerServiceEdges:
             assert isinstance(results, list)
         finally:
             session.stop()
-
-
-# ---------------------------------------------------------------------------
-# ExtensionService
-# ---------------------------------------------------------------------------
-
-
-class TestExtensionServiceEdges:
-    """ExtensionService checks broker protocol conformance."""
-
-    def test_is_extension_adapter_for_paper_broker(self) -> None:
-        session = boot()
-        result = session.extension.is_extension_adapter()
-        # PaperBroker may or may not implement ExtensionAdapter
-        assert isinstance(result, bool)
-        session.stop()
 
 
 # ---------------------------------------------------------------------------

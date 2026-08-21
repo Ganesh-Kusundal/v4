@@ -495,15 +495,19 @@ def create_app(
 
     @app.get("/extensions")
     async def list_extensions() -> dict:
-        """List available broker extensions."""
+        """List broker capability flags."""
         s = app.state.session
         if s is None:
             raise HTTPException(status_code=400, detail="no session bound")
         try:
-            ext = s.extension
-            available = ext.list_available() if hasattr(ext, 'list_available') else []
-            caps = ext.capabilities() if hasattr(ext, 'capabilities') else {}
-            return {"available": [str(a) for a in available], "capabilities": caps}
+            caps = getattr(s.broker, "capabilities", None)
+            cap_map = {}
+            if caps is not None:
+                for name in ("supports_super_order", "supports_forever_order",
+                             "supports_slice_order", "supports_edis",
+                             "supports_kill_switch"):
+                    cap_map[name] = getattr(caps, name, False)
+            return {"capabilities": cap_map}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
 

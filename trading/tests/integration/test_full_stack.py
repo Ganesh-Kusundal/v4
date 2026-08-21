@@ -65,13 +65,12 @@ class TestSessionLifecycle:
         # Factories return READY so services are usable immediately.
         assert session.state == SessionState.READY
 
-        # Access all 7 services
-        assert session.market is not None
+        # Access all services
+        assert session.broker is not None
         assert session.trade is not None
         assert session.portfolio is not None
         assert session.stream is not None
         assert session.scanner is not None
-        assert session.extension is not None
 
         session.stop()
         assert session.state == SessionState.STOPPED
@@ -99,14 +98,14 @@ class TestMarketDataFlow:
         session.start()
         try:
             reliance = _eq()
-            quote = session.market.quote(reliance)
+            quote = session.broker.get_quote(reliance)
             # Paper broker returns a default synthetic quote
             assert quote is not None
             assert quote.ltp is not None
             assert quote.ltp.value > Decimal("0")
 
             # LTP should also work
-            ltp = session.market.ltp(reliance)
+            ltp = session.broker.ltp(reliance)
             assert ltp is not None
             assert ltp.value > Decimal("0")
         finally:
@@ -119,7 +118,7 @@ class TestMarketDataFlow:
         try:
             reliance = _eq()
             now = _now()
-            history = session.market.history(
+            history = session.broker.history(
                 reliance, Timeframe.D1, now - timedelta(days=30), now
             )
             # Paper broker returns empty but valid HistoricalSeries
@@ -134,7 +133,7 @@ class TestMarketDataFlow:
         session.start()
         try:
             # Paper broker returns empty list for unknown query
-            results = session.market.search("REL")
+            results = session.broker.search("REL")
             assert isinstance(results, list)
         finally:
             session.stop()

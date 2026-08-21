@@ -1,12 +1,10 @@
 """Tests for v3-parity service methods ported to v4.
 
 Covers all missing methods listed in the porting spec:
-- MarketService: ltp_batch, quote_batch, search, option_chain, future_chain
 - TradeService: submit, cancel, modify_order, get_order, get_orderbook,
   _require_order_gate, bind_execution_engine
 - PortfolioService: positions, account, portfolio, get_holdings
 - StreamService: subscribe_orders, subscribe_positions, unsubscribe, close
-- ExtensionService: all extension methods
 - ScannerService: run, top
 - TradingSession: stop, bind_execution_engine, equity, index, future, option, _require_ready
 - Helpers: _broker_capabilities, _as_order_id
@@ -57,13 +55,8 @@ from tradex_domain.value_objects import (
 
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.sdk.session import (
-    EdisStatus,
-    ExtensionService,
-    KillSwitchResult,
-    OrderResult,
     ScannerService,
     SessionState,
-    TpinResult,
     TradingSession,
     _as_order_id,
     _broker_capabilities,
@@ -233,51 +226,6 @@ class _MockBroker:
     def load_instruments(self) -> None:
         pass
 
-    # extension methods
-    def submit_super_order(self, request: OrderRequest) -> OrderId:
-        return OrderId(value="super-1")
-
-    def modify_super_order(self, order_id: OrderId, request: OrderRequest) -> OrderResult:
-        return OrderResult(order_id=order_id, status=OrderStatus.SUBMITTED)
-
-    def cancel_super_order(self, order_id: OrderId, leg: str = "ENTRY") -> OrderResult:
-        return OrderResult(order_id=order_id, status=OrderStatus.CANCELLED)
-
-    def list_super_orders(self) -> list[OrderResult]:
-        return [OrderResult(order_id=OrderId(value="super-1"), status=OrderStatus.ACK)]
-
-    def submit_forever_order(self, request: OrderRequest) -> OrderId:
-        return OrderId(value="forever-1")
-
-    def modify_forever_order(self, order_id: OrderId, request: OrderRequest) -> OrderResult:
-        return OrderResult(order_id=order_id, status=OrderStatus.SUBMITTED)
-
-    def cancel_forever_order(self, order_id: OrderId) -> OrderResult:
-        return OrderResult(order_id=order_id, status=OrderStatus.CANCELLED)
-
-    def list_forever_orders(self) -> list[OrderResult]:
-        return [OrderResult(order_id=OrderId(value="forever-1"), status=OrderStatus.ACK)]
-
-    def submit_slice_order(
-        self, request: OrderRequest, slices: int, interval: timedelta | None = None,
-    ) -> list[OrderId]:
-        return [OrderId(value=f"slice-{i}") for i in range(slices)]
-
-    def submit_edis(self, request: OrderRequest) -> OrderId:
-        return OrderId(value="edis-1")
-
-    def generate_tpin(self) -> dict[str, Any]:
-        return {"tpin": "1234"}
-
-    def edis_status(self, isin: str) -> dict[str, Any]:
-        return {"isin": isin, "status": "active"}
-
-    def kill_switch(self, enable: bool = True) -> dict[str, Any]:
-        return {"kill_switch": enable}
-
-    def status_kill_switch(self) -> dict[str, Any]:
-        return {"kill_switch": False}
-
     # internal
     def _make_order(self, order_id: OrderId, status: OrderStatus) -> Order:
         return Order(
@@ -338,134 +286,65 @@ class TestAsOrderId:
 
 
 # ===========================================================================
-# MarketService
+# Broker market data (direct — MarketService removed)
 # ===========================================================================
 
 
-class TestMarketService:
-    """MarketService v3-parity methods."""
+class TestBrokerMarketData:
+    """Broker market data methods (previously via MarketService)."""
 
     def test_ltp_batch(self) -> None:
         session = _make_session()
         instruments = [_make_equity(), Equity.of("NSE", "TCS")]
-        result = session.market.ltp_batch(instruments)
+        result = session.broker.ltp_batch(instruments)
         assert isinstance(result, dict)
         assert len(result) == 2
         for v in result.values():
             assert isinstance(v, Price)
 
-    def test_ltp_batch_capability_gate(self) -> None:
-        broker = _MockBroker(BrokerCapabilities(supports_batch_market_data=False))
-        session = _make_session(broker)
-        with pytest.raises(CapabilityNotSupportedError):
-            session.market.ltp_batch([_make_equity()])
-
     def test_quote_batch(self) -> None:
         session = _make_session()
         instruments = [_make_equity()]
-        result = session.market.quote_batch(instruments)
+        result = session.broker.quote_batch(instruments)
         assert isinstance(result, dict)
         for v in result.values():
             assert isinstance(v, Quote)
 
-    def test_quote_batch_capability_gate(self) -> None:
-        broker = _MockBroker(BrokerCapabilities(supports_batch_market_data=False))
-        session = _make_session(broker)
-        with pytest.raises(CapabilityNotSupportedError):
-            session.market.quote_batch([_make_equity()])
-
     def test_depth_nse(self) -> None:
         session = _make_session()
-        result = session.market.depth(_make_equity())
+        result = session.broker.depth(_make_equity())
         assert isinstance(result, Depth)
-
-    @pytest.mark.parametrize(
-        "instrument",
-        [
-            Equity.of("MCX", "CRUDEOIL"),
-            Equity.of("BSE", "RELIANCE"),
-            Index.of("IDX", "NIFTY"),
-        ],
-    )
-    def test_depth_gates_non_nse(self, instrument) -> None:
-        session = _make_session()
-        with pytest.raises(CapabilityNotSupportedError, match="NSE"):
-            session.market.depth(instrument)
 
     def test_search(self) -> None:
         session = _make_session()
-        results = session.market.search("RELIANCE")
+        results = session.broker.search("RELIANCE")
         assert isinstance(results, list)
         assert len(results) == 1
         assert isinstance(results[0], Instrument)
 
     def test_option_chain(self) -> None:
         session = _make_session()
-        result = session.market.option_chain(_make_equity())
+        result = session.broker.get_option_chain(_make_equity())
         assert isinstance(result, OptionChain)
 
     def test_option_chain_with_expiry(self) -> None:
         session = _make_session()
-        result = session.market.option_chain(_make_equity(), expiry="2026-12-25")
+        result = session.broker.get_option_chain(_make_equity(), expiry="2026-12-25")
         assert isinstance(result, OptionChain)
-
-    def test_option_chain_capability_gate(self) -> None:
-        broker = _MockBroker(BrokerCapabilities(supports_option_chain=False))
-        session = _make_session(broker)
-        with pytest.raises(CapabilityNotSupportedError):
-            session.market.option_chain(_make_equity())
 
     def test_future_chain(self) -> None:
         session = _make_session()
-        result = session.market.future_chain(_make_equity())
+        result = session.broker.future_chain(_make_equity())
         assert isinstance(result, list)
-
-    def test_future_chain_capability_gate(self) -> None:
-        broker = _MockBroker(BrokerCapabilities(supports_future_chain=False))
-        session = _make_session(broker)
-        with pytest.raises(CapabilityNotSupportedError):
-            session.market.future_chain(_make_equity())
 
     def test_history_canonical(self) -> None:
         session = _make_session()
         start = datetime(2026, 8, 1, tzinfo=UTC)
         end = datetime(2026, 8, 5, tzinfo=UTC)
-        series = session.market.history(_make_equity(), Timeframe.D1, start, end)
+        series = session.broker.history(_make_equity(), Timeframe.D1, start, end)
         assert isinstance(series, HistoricalSeries)
         assert series.start == start
         assert series.end == end
-
-    def test_history_convenience_interval_lookback(self) -> None:
-        """interval/lookback_days compute the window ending now."""
-        session = _make_session()
-        series = session.market.history(_make_equity(), interval="5m", lookback_days=5)
-        assert isinstance(series, HistoricalSeries)
-        assert series.timeframe == Timeframe.M5
-        assert series.end - series.start == timedelta(days=5)
-
-    def test_history_default_lookback(self) -> None:
-        """No window → 30-day lookback (repairs the HTTP route's 2-arg call)."""
-        session = _make_session()
-        series = session.market.history(_make_equity(), Timeframe.D1)
-        assert series.end - series.start == timedelta(days=30)
-
-    def test_history_requires_timeframe(self) -> None:
-        session = _make_session()
-        with pytest.raises(ValueError, match="timeframe or interval"):
-            session.market.history(_make_equity())
-
-    def test_news(self) -> None:
-        session = _make_session()
-        result = session.market.news("instrument_keys", instrument_keys=["NSE_EQ|TEST"])
-        assert isinstance(result, list)
-        assert len(result) == 1
-        assert result[0]["heading"] == "Mock headline"
-
-    def test_news_capability_gate(self) -> None:
-        broker = _MockBroker(BrokerCapabilities(supports_news=False))
-        session = _make_session(broker)
-        with pytest.raises(CapabilityNotSupportedError):
-            session.market.news("instrument_keys")
 
 
 # ===========================================================================
@@ -701,115 +580,6 @@ class TestStreamService:
 
 
 # ===========================================================================
-# ExtensionService
-# ===========================================================================
-
-
-class TestExtensionService:
-    """ExtensionService v3-parity methods."""
-
-    def test_super_order(self) -> None:
-        session = _make_session()
-        receipt = session.extension.super_order(_make_request())
-        assert isinstance(receipt, OrderResult)
-        assert receipt.status == "SUBMITTED"
-
-    def test_super_order_capability_gate(self) -> None:
-        broker = _MockBroker(BrokerCapabilities(supports_super_order=False))
-        session = _make_session(broker)
-        with pytest.raises(CapabilityNotSupportedError):
-            session.extension.super_order(_make_request())
-
-    def test_modify_super(self) -> None:
-        session = _make_session()
-        result = session.extension.modify_super(OrderId(value="super-1"), _make_request())
-        assert isinstance(result, OrderResult)
-        assert result.status == OrderStatus.SUBMITTED
-
-    def test_cancel_super(self) -> None:
-        session = _make_session()
-        result = session.extension.cancel_super(OrderId(value="super-1"))
-        assert isinstance(result, OrderResult)
-        assert result.status == OrderStatus.CANCELLED
-
-    def test_list_super(self) -> None:
-        session = _make_session()
-        result = session.extension.list_super()
-        assert isinstance(result, list)
-        assert len(result) == 1
-
-    def test_forever_order(self) -> None:
-        session = _make_session()
-        receipt = session.extension.forever_order(_make_request())
-        assert isinstance(receipt, OrderResult)
-        assert receipt.status == "SUBMITTED"
-
-    def test_modify_forever(self) -> None:
-        session = _make_session()
-        result = session.extension.modify_forever(OrderId(value="forever-1"), _make_request())
-        assert isinstance(result, OrderResult)
-        assert result.status == OrderStatus.SUBMITTED
-
-    def test_cancel_forever(self) -> None:
-        session = _make_session()
-        result = session.extension.cancel_forever(OrderId(value="forever-1"))
-        assert isinstance(result, OrderResult)
-        assert result.status == OrderStatus.CANCELLED
-
-    def test_get_forever(self) -> None:
-        session = _make_session()
-        result = session.extension.get_forever()
-        assert isinstance(result, list)
-
-    def test_slice_order(self) -> None:
-        session = _make_session()
-        receipts = session.extension.slice_order(_make_request(), slices=3)
-        assert len(receipts) == 3
-        assert all(isinstance(r, OrderResult) for r in receipts)
-
-    def test_edis(self) -> None:
-        session = _make_session()
-        receipt = session.extension.edis(_make_request())
-        assert isinstance(receipt, EdisStatus)
-
-    def test_generate_tpin(self) -> None:
-        session = _make_session()
-        result = session.extension.generate_tpin()
-        assert isinstance(result, TpinResult)
-
-    def test_edis_status(self) -> None:
-        session = _make_session()
-        result = session.extension.edis_status("INE002A01018")
-        assert isinstance(result, EdisStatus)
-        assert result.status == "active"
-
-    def test_kill_switch(self) -> None:
-        session = _make_session()
-        result = session.extension.kill_switch(True)
-        assert isinstance(result, KillSwitchResult)
-
-    def test_status_kill_switch(self) -> None:
-        session = _make_session()
-        result = session.extension.status_kill_switch()
-        assert isinstance(result, KillSwitchResult)
-
-    def test_order_gate_enforced(self) -> None:
-        session = _make_session(live_orders_enabled=False)
-        with pytest.raises(OrderRejectedError):
-            session.extension.super_order(_make_request())
-
-    def test_is_extension_adapter(self) -> None:
-        session = _make_session()
-        result = session.extension.is_extension_adapter()
-        assert isinstance(result, bool)
-
-    def test_receipt_helper(self) -> None:
-        receipt = ExtensionService._receipt(OrderId(value="test"))
-        assert isinstance(receipt, OrderReceipt)
-        assert receipt.status == OrderStatus.SUBMITTED
-
-
-# ===========================================================================
 # ScannerService
 # ===========================================================================
 
@@ -908,8 +678,6 @@ class TestTradingSessionLifecycle:
     def test_services_raise_after_stop(self) -> None:
         session = _make_session()
         session.stop()
-        with pytest.raises(SessionStateError):
-            _ = session.market
         with pytest.raises(SessionStateError):
             _ = session.trade
 

@@ -57,19 +57,18 @@ class TestPaperWiring:
 
     def test_paper_session_has_all_services(self) -> None:
         session = boot()
-        assert session.market is not None
+        assert session.broker is not None
         assert session.trade is not None
         assert session.portfolio is not None
         assert session.stream is not None
         assert session.scanner is not None
-        assert session.extension is not None
         session.stop()
 
-    def test_paper_session_market_returns_quote(self) -> None:
+    def test_paper_session_broker_returns_quote(self) -> None:
         from tradex_domain.market import Quote
 
         session = boot()
-        quote = session.market.quote(Equity.of("NSE", "RELIANCE"))
+        quote = session.broker.get_quote(Equity.of("NSE", "RELIANCE"))
         assert isinstance(quote, Quote)
         session.stop()
 

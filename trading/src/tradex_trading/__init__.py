@@ -14,7 +14,6 @@ from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.runtime.startup import boot
 from tradex_trading.sdk.session import (
-    ExtensionService,
     PortfolioService,
     ScannerService,
     SessionState,
@@ -28,7 +27,6 @@ __all__ = [
     "AppConfig",
     "BrokerFillSource",
     "ExecutionEngine",
-    "ExtensionService",
     "PaperFillSource",
     "PortfolioService",
     "ReactiveBus",

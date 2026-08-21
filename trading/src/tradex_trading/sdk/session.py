@@ -1,6 +1,6 @@
 """TradingSession — main entry point for the v4 trading platform.
 
-Provides 6 services: market, trade, portfolio, stream, scanner, extension.
+Provides 4 services: trade, portfolio, stream, scanner.
 Lifecycle: NEW -> READY -> STOPPED.
 
 Ported from v3 SDK session (WS-B, FDS 05 §5, D-8/D-9/D-15/D-16/D-17).
@@ -33,14 +33,9 @@ from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_trading.sdk.services import (
-    EdisStatus,
-    ExtensionService,
-    KillSwitchResult,
-    OrderResult,
     PortfolioService,
     ScannerService,
     StreamService,
-    TpinResult,
     TradeService,
     _as_order_id,
     _broker_capabilities,
@@ -219,14 +214,6 @@ class TradingSession:
         return ScannerService(
             self._scanner_engine, definitions=self._scanner_definitions
         )
-
-    @cached_property
-    def extension(self) -> ExtensionService:
-        """ExtensionService — broker-specific extensions."""
-        self._check_ready()
-        caps = _broker_capabilities(self._broker)
-        gate = self._make_order_gate()
-        return ExtensionService(self._broker, caps, order_gate=gate)
 
     # --- Properties ---
 
@@ -527,15 +514,10 @@ class TradingSession:
 
 
 __all__ = [
-    "EdisStatus",
-    "ExtensionService",
-    "KillSwitchResult",
     "PortfolioService",
     "ScannerService",
     "SessionState",
     "StreamService",
-    "OrderResult",
-    "TpinResult",
     "TradeService",
     "TradingSession",
     "_as_order_id",

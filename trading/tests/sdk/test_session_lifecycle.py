@@ -78,12 +78,11 @@ class TestSessionServiceAccessors:
 
     def test_all_services_accessible_in_ready(self) -> None:
         session = boot()
-        assert session.market is not None
+        assert session.broker is not None
         assert session.trade is not None
         assert session.portfolio is not None
         assert session.stream is not None
         assert session.scanner is not None
-        assert session.extension is not None
         session.stop()
 
 
