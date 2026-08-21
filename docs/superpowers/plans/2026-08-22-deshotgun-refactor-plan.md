@@ -109,3 +109,33 @@ Commit: `chore: consolidate smoke scripts; CI structural gates [SMELL-14]`
 - Any gate failure caused by code outside the slice's diff: stop, ratchet up classification, re-present (spec §5).
 - Final step: re-run Phase-2 greps; confirm dispositions match spec §6 traceability table.
 
+---
+
+## Progress Ledger
+
+| Slice | Status | Commit |
+|---|---|---|
+| REF-1 endpoint constants | ✅ done | `0f8a57c` |
+| REF-2 IST vocabulary | ✅ done | `3ec7f4d` |
+| REF-3 normalize_symbol | ✅ done | `7ed8b15` |
+| REF-10a standards sweep | ✅ done | `946bdd1` |
+| REF-4 stream/master ports | ✅ done | `3693ab7` |
+| REF-5 private-write seams + AST guard | ✅ done | `75eec42` |
+| REF-6 single composition root | ✅ done | `4b6daac` |
+| REF-7 table-driven bootstrap | ⏳ pending — fresh session recommended (auth/env-precedence risk) | — |
+| REF-8 WS skeleton consolidation | ⏳ pending (after REF-4 ✅) | — |
+| REF-9 HTTP dedupe (descope-aware) | ⏳ pending | — |
+| REF-10b sprawl + CI gates | ⏳ pending | — |
+
+**REF-6 deviation from plan (ratchet, documented):** boot gained a
+``wire_strategies: bool = True`` kwarg. The SDK factories pass False because
+the parity suite pins their historical minimal component set (no reactive
+strategy/scanner wiring — without the flag, strategy signals double-fire via
+the auto-registered bridge). One wiring SITE is preserved; factories select a
+component SET, which is configuration, not duplication. See
+``trading/tests/integration/test_boot_parity.py``.
+
+**Suite state at checkpoint:** 2252 passed / 7 skipped; compile clean;
+working tree clean.
+
+
