@@ -25,15 +25,15 @@ from tradex_brokers.common.provider_common import (
     require_success,
     unwrap_data,
 )
+from tradex_domain.market_calendar import (
+    DHAN_SESSION_CLOSE as _SESSION_CLOSE,
+    DHAN_SESSION_OPEN as _SESSION_OPEN,
+    MARKET_CLOSE_STR as _DEFAULT_SESSION_CLOSE,
+    MARKET_OPEN_STR as _DEFAULT_SESSION_OPEN,
+)
 
 if TYPE_CHECKING:
     from tradex_brokers.dhan._facade import DhanClientFacade
-
-# Dhan intraday session bounds by canonical exchange (v2 parity).
-_SESSION_OPEN = {"MCX_COMM": "09:00:00", "NSE_COMM": "09:00:00"}
-_SESSION_CLOSE = {"MCX_COMM": "23:30:00", "NSE_COMM": "23:30:00"}
-_DEFAULT_SESSION_OPEN = "09:15:00"
-_DEFAULT_SESSION_CLOSE = "15:30:00"
 
 
 class MarketDataMixin(Protocol):
@@ -146,6 +146,8 @@ class MarketDataMixin(Protocol):
 
     def depth(self: DhanClientFacade, instrument: Instrument) -> Depth:
         """Market depth via POST /marketfeed/quote."""
+        from tradex_brokers.common.market_builders import build_depth
+
         payload = {
             self._segment(instrument): [int(self._security_id(instrument.instrument_id))]
         }
@@ -164,26 +166,7 @@ class MarketDataMixin(Protocol):
             if isinstance(row, dict) and isinstance(row.get("depth"), dict)
             else {}
         )
-        # Sort the book (bids price-descending, asks ascending) so the depth
-        # invariant ``Depth.best_bid/best_ask == [0]`` holds even if the
-        # provider returns levels out of order.
-        def _level(raw: dict[str, Any]) -> tuple[Price, Quantity]:
-            return (
-                as_price(raw.get("price")),
-                Quantity(value=as_decimal(raw.get("quantity", 0))))
-
-        bids = tuple(
-            sorted(
-                (_level(i) for i in depth_data.get("buy", []) if isinstance(i, dict)),
-                key=lambda level: level[0].value,
-                reverse=True)
-        )
-        asks = tuple(
-            sorted(
-                (_level(i) for i in depth_data.get("sell", []) if isinstance(i, dict)),
-                key=lambda level: level[0].value)
-        )
-        return Depth(instrument=instrument, bids=bids, asks=asks, timestamp=datetime.now(UTC))
+        return build_depth(instrument, depth_data=depth_data)
 
 
     def history(
@@ -194,8 +177,11 @@ class MarketDataMixin(Protocol):
         end: datetime,
     ) -> HistoricalSeries:
         """Historical candles via POST /charts/intraday or /charts/historical."""
+        from tradex_domain.timeframe import dhan_interval
+
         interval = timeframe.value if isinstance(timeframe, Timeframe) else str(timeframe)
-        interval_map = {"1m": "1", "5m": "5", "15m": "15", "1h": "60"}
+        # Single-sourced interval map (domain/timeframe.py) — None means unsupported (M30/W1)
+        dhan_int = dhan_interval(interval)
         requested_timeframe = {
             "1m": Timeframe.M1,
             "5m": Timeframe.M5,
@@ -203,12 +189,12 @@ class MarketDataMixin(Protocol):
             "1h": Timeframe.H1,
             "1d": Timeframe.D1,
         }.get(interval)
-        if requested_timeframe is None:
+        if requested_timeframe is None or dhan_int is None and interval != "1d":
             raise ValueError(f"unsupported Dhan timeframe: {interval!r}")
         segment = self._segment(instrument)
         security_id = self._security_id(instrument.instrument_id)
         native_type = self._history_instrument_type(instrument)
-        if interval in interval_map:
+        if dhan_int is not None:
             session_open = _SESSION_OPEN.get(segment, _DEFAULT_SESSION_OPEN)
             session_close = _SESSION_CLOSE.get(segment, _DEFAULT_SESSION_CLOSE)
             path = "/charts/intraday"
@@ -216,7 +202,7 @@ class MarketDataMixin(Protocol):
                 "securityId": security_id,
                 "exchangeSegment": segment,
                 "instrument": native_type,
-                "interval": interval_map[interval],
+                "interval": dhan_int,
                 "fromDate": f"{start.date()} {session_open}",
                 "toDate": f"{end.date()} {session_close}",
             }

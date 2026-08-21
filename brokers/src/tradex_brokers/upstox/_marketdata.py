@@ -30,26 +30,20 @@ from tradex_brokers.common.provider_common import (
 _UPSTOX_MAX_BATCH_SIZE = 500
 
 
+# ponytail: timeframe mappings single-sourced from domain/timeframe.py
 def _unit_interval(value: str) -> tuple[str, str]:
-    """Map a timeframe string to the Upstox v3 (unit, interval) pair."""
-    mapping = {
-        "1m": ("minutes", "1"), "5m": ("minutes", "5"),
-        "15m": ("minutes", "15"), "30m": ("minutes", "30"),
-        "1h": ("hours", "1"), "1d": ("days", "1"), "1w": ("weeks", "1"),
-    }
-    pair = mapping.get(value)
-    if pair is None:
-        raise ValueError(f"unsupported Upstox timeframe: {value!r}")
-    return pair
+    from tradex_domain.timeframe import upstox_unit_interval
+
+    return upstox_unit_interval(value)
 
 
 def _target_timeframe(value: str) -> Timeframe:
-    """Map a timeframe string back to the canonical Timeframe."""
-    return {
-        "1m": Timeframe.M1, "5m": Timeframe.M5, "15m": Timeframe.M15,
-        "30m": Timeframe.M30, "1h": Timeframe.H1, "1d": Timeframe.D1,
-        "1w": Timeframe.W1,
-    }.get(value, Timeframe.D1)
+    from tradex_domain.timeframe import to_timeframe
+
+    try:
+        return to_timeframe(value)
+    except ValueError:
+        return Timeframe.D1
 
 
 def _candles_from_rows(
@@ -181,6 +175,8 @@ class MarketDataMixin(Protocol):
 
     def depth(self: UptoxFacade, instrument: Instrument) -> Depth:
         """Market depth via GET /market-quote/quotes."""
+        from tradex_brokers.common.market_builders import build_depth
+
         key = provider_key(self._registry, instrument.instrument_id)
         body = self._request(
             "GET", "/market-quote/quotes", cache_read=True, params={"instrument_key": key})
@@ -190,26 +186,7 @@ class MarketDataMixin(Protocol):
             if isinstance(row, dict) and isinstance(row.get("depth"), dict)
             else {}
         )
-        # Sort the book (bids price-descending, asks ascending) so the depth
-        # invariant ``Depth.best_bid/best_ask == [0]`` holds even if the
-        # provider returns levels out of order.
-        def _level(raw: dict[str, Any]) -> tuple[Price, Quantity]:
-            return (
-                as_price(raw.get("price")),
-                Quantity(value=as_decimal(str(raw.get("quantity")))))
-
-        bids = tuple(
-            sorted(
-                (_level(i) for i in depth_data.get("buy", []) if isinstance(i, dict)),
-                key=lambda level: level[0].value,
-                reverse=True)
-        )
-        asks = tuple(
-            sorted(
-                (_level(i) for i in depth_data.get("sell", []) if isinstance(i, dict)),
-                key=lambda level: level[0].value)
-        )
-        return Depth(instrument=instrument, bids=bids, asks=asks, timestamp=datetime.now(UTC))
+        return build_depth(instrument, depth_data=depth_data)
 
     def _fetch_candles(
         self: UptoxFacade,

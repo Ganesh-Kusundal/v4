@@ -230,15 +230,9 @@ def _aggregate(chunk: list[Candle]) -> Candle:
 def _bucketize(candles: list[Candle], timeframe: Timeframe) -> dict[int, Candle]:
     import calendar
 
-    seconds = {
-        Timeframe.M1: 60,
-        Timeframe.M5: 300,
-        Timeframe.M15: 900,
-        Timeframe.M30: 1800,
-        Timeframe.H1: 3600,
-        Timeframe.D1: 86400,
-        Timeframe.W1: 604800,
-    }[timeframe]
+    from tradex_domain.timeframe import bucket_seconds
+
+    seconds = bucket_seconds(timeframe)
     buckets: dict[int, list[Candle]] = {}
     for candle in candles:
         epoch = calendar.timegm(candle.timestamp.utctimetuple())
@@ -248,12 +242,16 @@ def _bucketize(candles: list[Candle], timeframe: Timeframe) -> dict[int, Candle]
     for key, chunk in buckets.items():
         agg = _aggregate(chunk)
         # Override timeframe to target (_aggregate uses the source candle's timeframe)
+        # Bucket timestamp is the bucket START (epoch-aligned), not the last
+        # candle's close time — so M1→M5/D1 bars are open-aligned for
+        # indicators/backtests.  ``key`` is already ``(epoch // seconds)*seconds``.
+        bucket_start = datetime.fromtimestamp(key, tz=UTC)
         out[key] = Candle(
             instrument=agg.instrument,
             timeframe=timeframe,
             ohlc=agg.ohlc,
             volume=agg.volume,
-            timestamp=agg.timestamp,
+            timestamp=bucket_start,
         )
     return out
 

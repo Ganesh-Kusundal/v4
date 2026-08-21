@@ -9,7 +9,7 @@ Dhan intraday minute ranges (> 90 days) fail loud instead of silently
 truncating, since the fetcher does not chunk across the 90-day per-poll cap.
 
 The fetcher throttles through a per-broker historical rate-limit bucket
-(5/s for Dhan/Upstox) so fan-out never exceeds the serving broker's
+(5/s for Dhan, 50/s for Upstox) so fan-out never exceeds the serving broker's
 documented historical-data quota — including when a symbol fails over to a
 different broker; broker failures still trigger bounded failover.
 
@@ -38,6 +38,8 @@ from tradex_domain.enums import Timeframe
 from tradex_domain.errors import SDKError
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import HistoricalSeries
+from tradex_domain.timeframe import DHAN_INTRADAY as _DHAN_INTRADAY_TIMEFRAMES
+from tradex_domain.timeframe import UPSTOX_MINUTE as _UPSTOX_MINUTE_TIMEFRAMES
 
 log = logging.getLogger(__name__)
 
@@ -47,21 +49,10 @@ log = logging.getLogger(__name__)
 # larger chunk size means fewer total API calls.
 _DUAL_BROKER_THRESHOLD_DAYS = 30
 
-# Dhan v2 `/charts/intraday` polls a MAXIMUM of 90 days per request — the
-# official docs say "only 90 days of data can be polled at once" for minute
-# intervals. The older CLAUDE.md note ("last 5 trading days") does NOT match
-# the current v2 API: this repo's own M1 datalake spans 68 trading days of
-# Dhan-sourced bars. Ranges beyond 90 days need chunking, which the fetcher
-# does not do, so they would otherwise be silently truncated.
+# ponytail: poll caps — Dhan 90d on intraday, Upstox 30d on minute.  Timeframe
+# sets are single-sourced (domain/timeframe.py) to close SMELL-02.
 _DHAN_INTRADAY_MAX_DAYS = 90
-
-# Timeframes DhanBroker routes to `/charts/intraday` (1m/5m/15m/1h →
-# interval 1/5/15/60). Only D1 routes to `/charts/historical` (data back to
-# inception, no per-poll cap); M30/W1 are unsupported by Dhan's `requested_timeframe`
-# map and raise ValueError, so they are not covered by this fetcher.
-_DHAN_INTRADAY_TIMEFRAMES = frozenset({
-    Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1,
-})
+_UPSTOX_INTRADAY_MAX_DAYS = 30
 
 
 def _split(items: list, n: int) -> list[list]:
@@ -155,10 +146,13 @@ class ParallelHistoryFetcher:
 
         days = (end - start).days
         broker_names = self._pick_brokers(days)
-        # Fail loud when Dhan is the sole broker for an intraday range that
-        # exceeds the API's 90-day per-poll window: the fetcher does not
-        # chunk, so the request would otherwise silently truncate. Daily+
-        # timeframes use /charts/historical (unlimited), so they skip this.
+        # Fail loud when the sole broker for an intraday range cannot cover
+        # it in one poll (fetcher does not chunk, so it would silently
+        # truncate). Dhan: 90-day cap on M1/M5/M15/H1; Upstox: 30-day cap on
+        # M1/M5/M15. D1 uses /charts/historical (Dhan) or decade window
+        # (Upstox) and is unlimited. Both guards are required: long-range
+        # routing prefers Dhan, but upstox-only deployments must not silently
+        # truncate minute ranges.
         if (
             timeframe in _DHAN_INTRADAY_TIMEFRAMES
             and days > _DHAN_INTRADAY_MAX_DAYS
@@ -170,6 +164,18 @@ class ParallelHistoryFetcher:
                 f"split the date range into chunks of {_DHAN_INTRADAY_MAX_DAYS} days "
                 "or fewer (backfill_parquet.py also passes the full window to fetch, "
                 "so it hits the same guard)"
+            )
+        if (
+            timeframe in _UPSTOX_MINUTE_TIMEFRAMES
+            and days > _UPSTOX_INTRADAY_MAX_DAYS
+            and "dhan" not in broker_names
+            and "upstox" in broker_names
+        ):
+            raise SDKError(
+                f"Upstox minute history limited to {_UPSTOX_INTRADAY_MAX_DAYS} days "
+                f"per request (requested {days}); the fetcher does not chunk — "
+                f"split the date range into chunks of {_UPSTOX_INTRADAY_MAX_DAYS} days "
+                "or fewer"
             )
         log.info("ParallelHistoryFetcher: %d instruments, %d days, brokers=%s",
                  len(instruments), days, broker_names)

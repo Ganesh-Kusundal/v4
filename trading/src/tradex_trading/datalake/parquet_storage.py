@@ -14,10 +14,12 @@ Adapted from nTrade's ParquetStorage.
 from __future__ import annotations
 
 import shutil
-from datetime import datetime, time
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 
 # ponytail: pyarrow is already installed (ParquetDataCatalog depends on it).
 import pyarrow as pa
@@ -28,11 +30,10 @@ _BASE_COLUMNS = [
     "open", "high", "low", "close", "volume",
 ]
 
-# NSE/equity cash session in IST (tz-naive wall time in this store). Dhan
-# emits phantom post-market bars up to 20:00; the store's contract is
-# market-hours-only, so read() strips bars outside this window by default.
-_MARKET_OPEN = time(9, 15)
-_MARKET_CLOSE = time(15, 30)
+# ponytail: calendar constants single-sourced (domain/market_calendar.py); keep
+# local aliases so this module's grep for _MARKET_OPEN still hits.
+_MARKET_OPEN = MARKET_OPEN
+_MARKET_CLOSE = MARKET_CLOSE
 
 
 class ParquetStorage:

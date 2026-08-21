@@ -5,7 +5,9 @@ Provides trading day detection and market hours for Indian exchanges.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
+
+from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 
 
 class NSETradingCalendar:
@@ -19,9 +21,9 @@ class NSETradingCalendar:
     specific holidays").
     """
 
-    # Standard market hours (IST)
-    _MARKET_OPEN = time(9, 15)
-    _MARKET_CLOSE = time(15, 30)
+    # Standard market hours (IST) — single-sourced from domain/market_calendar.py
+    _MARKET_OPEN = MARKET_OPEN
+    _MARKET_CLOSE = MARKET_CLOSE
 
     def __init__(self, holidays: set[date] | None = None) -> None:
         """Create a calendar.
