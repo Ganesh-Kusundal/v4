@@ -239,12 +239,60 @@ class BrokerClientPort(Protocol):
     _http: object
 
 
+@runtime_checkable
+class MarketStreamPort(Protocol):
+    """Live quote-tick subscription surface (SMELL-05 [REF-4]).
+
+    Satisfied by the Dhan/Upstox WS market backends and ``NullStreamBackend``;
+    consumed by ``BaseBroker``/adapters instead of duck-typed attribute pokes.
+    """
+
+    def subscribe_quotes(self, instruments: object, handler: object) -> object: ...
+    def unsubscribe(self, subscription: object) -> None: ...
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class DepthStreamPort(Protocol):
+    """Live depth subscription surface (30-level or 5-level)."""
+
+    def subscribe_depth(self, instrument: object, handler: object) -> object: ...
+    def unsubscribe(self, subscription: object) -> None: ...
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class OrderStreamPort(Protocol):
+    """Live order/position update subscription surface."""
+
+    def subscribe_orders(self, handler: object) -> object: ...
+    def unsubscribe(self, subscription: object) -> None: ...
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class MasterRefreshProvider(Protocol):
+    """Broker surface providing the daily instrument-master refresh hook.
+
+    Previously consumed via ``getattr(broker, "master_loader", None)`` +
+    a naming convention; now an explicit, isinstance-checkable contract.
+    """
+
+    master_loader: object
+
+    def ensure_master_fresh(self, *, force_refresh: bool = False) -> None: ...
+
+
 __all__ = [
     "BrokerAdapter",
     "BrokerClientPort",
     "Clock",
+    "DepthStreamPort",
     "ExtensionAdapter",
     "IndicatorComputer",
+    "MasterRefreshProvider",
+    "MarketStreamPort",
+    "OrderStreamPort",
     "SessionFacade",
     "TradingCacheProtocol",
 ]

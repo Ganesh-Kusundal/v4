@@ -31,6 +31,11 @@ from tradex_domain.execution import (
 )
 from tradex_domain.instruments import Equity, Index, Instrument
 from tradex_domain.market import Depth, HistoricalSeries, Quote, require_depth_supported
+from tradex_domain.protocols import (
+    DepthStreamPort,
+    MarketStreamPort,
+    OrderStreamPort,
+)
 from tradex_domain.value_objects import InstrumentId, OrderId, Price
 from tradex_domain.wire import InstrumentRegistry
 
@@ -74,9 +79,9 @@ class BaseBroker:
         self._instruments_loaded = False
         self._token_manager: TokenLifecyclePort | None = None
         self.master_loader: Any | None = None
-        self._ws_backend: Any | None = None
-        self._order_backend: Any | None = None
-        self._depth_backend: Any | None = None
+        self._ws_backend: MarketStreamPort | None = None
+        self._order_backend: OrderStreamPort | None = None
+        self._depth_backend: DepthStreamPort | None = None
 
     # ------------------------------------------------------------------
     # capabilities

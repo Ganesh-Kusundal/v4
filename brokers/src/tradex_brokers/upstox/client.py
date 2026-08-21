@@ -42,6 +42,7 @@ from tradex_brokers.common.endpoints import (
 )
 
 from tradex_brokers.common.provider_client import ProviderHttpClient
+from tradex_brokers.common.streaming import NullStreamBackend
 from tradex_brokers.common.provider_common import (
     as_decimal,
     as_price,
@@ -365,11 +366,11 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
 
         Materializes a real ``UpstoxPortfolioStreamBackend`` when the client
         has a WS transport (``ws_fetch``/``ws_token_provider``, wired by
-        ``from_fetch``). Falls back to a lightweight marker dict when no WS
+        ``from_fetch``). Falls back to a ``NullStreamBackend`` when no WS
         transport exists (e.g. HTTP-only test clients).
         """
         if self._ws_fetch is None or self._ws_token_provider is None:
-            return {"type": "upstox_portfolio_stream", "ws_factory": ws_factory}
+            return NullStreamBackend()
         from tradex_brokers.upstox.ws_streams import (  # noqa: PLC0415
             UPSTOX_PORTFOLIO_AUTHORIZE_PATH,
             UpstoxPortfolioStreamBackend,
@@ -388,12 +389,12 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
 
         Materializes a real ``UpstoxMarketDataStreamBackend`` when the client
         has a WS transport (``ws_fetch``/``ws_token_provider``, wired by
-        ``from_fetch``). Falls back to a lightweight marker dict when no WS
+        ``from_fetch``). Falls back to a ``NullStreamBackend`` when no WS
         transport exists (e.g. HTTP-only test clients) — parity with
         ``portfolio_stream_backend``.
         """
         if self._ws_fetch is None or self._ws_token_provider is None:
-            return {"type": "upstox_market_data_stream", "ws_factory": ws_factory}
+            return NullStreamBackend()
         from tradex_brokers.upstox.ws_streams import (  # noqa: PLC0415
             UPSTOX_MARKET_DATA_AUTHORIZE_PATH,
             UpstoxMarketDataStreamBackend,

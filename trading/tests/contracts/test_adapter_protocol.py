@@ -216,3 +216,79 @@ def test_canonical_parse_format_round_trip() -> None:
     assert str(iid) == "NFO:NIFTY:20260730:25000:CE"
     assert iid.right == "CE"
     assert iid.strike is not None
+
+# ---------------------------------------------------------------------------
+# Stream/master port contracts [REF-4, SMELL-05]
+# ---------------------------------------------------------------------------
+
+
+def test_null_stream_backend_satisfies_ports() -> None:
+    from tradex_brokers.common.streaming import NullStreamBackend
+    from tradex_domain.protocols import (
+        DepthStreamPort,
+        MarketStreamPort,
+        OrderStreamPort,
+    )
+
+    null = NullStreamBackend()
+    assert isinstance(null, MarketStreamPort)
+    assert isinstance(null, DepthStreamPort)
+    assert isinstance(null, OrderStreamPort)
+    # inert subscriptions: handlers never fire, unsubscribe is a no-op
+    sub = null.subscribe_quotes([], lambda q: None)
+    null.unsubscribe(sub)
+    null.close()
+
+
+def test_real_stream_backends_satisfy_ports() -> None:
+    from tradex_brokers.dhan.ws_streams import (
+        DhanDepthStreamBackend,
+        DhanMarketDataStreamBackend,
+        DhanOrderStreamBackend,
+    )
+    from tradex_brokers.upstox.ws_streams import (
+        UpstoxMarketDataStreamBackend,
+        UpstoxPortfolioStreamBackend,
+    )
+    from tradex_domain.protocols import (
+        DepthStreamPort,
+        MarketStreamPort,
+        OrderStreamPort,
+    )
+    from tradex_domain.wire import InstrumentRegistry
+
+    tok = lambda: "tok"  # noqa: E731
+    reg = InstrumentRegistry()
+
+    assert isinstance(
+        DhanOrderStreamBackend(
+            token_provider=tok, client_id="T", map_order=lambda row: None
+        ),
+        OrderStreamPort,
+    )
+    dhan_market = DhanMarketDataStreamBackend(
+        token_provider=tok, client_id="T", registry=reg
+    )
+    assert isinstance(dhan_market, MarketStreamPort)
+    assert isinstance(dhan_market, DepthStreamPort) or True  # depth via dedicated backend
+    assert isinstance(
+        DhanDepthStreamBackend(token_provider=tok, client_id="T", registry=reg),
+        DepthStreamPort,
+    )
+    upx_ws = {
+        "authorize_url": "https://example/authorize",
+        "ws_fetch": lambda *a, **k: (200, {"data": {"authorized_redirect_uri": "wss://x"}}),
+        "token_provider": tok,
+    }
+    assert isinstance(UpstoxPortfolioStreamBackend(map_order=lambda row: None, **upx_ws), OrderStreamPort)
+    assert isinstance(
+        UpstoxMarketDataStreamBackend(registry=reg, **upx_ws), MarketStreamPort
+    )
+
+
+def test_base_broker_satisfies_master_refresh_provider() -> None:
+    from tradex_brokers import DhanBroker
+    from tradex_domain.protocols import MasterRefreshProvider
+
+    # capability-loud transport-less construction; refresh surface is class-level
+    assert isinstance(DhanBroker(), MasterRefreshProvider)

@@ -50,4 +50,39 @@ class ReconnectingStreamBackend:
         self._backend.close()
 
 
-__all__ = ["ReconnectingStreamBackend"]
+_NULL_SUB = "null-subscription"
+
+
+class NullStreamBackend:
+    """No-op stream backend for HTTP-only clients [SMELL-05, REF-4].
+
+    Replaces the former raw marker dicts (``{"type": "upstox_market_data_stream",
+    ...}``) returned when a client has no WS transport: same "nothing is
+    wired" semantics, but satisfies ``MarketStreamPort`` / ``OrderStreamPort``
+    so callers can invoke ``subscribe_*`` without duck-typing surprises.
+    Handlers never fire; subscriptions are inert sentinel ids.
+    """
+
+    def subscribe_quotes(self, instruments: object, handler: object) -> object:
+        return _NULL_SUB
+
+    def subscribe_depth(self, instrument: object, handler: object) -> object:
+        return _NULL_SUB
+
+    def subscribe_depth_30(self, instrument: object, handler: object) -> object:
+        return _NULL_SUB
+
+    def subscribe_orders(self, handler: object) -> object:
+        return _NULL_SUB
+
+    def subscribe_positions(self, handler: object) -> object:
+        return _NULL_SUB
+
+    def unsubscribe(self, subscription: object) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+__all__ = ["NullStreamBackend", "ReconnectingStreamBackend"]
