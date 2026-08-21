@@ -233,17 +233,19 @@ class MarketDataMixin(Protocol):
         row_count = min(
             len(opens), len(timestamps), len(highs),
             len(lows), len(closes), len(volumes))
+        from tradex_brokers.common.market_builders import make_candle
+
         candles = [
-            Candle(
-                instrument=instrument,
-                timeframe=requested_timeframe,
-                ohlc=OHLC(
-                    open=as_price(opens[i]),
-                    high=as_price(highs[i]),
-                    low=as_price(lows[i]),
-                    close=as_price(closes[i])),
-                volume=Quantity(value=as_decimal(volumes[i])),
-                timestamp=parse_timestamp_fallback(timestamps[i], start))
+            make_candle(
+                instrument,
+                requested_timeframe,
+                open=opens[i],
+                high=highs[i],
+                low=lows[i],
+                close=closes[i],
+                volume=volumes[i],
+                timestamp=parse_timestamp_fallback(timestamps[i], start),
+            )
             for i in range(row_count)
         ]
         return HistoricalSeries(
@@ -360,4 +362,3 @@ class MarketDataMixin(Protocol):
                     reference_price=spot)
             )
         return OptionChain(underlying=underlying, _expiries=tuple(expiries))
-

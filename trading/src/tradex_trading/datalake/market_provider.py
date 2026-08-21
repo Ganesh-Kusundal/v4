@@ -14,8 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from tradex_domain.enums import Timeframe
-from tradex_domain.market import OHLC, Candle, HistoricalSeries
-from tradex_domain.value_objects import Price, Quantity
+from tradex_domain.market import Candle, HistoricalSeries
 
 from tradex_trading.datalake.parquet_storage import ParquetStorage
 
@@ -89,24 +88,10 @@ class ParquetMarketProvider:
 
     @staticmethod
     def _to_candles(instrument: Any, df: Any) -> list[Candle]:
-        """Build M1 Candle objects from a datalake DataFrame."""
-        candles: list[Candle] = []
-        for row in df.itertuples(index=False):
-            candles.append(
-                Candle(
-                    instrument=instrument,
-                    timeframe=Timeframe.M1,
-                    ohlc=OHLC(
-                        open=Price(value=Decimal(str(row.open))),
-                        high=Price(value=Decimal(str(row.high))),
-                        low=Price(value=Decimal(str(row.low))),
-                        close=Price(value=Decimal(str(row.close))),
-                    ),
-                    volume=Quantity(value=Decimal(str(int(row.volume)))),
-                    timestamp=row.timestamp.to_pydatetime(),
-                )
-            )
-        return candles
+        """Build M1 Candles via single-sourced market_builders helper."""
+        from tradex_brokers.common.market_builders import candles_from_dataframe
+
+        return candles_from_dataframe(instrument, df, timeframe=Timeframe.M1)
 
 
 __all__ = ["ParquetMarketProvider"]

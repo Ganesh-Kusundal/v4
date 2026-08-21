@@ -54,20 +54,21 @@ def _candles_from_rows(
     end: datetime,
 ) -> list[Candle]:
     """Parse Upstox candle rows (``[ts, o, h, l, c, v, oi]``) into ``Candle``s."""
+    from tradex_brokers.common.market_builders import make_candle
+
     candles: list[Candle] = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, list):
             continue
         candles.append(
-            Candle(
-                instrument=instrument,
-                timeframe=timeframe,
-                ohlc=OHLC(
-                    open=as_price(row[1] if len(row) > 1 else 0),
-                    high=as_price(row[2] if len(row) > 2 else 0),
-                    low=as_price(row[3] if len(row) > 3 else 0),
-                    close=as_price(row[4] if len(row) > 4 else 0)),
-                volume=Quantity(value=as_decimal(row[5] if len(row) > 5 else 0)),
+            make_candle(
+                instrument,
+                timeframe,
+                open=row[1] if len(row) > 1 else 0,
+                high=row[2] if len(row) > 2 else 0,
+                low=row[3] if len(row) > 3 else 0,
+                close=row[4] if len(row) > 4 else 0,
+                volume=row[5] if len(row) > 5 else 0,
                 timestamp=parse_timestamp_fallback(row[0] if row else None, start),
             )
         )
