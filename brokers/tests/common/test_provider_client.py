@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from tradex_brokers.common.client_shared import FetchResiliencePipeline
 from tradex_brokers.common.provider_client import ProviderHttpClient, UncertainSubmissionTracker
-from tradex_brokers.common.token_lifecycle import DurableTokenManager
+from tradex_brokers.common.token_lifecycle import PortTokenManager
 from tradex_brokers.common.transport import HttpTransport
 
 
@@ -53,7 +53,7 @@ def test_provider_client_with_token_manager() -> None:
     transport = HttpTransport(base_url="https://api.example.com")
     pipeline = _make_pipeline()
     port = _FakePort(token="my-token")
-    token_mgr = DurableTokenManager(port=port)
+    token_mgr = PortTokenManager(port=port)
     client = ProviderHttpClient(
         transport=transport, pipeline=pipeline, token_manager=token_mgr,
     )
@@ -63,7 +63,7 @@ def test_provider_client_with_token_manager() -> None:
 def test_provider_client_auth_injection() -> None:
     transport = HttpTransport(base_url="https://api.example.com")
     port = _FakePort(token="my-token")
-    token_mgr = DurableTokenManager(port=port)
+    token_mgr = PortTokenManager(port=port)
     client = ProviderHttpClient(
         transport=transport, pipeline=_make_pipeline(), token_manager=token_mgr,
     )

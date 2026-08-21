@@ -11,6 +11,7 @@ from tradex_domain import Candle, Clock, Fill, Quote, Signal
 from tradex_domain.enums import OrderStatus, OrderType
 from tradex_domain.events import OrderFilled, PlaceOrderCommand
 from tradex_domain.execution import OrderRequest
+from tradex_domain.utils import _q2
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
 
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
@@ -20,9 +21,6 @@ from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fees import FeeCalculator
 from tradex_trading.execution.fill_sources import SimulatedFillSource
 from tradex_trading.execution.position_manager import PositionManager
-from tradex_trading.execution.position_math import (
-    _q2,
-)
 from tradex_trading.execution.slippage import SlippageModel
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
@@ -444,7 +442,7 @@ class BacktestEngine:
         done = applied.setdefault(instrument.instrument_id, set())
         # Read the open position BEFORE applying (split re-bases qty; dividend
         # credit is per pre-action qty).
-        existing = position_manager._cache.get_position(instrument.symbol)
+        existing = position_manager._cache.get_position(instrument)
         for action in actions:
             identity = _action_identity(action)
             if identity in done:
@@ -458,7 +456,7 @@ class BacktestEngine:
                 position_manager.on_corporate_action(
                     instrument, kind, ratio=action.ratio,
                 )
-                existing = position_manager._cache.get_position(instrument.symbol)
+                existing = position_manager._cache.get_position(instrument)
                 new_basis = existing.avg_price.value * existing.quantity.value
                 ledger.restate(old_basis - new_basis)
             elif kind == "DIVIDEND":
@@ -467,7 +465,7 @@ class BacktestEngine:
                 position_manager.on_corporate_action(
                     instrument, "DIVIDEND", per_share=action.amount,
                 )
-                existing = position_manager._cache.get_position(instrument.symbol)
+                existing = position_manager._cache.get_position(instrument)
 
     @staticmethod
     def _mark_to_market(
@@ -481,11 +479,16 @@ class BacktestEngine:
         position is never marked at a close from the future. Untimestamped
         (legacy) signals pass ``as_of=None`` and fall back to the full series.
         Positions are the shared-model ``Position`` objects.
+
+        Both long and short positions are marked: long positions contribute
+        ``qty * close`` (positive), short positions contribute
+        ``qty * close`` (negative, since qty is negative) — so the MTM
+        correctly reflects the mark-to-market P&L of short holdings.
         """
         mtm = Decimal("0")
         for inst_id, pos in positions.items():
             qty = pos.quantity.value
-            if qty <= Decimal("0"):
+            if qty == Decimal("0"):
                 continue
             inst_candles = candles_by_id.get(inst_id, [])
             if not inst_candles:

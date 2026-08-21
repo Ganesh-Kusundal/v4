@@ -30,6 +30,7 @@ from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, HistoricalSeries, Quote, require_depth_supported
 from tradex_domain.options import OptionChain
 from tradex_domain.protocols import TradingCacheProtocol
+from tradex_domain.utils import q2
 from tradex_domain.value_objects import AccountId, InstrumentId, Money, OrderId, Price, Quantity
 
 
@@ -52,19 +53,31 @@ class _PaperCache(TradingCacheProtocol):
         return list(self._orders.values())
 
     def update_position(self, position: Position) -> None:
-        self._positions[str(position.instrument)] = position
+        self._positions[str(position.instrument.instrument_id)] = position
 
     def get_position(self, instrument: Instrument | InstrumentId | str) -> Position | None:
-        return self._positions.get(str(instrument))
+        if isinstance(instrument, Instrument):
+            key = str(instrument.instrument_id)
+        elif isinstance(instrument, InstrumentId):
+            key = str(instrument)
+        else:
+            key = instrument
+        return self._positions.get(key)
 
     def all_positions(self) -> list[Position]:
         return list(self._positions.values())
 
     def update_quote(self, quote: Quote) -> None:
-        self._quotes[str(quote.instrument)] = quote
+        self._quotes[str(quote.instrument.instrument_id)] = quote
 
     def get_quote(self, instrument: Instrument | InstrumentId | str) -> Quote | None:
-        return self._quotes.get(str(instrument))
+        if isinstance(instrument, Instrument):
+            key = str(instrument.instrument_id)
+        elif isinstance(instrument, InstrumentId):
+            key = str(instrument)
+        else:
+            key = instrument
+        return self._quotes.get(key)
 
     def snapshot(self) -> dict[str, dict]:
         return {
@@ -693,23 +706,48 @@ class PaperBroker:
             self._update_position(order)
 
     def _update_position(self, order: Order) -> None:
-        """Update position for an instrument after a fill."""
+        """Update position for an instrument after a fill.
+
+        # ponytail: duplicated weighted-average from trading/position_math —
+        # brokers can't import trading (domain ← brokers ← trading). Keep in sync
+        # via domain/utils.q2 so rounding is single-source; extract to domain
+        # if a third copy appears.
+        """
         instrument_id = str(order.instrument.instrument_id)
         current = self._positions.get(instrument_id)
-        if current is None:
-            if order.side is OrderSide.BUY:
-                if order.price is None:
-                    return
-                self._positions[instrument_id] = Position(
-                    instrument=order.instrument,
-                    quantity=order.filled_quantity,
-                    avg_price=order.price,
-                    realized_pnl=Money(amount=Decimal(0), currency=_CURRENCY),
-                    unrealized_pnl=Money(amount=Decimal(0), currency=_CURRENCY),
-                )
+
+        old_qty = current.quantity.value if current is not None else Decimal("0")
+        signed_fill = (
+            order.filled_quantity.value
+            if order.side is OrderSide.BUY
+            else -order.filled_quantity.value
+        )
+        new_qty = old_qty + signed_fill
+        fill_price = order.price.value
+
+        if current is None or (
+            (old_qty >= 0 and signed_fill > 0) or (old_qty <= 0 and signed_fill < 0)
+        ):
+            old_avg = current.avg_price.value if current is not None else Decimal("0")
+            total_cost = old_avg * abs(old_qty) + fill_price * abs(signed_fill)
+            new_avg = total_cost / abs(new_qty) if new_qty != 0 else fill_price
+            realized = current.realized_pnl.amount if current is not None else Decimal("0")
         else:
-            # Simplified position update
-            pass
+            old_avg = current.avg_price.value
+            new_avg = old_avg if new_qty * old_qty >= 0 else fill_price
+            closed = min(abs(signed_fill), abs(old_qty))
+            pnl_diff = (fill_price - old_avg) * closed
+            if old_qty < 0:
+                pnl_diff = -pnl_diff
+            realized = current.realized_pnl.amount + pnl_diff
+
+        self._positions[instrument_id] = Position(
+            instrument=order.instrument,
+            quantity=Quantity(value=new_qty),
+            avg_price=Price(value=new_avg),
+            realized_pnl=Money(amount=q2(realized), currency=_CURRENCY),
+            unrealized_pnl=Money(amount=Decimal("0"), currency=_CURRENCY),
+        )
 
     @property
     def synchronous_fill(self) -> bool:

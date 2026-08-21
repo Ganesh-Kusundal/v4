@@ -89,7 +89,7 @@ def test_filled_order_updates_position() -> None:
     engine = _make_engine(cache=cache)
     receipt = engine.submit(_request())
     assert receipt.status is OrderStatus.FILLED
-    pos = cache.get_position(_eq().symbol)
+    pos = cache.get_position(_eq())
     assert pos is not None
     assert pos.quantity.value == 10
 

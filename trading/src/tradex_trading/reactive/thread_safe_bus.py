@@ -56,9 +56,22 @@ class ThreadSafeReactiveBus:
         return self._bus.stream()
 
     def subscribe(
-        self, on_next: Any = None, on_error: Any = None, on_completed: Any = None,
+        self,
+        on_next: Any = None,
+        on_error: Any = None,
+        on_completed: Any = None,
+        max_queue_size: int | None = None,
+        on_backpressure: Any = None,
+        subscriber_type: str | None = None,
     ) -> Any:
-        return self._bus.subscribe(on_next=on_next, on_error=on_error, on_completed=on_completed)
+        return self._bus.subscribe(
+            on_next=on_next,
+            on_error=on_error,
+            on_completed=on_completed,
+            max_queue_size=max_queue_size,
+            on_backpressure=on_backpressure,
+            subscriber_type=subscriber_type,
+        )
 
     def replay(
         self,

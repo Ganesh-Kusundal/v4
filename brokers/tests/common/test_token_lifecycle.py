@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from tradex_brokers.common.token_lifecycle import (
-    DurableTokenManager,
+    MintTokenManager,
     TokenBroadcast,
     TokenMintResult,
     TokenRefreshScheduler,
@@ -172,12 +172,12 @@ class TestTokenRefreshScheduler:
 # ---------------------------------------------------------------------------
 
 
-class TestDurableTokenManagerMintMode:
-    """DurableTokenManager ensure_token / current / persistence in mint mode."""
+class TestMintTokenManagerMintMode:
+    """MintTokenManager ensure_token / current / persistence in mint mode."""
 
     def test_legacy_deterministic_mint(self) -> None:
         """Without a mint callable, uses gen-N deterministic behavior."""
-        mgr = DurableTokenManager()
+        mgr = MintTokenManager()
         tok = mgr.ensure_token()
         assert tok == "gen-1"
         tok2 = mgr.ensure_token()
@@ -190,7 +190,7 @@ class TestDurableTokenManagerMintMode:
             counter["n"] += 1
             return f"minted-{counter['n']}"
 
-        mgr = DurableTokenManager(mint=mint)
+        mgr = MintTokenManager(mint=mint)
         tok = mgr.ensure_token()
         assert tok == "minted-1"
         # Reuse valid token (no expiry set → trust until rejected)
@@ -201,7 +201,7 @@ class TestDurableTokenManagerMintMode:
         def mint() -> TokenMintResult:
             return TokenMintResult(token="oauth-tok", expires_at=time.time() + 3600)
 
-        mgr = DurableTokenManager(mint=mint)
+        mgr = MintTokenManager(mint=mint)
         tok = mgr.ensure_token()
         assert tok == "oauth-tok"
         # Not expired → reuse
@@ -215,7 +215,7 @@ class TestDurableTokenManagerMintMode:
             counter["n"] += 1
             return f"minted-{counter['n']}"
 
-        mgr = DurableTokenManager(mint=mint)
+        mgr = MintTokenManager(mint=mint)
         mgr.ensure_token()
         tok2 = mgr.ensure_token(force_refresh=True)
         assert tok2 == "minted-2"
@@ -227,7 +227,7 @@ class TestDurableTokenManagerMintMode:
             counter["n"] += 1
             return f"minted-{counter['n']}"
 
-        mgr = DurableTokenManager(mint=mint)
+        mgr = MintTokenManager(mint=mint)
         tok1 = mgr.ensure_token()
         assert tok1 == "minted-1"
         # Reject the current token → new generation
@@ -241,7 +241,7 @@ class TestDurableTokenManagerMintMode:
             counter["n"] += 1
             return f"minted-{counter['n']}"
 
-        mgr = DurableTokenManager(mint=mint)
+        mgr = MintTokenManager(mint=mint)
         mgr.ensure_token()  # gen-1 = minted-1
         mgr.ensure_token(force_refresh=True)  # gen-2 = minted-2
         # Reject an old token → reuse current
@@ -249,28 +249,28 @@ class TestDurableTokenManagerMintMode:
         assert tok == "minted-2"
 
     def test_current_returns_empty_when_no_state(self) -> None:
-        mgr = DurableTokenManager()
+        mgr = MintTokenManager()
         assert mgr.current() == ""
 
     def test_current_returns_token_after_ensure(self) -> None:
-        mgr = DurableTokenManager(mint=lambda: "hello")
+        mgr = MintTokenManager(mint=lambda: "hello")
         mgr.ensure_token()
         assert mgr.current() == "hello"
 
     def test_persisted_refresh_token_default(self) -> None:
-        mgr = DurableTokenManager()
+        mgr = MintTokenManager()
         assert mgr.persisted_refresh_token() == ""
 
     def test_persisted_refresh_token_from_mint_result(self) -> None:
         def mint() -> TokenMintResult:
             return TokenMintResult(token="t", refresh_token="ref-123")
 
-        mgr = DurableTokenManager(mint=mint)
+        mgr = MintTokenManager(mint=mint)
         mgr.ensure_token()
         assert mgr.persisted_refresh_token() == "ref-123"
 
     def test_expired_check(self) -> None:
-        mgr = DurableTokenManager()
+        mgr = MintTokenManager()
         state = _TokenState(generation=1, token="t", issued_at="now", expires_at=0.0)
         assert mgr._expired(state) is True
 
@@ -285,20 +285,20 @@ class TestDurableTokenManagerMintMode:
     def test_persistence_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "token.json"
-            mgr1 = DurableTokenManager(
+            mgr1 = MintTokenManager(
                 mint=lambda: TokenMintResult(token="persisted", expires_at=time.time() + 3600),
                 state_path=path,
             )
             mgr1.ensure_token()
 
             # New manager loads from same file
-            mgr2 = DurableTokenManager(state_path=path)
+            mgr2 = MintTokenManager(state_path=path)
             assert mgr2.current() == "persisted"
 
     def test_generation_marker_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "token.json"
-            mgr = DurableTokenManager(mint=lambda: "tok", state_path=path)
+            mgr = MintTokenManager(mint=lambda: "tok", state_path=path)
             mgr.ensure_token()  # gen-1
             gen_path = path.with_name("token.json.generation")
             assert gen_path.exists()
@@ -314,14 +314,14 @@ class TestDurableTokenManagerMintMode:
             }
             path.write_text(json.dumps(v2_data))
 
-            mgr = DurableTokenManager(state_path=path)
+            mgr = MintTokenManager(state_path=path)
             assert mgr.current() == "v2-live-token"
 
     def test_corrupt_json_resets_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "token.json"
             path.write_text("{bad json")
-            mgr = DurableTokenManager(state_path=path)
+            mgr = MintTokenManager(state_path=path)
             assert mgr.current() == ""
 
     def test_trust_until_rejected_clamp(self) -> None:
@@ -329,7 +329,7 @@ class TestDurableTokenManagerMintMode:
         def mint() -> TokenMintResult:
             return TokenMintResult(token="short", expires_at=time.time() - 10)
 
-        mgr = DurableTokenManager(mint=mint, refresh_buffer_seconds=5.0)
+        mgr = MintTokenManager(mint=mint, refresh_buffer_seconds=5.0)
         mgr.ensure_token()
         # The expires_at should have been clamped → token reused
         tok = mgr.ensure_token()
@@ -452,6 +452,8 @@ class TestMintTokenManagerDirect:
         assert mgr.is_expired() is False  # no expiry on plain-string mints
 
     def test_durable_compat_subclass_unchanged(self) -> None:
+        from tradex_brokers.common.token_lifecycle import DurableTokenManager
+
         mgr = DurableTokenManager(mint=lambda: "compat")
         assert mgr.ensure_token() == "compat"
         assert mgr.get_token_with_rejection  # port-mode API still present

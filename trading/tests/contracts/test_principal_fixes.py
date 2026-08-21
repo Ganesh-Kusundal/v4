@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tradex_brokers.common.token_lifecycle import DurableTokenManager
+from tradex_brokers.common.token_lifecycle import PortTokenManager
 from tradex_domain import AuthenticationError, InstrumentId
 from tradex_domain.wire import InstrumentRegistry
 
@@ -47,7 +47,7 @@ class _MockPort:
 def test_durable_token_manager_refreshes_and_persists(tmp_path: Path) -> None:
     path = tmp_path / "token.json"
     port = _MockPort(["gen-1", "gen-2"])
-    manager = DurableTokenManager(port, state_path=path)
+    manager = PortTokenManager(port, state_path=path)
 
     assert manager.get_token() == "gen-1"
     # Token should be persisted
@@ -60,7 +60,7 @@ def test_durable_token_manager_survives_corrupt_state(tmp_path: Path) -> None:
     path.write_text("not-json")
 
     port = _MockPort(["gen-1"])
-    manager = DurableTokenManager(port, state_path=path)
+    manager = PortTokenManager(port, state_path=path)
 
     # Corrupt state is handled gracefully — load_state logs warning
     assert manager.get_token() == "gen-1"
@@ -72,12 +72,12 @@ def test_durable_token_manager_loads_persisted_state_on_construction(
     path = tmp_path / "token.json"
     # First manager persists a token
     port1 = _MockPort(["token-A"])
-    manager1 = DurableTokenManager(port1, state_path=path)
+    manager1 = PortTokenManager(port1, state_path=path)
     assert manager1.get_token() == "token-A"
 
     # Second manager at same path loads the persisted token
     port2 = _MockPort(["token-B"])
-    manager2 = DurableTokenManager(port2, state_path=path)
+    manager2 = PortTokenManager(port2, state_path=path)
     # Should load "token-A" from disk; since port2.is_expired() returns True
     # on first call, it will refresh instead
     # Force it to not be expired to test the cached path
@@ -89,7 +89,7 @@ def test_durable_token_manager_loads_persisted_state_on_construction(
 def test_durable_token_manager_force_refresh(tmp_path: Path) -> None:
     path = tmp_path / "token.json"
     port = _MockPort(["gen-1", "gen-2"])
-    manager = DurableTokenManager(port, state_path=path)
+    manager = PortTokenManager(port, state_path=path)
 
     assert manager.get_token() == "gen-1"
     # Force refresh even though not expired
@@ -110,7 +110,7 @@ def test_durable_token_manager_refresh_failure_raises_authentication_error(
             return True
 
     path = tmp_path / "token.json"
-    manager = DurableTokenManager(_FailingPort(), state_path=path)
+    manager = PortTokenManager(_FailingPort(), state_path=path)
 
     try:
         manager.get_token()

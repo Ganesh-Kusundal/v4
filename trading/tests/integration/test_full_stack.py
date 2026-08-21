@@ -21,6 +21,7 @@ from tradex_domain import (
 )
 from tradex_domain.value_objects import Price, Quantity
 
+from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.replay.backtest import BacktestEngine
 from tradex_trading.sdk.session import SessionState, TradingSession
@@ -442,12 +443,19 @@ class TestExecutionEngineIntegration:
     def test_order_fill_publishes_events(self):
         """Submit order through engine, verify events are published."""
         from tradex_domain.events import OrderFilled, OrderPlaced
+        from tradex_domain.market import Quote
 
         from tradex_trading.execution.engine import ExecutionEngine
         from tradex_trading.execution.fill_sources import PaperFillSource
 
         bus = ReactiveBus()
-        engine = ExecutionEngine(bus=bus, fill_source=PaperFillSource())
+        cache = TradingCache()
+        # Seed a quote so PaperFillSource can resolve a MARKET fill price.
+        cache.set_quote(Quote(
+            instrument=_eq(),
+            ltp=Price(value=Decimal("100")),
+        ))
+        engine = ExecutionEngine(bus=bus, fill_source=PaperFillSource(cache=cache), cache=cache)
 
         placed: list = []
         filled: list = []

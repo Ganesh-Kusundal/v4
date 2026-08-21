@@ -12,19 +12,11 @@ Pure Decimal math, no I/O. The caller owns persistence (cache / local dict).
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from tradex_domain.execution import Fill, Position
+from tradex_domain.utils import _q2
 from tradex_domain.value_objects import Money, Price, Quantity
-
-
-def _q2(value: Decimal) -> Decimal:
-    """Quantize to 2 decimal places (paisa) with ROUND_HALF_UP.
-
-    Matches the Money/fee convention so realized P&L is exact and identical
-    across engines (no Decimal residue from non-terminating averages).
-    """
-    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def apply_split(position: Position, ratio: Decimal) -> Position:

@@ -11,7 +11,7 @@ import logging
 import threading
 import time
 import uuid
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -47,7 +47,6 @@ _TERMINAL_STATUSES = frozenset({
     OrderStatus.REJECTED,
     OrderStatus.UNKNOWN,
 })
-
 
 # ---------------------------------------------------------------------------
 # Risk gate
@@ -340,11 +339,13 @@ class ExecutionEngine:
         #: Fingerprints of OrderFilled events already applied to the OMS
         #: (order_id + side + qty + price) — re-published broker fills are
         #: skipped, distinct partial fills are each applied in full.
-        self._applied_fills: set[tuple] = set()
-        #: ponytail: bound the fingerprint set to avoid unbounded memory growth
-        #: in long-running live sessions.  The order-status guard below catches
-        #: known orders even after a clear, so this only affects unknown fills.
+        #: LRU-bounded OrderedDict so old entries are evicted (not the whole set)
+        #: when the capacity is exceeded — recent entries (most likely to be
+        #: re-published) are preserved.
+        # ponytail: 50k cap, LRU eviction — add latency histograms when dashboard needs them.
+        self._applied_fills: OrderedDict[tuple, None] = OrderedDict()
         self._applied_fills_max = 50_000
+        self._applied_fills_lock = threading.Lock()
         self._setup_pipeline()
 
     def _setup_pipeline(self) -> None:
@@ -607,11 +608,13 @@ class ExecutionEngine:
                 fill.order_id.value, fill.side.value, str(fill.quantity.value),
                 str(fill.price.value),
             )
-        if key in self._applied_fills:
-            return
-        self._applied_fills.add(key)
-        if len(self._applied_fills) > self._applied_fills_max:
-            self._applied_fills.clear()
+        with self._applied_fills_lock:
+            if key in self._applied_fills:
+                self._applied_fills.move_to_end(key)
+                return
+            self._applied_fills[key] = None
+            if len(self._applied_fills) > self._applied_fills_max:
+                self._applied_fills.popitem(last=False)
 
         existing = self._cache.get_order(fill.order_id.value)
         if existing is not None and existing.status in (
@@ -654,13 +657,13 @@ class ExecutionEngine:
         Creates the order, runs the fill source, updates OMS, and
         publishes events. Returns an OrderReceipt immediately.
         """
-        t0 = time.perf_counter()
+        submit_start = time.perf_counter()
         try:
             return self._submit_impl(request)
         finally:
             if self._metrics is not None:
                 self._metrics.histogram("orders.submit_latency_seconds").observe(
-                    time.perf_counter() - t0,
+                    time.perf_counter() - submit_start,
                 )
 
     def _submit_impl(self, request: OrderRequest) -> OrderReceipt:

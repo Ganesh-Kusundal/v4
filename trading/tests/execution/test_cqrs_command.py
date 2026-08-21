@@ -65,7 +65,7 @@ def test_place_order_command_updates_position() -> None:
     bus.publish(cmd)
 
     # Position should be updated after fill
-    pos = engine.cache.get_position("RELIANCE")
+    pos = engine.cache.get_position(_eq())
     assert pos is not None
     assert pos.quantity.value == 10
 

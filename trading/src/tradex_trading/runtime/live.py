@@ -20,7 +20,7 @@ from urllib.request import Request, urlopen
 
 from tradex_brokers import DhanBroker, UpstoxBroker
 from tradex_brokers.common import (
-    DurableTokenManager,
+    MintTokenManager,
     TotpCooldownGuard,
     default_runtime_dir,
     default_token_state_path,
@@ -276,7 +276,7 @@ def _dhan_token_manager(
     cooldown: TotpCooldownGuard | None = None,
     clock: Callable[[], float] = time.time,
     sleeper: Callable[[float], None] = time.sleep,
-) -> DurableTokenManager | None:
+) -> MintTokenManager | None:
     """Build a durable Dhan TOTP manager when PIN+TOTP credentials are present.
 
     Defaults ``DHAN_TOKEN_PATH`` to a durable ``runtime/dhan-token-state.json``
@@ -306,7 +306,7 @@ def _dhan_token_manager(
         clock=clock,
         sleeper=sleeper,
     )
-    return DurableTokenManager(
+    return MintTokenManager(
         state_path=token_path,
         mint=mint_fn,
         refresh_buffer_seconds=buffer_minutes * 60.0,
@@ -321,7 +321,7 @@ def _upstox_token_manager(
     *,
     cooldown: TotpCooldownGuard | None = None,
     clock: Callable[[], float] = time.time,
-) -> DurableTokenManager | None:
+) -> MintTokenManager | None:
     """Build a durable Upstox token manager.
 
     Three-tier mint priority (mirrors v2):
@@ -358,8 +358,8 @@ def _upstox_token_manager(
     # happens only when the persisted token is missing/expired/rejected.
     if env_refresh and client_id and client_secret:
 
-        def build(refresh: str) -> DurableTokenManager:
-            return DurableTokenManager(
+        def build(refresh: str) -> MintTokenManager:
+            return MintTokenManager(
                 state_path=token_path,
                 mint=upstox_refresh_mint(
                     fetch=cast(JsonFetch, fetch),
@@ -382,7 +382,7 @@ def _upstox_token_manager(
     # Tier 2: TOTP self-mint (requires the optional ``upstox-totp`` package;
     # its absence surfaces as a typed AuthenticationError on first mint).
     if has_totp:
-        return DurableTokenManager(
+        return MintTokenManager(
             state_path=token_path,
             mint=upstox_totp_mint(
                 mobile=totp_mobile,

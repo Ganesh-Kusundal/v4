@@ -284,9 +284,4 @@ live in `benchmarks/`:
 python benchmarks/bench_order_path.py
 ```
 
----
 
-## Documentation
-
-- `docs/DEEP_REVIEW.md` — full architectural review, class diagrams, order/market-data flow, and assessments.
-- `V3_TO_V4_COMPLETION_PLAN.md` — migration and completion history.

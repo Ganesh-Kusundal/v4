@@ -93,7 +93,7 @@ def test_short_open_and_reduce() -> None:
 def test_position_reflected_in_cache() -> None:
     pm, cache = _manager()
     pm.on_fill(_fill("f1", OrderSide.BUY, 10, 100))
-    cached = cache.get_position(_eq().symbol)
+    cached = cache.get_position(_eq())
     assert cached is not None
     assert cached.quantity.value == 10
     assert cached.avg_price.value == 100

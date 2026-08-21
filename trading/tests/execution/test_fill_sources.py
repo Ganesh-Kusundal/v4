@@ -72,12 +72,13 @@ class TestSimulatedFillSource:
 class TestPaperFillSource:
     """PaperFillSource fills at LTP, request price, or nominal."""
 
-    def test_fill_at_nominal_when_no_price(self) -> None:
+    def test_price_less_market_order_raises(self) -> None:
+        """PaperFillSource must reject price-less MARKET orders just like
+        SimulatedFillSource — a zero-priced fill corrupts P&L."""
         fill_source = PaperFillSource()
         req = _make_request()  # MARKET, no price
-        order, fill = fill_source.submit(req)
-        assert fill is not None
-        assert fill.price.value == Decimal("1.0")  # nominal paper price
+        with pytest.raises(ValueError, match="without a positive price"):
+            fill_source.submit(req)
 
     def test_fill_at_request_price(self) -> None:
         fill_source = PaperFillSource()

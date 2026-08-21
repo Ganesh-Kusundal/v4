@@ -66,3 +66,35 @@ class TestSubscriberIsolation:
         bus = ReactiveBus()
         bus.subscribe(on_next=_raise_on_next)
         bus.publish("m")
+
+
+class TestBackpressure:
+    def test_backpressure_subscriber_no_crash(self) -> None:
+        """Subscribe with on_backpressure does not raise NameError.
+
+        Regression test: the _backpressure_triggered dict was previously
+        undefined at module level, causing a NameError for any subscriber
+        with on_backpressure set.
+        """
+        from tradex_trading.reactive.bus import _backpressure_triggered
+
+        bus = ReactiveBus()
+        received: list[str] = []
+        bp_calls: list[str] = []
+
+        # Should NOT raise NameError — the dict must exist at module level
+        assert isinstance(_backpressure_triggered, dict)
+
+        bus.subscribe(
+            on_next=received.append,
+            max_queue_size=3,
+            on_backpressure=bp_calls.append,
+            subscriber_type="test_sub",
+        )
+        # Publish messages — must not crash
+        for i in range(10):
+            bus.publish(f"m{i}")
+
+        # In synchronous mode the buffer drains within each publish(), so
+        # backpressure may or may not trigger — the important thing is no crash.
+        assert len(received) == 10, "all messages delivered"

@@ -66,11 +66,14 @@ def test_all_orders_returns_insertion_set() -> None:
     assert {o.order_id.value for o in cache.all_orders()} == {"o-1", "o-2"}
 
 
-def test_position_keyed_by_symbol() -> None:
+def test_position_keyed_by_instrument_id() -> None:
     cache = TradingCache()
     cache.update_position(_position())
-    assert cache.get_position(_eq().symbol).quantity.value == 10
-    assert cache.get_position("TCS") is None
+    # update_position now uses _instrument_key (instrument_id), consistent
+    # with set_position and get_position.
+    assert cache.get_position(_eq()).quantity.value == 10
+    assert cache.get_position(str(_eq().instrument_id)).quantity.value == 10
+    assert cache.get_position("NSE:TCS") is None
 
 
 def test_clear_drops_everything() -> None:
@@ -79,7 +82,7 @@ def test_clear_drops_everything() -> None:
     cache.update_position(_position())
     cache.clear()
     assert cache.get_order("o-1") is None
-    assert cache.get_position(_eq().symbol) is None
+    assert cache.get_position(_eq()) is None
 
 
 def test_order_update_overwrites() -> None:

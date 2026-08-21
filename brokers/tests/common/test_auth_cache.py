@@ -16,7 +16,7 @@ from tradex_domain import AuthenticationError
 
 from tradex_brokers.common.cache import ReadCache
 from tradex_brokers.common.token_lifecycle import (
-    DurableTokenManager,
+    PortTokenManager,
 )
 
 
@@ -92,7 +92,7 @@ def test_read_cache_hits_and_misses_counters() -> None:
 
 def test_durable_manager_reuses_valid_token(tmp_path: Path) -> None:
     port = _FakePort()
-    manager = DurableTokenManager(port=port, state_path=tmp_path / "token.json")
+    manager = PortTokenManager(port=port, state_path=tmp_path / "token.json")
     t1 = manager.get_token()
     t2 = manager.get_token()
     assert t1 == t2
@@ -101,7 +101,7 @@ def test_durable_manager_reuses_valid_token(tmp_path: Path) -> None:
 
 def test_durable_manager_refreshes_when_expired(tmp_path: Path) -> None:
     port = _FakePort()
-    manager = DurableTokenManager(port=port, state_path=tmp_path / "token.json")
+    manager = PortTokenManager(port=port, state_path=tmp_path / "token.json")
     t1 = manager.get_token()
     port._expired = True
     t2 = manager.get_token()
@@ -111,7 +111,7 @@ def test_durable_manager_refreshes_when_expired(tmp_path: Path) -> None:
 
 def test_durable_manager_force_refresh(tmp_path: Path) -> None:
     port = _FakePort()
-    manager = DurableTokenManager(port=port, state_path=tmp_path / "token.json")
+    manager = PortTokenManager(port=port, state_path=tmp_path / "token.json")
     t1 = manager.get_token()
     t2 = manager.force_refresh()
     assert t1 != t2
@@ -121,7 +121,7 @@ def test_durable_manager_force_refresh(tmp_path: Path) -> None:
 def test_durable_manager_persists_state(tmp_path: Path) -> None:
     port = _FakePort()
     state_path = tmp_path / "token.json"
-    manager = DurableTokenManager(port=port, state_path=state_path)
+    manager = PortTokenManager(port=port, state_path=state_path)
     token = manager.get_token()
     manager.save_state()
     assert state_path.exists()
@@ -134,7 +134,7 @@ def test_durable_manager_loads_persisted_state(tmp_path: Path) -> None:
     state_path.write_text(json.dumps({"access_token": "persisted-token"}))
 
     port = _FakePort()
-    manager = DurableTokenManager(port=port, state_path=state_path)
+    manager = PortTokenManager(port=port, state_path=state_path)
     # Should load the persisted token without refreshing
     assert manager._cached_token == "persisted-token"
 
@@ -150,7 +150,7 @@ def test_durable_manager_refresh_failure_raises_auth_error(tmp_path: Path) -> No
         def is_expired(self) -> bool:
             return True
 
-    manager = DurableTokenManager(port=_FailingPort(), state_path=tmp_path / "token.json")
+    manager = PortTokenManager(port=_FailingPort(), state_path=tmp_path / "token.json")
     import pytest
 
     with pytest.raises(AuthenticationError, match="Token refresh failed"):
@@ -159,7 +159,7 @@ def test_durable_manager_refresh_failure_raises_auth_error(tmp_path: Path) -> No
 
 def test_durable_manager_without_state_path() -> None:
     port = _FakePort()
-    manager = DurableTokenManager(port=port)
+    manager = PortTokenManager(port=port)
     token = manager.get_token()
     assert token  # non-empty token returned
     # save_state is a no-op without a path

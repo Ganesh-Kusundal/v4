@@ -40,8 +40,9 @@ class PositionManager:
         books realised PnL at the difference between fill price and the
         current average (see :func:`apply_fill`).
         """
-        symbol = fill.instrument.symbol
-        existing = self._cache.get_position(symbol)
+        instrument = fill.instrument
+        symbol = instrument.symbol
+        existing = self._cache.get_position(instrument)
         pos = apply_fill(existing, fill)
         self._cache.update_position(pos)
         log.info(
@@ -58,7 +59,7 @@ class PositionManager:
         net cash accounting (parity review HIGH-6b). Paisa-quantized like
         the shared accounting model.
         """
-        existing = self._cache.get_position(fill.instrument.symbol)
+        existing = self._cache.get_position(fill.instrument)
         if existing is None:
             return None
         pos = Position(
@@ -91,7 +92,7 @@ class PositionManager:
         identically (parity review area #4). No-op when the position is not
         open. Returns the updated position or ``None`` when nothing was open.
         """
-        existing = self._cache.get_position(instrument.symbol)
+        existing = self._cache.get_position(instrument)
         if existing is None:
             return None
         kind = action_type.upper()
@@ -114,7 +115,7 @@ class PositionManager:
 
     def get_position(self, instrument: Instrument) -> Position | None:
         """Return the position for the given instrument, or None."""
-        return self._cache.get_position(instrument.symbol)
+        return self._cache.get_position(instrument)
 
     def all_positions(self) -> list[Position]:
         """Return all tracked positions."""

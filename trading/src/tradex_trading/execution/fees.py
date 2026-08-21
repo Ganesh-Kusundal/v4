@@ -8,17 +8,12 @@ ROUND_HALF_UP.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 
 from tradex_domain.enums import OrderSide
 from tradex_domain.execution import Fill
+from tradex_domain.utils import _q2
 from tradex_domain.value_objects import Money
-
-
-def _q2(value: Decimal) -> Decimal:
-    """Quantize to 2 decimal places (paisa) with ROUND_HALF_UP."""
-    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
 
 # ---------------------------------------------------------------------------
 # Fee breakdown
@@ -74,6 +69,14 @@ class FeeCalculator:
         # (sebi 0.0001% and stamp 0.003% as *rates*, not percent-of-percent),
         # so the default path delegates to equity_intraday and the two fee
         # paths agree exactly.
+        #
+        # SEBI charge: the static _SEBI_RATE (₹20/crore = 0.0002%) is the
+        # *flat* rate used in the canonical path.  The constructor default
+        # sebi_charge_pct=0.0001% is deliberately different because the
+        # legacy percentage-of-value path divides by 100, yielding 0.000001%
+        # effective — the canonical path computes 0.000002 directly.  Both
+        # defaults route through the canonical path (they match the sentinel
+        # dict), so the two fee models agree exactly for default rates.
         self._brokerage_pct = brokerage_pct
         self._stt_pct = stt_pct
         self._exchange_charge_pct = exchange_charge_pct

@@ -10,7 +10,6 @@ shared ``FillModel`` so identical input events fill identically in every mode
 from __future__ import annotations
 
 import uuid
-from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.enums import OrderStatus
@@ -97,7 +96,7 @@ class SimulatedFillSource(FillModel):
         if self._portfolio_state is not None and hasattr(
             self._portfolio_state, "get_position"
         ):
-            self._portfolio_state.get_position(request.instrument.symbol)
+            self._portfolio_state.get_position(request.instrument)
             # Could add position limit checks here
 
         fill = self.make_fill(order, fill_price, self.fill_timestamp(request))
@@ -137,8 +136,10 @@ class PaperFillSource(FillModel):
         elif request.price is not None:
             fill_price = self.resolve_fill_price(request)
         else:
-            # Nominal paper price when no market reference is available.
-            fill_price = Price(value=Decimal("1.0"))
+            raise ValueError(
+                f"cannot fill {request.instrument} ({request.side.value}) "
+                f"without a positive price"
+            )
 
         fill = self.make_fill(order, fill_price, self.fill_timestamp(request))
         return order, fill
@@ -147,7 +148,7 @@ class PaperFillSource(FillModel):
         """Latest traded price from the cache quote, if any."""
         if self._cache is None or not hasattr(self._cache, "get_quote"):
             return None
-        quote = self._cache.get_quote(request.instrument.symbol)
+        quote = self._cache.get_quote(request.instrument)
         if quote is None:
             return None
         return Price(value=quote.ltp.value)

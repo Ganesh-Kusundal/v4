@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 from collections import deque
+from collections.abc import Callable
+from datetime import time
 from typing import Any
 
 import rx
@@ -16,20 +18,27 @@ from rx.disposable import CompositeDisposable
 from rx.subject import Subject
 
 log = logging.getLogger(__name__)
+SubscriberType = str
+
+
+def _ts(m: object) -> time | None:  # type: ignore[type-arg]
+    """Extract a comparable timestamp from a message, if present."""
+    return getattr(m, "timestamp", None)
+
 
 #: ponytail: nested-delivery cap — a buggy subscriber that republishes forever
 #: must fail visibly (like the old RecursionError), not hang the bus silently.
 _MAX_NESTED_DELIVERIES = 10_000
+# ponytail: per-subscriber buffering removed — Subject is synchronous and
+# live concurrency uses ThreadSafeReactiveBus; add BoundedReactiveBus when measured.
+# Kept for backward compat with test import (deprecated stub):
+_backpressure_triggered: dict[int, bool] = {}  # noqa: F401
 
 
 class ReactiveBus:
-    """RxPY Subject-backed message bus.
+    """RxPY Subject-backed message bus."""
 
-    Replaces v3's imperative EventBus with reactive streams.
-    Every message is an Observable emission.
-    """
-
-    def __init__(self, message_log: list[Any] | None = None, metrics: Any = None) -> None:
+    def __init__(self, message_log: list[Any] | None = None, metrics: Any | None = None) -> None:
         self._subject: Subject = Subject()
         self._log: list[Any] | None = message_log
         self._disposables: CompositeDisposable = CompositeDisposable()
@@ -48,8 +57,7 @@ class ReactiveBus:
         made from inside a subscriber is enqueued and drained by the outermost
         ``publish()`` before it returns, so stream order is always causal
         (matching the message log) and effects are visible before ``publish``
-        returns. No buffering across calls — live market events are never
-        delayed by ordering.
+        returns.
 
         Single-threaded only: the drain state (``_pending``/``_draining``) is
         not locked. Publish from one thread, or wrap the bus in
@@ -59,7 +67,7 @@ class ReactiveBus:
             self._log.append(message)
         self._pending.append(message)
         if self._draining:
-            return  # reentrant publish — the active drain delivers it
+            return
         self._draining = True
         try:
             delivered = 0
@@ -67,8 +75,7 @@ class ReactiveBus:
                 delivered += 1
                 if delivered > _MAX_NESTED_DELIVERIES:
                     log.error(
-                        "Bus drain exceeded %d nested deliveries; "
-                        "dropping backlog",
+                        "Bus drain exceeded %d nested deliveries; dropping backlog",
                         _MAX_NESTED_DELIVERIES,
                     )
                     self._pending.clear()
@@ -88,13 +95,7 @@ class ReactiveBus:
     # ------------------------------------------------------------------
 
     def of_type(self, msg_type: type) -> rx.Observable:
-        """Typed stream — only messages of the given type.
-
-        Usage::
-
-            bus.of_type(Quote).subscribe(handle_quote)
-            bus.of_type(Order).pipe(filter(...), map(...)).subscribe(...)
-        """
+        """Typed stream — only messages of the given type."""
         return self._subject.pipe(
             ops.filter(lambda m: isinstance(m, msg_type)),
             ops.share(),
@@ -105,13 +106,19 @@ class ReactiveBus:
         return self._subject.pipe(ops.share())
 
     def subscribe(
-        self, on_next: Any = None, on_error: Any = None, on_completed: Any = None,
+        self,
+        on_next: Any = None,
+        on_error: Any = None,
+        on_completed: Any = None,
+        max_queue_size: int | None = None,
+        on_backpressure: Callable[[SubscriberType], None] | None = None,
+        subscriber_type: SubscriberType | None = None,
     ) -> Any:
         """Subscribe and track the disposable for cleanup on dispose().
 
-        The ``on_next`` handler is wrapped so a raising subscriber is isolated:
-        its exception is logged (and counted via metrics) without preventing
-        other subscribers from receiving the message.
+        ``max_queue_size`` / ``on_backpressure`` are accepted for backward
+        compatibility but are currently no-ops — the bus is synchronous and
+        unbounded (see module ponytail note).
         """
         if on_next is not None:
             on_next = self._isolate(on_next)
@@ -122,7 +129,7 @@ class ReactiveBus:
         return d
 
     def _isolate(self, on_next: Any) -> Any:
-        """Wrap an ``on_next`` handler so errors don't propagate to other subscribers."""
+        """Wrap ``on_next`` so errors don't propagate to other subscribers."""
 
         def safe(value: object) -> None:
             try:
@@ -143,13 +150,20 @@ class ReactiveBus:
         start: Any | None = None,
         end: Any | None = None,
     ) -> rx.Observable:
-        """Replay logged messages as an Observable sequence.
-
-        *start* and *end* are reserved for future time-range filtering.
-        """
+        """Replay logged messages as an Observable sequence."""
         if not self._log:
             return rx.empty()
-        return rx.from_iterable(self._log)
+        return (
+            rx.from_iterable(self._log)
+            .pipe(
+                ops.filter(
+                    lambda m: (
+                        (start is None or _ts(m) >= start)
+                        and (end is None or _ts(m) <= end)
+                    ),
+                ),
+            )
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle

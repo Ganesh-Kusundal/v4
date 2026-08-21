@@ -70,14 +70,12 @@ def _make_quote() -> Quote:
 def _position_ref(name: str):
     """Reference accepted by get_position for a given implementation.
 
-    NOTE: ``_PaperCache`` keys positions/quotes by instrument id; ``TradingCache``
-    (and its thread-safe wrapper) key ``update_position``/``update_quote`` by
-    ``instrument.symbol``. This keying difference is a real, pre-existing
-    inconsistency in the unified interface (see ``TradingCache.update_position``
-    vs ``get_position``). We query by each implementation's canonical key so the
-    round-trip contract ("get returns what update stored") holds for all of them.
+    Both ``_PaperCache`` and ``TradingCache`` now key positions/quotes by
+    instrument id (``str(instrument.instrument_id)``).  We query with the
+    ``Instrument`` object directly, which ``_instrument_key`` / ``str()``
+    resolves to the same canonical key for all implementations.
     """
-    return _eq() if name == "paper" else "RELIANCE"
+    return _eq()
 
 
 class TestCacheInterfaceConformance:
@@ -143,3 +141,33 @@ class TestSnapshotRestoreLifecycle:
         for name, impl in _CACHE_IMPLS:
             snapshot = impl().snapshot()
             assert set(snapshot) == {"orders", "positions", "quotes"}, name
+
+
+class TestUpdateGetRoundTrip:
+    """update_position/update_quote → get_position/get_quote round-trip.
+
+    Regression guard: verify that every cache implementation stores and
+    retrieves positions/quotes through the same canonical key, so
+    ``update_position(pos)`` → ``get_position(pos.instrument)`` always
+    returns what was stored.
+    """
+
+    def test_position_round_trip(self) -> None:
+        for name, impl in _CACHE_IMPLS:
+            cache = impl()
+            pos = _make_position()
+            cache.update_position(pos)
+            # Retrieve using the Instrument object — all implementations
+            # must resolve this to the same key used by update_position.
+            result = cache.get_position(_eq())
+            assert result is not None, name
+            assert result.avg_price == Price(value=Decimal("100")), name
+
+    def test_quote_round_trip(self) -> None:
+        for name, impl in _CACHE_IMPLS:
+            cache = impl()
+            q = _make_quote()
+            cache.update_quote(q)
+            result = cache.get_quote(_eq())
+            assert result is not None, name
+            assert result.ltp == Price(value=Decimal("100")), name

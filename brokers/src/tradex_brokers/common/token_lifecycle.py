@@ -701,8 +701,9 @@ class DurableTokenManager(PortTokenManager, MintTokenManager):
     a port.  ``ensure_token()`` / ``current()`` provide generation-aware
     minting (see ``MintTokenManager``).
 
-    New code should prefer the dedicated ``PortTokenManager`` or
-    ``MintTokenManager`` classes.
+    .. deprecated::
+        New code should use ``PortTokenManager`` or ``MintTokenManager``
+        directly. This class will be removed in a future release.
     """
 
     def __init__(
@@ -716,6 +717,14 @@ class DurableTokenManager(PortTokenManager, MintTokenManager):
         clock: Callable[[], float] = time.time,
         cooldown: Any | None = None,
     ) -> None:
+        import warnings
+
+        warnings.warn(
+            "DurableTokenManager is deprecated; use PortTokenManager or "
+            "MintTokenManager directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         PortTokenManager.__init__(self, port, state_path)
         MintTokenManager.__init__(
             self,
@@ -729,7 +738,6 @@ class DurableTokenManager(PortTokenManager, MintTokenManager):
 
 
 __all__ = [
-    "DurableTokenManager",
     "MintStrategy",
     "MintTokenManager",
     "PortTokenManager",
@@ -737,4 +745,5 @@ __all__ = [
     "TokenLifecyclePort",
     "TokenMintResult",
     "TokenRefreshScheduler",
+    "DurableTokenManager",  # deprecated — kept for backward compatibility
 ]

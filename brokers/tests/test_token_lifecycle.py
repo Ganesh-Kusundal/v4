@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 from tradex_brokers.common.token_lifecycle import (
-    DurableTokenManager,
+    PortTokenManager,
 )
 
 
@@ -38,7 +38,7 @@ class TestDurableTokenManagerDeadlock:
         port = _FakePort()
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "token.json"
-            mgr = DurableTokenManager(port=port, state_path=state_path)
+            mgr = PortTokenManager(port=port, state_path=state_path)
             # This should NOT deadlock (Lock → save_state → Lock)
             token = mgr.get_token()
             assert token == "refreshed-1"
@@ -49,7 +49,7 @@ class TestDurableTokenManagerDeadlock:
 
     def test_get_token_returns_cached_when_not_expired(self) -> None:
         port = _FakePort()
-        mgr = DurableTokenManager(port=port)
+        mgr = PortTokenManager(port=port)
         token1 = mgr.get_token()
         assert token1 == "refreshed-1"
         # Second call should return cached token (no new refresh)
@@ -59,7 +59,7 @@ class TestDurableTokenManagerDeadlock:
 
     def test_get_token_refreshes_when_expired(self) -> None:
         port = _FakePort()
-        mgr = DurableTokenManager(port=port)
+        mgr = PortTokenManager(port=port)
         token1 = mgr.get_token()
         assert token1 == "refreshed-1"
 
@@ -72,13 +72,13 @@ class TestDurableTokenManagerDeadlock:
         port = _FakePort()
         with tempfile.TemporaryDirectory() as tmp:
             state_path = Path(tmp) / "token.json"
-            mgr1 = DurableTokenManager(port=port, state_path=state_path)
+            mgr1 = PortTokenManager(port=port, state_path=state_path)
             mgr1.get_token()
             mgr1.save_state()
 
             # Create a new manager that loads from the same file
             port2 = _FakePort()
-            mgr2 = DurableTokenManager(port=port2, state_path=state_path)
+            mgr2 = PortTokenManager(port=port2, state_path=state_path)
             # The loaded token should be available without refresh
             token = mgr2.get_token()
             # It should return the loaded token (not expired)

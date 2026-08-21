@@ -118,7 +118,7 @@ def test_simulated_with_portfolio_state_calls_get_position() -> None:
     portfolio = MagicMock()
     source = SimulatedFillSource(portfolio_state=portfolio)
     source.submit(_request())
-    portfolio.get_position.assert_called_once_with("RELIANCE")
+    portfolio.get_position.assert_called_once_with(_eq())
 
 
 def test_simulated_with_both_params() -> None:
@@ -132,7 +132,7 @@ def test_simulated_with_both_params() -> None:
     _order, fill = source.submit(_request(price=Decimal("2500")))
     assert fill is not None
     assert fill.price.value == Decimal("2502")
-    portfolio.get_position.assert_called_once_with("RELIANCE")
+    portfolio.get_position.assert_called_once_with(_eq())
 
 
 def test_simulated_portfolio_without_get_position_ignored() -> None:

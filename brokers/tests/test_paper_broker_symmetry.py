@@ -173,3 +173,74 @@ class TestMassStatus:
         broker = PaperBroker(starting_cash=Decimal("50000"))
         result = broker.mass_status()
         assert result["account"].balance.amount == Decimal("50000")
+
+
+# ---------------------------------------------------------------------------
+# Position projection: BUY and SELL
+# ---------------------------------------------------------------------------
+
+
+def _nsdk_rel() -> Equity:
+    return Equity.of("NSE", "RELIANCE")
+
+
+def test_paper_broker_buy_creates_position() -> None:
+    """BUY with auto_fill=True and project_positions=True creates a long position."""
+    broker = PaperBroker(starting_cash=Decimal("100000"), auto_fill=True, project_positions=True)
+    eq = _nsdk_rel()
+    broker.set_quote(eq, ltp=Price(value=Decimal("200")))
+    oid = broker.submit_order(OrderRequest(
+        instrument=eq,
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(value=Decimal("10")),
+    ))
+    order = broker.get_order(oid)
+    assert order.status is OrderStatus.FILLED
+    positions = broker.get_positions()
+    assert len(positions) == 1
+    assert positions[0].quantity.value == Decimal("10")
+    assert positions[0].avg_price.value == Decimal("200")
+
+
+def test_paper_broker_sell_with_existing_long_reduces_position() -> None:
+    """SELL against an existing long position reduces it correctly."""
+    broker = PaperBroker(starting_cash=Decimal("100000"), auto_fill=True, project_positions=True)
+    eq = _nsdk_rel()
+    broker.set_quote(eq, ltp=Price(value=Decimal("200")))
+    # BUY 10
+    broker.submit_order(OrderRequest(
+        instrument=eq,
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(value=Decimal("10")),
+    ))
+    # SELL 6
+    broker.submit_order(OrderRequest(
+        instrument=eq,
+        side=OrderSide.SELL,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(value=Decimal("6")),
+    ))
+    positions = broker.get_positions()
+    assert len(positions) == 1
+    assert positions[0].quantity.value == Decimal("4")
+    # Realised PnL: (200 - 200) * 6 = 0
+    assert positions[0].realized_pnl.amount == Decimal("0")
+
+
+def test_paper_broker_sell_creates_short_position() -> None:
+    """SELL without an existing position creates a short position."""
+    broker = PaperBroker(starting_cash=Decimal("100000"), auto_fill=True, project_positions=True)
+    eq = _nsdk_rel()
+    broker.set_quote(eq, ltp=Price(value=Decimal("150")))
+    broker.submit_order(OrderRequest(
+        instrument=eq,
+        side=OrderSide.SELL,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(value=Decimal("10")),
+    ))
+    positions = broker.get_positions()
+    assert len(positions) == 1
+    assert positions[0].quantity.value == Decimal("-10")
+    assert positions[0].avg_price.value == Decimal("150")
