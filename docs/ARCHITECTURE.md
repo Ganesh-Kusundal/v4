@@ -168,6 +168,17 @@ Order:    NEW→PENDING→ACK→PARTIALLY_FILLED→FILLED/CANCELLED/REJECTED
 Breaker:  CLOSED ⇄ OPEN → HALF_OPEN → CLOSED
 ```
 
+### F10 — Durability & single-writer (live)
+```
+boot(live) with cfg.persistence.path:
+  ├─ acquire runtime/live/<broker>.writer.lock   (fail-closed; stale-pid clear)
+  ├─ SQLiteOrderStore.load_into(engine.cache)    (restart resume)
+  ├─ attach_order_persistence(bus, cache, store) — 5 lifecycle events mirror
+  │   current cache state into SQLite at publish time
+  └─ post-start: broker.get_orderbook() → engine.reconcile + status refresh
+session.stop() ─► bus.dispose() detaches persister ─► writer lock released
+```
+
 ---
 
 ## 4. Review
@@ -190,13 +201,13 @@ Breaker:  CLOSED ⇄ OPEN → HALF_OPEN → CLOSED
 ### Residual risks / gaps (honest)
 | # | Gap | Severity | Mitigation status |
 |---|---|---|---|
-| R1 | Idempotency guard + OMS store are in-memory/single-process; restart loses open-order state unless an `OrderStore` impl is wired | High for prod restarts | Protocol exists; no persistent impl yet |
-| R2 | Rate limiters are per-process (documented); multi-writer deployments can jointly breach provider limits | Medium | Doc-only; needs a single-writer ops rule |
-| R3 | Live-tape fixtures cover ACK→partial→fill equity LIMIT tape; reject/amend/STOP tapes untested | Medium | Harness extensible |
-| R4 | Backtest fills at next-bar-open vs live tick fills — cost parity proven, timing semantics differ by design | Accepted | Golden tests pin the difference |
-| R5 | Dual submit entries (direct call + CQRS command) share one pipeline but are two doors | Low | Documented hybrid |
-| R6 | Upstox partial-fill promotion relies on `filled_quantity > 0` heuristic within `open` status | Low | Regression-tested via tape harness |
-| R7 | MetricsRegistry optional — silent if unwired | Low | — |
+| R1 | In-memory OMS/idempotency volatility | **Closed (opt-in)** | `cfg.persistence.path` wires SQLiteIdempotencyGuard + SQLiteOrderStore; lifecycle events mirror cache→store; boot restores pre-start and reconciles against broker book post-start |
+| R2 | Per-process rate limiters | Medium → **Enforced** | live boot acquires a pid-lockfile (`SingleWriterLock`) — fail-closed naming the holder, stale-pid auto-clear, released on session.stop |
+| R3 | Live-tape fixture breadth | Low-Medium | STOP trigger tapes (both providers), REJECT/CANCEL row contracts added; further scenarios incremental |
+| R4 | Bar-open vs tick fill timing | Accepted | Golden tests pin the by-design difference |
+| R5 | Dual submit doors | Low | Documented in engine.submit — both share one pipeline |
+| R6 | Upstox partial heuristic | Low | Fixed + regression-tested: open+filled>0 → PARTIALLY_FILLED |
+| R7 | Metrics optional | Closed | Boot already constructs MetricsRegistry and wires it into the engine |
 
 ### Scores (post-migration)
 | Dimension | /10 | Basis |

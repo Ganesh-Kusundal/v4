@@ -184,19 +184,6 @@ class HttpTransport:
         """Send a DELETE request."""
         return self.request("DELETE", path, **kwargs)
 
-    # Make the transport itself callable as a Fetch
-    def __call__(
-        self,
-        method: str,
-        url: str,
-        *,
-        headers: dict | None = None,
-        json: Any = None,
-        params: dict | None = None,
-        timeout: float = 30.0,
-    ) -> dict:
-        return self.request(method, url, headers=headers, json=json, params=params, timeout=timeout)
-
 
 __all__ = [
     "Fetch",
