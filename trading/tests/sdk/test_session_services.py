@@ -391,8 +391,119 @@ class TestTradeService:
     def test_modify_order(self) -> None:
         session = _make_session()
         oid = OrderId(value="test-1")
-        result = session.trade.modify_order(oid, _make_request())
+        session._cache.update_order(  # type: ignore[attr-defined]
+            Order(
+                order_id=oid,
+                instrument=_make_equity(),
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Quantity(value=Decimal("10")),
+                price=Price(value=Decimal("2500.00")),
+                time_in_force=TimeInForce.DAY,
+                status=OrderStatus.ACK,
+            )
+        )
+        result = session.trade.modify_order(
+            oid,
+            OrderRequest(
+                instrument=_make_equity(),
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Quantity(value=Decimal("5")),
+                price=Price(value=Decimal("2400.00")),
+                time_in_force=TimeInForce.DAY,
+                product_type=ProductType.INTRADAY,
+            ),
+        )
         assert isinstance(result, Order)
+        # The OMS cache must reflect the modification — the whole point of
+        # routing modifies through the engine spine.
+        cached = session._cache.get_order("test-1")  # type: ignore[attr-defined]
+        assert cached.price.value == Decimal("2400.00")
+        assert cached.quantity.value == Decimal("5")
+
+    def test_modify_order_rejects_unknown_order(self) -> None:
+        session = _make_session()
+        with pytest.raises(OrderRejectedError):
+            session.trade.modify_order(OrderId(value="missing"), _make_request())
+
+    def test_modify_order_rejects_terminal_order(self) -> None:
+        session = _make_session()
+        oid = OrderId(value="done-1")
+        session._cache.update_order(  # type: ignore[attr-defined]
+            Order(
+                order_id=oid,
+                instrument=_make_equity(),
+                side=OrderSide.BUY,
+                order_type=OrderType.MARKET,
+                quantity=Quantity(value=Decimal("1")),
+                price=None,
+                time_in_force=TimeInForce.DAY,
+                status=OrderStatus.FILLED,
+            )
+        )
+        with pytest.raises(OrderRejectedError, match="cannot be modified"):
+            session.trade.modify_order(oid, _make_request())
+
+    def test_modify_order_live_forwards_to_broker_via_fill_source(self) -> None:
+        """Live path: the engine forwards the modification to the broker
+        through BrokerFillSource and projects it into the OMS."""
+        from tradex_trading.execution.engine import ExecutionEngine
+        from tradex_trading.execution.fill_sources import BrokerFillSource
+        from tradex_trading.execution.trading_cache import TradingCache
+
+        forwarded: list[tuple[OrderId, OrderRequest]] = []
+
+        class _LiveBroker:
+            capabilities = BrokerCapabilities(supports_modify=True)
+
+            def submit_order(self, request):
+                return OrderId(value="live-1")
+
+            def cancel_order(self, order_id):
+                return None
+
+            def modify_order(self, order_id, request):
+                forwarded.append((order_id, request))
+
+        bus = ReactiveBus()
+        cache = TradingCache()
+        engine = ExecutionEngine(
+            bus=bus, fill_source=BrokerFillSource(_LiveBroker()), cache=cache,
+        )
+        mock_broker = _MockBroker()
+        session = TradingSession(
+            broker=mock_broker,
+            bus=bus,
+            engine=engine,
+            cache=cache,
+            broker_id=BrokerId.PAPER,
+            mode="paper",
+            live_orders_enabled=True,
+        )
+        session.start()
+        try:
+            oid = OrderId(value="live-1")
+            cache.update_order(
+                Order(
+                    order_id=oid,
+                    instrument=_make_equity(),
+                    side=OrderSide.BUY,
+                    order_type=OrderType.LIMIT,
+                    quantity=Quantity(value=Decimal("10")),
+                    price=Price(value=Decimal("100")),
+                    time_in_force=TimeInForce.DAY,
+                    status=OrderStatus.ACK,
+                )
+            )
+            new_request = _make_request()
+            session.trade.modify_order(oid, new_request)
+            assert len(forwarded) == 1
+            assert forwarded[0][0] == oid
+            # OMS projection still applied alongside the venue forward.
+            assert cache.get_order("live-1").price.value == Decimal("2500.00")
+        finally:
+            session.stop()
 
     def test_modify_order_capability_gate(self) -> None:
         broker = _MockBroker(BrokerCapabilities(supports_modify=False))
@@ -436,11 +547,6 @@ class TestTradeService:
 
 class TestPortfolioService:
     """PortfolioService methods."""
-
-    def test_get_holdings(self) -> None:
-        session = _make_session()
-        result = session.portfolio.get_holdings()
-        assert isinstance(result, list)
 
     def test_portfolio(self) -> None:
         session = _make_session()

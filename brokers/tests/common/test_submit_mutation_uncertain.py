@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from tradex_domain import OrderSubmissionUnknownError
 
-from tradex_brokers.common.client_shared import FetchResiliencePipeline
+from support.fetch_pipeline import FetchResiliencePipeline
 from tradex_brokers.common.provider_client import (
     AuthRetryPolicy,
     ProviderHttpClient,

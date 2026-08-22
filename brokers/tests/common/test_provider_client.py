@@ -7,7 +7,7 @@ from v3.  These tests exercise the composition pattern and auth injection.
 
 from __future__ import annotations
 
-from tradex_brokers.common.client_shared import FetchResiliencePipeline
+from support.fetch_pipeline import FetchResiliencePipeline
 from tradex_brokers.common.provider_client import ProviderHttpClient, UncertainSubmissionTracker
 from tradex_brokers.common.token_lifecycle import PortTokenManager
 from tradex_brokers.common.transport import HttpTransport

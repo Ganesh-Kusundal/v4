@@ -414,7 +414,7 @@ class TestFeedCapabilities:
     """Streaming capability surface: depth level + per-connection cap."""
 
     def test_derives_capabilities_from_broker(self) -> None:
-        from tradex_domain.capabilities import dhan_capabilities
+        from tradex_brokers.common.capabilities import dhan_capabilities
 
         fake = _FakeBroker()
         fake.capabilities = dhan_capabilities()

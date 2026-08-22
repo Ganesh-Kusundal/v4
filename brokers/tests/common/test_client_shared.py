@@ -11,8 +11,8 @@ from typing import Any
 
 from tradex_domain.value_objects import CorrelationId
 
+from support.fetch_pipeline import FetchResiliencePipeline
 from tradex_brokers.common.client_shared import (
-    FetchResiliencePipeline,
     build_provider_client,
     correlation_id,
     parse_timestamp_fallback,

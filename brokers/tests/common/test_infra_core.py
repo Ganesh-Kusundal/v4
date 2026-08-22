@@ -62,8 +62,8 @@ def test_ws_reconnect_manager_basic() -> None:
 
 def test_transport_convenience_methods_exist() -> None:
     transport = HttpTransport(base_url="https://api.example.com")
+    assert hasattr(transport, "request")
     assert hasattr(transport, "get")
     assert hasattr(transport, "post")
     assert hasattr(transport, "put")
     assert hasattr(transport, "delete")
-    assert hasattr(transport, "_request")

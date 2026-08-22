@@ -111,6 +111,58 @@ def test_modify_order_no_session():
     assert r.status_code == 400
 
 
+def test_modify_order_end_to_end_paper_session():
+    """PUT /orders/{id} on a live paper session: resolves the instrument,
+    routes through the engine spine, and projects the change into the OMS."""
+    from decimal import Decimal
+
+    from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
+    from tradex_domain.execution import Order
+    from tradex_domain.instruments import Equity
+    from tradex_domain.value_objects import OrderId, Price, Quantity
+    from tradex_trading.sdk.session import TradingSession
+
+    session = TradingSession.paper()
+    try:
+        # Register RELIANCE in the paper universe and seed an open order.
+        reliance = Equity.of("NSE", "RELIANCE")
+        session.broker.set_quote(reliance, ltp=Price(value=Decimal("2500")))
+        oid = OrderId(value="e2e-1")
+        session.engine.cache.update_order(
+            Order(
+                order_id=oid,
+                instrument=reliance,
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Quantity(value=Decimal("10")),
+                price=Price(value=Decimal("2500.00")),
+                time_in_force=TimeInForce.DAY,
+                status=OrderStatus.ACK,
+            )
+        )
+
+        client = TestClient(create_app(session=session))
+        r = client.put(
+            "/orders/e2e-1",
+            json={
+                "symbol": "RELIANCE",
+                "side": "BUY",
+                "order_type": "LIMIT",
+                "quantity": 7,
+                "price": "2450.00",
+            },
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["order_id"] == "e2e-1"
+        assert body["status"] == "modified"
+        cached = session.engine.cache.get_order("e2e-1")
+        assert cached.price.value == Decimal("2450.00")
+        assert cached.quantity.value == Decimal("7")
+    finally:
+        session.stop()
+
+
 def test_cancel_order_no_session():
     app = create_app()
     client = TestClient(app)
@@ -965,7 +1017,7 @@ def test_websocket_subscribe_acks_feed_capabilities():
     import json as _json
     from decimal import Decimal
 
-    from tradex_domain.capabilities import dhan_capabilities
+    from tradex_brokers.common.capabilities import dhan_capabilities
     from tradex_domain.market import Quote
     from tradex_domain.value_objects import Price
 
@@ -1054,7 +1106,7 @@ def test_websocket_subscribe_snapshot_pushes_current_quote():
     import json as _json
     from decimal import Decimal
 
-    from tradex_domain.capabilities import dhan_capabilities
+    from tradex_brokers.common.capabilities import dhan_capabilities
     from tradex_domain.market import Quote
     from tradex_domain.value_objects import Price
 

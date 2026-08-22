@@ -1,14 +1,11 @@
 """Shared plumbing for broker REST clients (Dhan, Upstox).
 
-Both ``client.py`` modules previously re-implemented these verbatim; they are
-the broker-independent pieces of the per-provider API clients:
+Broker-independent pieces of the per-provider API clients:
 
 - :func:`parse_timestamp_fallback` — wrap :func:`parse_timestamp` with a
   fallback for empty values.
 - :func:`correlation_id` — parse a native correlation id with a deterministic
   uuid5 fallback seed.
-- :class:`FetchResiliencePipeline` — legacy fetch-only pipeline (no rate
-  limiting/retry/breaker), kept for direct unit testing.
 - :class:`~tradex_brokers.common.resilience.ResiliencePipeline` — the composed
   rate-limit → circuit-breaker → safe-retry pipeline ``build_provider_client``
   binds into :class:`~tradex_brokers.common.provider_client.ProviderHttpClient`;
@@ -68,31 +65,6 @@ def correlation_id(raw: object, *, fallback_seed: str) -> CorrelationId:
         return CorrelationId(value=UUID(text))
     except (ValueError, AttributeError):
         return CorrelationId(value=text)
-
-
-class FetchResiliencePipeline:
-    """Pipeline adapter that routes through an injected *fetch* callable.
-
-    Used by ``from_fetch`` to build a working ``ProviderHttpClient`` without
-    going through the standard urllib-based resilience stack — the test seam.
-    """
-
-    def __init__(self, fetch: Callable[..., Any]) -> None:
-        self._fetch = fetch
-
-    def send(self, method: str, url: str, **kwargs: Any) -> Any:
-        result = self._fetch(method, url, **kwargs)
-        if isinstance(result, tuple) and len(result) == 2:
-            _status, body = result
-            # Carry the HTTP status so auth-retry classification can
-            # distinguish 401/403 outright rejections from business bodies.
-            if isinstance(body, dict):
-                body["_http_status"] = _status
-                return body
-            return {"data": body, "_http_status": _status}
-        if isinstance(result, dict):
-            return result
-        return {"data": result}
 
 
 def build_provider_client(
@@ -196,7 +168,6 @@ def order_result_from_dict(
 
 
 __all__ = [
-    "FetchResiliencePipeline",
     "build_provider_client",
     "correlation_id",
     "order_result_from_dict",

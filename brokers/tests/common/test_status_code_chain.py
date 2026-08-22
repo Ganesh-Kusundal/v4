@@ -214,7 +214,7 @@ class TestFetchResiliencePipeline:
     """_FetchResiliencePipeline wraps fetch callables and embeds status."""
 
     def test_fetch_pipeline_embeds_status_from_tuple(self):
-        from tradex_brokers.common.client_shared import FetchResiliencePipeline
+        from support.fetch_pipeline import FetchResiliencePipeline
 
         fetch = MagicMock(return_value=(200, {"data": "ok"}))
         pipeline = FetchResiliencePipeline(fetch)
@@ -223,7 +223,7 @@ class TestFetchResiliencePipeline:
         assert result["data"] == "ok"
 
     def test_fetch_pipeline_wraps_non_dict_body(self):
-        from tradex_brokers.common.client_shared import FetchResiliencePipeline
+        from support.fetch_pipeline import FetchResiliencePipeline
 
         fetch = MagicMock(return_value=(201, "created"))
         pipeline = FetchResiliencePipeline(fetch)
@@ -231,7 +231,7 @@ class TestFetchResiliencePipeline:
         assert result == {"data": "created", "_http_status": 201}
 
     def test_fetch_pipeline_passes_through_dict(self):
-        from tradex_brokers.common.client_shared import FetchResiliencePipeline
+        from support.fetch_pipeline import FetchResiliencePipeline
 
         fetch = MagicMock(return_value={"data": "already_dict"})
         pipeline = FetchResiliencePipeline(fetch)

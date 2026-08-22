@@ -439,7 +439,7 @@ class TestMarketDataDelegation:
             },
         ]
         broker.load_instruments(rows)
-        transport.get_option_chain.side_effect = RuntimeError("provider down")
+        transport.get_option_chain.side_effect = BrokerUnavailableError("provider down")
         chain = broker.get_option_chain(Equity.of("MCX", "SILVERM"))
         expiries = chain.expiries()
         assert len(expiries) == 1
@@ -463,10 +463,32 @@ class TestMarketDataDelegation:
             },
         ]
         broker.load_instruments(rows)
-        transport.get_option_chain.side_effect = RuntimeError("provider down")
+        transport.get_option_chain.side_effect = BrokerUnavailableError("provider down")
         chain = broker.get_option_chain(Equity.of("NFO", "NIFTY"))
         assert len(chain.expiries()) == 1
         assert len(chain.expiries()[0].pairs) == 1
+        transport.get_option_chain.assert_called_once()
+
+    def test_get_option_chain_no_fallback_for_non_transport_errors(self):
+        """Only transport-level failures fall back to the master chain; a
+        validation/auth failure must propagate, never masquerade as data."""
+        broker, transport = _make_broker()
+        rows = [
+            {
+                "symbol": "NIFTY-24Oct2026-26000-CE", "exchange": "NFO", "key": "NFO:1",
+                "asset_class": "OTHER", "instrument_type": "OPTIDX", "right": "CE",
+                "expiry": "2026-10-24", "strike": "26000", "underlying": "NIFTY",
+            },
+            {
+                "symbol": "NIFTY-24Oct2026-26000-PE", "exchange": "NFO", "key": "NFO:2",
+                "asset_class": "OTHER", "instrument_type": "OPTIDX", "right": "PE",
+                "expiry": "2026-10-24", "strike": "26000", "underlying": "NIFTY",
+            },
+        ]
+        broker.load_instruments(rows)
+        transport.get_option_chain.side_effect = ValueError("bad request shape")
+        with pytest.raises(ValueError, match="bad request shape"):
+            broker.get_option_chain(Equity.of("NFO", "NIFTY"))
         transport.get_option_chain.assert_called_once()
 
     def test_search(self):

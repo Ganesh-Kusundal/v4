@@ -721,10 +721,11 @@ class TestPaperBroker:
 
     def test_require_connected(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
+        from tradex_domain import BrokerUnavailableError
 
         broker = PaperBroker()
         broker.close()
-        with pytest.raises(RuntimeError, match="not connected"):
+        with pytest.raises(BrokerUnavailableError, match="not connected"):
             broker.submit_order(self._make_request())
 
     def test_synchronous_fill(self) -> None:

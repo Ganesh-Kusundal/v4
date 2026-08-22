@@ -1,9 +1,10 @@
 """Shared HTTP client composing pipeline + auth + transport.
 
 ``ProviderHttpClient`` is the main entry point for broker adapters to make
-authenticated HTTP calls.  Production binds ``FetchResiliencePipeline``
-(``common.client_shared``), which routes through an injected ``fetch``; the
-fetch-based path carries no rate limiting, retry, or circuit breaking.
+authenticated HTTP calls.  Production binds ``ResiliencePipeline``
+(``common.resilience``, via ``client_shared.build_provider_client``), which
+routes through an injected ``fetch``; unit tests may bind the lighter
+``tests.support.fetch_pipeline.FetchResiliencePipeline`` instead.
 """
 
 from __future__ import annotations
@@ -76,11 +77,11 @@ class UncertainSubmissionTracker:
 
 
 class SendPipeline(Protocol):
-    """Minimal ``send`` contract satisfied by ``FetchResiliencePipeline``.
+    """Minimal ``send`` contract satisfied by any request pipeline.
 
-    The production fetch-based path routes through an injected ``fetch`` with
-    no rate limiting, retry, or circuit breaking; this protocol is the sole
-    typing surface ``ProviderHttpClient`` needs from its pipeline.
+    Production binds ``ResiliencePipeline``; unit tests bind the lighter
+    ``FetchResiliencePipeline`` test seam. This protocol is the sole typing
+    surface ``ProviderHttpClient`` needs from its pipeline.
     """
 
     def send(self, method: str, url: str, **kwargs: Any) -> Any: ...

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from tradex_domain import BrokerId
-from tradex_domain.capabilities import dhan_capabilities
+from tradex_brokers.common.capabilities import dhan_capabilities
 
 from tradex_trading.config.schema import AppConfig
 from tradex_trading.runtime.startup import boot
