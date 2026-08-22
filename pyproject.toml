@@ -5,9 +5,15 @@
 # `tests.conftest` (no package __init__), raising ImportPathMismatchError.
 # `importmode = "importlib"` names modules by path, not by an importable
 # `tests` package, which removes the collision.
-addopts = "--import-mode=importlib"
+#
+# Requires pytest-timeout (uv pip install pytest-timeout) for --timeout;
+# without it pytest errors on the unknown flag. Hang-class failures (e.g.
+# websocket waits) fail fast instead of blocking CI forever.
+addopts = "--import-mode=importlib --timeout=120"
 testpaths = ["tests", "domain/tests", "brokers/tests", "trading/tests"]
-pythonpath = ["domain/src", "brokers/src", "trading/src"]
+# `support` (shared broker test helpers) is importable because brokers/tests
+# is on the path and the directory name `support` is unique across the repo.
+pythonpath = ["domain/src", "brokers/src", "trading/src", "brokers/tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
