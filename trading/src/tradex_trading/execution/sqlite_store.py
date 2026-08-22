@@ -153,6 +153,18 @@ class SQLiteOrderStore:
         )
         return [_row_to_order(row) for row in cursor.fetchall()]
 
+    def load_into(self, cache: Any) -> int:
+        """Restore every stored order into a TradingCache-like target.
+
+        Used at boot so an OMS restart resumes with persisted order state
+        (which the post-start broker reconcile then refreshes to truth).
+        """
+        count = 0
+        for order in self.all_orders():
+            cache.update_order(order)
+            count += 1
+        return count
+
     def close(self) -> None:
         """Close the SQLite connection."""
         self._conn.close()

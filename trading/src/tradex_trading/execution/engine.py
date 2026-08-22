@@ -658,6 +658,10 @@ class ExecutionEngine:
 
         Creates the order, runs the fill source, updates OMS, and
         publishes events. Returns an OrderReceipt immediately.
+
+        This imperative door and the reactive ``PlaceOrderCommand``
+        subscription share the identical pipeline; choose per call-site
+        (imperative for services/API, command for strategies).
         """
         submit_start = time.perf_counter()
         try:

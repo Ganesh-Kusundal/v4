@@ -12,8 +12,10 @@ into the session's ``ScannerService`` (via ``scanner_definitions``).
 from __future__ import annotations
 
 import logging
+import atexit
 from dataclasses import dataclass
 from decimal import Decimal
+from pathlib import Path
 from typing import Any, cast
 
 from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
@@ -37,6 +39,8 @@ from tradex_trading.strategy.core.scanner import ScannerEngine
 from tradex_trading.strategy.extensions import all_scanners, all_strategies
 
 log = logging.getLogger(__name__)
+
+_ACTIVE_WRITER_LOCK: Any = None
 
 
 def _broker_matches_config(config: AppConfig, broker: Any) -> bool:
@@ -80,6 +84,11 @@ class RuntimeContext:
     def close(self) -> None:
         """Stop the session and release runtime resources."""
         self.session.stop()
+        if _ACTIVE_WRITER_LOCK is not None:
+            try:
+                _ACTIVE_WRITER_LOCK.release()
+            except Exception:  # pragma: no cover
+                log.warning("writer lock release failed", exc_info=True)
         if hasattr(self, "engine") and self.engine is not None:
             try:
                 self.engine.shutdown()
@@ -191,13 +200,34 @@ def boot(
     else:
         raise ValueError(f"unknown mode: {cfg.mode}")
 
-    # 4b. Idempotency guard — durable SQLite when persistence is configured,
-    # so correlation IDs survive restarts (duplicate-order protection).
-    # ponytail: opt-in only; the default remains no guard (current behavior).
+    # 4b. Durability (R1/R2) — opt-in via cfg.persistence.path:
+    #   - SQLiteIdempotencyGuard: correlation IDs survive restarts.
+    #   - SQLiteOrderStore: every order lifecycle event mirrors the OMS state
+    #     into SQLite; on boot the store is restored into the cache BEFORE the
+    #     session starts, then reconciled against the broker book post-start.
     guard: Any = None
+    order_store: Any = None
     if cfg.persistence.path:
-        from tradex_trading.execution.sqlite_store import SQLiteIdempotencyGuard
+        from tradex_trading.execution.sqlite_store import (
+            SQLiteIdempotencyGuard,
+            SQLiteOrderStore,
+        )
         guard = SQLiteIdempotencyGuard(cfg.persistence.path)
+        order_store = SQLiteOrderStore(cfg.persistence.path)
+
+    # 4c. Single-writer guard (R2) — live only. Rate limiters are per-process;
+    # two live writers on one account can jointly breach provider limits.
+    writer_lock: Any = None
+    if cfg.mode == "live":
+        from tradex_trading.runtime.writer_lock import SingleWriterLock
+
+        writer_lock = SingleWriterLock(
+            Path("runtime/live") / f"{cfg.broker_id.value.lower()}.writer.lock"
+        )
+        writer_lock.acquire()  # fail-closed if another live process is running
+        global _ACTIVE_WRITER_LOCK
+        _ACTIVE_WRITER_LOCK = writer_lock
+        atexit.register(writer_lock.release)  # stale-PID auto-clear covers crashes
 
     # 5. Create risk manager
     risk_manager = RiskManager(
@@ -215,6 +245,15 @@ def boot(
     # enforced against live cumulative exposure (qty * avg_price + incoming).
     risk_manager.set_positions_provider(engine.cache.all_positions)
     engine.kill_switch = cfg.kill_switch_default
+
+    # 6a. Order durability (R1) — restore persisted orders into the OMS cache
+    # BEFORE the session starts, then mirror every lifecycle event into the
+    # store. Subscriptions die with bus.dispose() on session.stop().
+    if order_store is not None:
+        from tradex_trading.execution.order_persistence import attach_order_persistence
+
+        order_store.load_into(engine.cache)
+        attach_order_persistence(bus, engine.cache, order_store)
 
     # 6b. Strategy engine — register every auto-discovered extension strategy
     # so user strategies (strategy/extensions) run without touching core.
@@ -338,9 +377,40 @@ def boot(
         master_scheduler=master_scheduler,
     )
 
+    # 8b. Live single-writer lock releases when the session stops (composition
+    # root wraps stop so every teardown path — context manager, explicit
+    # stop(), RuntimeContext.close() — clears the lockfile).
+    if writer_lock is not None:
+        _inner_stop = session.stop
+
+        def _stop_and_release() -> None:
+            _inner_stop()
+            writer_lock.release()
+
+        session.stop = _stop_and_release  # type: ignore[method-assign]
+
     # 9. Start session, then the refresh daemon (started last so nothing
     # after it can strand it).
     session.start()
+
+    # 9b. Live restart reconciliation (R1): persisted local state was restored
+    # pre-start; now refresh it against broker truth so fills/cancels that
+    # happened while the process was down are picked up, and log any drift.
+    if cfg.mode == "live":
+        try:
+            book = broker.get_orderbook()
+        except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
+            log.warning("startup order-book reconcile unavailable: %s", exc)
+        else:
+            drifts = engine.reconcile(broker_orders=book)
+            for row in book:
+                current = engine.cache.get_order(row.order_id.value)
+                if current is not None and current.status != row.status:
+                    engine.cache.update_order(row)
+            if drifts:
+                for item in drifts:
+                    log.warning("startup drift: %s", item)
+
     if master_scheduler is not None:
         master_scheduler.start()
 
