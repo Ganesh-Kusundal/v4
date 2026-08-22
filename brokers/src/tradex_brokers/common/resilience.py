@@ -24,6 +24,14 @@ Sections
 
 Dependency boundary: this module imports only the standard library plus
 ``tradex_domain`` error types (``RateLimitError``, ``BrokerUnavailableError``).
+
+Multi-process caveat
+--------------------
+Limiters are in-process. Two processes trading the same account (e.g. the
+FastAPI app and a CLI worker) hold independent buckets and can jointly exceed
+the provider's real limits — the 429 cooldown self-corrects per process but
+does not coordinate. Run one writer process per account, or front the
+limiters with a shared store if that constraint ever changes.
 """
 
 from __future__ import annotations

@@ -7,14 +7,28 @@ API client.  Per-broker adapters subclass this and implement only what is
 genuinely specific (native option-chain fallbacks, super/forever/slice/edis,
 streaming backends, instrument loading).
 
-This is a behavioral extraction — the public ``BrokerAdapter`` surface and
-signatures are unchanged, so ``BrokerFactory.register``'s
-``isinstance(adapter, BrokerAdapter)`` check keeps passing.
+Design note — the explicit pass-through wall
+-------------------------------------------
+The ~30 one-line delegations to ``self._transport`` are deliberate. Each one
+is the single place its operation applies lifecycle gating
+(``_require``), the mutation gate (``_require_mutation``), and/or a capability
+check — replacing them with dynamic ``__getattr__`` delegation would bypass
+that per-method policy (or require a fragile whitelist), lose per-method stack
+traces and IDE navigation, and save only boilerplate. Explicit wins here.
+
+Design note — two order gates, on purpose
+-----------------------------------------
+``_allow_order_operations`` (adapter level) is a hardware-style safety: an
+adapter constructed with ``allow_order_operations=False`` cannot trade even if
+mis-wired into a permissive session. The session's ``order_gate`` (service
+level) is policy: it flips with ``live_orders_enabled`` at runtime. They guard
+different failure modes; merging them removes a layer of protection.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
 from typing import Any
@@ -82,6 +96,9 @@ class BaseBroker:
         self._ws_backend: MarketStreamPort | None = None
         self._order_backend: OrderStreamPort | None = None
         self._depth_backend: DepthStreamPort | None = None
+        #: Guards lazy stream-backend creation/teardown so concurrent first
+        #: subscribes cannot create duplicate WebSocket backends.
+        self._stream_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # capabilities
@@ -113,11 +130,41 @@ class BaseBroker:
 
     def _teardown_stream_backends(self) -> None:
         """Default teardown; subclasses extend for extra backends."""
-        for attr in ("_ws_backend", "_order_backend", "_depth_backend"):
-            backend = getattr(self, attr, None)
-            if backend is not None:
-                backend.close()
-                setattr(self, attr, None)
+        with self._stream_lock:
+            for attr in ("_ws_backend", "_order_backend", "_depth_backend"):
+                backend = getattr(self, attr, None)
+                if backend is not None:
+                    backend.close()
+                    setattr(self, attr, None)
+
+    def health(self) -> dict[str, bool]:
+        """Coarse lifecycle/credential status — zero network traffic.
+
+        Distinguishes the states ``verify_connection`` collapses:
+
+        - ``configured``: a transport and/or token manager is bound.
+        - ``connected``: :meth:`connect` has completed (transport usable).
+        - ``authenticated``: the token manager holds a locally-unexpired
+          token (absent token manager ⇒ assumed authenticated).
+        - ``ready``: all of the above.
+
+        Use this for schedulers/dashboards; use :meth:`verify_connection`
+        for the authoritative wire-level probe.
+        """
+        configured = self._transport is not None or self._token_manager is not None
+        authenticated = True
+        is_expired = getattr(self._token_manager, "is_expired", None)
+        if callable(is_expired):
+            try:
+                authenticated = not is_expired()
+            except Exception:  # noqa: BLE001 — broken local clock ⇒ assume stale
+                authenticated = False
+        return {
+            "configured": configured,
+            "connected": self._connected,
+            "authenticated": authenticated,
+            "ready": configured and self._connected and authenticated,
+        }
 
     def verify_connection(self) -> bool:
         """Non-destructive health check: local state first, cheap probe second.
@@ -125,9 +172,19 @@ class BaseBroker:
         Returns True only when the broker is connected AND the transport
         can reach the provider account endpoint.  Does NOT invalidate the
         read cache — verification must not mutate state.
+
+        A locally-expired token short-circuits the network probe: no point
+        spending provider quota to learn what the token manager already knows.
         """
         if self._transport is None or not self._connected:
             return False
+        is_expired = getattr(self._token_manager, "is_expired", None)
+        if callable(is_expired):
+            try:
+                if is_expired():
+                    return False
+            except Exception:  # noqa: BLE001 — a broken local clock must not fail verification
+                pass
         try:
             self._transport.get_account()
             return True
@@ -382,7 +439,7 @@ class BaseBroker:
         return future_chain_from_master(self._loaded_instruments, underlying)
 
     # ------------------------------------------------------------------
-    # ExtensionAdapter — capability-gated pass-throughs shared by all
+    # Capability-gated pass-throughs shared by all
     # adapters that support the flags (super / forever / slice / eDIS,
     # kill switch, auxiliary account surface).
     # ------------------------------------------------------------------

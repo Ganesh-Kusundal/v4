@@ -168,10 +168,6 @@ class HttpTransport:
 
     # -- convenience methods ------------------------------------------------
 
-    def _request(self, method: str, path: str, **kwargs: Any) -> dict:
-        """Alias for ``request()`` — kept for v3 API parity."""
-        return self.request(method, path, **kwargs)
-
     def get(self, path: str, **kwargs: Any) -> dict:
         """Send a GET request."""
         return self.request("GET", path, **kwargs)
