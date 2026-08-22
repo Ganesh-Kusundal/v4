@@ -68,12 +68,15 @@ class TradeService:
         self._engine = execution_engine
 
     def modify_order(self, order_id: OrderId, request: OrderRequest) -> Order:
-        """Modify via broker with capability check (v3 parity)."""
+        """Modify via the execution engine (single mutation spine).
+
+        The engine forwards the modification to the broker through its fill
+        source AND projects the change into the OMS cache — routing straight
+        to the broker here would leave the engine cache stale.
+        """
         self._require_order_gate()
         require_capability(self._capabilities, "supports_modify")
-        if self._broker is not None:
-            return self._broker.modify_order(order_id, request)
-        raise CapabilityNotSupportedError("no broker bound for modify_order")
+        return self._engine.modify(_as_order_id(order_id), request)
 
     def get_order(self, order_id: OrderId | str) -> Order:
         """Fetch a single order — engine OMS cache first, broker fallback.
@@ -94,22 +97,22 @@ class TradeService:
         raise CapabilityNotSupportedError("no broker bound for get_order")
 
     def get_orderbook(self) -> list[Order]:
-        """Fetch the full order book — engine OMS cache first, broker fallback.
+        """Fetch the full order book — engine OMS cache merged with the broker.
 
-        The engine cache is the session's order state (the composition root
-        shares it with the session), so it is authoritative once it holds
-        anything. The broker is consulted only when the OMS cache is empty —
-        for live brokers that means orders placed entirely outside this
-        session (other clients, the broker app) are visible only until the
-        session places its first order. Paper/backtest sessions are fully
-        covered by the engine cache.
+        The engine cache is authoritative for orders this session placed and
+        their projected state; the broker book contributes orders placed
+        outside this session (other clients, the broker app) and fresher
+        states for shared ids (broker row wins on id collision). Previously
+        outside orders were visible only while the session's own cache was
+        empty — silently disappearing after the first local order.
         """
-        orders = list(self._engine.all_orders())
-        if orders:
-            return orders
+        merged: dict[str, Order] = {
+            order.order_id.value: order for order in self._engine.all_orders()
+        }
         if self._broker is not None:
-            return list(self._broker.get_orderbook())
-        return []
+            for order in self._broker.get_orderbook():
+                merged[order.order_id.value] = order  # broker row wins: fresher
+        return list(merged.values())
 
 
 __all__ = ["TradeService"]

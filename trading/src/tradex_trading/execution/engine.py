@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 from collections import OrderedDict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -728,6 +728,37 @@ class ExecutionEngine:
         cancelled = order.transition_to(OrderStatus.CANCELLED)
         self._cache.update_order(cancelled)
         return cancelled
+
+    def modify(self, order_id: OrderId, request: OrderRequest) -> Order:
+        """Modify an open order — the third mutation on the canonical spine.
+
+        The broker side is reached through the fill source (live sources
+        forward to the venue; simulated/paper/replay are no-ops), then the
+        modified fields are projected into the OMS so the cache and the
+        venue agree — previously modifications went straight to the broker
+        and silently desynced the engine cache.
+        """
+        log.info("Modifying order %s", order_id)
+        order = self._cache.get_order(order_id.value)
+        if order is None:
+            raise OrderRejectedError(f"Order {order_id.value} not found")
+        if order.status in _TERMINAL_STATUSES:
+            raise OrderRejectedError(
+                f"Order {order_id.value} is {order.status.value} and cannot be modified"
+            )
+        modify_fn = getattr(self._fill, "modify", None)
+        if callable(modify_fn):
+            modify_fn(order_id, request)
+        modified = replace(
+            order,
+            order_type=request.order_type,
+            quantity=request.quantity,
+            price=request.price,
+            trigger_price=request.trigger_price,
+            time_in_force=request.time_in_force,
+        )
+        self._cache.update_order(modified)
+        return modified
 
     @property
     def kill_switch(self) -> bool:

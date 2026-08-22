@@ -28,6 +28,11 @@ class FillSource(Protocol):
 
     def cancel(self, order_id: OrderId) -> None: ...
 
+    def modify(self, order_id: OrderId, request: OrderRequest) -> None:
+        """Forward an order modification to the execution venue (live sources).
+        Simulated/paper/replay sources are no-ops — their OMS projection is
+        the authoritative state."""
+
 
 def _make_order(
     request: OrderRequest,
@@ -106,6 +111,9 @@ class SimulatedFillSource(FillModel):
     def cancel(self, order_id: OrderId) -> None:
         """No-op for simulated fills."""
 
+    def modify(self, order_id: OrderId, request: OrderRequest) -> None:
+        """No-op for simulated fills — backtest orders fill immediately."""
+
 
 class PaperFillSource(FillModel):
     """Paper fill source — immediate fill at latest quote or request price.
@@ -156,6 +164,9 @@ class PaperFillSource(FillModel):
     def cancel(self, order_id: OrderId) -> None:
         """No-op for paper fills."""
 
+    def modify(self, order_id: OrderId, request: OrderRequest) -> None:
+        """No-op for paper fills — the OMS projection IS the paper state."""
+
 
 class BrokerFillSource(FillModel):
     """Live fill source — delegates to broker adapter.
@@ -200,6 +211,11 @@ class BrokerFillSource(FillModel):
         if hasattr(self._broker, "cancel_order"):
             self._broker.cancel_order(order_id)
 
+    def modify(self, order_id: OrderId, request: OrderRequest) -> None:
+        """Modify order at broker."""
+        if hasattr(self._broker, "modify_order"):
+            self._broker.modify_order(order_id, request)
+
 
 class ReplayFillSource(FillModel):
     """Replay fill source — replays historical fills in sequence."""
@@ -224,6 +240,10 @@ class ReplayFillSource(FillModel):
         return order, fill
 
     def cancel(self, order_id: OrderId) -> None:
+        """No-op for replay fills."""
+
+
+    def modify(self, order_id: OrderId, request: OrderRequest) -> None:
         """No-op for replay fills."""
 
 

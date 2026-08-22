@@ -29,12 +29,8 @@ class PortfolioService:
         return self._broker.get_portfolio()
 
     # broker-delegated names
-    def get_holdings(self) -> list[Position]:
-        """Get holdings from the broker (v3 parity)."""
-        return list(self._broker.get_holdings())
-
     def holdings(self) -> list[Position]:
-        """Get holdings — v4 name, alias of :meth:`get_holdings`."""
+        """Get holdings from the broker."""
         return list(self._broker.get_holdings())
 
     def funds(self) -> dict[str, object]:

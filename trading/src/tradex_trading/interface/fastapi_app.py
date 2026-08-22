@@ -334,8 +334,36 @@ def create_app(
         if s is None:
             raise HTTPException(status_code=400, detail="no session bound")
         try:
-            order = s.trade.modify(order_id, body)
+            from tradex_domain.enums import OrderSide, OrderType, TimeInForce
+            from tradex_domain.execution import OrderRequest
+            from tradex_domain.value_objects import Price, Quantity
+
+            instrument = s.broker.search(body["symbol"])[0]
+            side = OrderSide(body["side"])
+            order_type = OrderType(body.get("order_type", "LIMIT"))
+            quantity = Quantity(Decimal(str(body["quantity"])))
+            price = Price(Decimal(str(body["price"]))) if body.get("price") is not None else None
+            time_in_force = (
+                TimeInForce(body["time_in_force"])
+                if body.get("time_in_force")
+                else TimeInForce.DAY
+            )
+            request = OrderRequest(
+                instrument=instrument,
+                side=side,
+                order_type=order_type,
+                quantity=quantity,
+                price=price,
+                time_in_force=time_in_force,
+            )
+            order = s.trade.modify_order(order_id, request)
             return OrderResponse(order_id=str(order.order_id), status="modified")
+        except HTTPException:
+            raise
+        except KeyError as exc:
+            raise HTTPException(status_code=422, detail=f"missing required field: {exc}") from exc
+        except IndexError as exc:
+            raise HTTPException(status_code=422, detail="unknown symbol") from exc
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -770,22 +798,17 @@ def create_app(
                 the provider's REST endpoint. Fetches run concurrently; a
                 slow/failed fetch for one instrument never blocks the rest.
                 """
-                try:
-                    market = s.market
-                except Exception:  # noqa: BLE001 — session not READY (paper)
-                    return
-
                 def _fetch(inst: Any) -> None:
                     iid = inst.instrument_id
                     try:
-                        quote = market.quote(inst)
+                        quote = s.broker.get_quote(inst)
                     except Exception:  # noqa: BLE001 — best-effort snapshot
                         quote = None
                     if quote is not None and iid in wanted:
                         loop.call_soon_threadsafe(_send_quote, quote)
                     if depth_mode.get(iid, "off") != "off":
                         try:
-                            depth = market.depth(inst)
+                            depth = s.broker.depth(inst)
                         except Exception:  # noqa: BLE001 — best-effort snapshot
                             return
                         if iid in wanted:

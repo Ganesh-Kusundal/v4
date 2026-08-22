@@ -22,7 +22,15 @@ from typing import Any
 from tradex_domain import BrokerId, SessionStateError
 from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.errors import CapabilityNotSupportedError, OrderRejectedError
-from tradex_domain.instruments import Equity, Future, Index, Instrument, Option
+from tradex_domain.instruments import (
+    Commodity,
+    Currency,
+    Equity,
+    Future,
+    Index,
+    Instrument,
+    Option,
+)
 from tradex_domain.protocols import BrokerAdapter
 from tradex_domain.strategy import ScannerDefinition
 from tradex_domain.value_objects import Price
@@ -180,10 +188,16 @@ class TradingSession:
     # --- bind_execution_engine (v3 parity) ------------------------------------
 
     def bind_execution_engine(self, execution_engine: ExecutionEngine) -> None:
-        """Attach the canonical execution spine to the running session."""
+        """Attach the canonical execution spine to the running session.
+
+        Also invalidates the materialized ``TradeService`` so the next access
+        reconstructs it against the new engine — otherwise two engines (the
+        session's and the service's captured one) would diverge.
+        """
         if self._state not in {SessionState.READY, SessionState.STOPPED}:
             raise SessionStateError("execution engine binding requires a started session")
         self._engine = execution_engine
+        self.__dict__.pop("trade", None)  # drop cached TradeService bound to old engine
 
     # --- 7 Services ---
 
@@ -294,6 +308,23 @@ class TradingSession:
 
     def future(self, exchange: str, underlying: str, expiry: date) -> Future:
         return Future.of(exchange, underlying, expiry)
+
+    def option(
+        self,
+        exchange: str,
+        underlying: str,
+        expiry: date,
+        strike: Price | Decimal | float,
+        right: str,
+    ) -> Option:
+        strike_value: Decimal | float = strike.value if isinstance(strike, Price) else strike
+        return Option.of(exchange, underlying, expiry, strike_value, right)
+
+    def currency(self, exchange: str, symbol: str) -> Currency:
+        return Currency.of(exchange, symbol)
+
+    def commodity(self, exchange: str, symbol: str) -> Commodity:
+        return Commodity.of(exchange, symbol)
 
     # --- Factory classmethods ---
 
@@ -422,18 +453,6 @@ class TradingSession:
             self.stop()
         except Exception:
             pass
-
-    def option(
-        self,
-        exchange: str,
-        underlying: str,
-        expiry: date,
-        strike: Price | Decimal | float,
-        right: str,
-    ) -> Option:
-        strike_value: Decimal | float = strike.value if isinstance(strike, Price) else strike
-        return Option.of(exchange, underlying, expiry, strike_value, right)
-
 
 __all__ = [
     "PortfolioService",
