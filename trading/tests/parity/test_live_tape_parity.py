@@ -104,7 +104,11 @@ def _seeded_engine() -> tuple[ExecutionEngine, ReactiveBus, TradingCache]:
     return engine, bus, cache
 
 
-def _replay_tape(mapped_orders: list[Order]) -> tuple[list, list]:
+def _replay_tape(
+    mapped_orders: list[Order],
+    *,
+    fill_id_resolver: Any | None = None,
+) -> tuple[list, list]:
     """Push cumulative stream updates through LiveFillBridge → bus → engine.
 
     Returns (engine, received OrderFilled events).
@@ -121,7 +125,10 @@ def _replay_tape(mapped_orders: list[Order]) -> tuple[list, list]:
         pushed.append(handler)
         return "sub"
 
-    bridge = LiveFillBridge(bus=bus, engine=engine, subscribe_orders=subscribe_orders)
+    bridge = LiveFillBridge(
+        bus=bus, engine=engine, subscribe_orders=subscribe_orders,
+        trade_id_resolver=fill_id_resolver,
+    )
     handler = pushed[0]
     for order in mapped_orders:
         handler(order)  # broker receive-thread equivalent (sequential)
@@ -230,3 +237,168 @@ def test_live_tape_position_matches_paper_spine() -> None:
 
     assert paper_pos.quantity.value == live_pos.quantity.value == _QTY
     assert paper_pos.avg_price.value == live_pos.avg_price.value == _TRADED
+
+
+# ---------------------------------------------------------------------------
+# R3 tape expansion: STOP trigger fills, rejects, cancels
+# ---------------------------------------------------------------------------
+
+_DHAN_STOP_TRIGGERED = {
+    **_DHAN_ACK,
+    "orderType": "STOP_LOSS_MARKET", "price": "", "triggerPrice": "2480",
+    "orderStatus": "TRIGGER_PENDING",
+}
+_DHAN_STOP_PARTIAL = {
+    **_DHAN_STOP_TRIGGERED,
+    "orderStatus": "PART_TRADED", "filledQty": "5", "tradedPrice": str(_TRADED),
+}
+_DHAN_STOP_FINAL = {
+    **_DHAN_STOP_TRIGGERED,
+    "orderStatus": "TRADED", "filledQty": "10", "tradedPrice": str(_TRADED),
+}
+_DHAN_REJECTED = {**_DHAN_ACK, "orderStatus": "REJECTED"}
+_DHAN_CANCELLED = {**_DHAN_ACK, "orderStatus": "CANCELLED"}
+
+_UPSTOX_STOP_OPEN = {
+    **_UPSTOX_ACK,
+    "order_type": "SL-M", "price": 0, "trigger_price": "2480",
+}
+_UPSTOX_STOP_PARTIAL = {**_UPSTOX_STOP_OPEN, "filled_quantity": 5,
+                        "average_price": str(_TRADED)}
+_UPSTOX_STOP_FINAL = {**_UPSTOX_STOP_OPEN, "status": "complete",
+                      "filled_quantity": 10, "average_price": str(_TRADED)}
+
+
+def test_dhan_stop_tape_fills_granular_after_trigger() -> None:
+    """TRIGGER_PENDING maps to ACK; once triggered, partial+final deltas land
+    at the tape traded price. Equal-lot partials (5+5) require the trade-id
+    resolver — without it the composite fingerprint dedups the second one."""
+    from tradex_trading.sdk.live_fill_bridge import TradeBookFillIdResolver
+
+    broker = DhanBroker.from_fetch(
+        fetch=lambda method, url, **kw: {"data": {}},
+        client_id="client", access_token="token",
+    )
+    iid = _RELIANCE.instrument_id
+    broker.registry.register(iid, {"key": "NSE_EQ|RELIANCE", "security_id": "2885"})
+    broker.registry.add_alias("2885", iid)
+    mapper = broker._transport._stream_order_from_row  # noqa: SLF001
+
+    trades = [{"orderId": "prov-1", "tradeId": f"t{n}"} for n in range(1, 10)]
+    resolver = TradeBookFillIdResolver(lambda: trades)
+
+    engine, fills = _replay_tape(
+        [mapper(r) for r in (_DHAN_STOP_TRIGGERED, _DHAN_STOP_PARTIAL, _DHAN_STOP_FINAL)],
+        fill_id_resolver=resolver,
+    )
+    order = engine.cache.get_order("prov-1")
+    assert order.status == OrderStatus.FILLED
+    assert [f.fill.quantity.value for f in fills] == [Decimal("5"), Decimal("5")]
+    assert [f.fill.fill_id for f in fills] == ["t1", "t2"]
+    assert all(f.fill.price.value == _TRADED for f in fills)
+
+
+def test_dhan_reject_and_cancel_rows_map_but_produce_no_fills() -> None:
+    """REJECTED/CANCELLED rows map to the right statuses and are correctly
+    ignored by the fill bridge (they are not fills)."""
+    broker = DhanBroker.from_fetch(
+        fetch=lambda method, url, **kw: {"data": {}},
+        client_id="client", access_token="token",
+    )
+    iid = _RELIANCE.instrument_id
+    broker.registry.register(iid, {"key": "NSE_EQ|RELIANCE", "security_id": "2885"})
+    broker.registry.add_alias("2885", iid)
+    mapper = broker._transport._stream_order_from_row  # noqa: SLF001
+
+    rejected = mapper(_DHAN_REJECTED)
+    cancelled = mapper(_DHAN_CANCELLED)
+    assert rejected.status == OrderStatus.REJECTED
+    assert cancelled.status == OrderStatus.CANCELLED
+
+    engine, fills = _replay_tape([rejected, cancelled])
+    assert fills == []
+    # A non-fill stream row must NOT clobber the local open-order state.
+    assert engine.cache.get_order("prov-1").status == OrderStatus.ACK
+
+
+def test_upstox_stop_tape_fills_granular() -> None:
+    from tradex_trading.sdk.live_fill_bridge import TradeBookFillIdResolver
+
+    broker = UpstoxBroker.from_fetch(
+        fetch=lambda method, url, **kw: {"data": {}},
+        access_token="token",
+    )
+    broker.registry.register(_RELIANCE.instrument_id, {"key": "NSE_EQ|RELIANCE"})
+    mapper = broker._transport._stream_order_from_row  # noqa: SLF001
+
+    trades = [{"order_id": "prov-1", "tradeId": f"t{n}"} for n in range(1, 10)]
+    resolver = TradeBookFillIdResolver(lambda: trades, order_id_key="order_id")
+
+    engine, fills = _replay_tape(
+        [mapper(r) for r in (_UPSTOX_STOP_OPEN, _UPSTOX_STOP_PARTIAL, _UPSTOX_STOP_FINAL)],
+        fill_id_resolver=resolver,
+    )
+    order = engine.cache.get_order("prov-1")
+    assert order.status == OrderStatus.FILLED
+    assert [f.fill.quantity.value for f in fills] == [Decimal("5"), Decimal("5")]
+    assert all(f.fill.price.value == _TRADED for f in fills)
+
+
+# ---------------------------------------------------------------------------
+# R1/R2 unit contracts: FileOrderStore semantics and writer-lock behavior
+# ---------------------------------------------------------------------------
+
+
+def test_sqlite_order_store_round_trip(tmp_path) -> None:
+    from tradex_trading.execution.sqlite_store import SQLiteOrderStore
+
+    store = SQLiteOrderStore(tmp_path / "orders.db")
+    order = Order(
+        order_id=OrderId(value="persist-1"),
+        instrument=_RELIANCE,
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Quantity(value=Decimal("10")),
+        price=Price(value=Decimal("2500.00")),
+        time_in_force=TimeInForce.DAY,
+        correlation_id=CorrelationId(value=_CORR),
+        status=OrderStatus.ACK,
+    )
+    store.upsert(order)
+    # New instance over the same DB = restart simulation.
+    reopened = SQLiteOrderStore(tmp_path / "orders.db")
+    loaded = reopened.get("persist-1")
+    assert loaded is not None
+    assert loaded.status == OrderStatus.ACK
+    assert loaded.price.value == Decimal("2500.00")
+    assert loaded.correlation_id is not None
+    assert loaded.correlation_id.value == _CORR
+    assert len(reopened.all_orders()) == 1
+
+
+def test_writer_lock_excludes_second_holder_and_allows_reacquire(tmp_path) -> None:
+    from tradex_trading.runtime.writer_lock import SingleWriterLock, WriterLockHeldError
+
+    lock_path = tmp_path / "live.writer.lock"
+    first = SingleWriterLock(lock_path)
+    first.acquire()
+    try:
+        second = SingleWriterLock(lock_path)
+        with pytest.raises(WriterLockHeldError, match="live writer"):
+            second.acquire()
+    finally:
+        first.release()
+    # Released → a fresh acquirer succeeds (and stale-PID files auto-clear).
+    third = SingleWriterLock(lock_path)
+    third.acquire()
+    third.release()
+
+
+def test_writer_lock_stale_pid_auto_clears(tmp_path) -> None:
+    from tradex_trading.runtime.writer_lock import SingleWriterLock
+
+    lock_path = tmp_path / "live.writer.lock"
+    lock_path.write_text("999999999")  # dead pid
+    lock = SingleWriterLock(lock_path)
+    lock.acquire()  # must clear the stale file and take ownership
+    lock.release()
