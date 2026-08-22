@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, cast
 
-from tradex_brokers import BrokerFactory, DhanBroker, PaperBroker, UpstoxBroker
+from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
 from tradex_domain import BrokerId
 
 from tradex_trading.config.schema import AppConfig
@@ -138,16 +138,19 @@ def boot(
         raise ValueError("live mode requires live_enabled=true in config")
 
     # 1. Create broker. Live brokers bind a real transport via the standard
-    # interface (build_broker_from_env) — BrokerFactory.create builds a
-    # transport-less adapter whose REST calls raise "broker not connected".
-    # Paper/backtest/replay keep the factory (paper is transport-less by design).
+    # interface (build_broker_from_env); paper/backtest/replay construct the
+    # transport-less adapter directly (paper is transport-less by design).
     # An injected broker (seam for tests and the SDK factories) wins.
     if broker is None:
         if cfg.mode == "live":
             from tradex_trading.runtime.live import build_broker_from_env
             broker = build_broker_from_env(cfg.broker_id.value)
         else:
-            broker = BrokerFactory.create(cfg.broker_id)
+            broker = {
+                BrokerId.PAPER: PaperBroker,
+                BrokerId.DHAN: DhanBroker,
+                BrokerId.UPSTOX: UpstoxBroker,
+            }[cfg.broker_id]()
 
     # 2. Create metrics registry
     metrics = MetricsRegistry()
@@ -345,14 +348,18 @@ def boot(
     return session
 
 
-def boot_context(config: AppConfig | None = None) -> RuntimeContext:
+def boot_context(
+    config: AppConfig | None = None,
+    **boot_kwargs: Any,
+) -> RuntimeContext:
     """Boot and return a full RuntimeContext for lifecycle management.
 
     Like ``boot`` but returns a ``RuntimeContext`` that bundles all components
-    and provides a ``close()`` method for clean shutdown.
+    and provides a ``close()`` method for clean shutdown. Extra keyword
+    arguments (e.g. ``bus=`` or ``broker=``) are forwarded to :func:`boot`.
     """
     cfg = config or AppConfig()
-    session = boot(cfg)
+    session = boot(cfg, **boot_kwargs)
     return RuntimeContext(
         config=cfg,
         session=session,

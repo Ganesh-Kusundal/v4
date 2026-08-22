@@ -62,12 +62,7 @@ class TestBootWiresDiscovery:
     """boot() registers strategies and binds scanners into the session."""
 
     def test_boot_registers_discovered_strategies(self, monkeypatch) -> None:
-        from tradex_brokers import BrokerFactory
-
-        monkeypatch.setattr(
-            BrokerFactory, "create", lambda _bid, **_kw: _fake_broker_with_history([10.0])
-        )
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
         try:
             assert session.strategy_engine is not None
             registered = session.strategy_engine.strategies  # type: ignore[union-attr]
@@ -76,12 +71,7 @@ class TestBootWiresDiscovery:
             session.stop()
 
     def test_boot_binds_scanner_engine_and_definitions(self, monkeypatch) -> None:
-        from tradex_brokers import BrokerFactory
-
-        monkeypatch.setattr(
-            BrokerFactory, "create", lambda _bid, **_kw: _fake_broker_with_history([10.0])
-        )
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
         try:
             assert session.scanner._engine is not None  # noqa: SLF001 – wiring probe
             assert all_scanners  # sanity: discovery found the shipped scanners
@@ -90,12 +80,7 @@ class TestBootWiresDiscovery:
             session.stop()
 
     def test_run_all_runs_every_discovered_scanner(self, monkeypatch) -> None:
-        from tradex_brokers import BrokerFactory
-
-        monkeypatch.setattr(
-            BrokerFactory, "create", lambda _bid, **_kw: _fake_broker_with_history([10.0])
-        )
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
         try:
             results = session.scanner.run_all()
             assert set(results) == {f"scanner_{i}" for i in range(len(all_scanners))}
@@ -107,11 +92,8 @@ class TestBootWiresDiscovery:
         """The pullback scanner (close > 500 AND rsi < 40) scores 2/2 on a
         falling-but-high series, proving the full path: boot → ScannerService
         → ScannerEngine → broker.history → AnalyticsEngine.rsi."""
-        from tradex_brokers import BrokerFactory
-
         broker = _fake_broker_with_history([600.0, 590.0, 580.0, 570.0])
-        monkeypatch.setattr(BrokerFactory, "create", lambda _bid, **_kw: broker)
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(mode="paper"), broker=broker)
         try:
             # Identify the two-condition pullback scanner by its condition
             # names (ScannerDefinition carries no name field).
@@ -129,12 +111,7 @@ class TestBootWiresDiscovery:
             session.stop()
 
     def test_session_runs_every_discovered_scanner(self, monkeypatch) -> None:
-        from tradex_brokers import BrokerFactory
-
-        monkeypatch.setattr(
-            BrokerFactory, "create", lambda _bid, **_kw: _fake_broker_with_history([10.0])
-        )
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
         try:
             for definition in all_scanners:
                 results = session.scanner.run(definition)
@@ -143,12 +120,7 @@ class TestBootWiresDiscovery:
             session.stop()
 
     def test_boot_context_carries_strategy_engine(self, monkeypatch) -> None:
-        from tradex_brokers import BrokerFactory
-
-        monkeypatch.setattr(
-            BrokerFactory, "create", lambda _bid, **_kw: _fake_broker_with_history([10.0])
-        )
-        ctx = boot_context(AppConfig(mode="paper"))
+        ctx = boot_context(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
         try:
             assert ctx.strategy_engine is not None
             assert ctx.session.strategy_engine is ctx.strategy_engine
@@ -158,15 +130,10 @@ class TestBootWiresDiscovery:
     def test_backtest_mode_scanner_uses_datalake_provider(self, monkeypatch) -> None:
         """In backtest/replay modes the scanner market is the parquet datalake
         provider, not the broker — offline scanning over the full universe."""
-        from tradex_brokers import BrokerFactory
-
         from tradex_trading.datalake.market_provider import ParquetMarketProvider
 
-        monkeypatch.setattr(
-            BrokerFactory, "create", lambda _bid, **_kw: _fake_broker_with_history([10.0])
-        )
         for mode in ("backtest", "replay"):
-            session = boot(AppConfig(mode=mode))
+            session = boot(AppConfig(mode=mode), broker=_fake_broker_with_history([10.0]))
             try:
                 engine = session.scanner._engine  # noqa: SLF001 – wiring probe
                 assert isinstance(engine._market, ParquetMarketProvider)  # noqa: SLF001
@@ -176,15 +143,10 @@ class TestBootWiresDiscovery:
     def test_backtest_mode_exposes_datalake_backtest_loader(self, monkeypatch) -> None:
         """Backtest/replay sessions expose ``session.backtest`` bound to the
         datalake loader; paper sessions keep it ``None``."""
-        from tradex_brokers import BrokerFactory
-
         from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
 
-        monkeypatch.setattr(
-            BrokerFactory, "create", lambda _bid, **_kw: _fake_broker_with_history([10.0])
-        )
         for mode in ("backtest", "replay"):
-            session = boot(AppConfig(mode=mode))
+            session = boot(AppConfig(mode=mode), broker=_fake_broker_with_history([10.0]))
             try:
                 assert isinstance(session.backtest, ParquetBacktestLoader)
             finally:

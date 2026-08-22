@@ -301,10 +301,7 @@ class TestNifty500TechnicalScanner:
             broker.history = history
             return broker
 
-        from tradex_brokers import BrokerFactory
-
-        monkeypatch.setattr(BrokerFactory, "create", lambda _bid, **_kw: fake_broker())
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(mode="paper"), broker=fake_broker())
         try:
             results = session.scanner.run(nifty500_technical_scanner)
             assert isinstance(results, list)

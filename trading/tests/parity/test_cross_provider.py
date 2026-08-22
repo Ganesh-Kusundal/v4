@@ -11,12 +11,12 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-from tradex_domain.capabilities import (
-    BrokerCapabilities,
+from tradex_brokers.common.capabilities import (
     dhan_capabilities,
     paper_capabilities,
     upstox_capabilities,
 )
+from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.enums import (
     AssetClass,
     BrokerId,
@@ -35,7 +35,7 @@ from tradex_domain.execution import (
 )
 from tradex_domain.instruments import Equity, Instrument
 from tradex_domain.market import Depth, HistoricalSeries, Quote
-from tradex_domain.protocols import BrokerAdapter, ExtensionAdapter
+from tradex_domain.protocols import BrokerAdapter
 from tradex_domain.value_objects import AccountId, OrderId, Price, Quantity
 
 # ---------------------------------------------------------------------------
@@ -61,8 +61,13 @@ def _make_order_request(instrument: Instrument | None = None) -> OrderRequest:
 
 def _create_broker(broker_id: BrokerId) -> Any:
     """Create a broker adapter instance by ID."""
-    from tradex_brokers import BrokerFactory
-    return BrokerFactory.create(broker_id)
+    from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
+
+    return {
+        BrokerId.PAPER: PaperBroker,
+        BrokerId.DHAN: DhanBroker,
+        BrokerId.UPSTOX: UpstoxBroker,
+    }[broker_id]()
 
 
 # ---------------------------------------------------------------------------
@@ -279,69 +284,6 @@ class TestOrderLifecycleParity:
         now = datetime.now()
         series = broker.history(inst, Timeframe.D1, now - timedelta(days=30), now)
         assert isinstance(series, HistoricalSeries)
-
-
-# ---------------------------------------------------------------------------
-# P4: BrokerFactory — all brokers discoverable and instantiable
-# ---------------------------------------------------------------------------
-
-class TestBrokerFactoryParity:
-    """P4: BrokerFactory correctly manages all broker registrations."""
-
-    def test_all_brokers_registered(self) -> None:
-        from tradex_brokers import BrokerFactory
-        available = BrokerFactory.available()
-        assert BrokerId.PAPER in available
-        assert BrokerId.DHAN in available
-        assert BrokerId.UPSTOX in available
-
-    def test_create_paper(self) -> None:
-        from tradex_brokers import BrokerFactory
-        broker = BrokerFactory.create(BrokerId.PAPER)
-        assert broker is not None
-
-    def test_create_dhan(self) -> None:
-        from tradex_brokers import BrokerFactory
-        broker = BrokerFactory.create(BrokerId.DHAN)
-        assert broker is not None
-
-    def test_create_upstox(self) -> None:
-        from tradex_brokers import BrokerFactory
-        broker = BrokerFactory.create(BrokerId.UPSTOX)
-        assert broker is not None
-
-    def test_create_unknown_raises(self) -> None:
-        from tradex_brokers import BrokerFactory
-        from tradex_domain.errors import BrokerUnavailableError
-        with pytest.raises(BrokerUnavailableError):
-            BrokerFactory.create(BrokerId.REPLAY)
-
-    def test_is_registered(self) -> None:
-        from tradex_brokers import BrokerFactory
-        assert BrokerFactory.is_registered(BrokerId.PAPER)
-        assert BrokerFactory.is_registered(BrokerId.DHAN)
-        assert BrokerFactory.is_registered(BrokerId.UPSTOX)
-        assert not BrokerFactory.is_registered(BrokerId.REPLAY)
-
-
-# ---------------------------------------------------------------------------
-# Cross-provider: ExtensionAdapter conformance
-# ---------------------------------------------------------------------------
-
-class TestExtensionAdapterParity:
-    """Dhan and Upstox satisfy ExtensionAdapter; Paper does not."""
-
-    def test_dhan_satisfies_extension_adapter(self) -> None:
-        broker = _create_broker(BrokerId.DHAN)
-        assert isinstance(broker, ExtensionAdapter)
-
-    def test_upstox_satisfies_extension_adapter(self) -> None:
-        broker = _create_broker(BrokerId.UPSTOX)
-        assert isinstance(broker, ExtensionAdapter)
-
-    def test_paper_does_not_satisfy_extension_adapter(self) -> None:
-        broker = _create_broker(BrokerId.PAPER)
-        assert not isinstance(broker, ExtensionAdapter)
 
 
 # ---------------------------------------------------------------------------

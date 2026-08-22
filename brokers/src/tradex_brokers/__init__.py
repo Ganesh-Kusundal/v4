@@ -1,19 +1,16 @@
 """TradeX v4 broker SDK — Dhan, Upstox, Paper adapters.
 
-Exports the ``BrokerFactory`` plugin registry at the top level.
+Adapters are constructed directly (``DhanBroker()``, ``UpstoxBroker()``,
+``PaperBroker()``) or via ``from_fetch``; ``runtime.startup.boot`` is the
+single composition root that decides which one a session uses.
 """
-
-from tradex_domain import BrokerId
 
 from tradex_brokers.dhan.adapter import DhanBroker
 from tradex_brokers.paper.adapter import PaperBroker
-from tradex_brokers.registry import BrokerFactory
 from tradex_brokers.upstox.adapter import UpstoxBroker
 
-BrokerFactory.register(BrokerId.PAPER, PaperBroker)
-BrokerFactory.register(BrokerId.DHAN, DhanBroker)
-BrokerFactory.register(BrokerId.UPSTOX, UpstoxBroker)
-
 __all__ = [
-    "BrokerFactory",
+    "DhanBroker",
+    "PaperBroker",
+    "UpstoxBroker",
 ]

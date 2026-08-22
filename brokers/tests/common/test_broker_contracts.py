@@ -30,7 +30,6 @@ from tradex_domain.value_objects import OrderId, Quantity
 
 from tradex_brokers.dhan.adapter import DhanBroker
 from tradex_brokers.paper.adapter import PaperBroker
-from tradex_brokers.registry import BrokerFactory
 from tradex_brokers.upstox.adapter import UpstoxBroker
 
 _INSTRUMENT = Equity.of("NSE", "RELIANCE")
@@ -98,14 +97,8 @@ CAPABILITY_METHODS: dict[str, list[tuple[str, Callable[[], tuple[Any, ...]]]]] =
 
 
 @pytest.mark.parametrize("broker_cls", ALL_BROKERS)
-def test_registered_in_factory_and_conforms_to_protocol(broker_cls: type) -> None:
-    broker_id = {
-        PaperBroker: "PAPER",
-        DhanBroker: "DHAN",
-        UpstoxBroker: "UPSTOX",
-    }[broker_cls]
-    assert BrokerFactory.is_registered(broker_id)
-    instance = BrokerFactory.create(broker_id)
+def test_conforms_to_protocol(broker_cls: type) -> None:
+    instance = broker_cls()
     assert isinstance(instance, BrokerAdapter)
 
 
