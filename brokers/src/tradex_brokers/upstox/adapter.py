@@ -1,6 +1,6 @@
 """Upstox broker adapter.
 
-Implements ``BrokerAdapter`` + ``ExtensionAdapter`` protocols using the
+Implements the ``BrokerAdapter`` protocol using the
 composed :class:`UpstoxApiClient` for HTTP calls and WebSocket streams.
 
 Without a bound transport the adapter is capability-loud: market-data /
@@ -15,7 +15,9 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import date
 from typing import Any
 
-from tradex_domain.capabilities import require_capability, upstox_capabilities
+from tradex_brokers.common.base import BaseBroker
+from tradex_brokers.common.capabilities import upstox_capabilities
+from tradex_domain.capabilities import require_capability
 from tradex_domain.enums import OrderSide, ProductType, Timeframe
 from tradex_domain.errors import BrokerUnavailableError, CapabilityNotSupportedError
 from tradex_domain.instruments import Instrument
@@ -45,7 +47,7 @@ _UPSTOX_INDEX_KEYS = {
 
 
 class UpstoxBroker(BaseBroker):
-    """Upstox broker adapter — implements BrokerAdapter + ExtensionAdapter.
+    """Upstox broker adapter — implements BrokerAdapter.
 
     Uses :class:`UpstoxApiClient` for HTTP calls and WebSocket streams.
     Without a bound transport, trading calls raise ``BrokerUnavailableError``.
@@ -266,7 +268,11 @@ class UpstoxBroker(BaseBroker):
         if self._transport is None:
             raise BrokerUnavailableError("upstox transport not bound")
         if self._order_backend is None:
-            self._order_backend = self._transport.portfolio_stream_backend(ws_factory=ws_factory)
+            with self._stream_lock:
+                if self._order_backend is None:  # double-checked lazy init
+                    self._order_backend = self._transport.portfolio_stream_backend(
+                        ws_factory=ws_factory
+                    )
         return self._order_backend
 
     def market_stream_backend(self, *, ws_factory: Any | None = None) -> Any:

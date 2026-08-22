@@ -13,15 +13,17 @@ from tradex_domain import (
     Equity,
     InstrumentId,
 )
-from tradex_domain.capabilities import (
-    BrokerCapabilities,
+from tradex_brokers.common.capabilities import (
     dhan_capabilities,
     paper_capabilities,
-    require_capability,
     upstox_capabilities,
 )
+from tradex_domain.capabilities import (
+    BrokerCapabilities,
+    require_capability,
+)
 from tradex_domain.errors import CapabilityNotSupportedError, SDKError
-from tradex_domain.protocols import BrokerAdapter, ExtensionAdapter
+from tradex_domain.protocols import BrokerAdapter
 from tradex_domain.wire import (
     InstrumentRegistry,
     WireAdapter,
@@ -154,18 +156,14 @@ def test_broker_adapter_protocol_rejects_incomplete_implementation() -> None:
     assert not isinstance(_IncompleteAdapter(), BrokerAdapter)
 
 
-class _StubExtensionAdapter(_StubAdapter):
-    def submit_super_order(self, request: object) -> object: ...
-    def submit_forever_order(self, request: object) -> object: ...
-    def submit_slice_order(
-        self, request: object, slices: int, interval: object | None
-    ) -> list[object]: ...
-    def submit_edis(self, request: object) -> object: ...
+def test_extension_methods_are_capability_gated_not_protocol_split() -> None:
+    """Super/forever/slice/edis live on the single BrokerAdapter surface and
+    are gated by capability flags, not by a separate protocol."""
+    from tradex_domain.capabilities import require_capability
 
-
-def test_extension_adapter_protocol() -> None:
-    assert isinstance(_StubExtensionAdapter(), ExtensionAdapter)
-    assert not isinstance(_StubAdapter(), ExtensionAdapter)
+    broker = _StubAdapter()
+    with pytest.raises(CapabilityNotSupportedError):
+        require_capability(broker.capabilities, "supports_super_order")
 
 
 # ---------------------------------------------------------------------------

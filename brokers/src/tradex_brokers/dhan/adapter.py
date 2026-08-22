@@ -1,6 +1,6 @@
 """Dhan broker adapter.
 
-Implements ``BrokerAdapter`` + ``ExtensionAdapter`` protocols using the
+Implements the ``BrokerAdapter`` protocol using the
 composed :class:`DhanApiClient` for HTTP calls and WebSocket streams.
 
 Without a bound transport the adapter is capability-loud: market-data /
@@ -11,13 +11,20 @@ order / portfolio calls raise ``BrokerUnavailableError`` while
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable, Iterable, Mapping
 from datetime import date
 from typing import Any
 
-from tradex_domain.capabilities import dhan_capabilities, require_capability
+from tradex_brokers.common.base import BaseBroker
+from tradex_brokers.common.capabilities import dhan_capabilities
+from tradex_domain.capabilities import require_capability
 from tradex_domain.enums import OrderSide, OrderType, ProductType
-from tradex_domain.errors import BrokerUnavailableError
+from tradex_domain.errors import (
+    BrokerUnavailableError,
+    ConnectionTimeoutError,
+    RateLimitError,
+)
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Future, Instrument
 from tradex_domain.options import OptionChain
@@ -34,13 +41,12 @@ from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 from tradex_brokers.dhan.client import DhanApiClient
 
 log = logging.getLogger(__name__)
-
 _DHAN_EQUITY_UNIVERSE = ("RELIANCE", "TCS", "INFY", "HDFCBANK")
 _DHAN_INDEX_KEYS = {"NIFTY": "26000", "BANKNIFTY": "26009", "FINNIFTY": "26037"}
 
 
 class DhanBroker(BaseBroker):
-    """Dhan broker adapter — implements BrokerAdapter + ExtensionAdapter.
+    """Dhan broker adapter — implements BrokerAdapter.
 
     Uses :class:`DhanApiClient` for HTTP calls and WebSocket streams.
     Without a bound transport, trading calls raise ``BrokerUnavailableError``.
@@ -176,7 +182,11 @@ class DhanBroker(BaseBroker):
                 rest_underlying = futures[0]
         try:
             return self._require().get_option_chain(rest_underlying, expiry)
-        except Exception as exc:  # noqa: BLE001 — fall back, never mask silently
+        except (
+            BrokerUnavailableError,
+            ConnectionTimeoutError,
+            RateLimitError,
+        ) as exc:  # transport-level only — never mask auth/validation failures
             # REST chain unavailable (e.g. unsupported expiry) — serve the
             # master-derived chain when the master carries the strikes.
             from_master = option_chain_from_master(
@@ -231,7 +241,9 @@ class DhanBroker(BaseBroker):
         if self._depth_backend is None:
             if self._transport is None:
                 return None
-            self._depth_backend = self.depth_stream_backend()
+            with self._stream_lock:
+                if self._depth_backend is None:  # double-checked lazy init
+                    self._depth_backend = self.depth_stream_backend()
         return self._depth_backend.subscribe_depth(instrument, handler)
 
     def unsubscribe(self, subscription: object) -> None:
@@ -255,10 +267,13 @@ class DhanBroker(BaseBroker):
         return self._registry
 
     # ------------------------------------------------------------------
-    # ExtensionAdapter — Dhan-specific super / forever / eDIS lifecycle
+    # Dhan-specific super / forever / eDIS lifecycle (capability-gated)
     # ------------------------------------------------------------------
 
     def generate_tpin(self) -> dict[str, object]:
+        """eDIS status incl. TPIN. Dhan has no programmatic TPIN-minting
+        endpoint — the TPIN is issued by CDSL out-of-band and surfaces in
+        the eDIS status payload, so this fetches that."""
         require_capability(self.capabilities, "supports_edis")
         return self._require().edis_status("")
 
@@ -315,7 +330,11 @@ class DhanBroker(BaseBroker):
         if self._transport is None:
             raise BrokerUnavailableError("dhan transport not bound")
         if self._order_backend is None:
-            self._order_backend = self._transport.order_stream_backend(ws_factory=ws_factory)
+            with self._stream_lock:
+                if self._order_backend is None:  # double-checked lazy init
+                    self._order_backend = self._transport.order_stream_backend(
+                        ws_factory=ws_factory
+                    )
         return self._order_backend
 
     def market_stream_backend(self, *, ws_factory: Any | None = None) -> Any:

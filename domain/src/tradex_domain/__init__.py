@@ -6,10 +6,7 @@ wire mapping, and domain events. Never imports broker or infrastructure code.
 
 from tradex_domain.capabilities import (
     BrokerCapabilities,
-    dhan_capabilities,
-    paper_capabilities,
     require_capability,
-    upstox_capabilities,
 )
 from tradex_domain.enums import (
     AssetClass,
@@ -67,7 +64,6 @@ from tradex_domain.options import Expiry, OptionChain, OptionPair
 from tradex_domain.protocols import (
     BrokerAdapter,
     Clock,
-    ExtensionAdapter,
     IndicatorComputer,
     SessionFacade,
 )
@@ -161,16 +157,12 @@ __all__ = [
     "BrokerAdapter",
     "BrokerCapabilities",
     "Clock",
-    "ExtensionAdapter",
     "IndicatorComputer",
     "InstrumentRegistry",
     "SessionFacade",
     "WireAdapter",
-    "dhan_capabilities",
     "normalize_symbol",
-    "paper_capabilities",
     "require_capability",
-    "upstox_capabilities",
     # serialization
     "Serializable",
     "from_dict",

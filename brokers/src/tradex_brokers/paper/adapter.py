@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import threading
 from dataclasses import replace
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from tradex_domain.capabilities import BrokerCapabilities, paper_capabilities
+from tradex_brokers.common.capabilities import paper_capabilities
+from tradex_domain.capabilities import BrokerCapabilities, require_capability
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, Timeframe
-from tradex_domain.errors import CapabilityNotSupportedError, OrderRejectedError
+from tradex_domain.errors import BrokerUnavailableError, CapabilityNotSupportedError, OrderRejectedError
 from tradex_domain.execution import (
     Account,
     Order,
@@ -144,7 +145,7 @@ class PaperBroker:
 
     def _require_connected(self) -> None:
         if not self._connected:
-            raise RuntimeError("paper broker not connected")
+            raise BrokerUnavailableError("paper broker not connected")
 
     # ------------------------------------------------------------------
     # orders
@@ -447,10 +448,25 @@ class PaperBroker:
     def history(
         self,
         instrument: Instrument,
-        timeframe: Timeframe,
-        start: datetime,
-        end: datetime,
+        timeframe: Timeframe | str,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        *,
+        interval: str | None = None,
+        lookback_days: int | None = None,
     ) -> HistoricalSeries:
+        """Historical data — canonical + convenience signatures matching
+        ``BaseBroker`` so the REST API and cross-provider callers can use the
+        same 2-arg/``interval`` form on every adapter."""
+        if interval is not None:
+            timeframe = Timeframe(interval)
+        if not isinstance(timeframe, Timeframe):
+            timeframe = Timeframe(timeframe)
+        if start is None or end is None:
+            if lookback_days is None:
+                lookback_days = 30
+            end = end or datetime.now(UTC)
+            start = start or (end - timedelta(days=lookback_days))
         return HistoricalSeries(
             instrument=instrument,
             timeframe=timeframe,
@@ -464,6 +480,7 @@ class PaperBroker:
         underlying: Instrument,
         expiry: date | str | None = None,
     ) -> OptionChain:
+        require_capability(self.capabilities, "supports_option_chain")
         raise CapabilityNotSupportedError("paper broker does not support option chains")
 
     def search(self, query: str) -> list[Instrument]:

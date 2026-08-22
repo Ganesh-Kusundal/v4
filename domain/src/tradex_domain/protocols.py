@@ -1,13 +1,15 @@
 """Broker adapter contracts (D-16).
 
-``BrokerAdapter`` is the full adapter surface a broker plugin must satisfy.
-``ExtensionAdapter`` adds the capability-exposed broker-specific features.
+``BrokerAdapter`` is the full adapter surface a broker plugin must satisfy;
+broker-specific features (super/forever/slice orders, eDIS) are part of the
+same surface and are gated at runtime by ``BrokerCapabilities`` flags rather
+than by separate protocols.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.capabilities import BrokerCapabilities
@@ -139,31 +141,15 @@ class BrokerAdapter(Protocol):
 
 
 @runtime_checkable
-class ExtensionAdapter(BrokerAdapter, Protocol):
-    """Capability-exposed broker extensions (D-16)."""
-
-    def submit_super_order(self, request: OrderRequest) -> OrderId: ...
-    def submit_forever_order(self, request: OrderRequest) -> OrderId: ...
-    def submit_slice_order(
-        self,
-        request: OrderRequest,
-        slices: int,
-        interval: timedelta | None,
-    ) -> list[OrderId]: ...
-    def submit_edis(self, request: OrderRequest) -> OrderId: ...
-
-
-@runtime_checkable
 class SessionFacade(Protocol):
     """Minimal session surface a strategy needs (D-12).
 
     Declares the properties a strategy can access on a trading session.
     Service properties use ``object`` because domain cannot import trading
     types — the goal is IDE autocomplete hints, not strict typing.
+    Kept in sync with ``TradingSession``'s actual service surface:
+    trade / portfolio / stream / scanner.
     """
-
-    @property
-    def market(self) -> object: ...
 
     @property
     def trade(self) -> object: ...
@@ -176,12 +162,6 @@ class SessionFacade(Protocol):
 
     @property
     def scanner(self) -> object: ...
-
-    @property
-    def analytics(self) -> object: ...
-
-    @property
-    def extension(self) -> object: ...
 
     @property
     def state(self) -> object: ...
@@ -288,7 +268,6 @@ __all__ = [
     "BrokerClientPort",
     "Clock",
     "DepthStreamPort",
-    "ExtensionAdapter",
     "IndicatorComputer",
     "MasterRefreshProvider",
     "MarketStreamPort",

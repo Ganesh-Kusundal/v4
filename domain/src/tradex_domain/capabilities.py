@@ -1,16 +1,42 @@
-"""Broker capability matrix (§3/§4, D-14..D-16).
+"""Broker capability mechanism (§3/§4, D-14..D-16).
 
-``BrokerCapabilities`` defaults are fail-closed: nothing is claimed unless the
-broker's truth table explicitly enables it. ``require_capability`` is the
-single capability-loud gate used by the SDK services (D-8).
+``BrokerCapabilities`` is a fail-closed declarative truth table: nothing is
+claimed unless a broker's table explicitly enables it. ``require_capability``
+is the single capability-loud gate used by the SDK services (D-8).
+
+The per-provider tables (``dhan_capabilities`` etc.) live in the broker
+packages (``tradex_brokers.common.capabilities``) — provider facts belong to
+providers, not to the domain.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from tradex_domain.enums import AssetClass
 from tradex_domain.errors import CapabilityNotSupportedError
+
+#: Every boolean capability flag on ``BrokerCapabilities``. Passing any other
+#: string to :func:`require_capability` is a static type error instead of a
+#: silent always-False getattr lookup.
+CapabilityName = Literal[
+    "supports_market_order",
+    "supports_limit_order",
+    "supports_stop_order",
+    "supports_modify",
+    "supports_super_order",
+    "supports_forever_order",
+    "supports_slice_order",
+    "supports_edis",
+    "supports_batch_market_data",
+    "supports_portfolio_stream",
+    "supports_option_chain",
+    "supports_future_chain",
+    "supports_kill_switch",
+    "supports_news",
+    "supports_fundamentals",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,91 +67,7 @@ class BrokerCapabilities:
     supported_asset_classes: tuple[AssetClass, ...] = (AssetClass.EQUITY,)
 
 
-def dhan_capabilities() -> BrokerCapabilities:
-    return BrokerCapabilities(
-        supports_market_order=True,
-        supports_limit_order=True,
-        supports_stop_order=True,
-        supports_modify=True,
-        supports_super_order=True,
-        supports_forever_order=True,
-        supports_slice_order=True,
-        supports_edis=True,
-        supports_batch_market_data=True,
-        supports_portfolio_stream=False,
-        supports_option_chain=True,
-        supports_future_chain=True,
-        supports_kill_switch=True,
-        supports_news=False,
-        supports_fundamentals=False,
-        depth_levels=20,
-        max_stream_instruments=1000,
-        supported_asset_classes=(
-            AssetClass.EQUITY,
-            AssetClass.INDEX,
-            AssetClass.FUTURE,
-            AssetClass.OPTION,
-            AssetClass.CURRENCY,
-            AssetClass.COMMODITY,
-        ),
-    )
-
-
-def upstox_capabilities() -> BrokerCapabilities:
-    return BrokerCapabilities(
-        supports_market_order=True,
-        supports_limit_order=True,
-        supports_stop_order=True,
-        supports_modify=True,
-        supports_super_order=False,
-        supports_forever_order=True,
-        supports_slice_order=True,
-        supports_edis=False,
-        supports_batch_market_data=True,
-        supports_portfolio_stream=True,
-        supports_option_chain=True,
-        supports_future_chain=True,
-        supports_kill_switch=True,
-        supports_news=True,
-        supports_fundamentals=False,
-        depth_levels=30,
-        max_stream_instruments=500,
-        supported_asset_classes=(
-            AssetClass.EQUITY,
-            AssetClass.INDEX,
-            AssetClass.FUTURE,
-            AssetClass.OPTION,
-        ),
-    )
-
-
-def paper_capabilities() -> BrokerCapabilities:
-    return BrokerCapabilities(
-        supports_market_order=True,
-        supports_limit_order=True,
-        supports_stop_order=True,
-        supports_modify=True,
-        supports_super_order=False,
-        supports_forever_order=False,
-        supports_slice_order=False,
-        supports_edis=False,
-        supports_batch_market_data=False,
-        supports_portfolio_stream=False,
-        supports_option_chain=False,
-        supports_future_chain=False,
-        supports_kill_switch=False,
-        supports_news=False,
-        supports_fundamentals=False,
-        supported_asset_classes=(
-            AssetClass.EQUITY,
-            AssetClass.INDEX,
-            AssetClass.FUTURE,
-            AssetClass.OPTION,
-        ),
-    )
-
-
-def require_capability(capabilities: BrokerCapabilities, name: str) -> None:
+def require_capability(capabilities: BrokerCapabilities, name: CapabilityName) -> None:
     """Raise ``CapabilityNotSupportedError`` when the named flag is false (D-8)."""
     if not getattr(capabilities, name):
         raise CapabilityNotSupportedError(f"broker does not support capability: {name}")
@@ -133,8 +75,6 @@ def require_capability(capabilities: BrokerCapabilities, name: str) -> None:
 
 __all__ = [
     "BrokerCapabilities",
-    "dhan_capabilities",
-    "paper_capabilities",
+    "CapabilityName",
     "require_capability",
-    "upstox_capabilities",
 ]
