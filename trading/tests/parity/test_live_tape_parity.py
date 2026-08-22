@@ -14,11 +14,11 @@ fills through the shared FillModel. This is the recorded-evidence leg of live
 parity that scripted-transport tests cannot provide: it exercises the real
 provider mapping code, the real bridge delta logic, and the real engine.
 
-Known mapping gap surfaced by this harness (documented, not hidden): Upstox's
-status map has no partial-fill representation — ``open`` maps to ACK even when
-``filled_quantity`` is non-zero — so Upstox partials collapse into a single
-fill at terminal status. Dhan partials (PART_TRADED) map correctly. Final
-state parity holds for both; fill *granularity* currently only does for Dhan.
+Known mapping gap this harness caught and closed: Upstox has no native
+partial-fill status — a partially-filled resting order stays ``open`` with
+non-zero ``filled_quantity``. ``_order_from_row`` now promotes that to
+PARTIALLY_FILLED, so both providers deliver granular deltas and final state
+parity.
 """
 
 from __future__ import annotations
@@ -171,14 +171,15 @@ def test_dhan_tape_fills_granular_and_matches_golden() -> None:
     assert position[0].avg_price.value == _TRADED
 
 
-def test_upstox_tape_reaches_identical_final_state() -> None:
+def test_upstox_tape_fills_granular_and_matches_golden() -> None:
     engine, fills = _replay_tape(_upstox_mapped_tape())
     order = engine.cache.get_order("prov-1")
     assert order.status == OrderStatus.FILLED
     assert order.filled_quantity.value == _QTY
-    # Mapping gap (documented): partials collapse — one terminal delta of 10.
-    assert [f.fill.quantity.value for f in fills] == [_QTY]
-    assert fills[0].fill.price.value == _TRADED
+    # Partials now map (open + filled>0 -> PARTIALLY_FILLED): same granular
+    # deltas as Dhan at the tape average price.
+    assert [f.fill.quantity.value for f in fills] == [Decimal("4"), Decimal("6")]
+    assert all(f.fill.price.value == _TRADED for f in fills)
     position = engine.cache.all_positions()
     assert position[0].quantity.value == _QTY
     assert position[0].avg_price.value == _TRADED

@@ -238,6 +238,14 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
             "after_market_order_req_received": OrderStatus.ACK,
             "expired": OrderStatus.CANCELLED,
         }.get(str(row.get("status", "open")).lower(), OrderStatus.UNKNOWN)
+        filled_quantity = Quantity(value=as_decimal(str(row.get("filled_quantity"))))
+        # Upstox has no partial-fill status: a partially-filled resting order
+        # stays ``open`` with 0 < filled_quantity < quantity. Without this
+        # branch partials collapse into the terminal fill — the fill-bridge
+        # then reports one lump delta instead of granular partials (Dhan maps
+        # its PART_TRADED equivalent natively).
+        if status is OrderStatus.ACK and filled_quantity.value > 0:
+            status = OrderStatus.PARTIALLY_FILLED
         native_type = str(row.get("order_type", "MARKET")).upper()
         order_type = self._domain_order_type(native_type)
         return Order(
@@ -249,7 +257,7 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
             price=_as_price(row["price"]) if row.get("price") not in (None, "") else None,
             time_in_force=TimeInForce.DAY,
             status=status,
-            filled_quantity=Quantity(value=as_decimal(str(row.get("filled_quantity")))),
+            filled_quantity=filled_quantity,
             correlation_id=correlation_id(row.get("tag"), fallback_seed="upstox-unknown"))
 
     def _stream_order_from_row(self, row: Mapping[str, Any]) -> Order:
