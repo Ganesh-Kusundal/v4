@@ -21,7 +21,9 @@ from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
 from tradex_domain.errors import OrderRejectedError
 from tradex_domain.events import (
     ErrorOccurred,
+    OrderCancelled,
     OrderFilled,
+    OrderModified,
     OrderPlaced,
     OrderRejected,
     PlaceOrderCommand,
@@ -720,13 +722,14 @@ class ExecutionEngine:
         return drifts
 
     def cancel(self, order_id: OrderId) -> Order:
-        """Cancel an order."""
+        """Cancel an order and publish ``OrderCancelled`` on the bus."""
         log.info("Cancelling order %s", order_id)
         order = self._cache.get_order(order_id.value)
         if order is None:
             raise OrderRejectedError(f"Order {order_id.value} not found")
         cancelled = order.transition_to(OrderStatus.CANCELLED)
         self._cache.update_order(cancelled)
+        self._bus.publish(OrderCancelled(order=cancelled))
         return cancelled
 
     def modify(self, order_id: OrderId, request: OrderRequest) -> Order:
@@ -758,6 +761,7 @@ class ExecutionEngine:
             time_in_force=request.time_in_force,
         )
         self._cache.update_order(modified)
+        self._bus.publish(OrderModified(order=modified))
         return modified
 
     @property

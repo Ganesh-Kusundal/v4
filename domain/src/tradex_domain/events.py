@@ -50,6 +50,20 @@ class ErrorOccurred(DomainEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class OrderCancelled(DomainEvent):
+    """An open order was cancelled (post-transition state)."""
+
+    order: Order
+
+
+@dataclass(frozen=True, slots=True)
+class OrderModified(DomainEvent):
+    """An open order was modified — carries the post-modification state."""
+
+    order: Order
+
+
+@dataclass(frozen=True, slots=True)
 class PlaceOrderCommand(DomainEvent):
     """CQRS command — strategies publish this instead of calling broker directly."""
 
@@ -60,7 +74,9 @@ __all__ = [
     "CandleReceived",
     "DomainEvent",
     "ErrorOccurred",
+    "OrderCancelled",
     "OrderFilled",
+    "OrderModified",
     "OrderPlaced",
     "OrderRejected",
     "PlaceOrderCommand",

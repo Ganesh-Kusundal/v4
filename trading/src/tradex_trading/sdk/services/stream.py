@@ -46,6 +46,28 @@ class StreamService:
         self._subs.append(sub)
         return sub
 
+    def subscribe_cancellations(
+        self, handler: Callable[[OrderCancelled], None]
+    ) -> StreamSubscription:
+        """Subscribe to order-cancellation events via the reactive bus."""
+        from tradex_domain.events import OrderCancelled
+
+        d = self._bus.of_type(OrderCancelled).subscribe(handler)
+        sub = StreamSubscription(d, "cancellations")
+        self._subs.append(sub)
+        return sub
+
+    def subscribe_modifications(
+        self, handler: Callable[[OrderModified], None]
+    ) -> StreamSubscription:
+        """Subscribe to order-modification events via the reactive bus."""
+        from tradex_domain.events import OrderModified
+
+        d = self._bus.of_type(OrderModified).subscribe(handler)
+        sub = StreamSubscription(d, "modifications")
+        self._subs.append(sub)
+        return sub
+
     def subscribe_depth(self, handler: Callable[[Depth], None]) -> StreamSubscription:
         """Subscribe to depth stream via the reactive bus."""
         d = self._bus.of_type(Depth).subscribe(handler)

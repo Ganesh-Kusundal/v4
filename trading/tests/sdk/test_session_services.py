@@ -445,6 +445,68 @@ class TestTradeService:
         with pytest.raises(OrderRejectedError, match="cannot be modified"):
             session.trade.modify_order(oid, _make_request())
 
+    def test_modify_publishes_order_modified_event(self) -> None:
+        from tradex_domain.events import OrderModified
+
+        session = _make_session()
+        oid = OrderId(value="evt-1")
+        session._cache.update_order(  # type: ignore[attr-defined]
+            Order(
+                order_id=oid,
+                instrument=_make_equity(),
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Quantity(value=Decimal("10")),
+                price=Price(value=Decimal("100")),
+                time_in_force=TimeInForce.DAY,
+                status=OrderStatus.ACK,
+            )
+        )
+        events: list[OrderModified] = []
+        disposable = session.bus.of_type(OrderModified).subscribe(events.append)
+        try:
+            modify_req = _make_request()
+            modify_req = OrderRequest(
+                instrument=modify_req.instrument,
+                side=modify_req.side,
+                order_type=modify_req.order_type,
+                quantity=Quantity(value=Decimal("10")),
+                price=Price(value=Decimal("99")),
+                time_in_force=TimeInForce.DAY,
+            )
+            session.trade.modify_order(oid, modify_req)
+            assert len(events) == 1
+            assert isinstance(events[0], OrderModified)
+            assert events[0].order.price.value == Decimal("99")
+        finally:
+            disposable.dispose()
+
+    def test_cancel_publishes_order_cancelled_event(self) -> None:
+        from tradex_domain.events import OrderCancelled
+
+        session = _make_session()
+        oid = OrderId(value="evt-2")
+        session._cache.update_order(  # type: ignore[attr-defined]
+            Order(
+                order_id=oid,
+                instrument=_make_equity(),
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Quantity(value=Decimal("10")),
+                price=Price(value=Decimal("100")),
+                time_in_force=TimeInForce.DAY,
+                status=OrderStatus.ACK,
+            )
+        )
+        events: list[OrderCancelled] = []
+        disposable = session.bus.of_type(OrderCancelled).subscribe(events.append)
+        try:
+            session.trade.cancel(oid)
+            assert len(events) == 1
+            assert events[0].order.status == OrderStatus.CANCELLED
+        finally:
+            disposable.dispose()
+
     def test_modify_order_live_forwards_to_broker_via_fill_source(self) -> None:
         """Live path: the engine forwards the modification to the broker
         through BrokerFillSource and projects it into the OMS."""
