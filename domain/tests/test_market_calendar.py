@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
-from tradex_domain.market_calendar import IST, MARKET_CLOSE, MARKET_OPEN, to_ist_naive
+from tradex_domain.market_calendar import (
+    IST,
+    MARKET_CLOSE,
+    MARKET_OPEN,
+    NSE_HOLIDAYS_2026,
+    to_ist_naive,
+)
 
 
 def test_ist_offset() -> None:
@@ -32,3 +38,17 @@ def test_normalize_symbol_flag() -> None:
     assert normalize_symbol(" reliance-eq ") == "RELIANCE"
     # InstrumentId path opts out: raw underlying preserved
     assert normalize_symbol("reliance-eq", strip_provider_suffixes=False) == "RELIANCE-EQ"
+
+
+def test_nse_holidays_2026_are_dates() -> None:
+    # Every entry must be a weekday (weekend closures are unreachable here).
+    for d in NSE_HOLIDAYS_2026:
+        assert isinstance(d, date)
+        assert d.weekday() < 5
+
+
+def test_nse_holidays_2026_seeded_from_store_evidence() -> None:
+    # Empirically confirmed market-wide closures: zero bars across every
+    # tracked symbol even after a clean Dhan backfill.
+    assert date(2026, 5, 28) in NSE_HOLIDAYS_2026
+    assert date(2026, 6, 26) in NSE_HOLIDAYS_2026

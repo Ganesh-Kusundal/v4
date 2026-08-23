@@ -10,7 +10,7 @@ Ponytail: one file, stdlib only, no broker/trading import.
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 # NSE/BSE cash session (IST wall time)
 MARKET_OPEN: time = time(9, 15)
@@ -39,6 +39,15 @@ MARKET_CLOSE_STR: str = "15:30:00"
 DHAN_SESSION_OPEN: dict[str, str] = {"MCX_COMM": "09:00:00", "NSE_COMM": "09:00:00"}
 DHAN_SESSION_CLOSE: dict[str, str] = {"MCX_COMM": "23:30:00", "NSE_COMM": "23:30:00"}
 
+#: NSE cash-market trading holidays for 2026 (weekday sessions with no
+#: trading across the exchange).  Seeded empirically from the datalake store:
+#: weekday dates where every tracked symbol has zero bars even after a clean
+#: broker backfill.  Extend as new closures are confirmed — do not guess.
+NSE_HOLIDAYS_2026: frozenset = frozenset({
+    date(2026, 5, 28),
+    date(2026, 6, 26),
+})
+
 __all__ = [
     "DHAN_SESSION_CLOSE",
     "DHAN_SESSION_OPEN",
@@ -47,5 +56,6 @@ __all__ = [
     "MARKET_CLOSE_STR",
     "MARKET_OPEN",
     "MARKET_OPEN_STR",
+    "NSE_HOLIDAYS_2026",
     "to_ist_naive",
 ]

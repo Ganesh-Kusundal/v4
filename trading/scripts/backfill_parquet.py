@@ -36,11 +36,19 @@ ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 for sub in ("domain/src", "brokers/src", "trading/src"):
     sys.path.insert(0, str(ROOT / sub))
 
-from tradex_domain import Equity, Timeframe
-from tradex_trading.datalake.gap_detector import GapDetector
-from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
-from tradex_trading.datalake.parquet_storage import ParquetStorage
-from tradex_trading.datalake.universe import load_universe, available_universes
+from tradex_domain import Timeframe  # noqa: E402 — sys.path setup above
+from tradex_domain.market_calendar import (  # noqa: E402 — sys.path setup above
+    NSE_HOLIDAYS_2026,
+)
+
+from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402 — sys.path setup above
+from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402 — sys.path setup above
+    ParallelHistoryFetcher,
+)
+from tradex_trading.datalake.parquet_storage import (  # noqa: E402 — sys.path setup above
+    ParquetStorage,
+)
+from tradex_trading.datalake.universe import load_universe  # noqa: E402 — sys.path setup above
 
 log = logging.getLogger("tradex.scripts.backfill")
 
@@ -153,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         gaps = gap_detector.detect(
             instruments, start=start, end=end,
             timeframe=args.timeframe, bar_freq="1min",
+            holidays=NSE_HOLIDAYS_2026,
         )
         missing = {inst.symbol for inst, ranges in gaps if ranges}
         to_fetch = [inst for inst in instruments if inst.symbol in missing]
