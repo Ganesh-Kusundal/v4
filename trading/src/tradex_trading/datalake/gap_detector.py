@@ -4,17 +4,48 @@ Compares a requested instrument universe + date range against what already
 exists in ``ParquetStorage``, returning the set of instruments that need
 their gaps backfilled.
 
+The expected-bar grid is session-aware: only weekday NSE sessions
+(09:15–15:30 IST, minus optional exchange holidays) contribute candidate
+timestamps, matching what ``ParquetStorage.read`` actually stores/strips.
+Without this, nights/weekends/holidays were flagged as gaps and every
+symbol looked incomplete (making backfill ``--skip-existing`` a no-op).
+
 Adapted from nTrade's GapDetector.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pandas as pd
+from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 
 from tradex_trading.datalake.parquet_storage import ParquetStorage
+
+
+def _session_grid(
+    start: datetime,
+    end: datetime,
+    bar_freq: str,
+    holidays: frozenset,
+) -> pd.DatetimeIndex:
+    """Expected bar timestamps for weekday sessions clipped to [start, end].
+
+    Each trading day contributes ``bar_freq``-spaced stamps from
+    ``MARKET_OPEN`` to ``MARKET_CLOSE`` (both inclusive, matching
+    ParquetStorage's session filter), intersected with the requested window.
+    """
+    stamps: list[pd.Timestamp] = []
+    day = start.date()
+    while day <= end.date():
+        if day.weekday() < 5 and day not in holidays:
+            lo = max(datetime.combine(day, MARKET_OPEN), start)
+            hi = min(datetime.combine(day, MARKET_CLOSE), end)
+            if lo <= hi:
+                stamps.extend(pd.date_range(start=lo, end=hi, freq=bar_freq))
+        day += timedelta(days=1)
+    return pd.DatetimeIndex(stamps)
 
 
 class GapDetector:
@@ -34,12 +65,16 @@ class GapDetector:
         end: datetime,
         timeframe: str = "5m",
         bar_freq: str = "5min",
+        holidays: set[date] | None = None,
     ) -> list[tuple]:
         """Return instruments with their missing date ranges.
 
         ``bar_freq`` defines the expected cadence for gap detection.
+        ``holidays`` optionally excludes exchange holidays from the expected
+        grid (weekday sessions are always included).
         """
         results: list[tuple] = []
+        holiday_set = frozenset(holidays) if holidays else frozenset()
 
         for inst in instruments:
             symbol = inst.symbol
@@ -51,7 +86,9 @@ class GapDetector:
                 results.append((inst, [(start, end)]))
                 continue
 
-            expected = pd.date_range(start=start, end=end, freq=bar_freq)
+            expected = _session_grid(start, end, bar_freq, holiday_set)
+            if not len(expected):
+                continue
             existing_ts = pd.to_datetime(existing["timestamp"]).sort_values()
             existing_set = set(existing_ts)
 

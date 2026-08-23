@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from datetime import time as dtime
 
 import pandas as pd
 
@@ -82,3 +83,65 @@ class TestGapDetector:
         last = detector.last_stored("RELIANCE")
         assert last is not None
         assert last.hour == 9 and last.minute == 30
+
+
+# --- session-aware grid regression (backfill --skip-existing was a no-op) ---
+
+def _session_rows(day: str, *, skip=()):
+    """Full 30min session bars (09:15-15:30) for one day, minus `skip` times."""
+    stamps = pd.date_range(f"{day} 09:15", f"{day} 15:30", freq="30min")
+    return [
+        dict(timestamp=str(ts), open=100, high=101, low=99, close=100)
+        for ts in stamps
+        if ts.time() not in skip
+    ]
+
+
+class TestSessionAwareDetection:
+    def test_fully_synced_multiday_window_has_no_gaps(self, tmp_path):
+        # Fri + Mon fully stored; window spans the weekend. Before the
+        # session-aware fix, Sat/Sun calendar minutes were flagged missing.
+        store = ParquetStorage(tmp_path)
+        store.upsert(_frame(_session_rows("2026-07-03") + _session_rows("2026-07-06")))
+        detector = GapDetector(store)
+        gaps = detector.detect(
+            [_FakeInst("RELIANCE")],
+            start=datetime(2026, 7, 3, 9, 15),
+            end=datetime(2026, 7, 6, 15, 30),
+            timeframe="1m", bar_freq="30min",
+        )
+        assert gaps == []
+
+    def test_holiday_excluded_via_holidays_arg(self, tmp_path):
+        # Monday declared a holiday: its absence must not be flagged.
+        store = ParquetStorage(tmp_path)
+        store.upsert(_frame(_session_rows("2026-07-03")))
+        detector = GapDetector(store)
+        gaps = detector.detect(
+            [_FakeInst("RELIANCE")],
+            start=datetime(2026, 7, 3, 9, 15),
+            end=datetime(2026, 7, 6, 15, 30),
+            timeframe="1m", bar_freq="30min",
+            holidays={datetime(2026, 7, 6).date()},
+        )
+        assert gaps == []
+
+    def test_mid_session_hole_is_single_contiguous_range(self, tmp_path):
+        # Missing two consecutive 30min stamps (11:15, 11:45) on Monday ->
+        # one gap bounded to that day.
+        store = ParquetStorage(tmp_path)
+        hole = {dtime(11, 15), dtime(11, 45)}
+        store.upsert(_frame(
+            _session_rows("2026-07-03") + _session_rows("2026-07-06", skip=hole)
+        ))
+        detector = GapDetector(store)
+        gaps = detector.detect(
+            [_FakeInst("RELIANCE")],
+            start=datetime(2026, 7, 3, 9, 15),
+            end=datetime(2026, 7, 6, 15, 30),
+            timeframe="1m", bar_freq="30min",
+        )
+        assert len(gaps) == 1
+        inst, ranges = gaps[0]
+        assert inst.symbol == "RELIANCE"
+        assert ranges == [(datetime(2026, 7, 6, 11, 15), datetime(2026, 7, 6, 11, 45))]
