@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
+from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio
 from tradex_trading.replay.backtest import BacktestResult
 
 
@@ -44,6 +45,7 @@ class WalkForwardReport:
     steps: tuple[WalkForwardStep, ...]
     aggregate_oos_return: float = 0.0
     aggregate_oos_sharpe: float = 0.0
+    aggregate_oos_maxdd: float = 0.0
     total_steps: int = 0
     successful_steps: int = 0
 
@@ -147,11 +149,12 @@ def run_walk_forward(
         step_idx += 1
         start += _step
 
-    agg_return, agg_sharpe, successful = _aggregate(steps)
+    agg_return, agg_sharpe, successful, agg_maxdd = _aggregate(steps)
     return WalkForwardReport(
         steps=tuple(steps),
         aggregate_oos_return=agg_return,
         aggregate_oos_sharpe=agg_sharpe,
+        aggregate_oos_maxdd=agg_maxdd,
         total_steps=len(steps),
         successful_steps=successful,
     )
@@ -233,11 +236,12 @@ def run_walk_forward_by_date(
         step_idx += 1
         start += test_days
 
-    agg_return, agg_sharpe, successful = _aggregate(steps)
+    agg_return, agg_sharpe, successful, agg_maxdd = _aggregate(steps)
     return WalkForwardReport(
         steps=tuple(steps),
         aggregate_oos_return=agg_return,
         aggregate_oos_sharpe=agg_sharpe,
+        aggregate_oos_maxdd=agg_maxdd,
         total_steps=len(steps),
         successful_steps=successful,
     )
@@ -299,22 +303,45 @@ def _evaluate_step(
     )
 
 
-def _aggregate(steps: Sequence[WalkForwardStep]) -> tuple[float, float, int]:
-    """Average OOS return/sharpe over successful steps."""
-    oos_returns = [
-        s.out_of_sample_result.total_return
+def _aggregate(steps: Sequence[WalkForwardStep]) -> tuple[float, float, int, float]:
+    """Stitched OOS equity curve — chain normalized segments multiplicatively."""
+    segments = [
+        s.out_of_sample_result.equity_curve
         for s in steps
-        if s.out_of_sample_result is not None
+        if s.out_of_sample_result is not None and s.out_of_sample_result.equity_curve
     ]
-    oos_sharpes = [
-        getattr(s.out_of_sample_result, "sharpe", 0.0)
-        for s in steps
-        if s.out_of_sample_result is not None
+    if not segments:
+        # fallback for legacy BacktestResult without equity_curve
+        oos_returns = [
+            s.out_of_sample_result.total_return
+            for s in steps
+            if s.out_of_sample_result is not None
+        ]
+        oos_sharpes = [
+            getattr(s.out_of_sample_result, "sharpe", 0.0)
+            for s in steps
+            if s.out_of_sample_result is not None
+        ]
+        agg_return = sum(oos_returns) / len(oos_returns) if oos_returns else 0.0
+        agg_sharpe = sum(oos_sharpes) / len(oos_sharpes) if oos_sharpes else 0.0
+        successful = sum(1 for s in steps if s.out_of_sample_result is not None)
+        return agg_return, agg_sharpe, successful, 0.0
+    stitched: list[float] = [segments[0][0]]
+    for seg in segments:
+        base = seg[0] or 1.0
+        norm = [x / base for x in seg[1:]]
+        last = stitched[-1]
+        stitched.extend(v * last for v in norm)
+    returns = [
+        (stitched[i] - stitched[i - 1]) / stitched[i - 1]
+        for i in range(1, len(stitched))
+        if stitched[i - 1] != 0
     ]
-    agg_return = sum(oos_returns) / len(oos_returns) if oos_returns else 0.0
-    agg_sharpe = sum(oos_sharpes) / len(oos_sharpes) if oos_sharpes else 0.0
+    agg_return = (stitched[-1] - stitched[0]) / stitched[0] if stitched[0] else 0.0
+    agg_sharpe = sharpe_ratio(returns)
+    agg_maxdd = max_drawdown(stitched)
     successful = sum(1 for s in steps if s.out_of_sample_result is not None)
-    return agg_return, agg_sharpe, successful
+    return agg_return, agg_sharpe, successful, agg_maxdd
 
 
 __all__ = [

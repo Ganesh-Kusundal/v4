@@ -256,3 +256,59 @@ class TestRunWalkForwardByDate:
         )
         assert report.total_steps == 2
         assert {str(i) for i in seen} == {"NSE:RELIANCE", "NSE:TCS"}
+
+
+def test_walk_forward_stitched_oos_curve():
+    """C2: _aggregate must stitch equity segments, not average returns; MaxDD must exist."""
+    from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio
+    from tradex_trading.replay.walk_forward import WalkForwardStep, _aggregate
+
+    seg1 = [1.0, 1.10]
+    seg2 = [1.0, 1.20]
+    seg3 = [1.0, 0.90]
+
+    def _bt(tr: float, sh: float, curve: list[float]) -> BacktestResult:
+        return BacktestResult(
+            total_return=tr, sharpe=sh, max_drawdown=0.0, num_trades=0, equity_curve=curve
+        )
+
+    steps = [
+        WalkForwardStep(
+            step_index=0, train_start=0, train_end=10, test_start=10, test_end=11,
+            out_of_sample_result=_bt(0.10, 1.0, seg1),
+        ),
+        WalkForwardStep(
+            step_index=1, train_start=10, train_end=20, test_start=20, test_end=21,
+            out_of_sample_result=_bt(0.20, 2.0, seg2),
+        ),
+        WalkForwardStep(
+            step_index=2, train_start=20, train_end=30, test_start=30, test_end=31,
+            out_of_sample_result=_bt(-0.10, -1.0, seg3),
+        ),
+    ]
+    agg_return, agg_sharpe, successful, agg_maxdd = _aggregate(steps)
+    # old mean return
+    mean_return = (0.10 + 0.20 - 0.10) / 3
+    assert agg_return != pytest.approx(mean_return), "stitched return must differ from mean"
+    # stitched: 1.0 ->1.10 ->1.32 ->1.188
+    assert agg_return == pytest.approx(0.188, rel=1e-6)
+    # sharpe must be from stitched returns, not mean
+    assert agg_sharpe != pytest.approx((1.0 + 2.0 - 1.0) / 3)
+    stitched = [1.0, 1.10, 1.32, 1.188]
+    rets = [
+        (stitched[i] - stitched[i - 1]) / stitched[i - 1]
+        for i in range(1, len(stitched))
+    ]
+    assert agg_sharpe == pytest.approx(sharpe_ratio(rets))
+    assert agg_maxdd == pytest.approx(max_drawdown(stitched))
+    assert agg_maxdd < 0
+    # WalkForwardReport must expose aggregate_oos_maxdd
+    report = WalkForwardReport(
+        steps=tuple(steps),
+        aggregate_oos_return=agg_return,
+        aggregate_oos_sharpe=agg_sharpe,
+        aggregate_oos_maxdd=agg_maxdd,
+        total_steps=3,
+        successful_steps=successful,
+    )
+    assert report.aggregate_oos_maxdd == pytest.approx(agg_maxdd)
