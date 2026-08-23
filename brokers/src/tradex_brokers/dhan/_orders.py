@@ -20,6 +20,10 @@ from tradex_brokers.common.provider_common import first_mapping, unwrap_data
 if TYPE_CHECKING:
     from tradex_brokers.dhan._facade import DhanClientFacade
 
+# ponytail: broker average traded price (Dhan averagePrice/avgPrice/tradedPrice)
+# is surfaced via DhanApiClient._order_from_row -> Order.avg_price_traded;
+# LiveFillBridge prefers it over reference price (C1).
+
 
 class OrdersMixin(Protocol):
     def submit_order(self: DhanClientFacade, request: OrderRequest) -> OrderId:

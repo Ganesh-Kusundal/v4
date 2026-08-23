@@ -26,6 +26,7 @@ from tradex_domain.market import OHLC, Quote
 from tradex_domain.value_objects import (
     Money,
     OrderId,
+    Price,
     Quantity,
 )
 from tradex_domain.wire import InstrumentRegistry
@@ -248,6 +249,21 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
             status = OrderStatus.PARTIALLY_FILLED
         native_type = str(row.get("order_type", "MARKET")).upper()
         order_type = self._domain_order_type(native_type)
+        avg = (
+            row.get("average_price")
+            or row.get("averagePrice")
+            or row.get("avgPrice")
+            or row.get("avg_price")
+            or row.get("avg_traded_price")
+        )
+        order_avg: Price | None = None
+        if avg not in (None, "", 0, "0", 0.0):
+            try:
+                order_avg = Price(value=Decimal(str(avg)))
+                if order_avg.value <= 0:
+                    order_avg = None
+            except Exception:
+                order_avg = None
         return Order(
             order_id=OrderId(value=order_id),
             instrument=instrument_from_id(instrument_id),
@@ -258,17 +274,31 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
             time_in_force=TimeInForce.DAY,
             status=status,
             filled_quantity=filled_quantity,
-            correlation_id=correlation_id(row.get("tag"), fallback_seed="upstox-unknown"))
+            correlation_id=correlation_id(row.get("tag"), fallback_seed="upstox-unknown"),
+            avg_price_traded=order_avg)
 
     def _stream_order_from_row(self, row: Mapping[str, Any]) -> Order:
-        """Map a live order-update row, overriding price with traded price for fills."""
+        """Map a live order-update row, surfacing traded price in avg_price_traded for fills."""
         order = self._order_from_row(row)
-        traded = row.get("average_price")
+        if order.avg_price_traded is None:
+            traded = row.get("average_price")
+            if (
+                traded not in (None, "", 0, "0", 0.0)
+                and order.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+            ):
+                try:
+                    avg = Price(value=Decimal(str(traded)))
+                    if avg.value > 0:
+                        return replace(order, price=avg, avg_price_traded=avg)
+                except Exception:
+                    pass
+            return order
         if (
-            traded not in (None, "", 0)
-            and order.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+            order.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+            and order.price is not None
+            and order.price.value != order.avg_price_traded.value
         ):
-            return replace(order, price=_as_price(traded))
+            return replace(order, price=order.avg_price_traded)
         return order
 
     def _quote_from_row(self, instrument: Instrument, row: dict[str, Any]) -> Quote:

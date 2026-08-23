@@ -20,6 +20,10 @@ from tradex_brokers.common.provider_common import (
 if TYPE_CHECKING:
     from tradex_brokers.upstox._facade import UptoxFacade
 
+# ponytail: broker average traded price (Upstox average_price/avgPrice)
+# is surfaced via UpstoxApiClient._order_from_row -> Order.avg_price_traded;
+# LiveFillBridge prefers it over reference price (C1).
+
 
 class OrdersMixin(Protocol):
     def submit_order(self: UptoxFacade, request: OrderRequest) -> OrderId:

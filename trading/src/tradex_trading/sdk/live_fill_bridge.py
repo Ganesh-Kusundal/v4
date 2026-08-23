@@ -134,7 +134,8 @@ class LiveFillBridge:
         if order.status not in _FILL_STATUSES:
             return
         total = order.filled_quantity.value
-        price = order.price
+        traded = getattr(order, "avg_price_traded", None) or getattr(order, "average_price", None)
+        price = traded if traded is not None and traded.value > 0 else order.price
         if total <= 0 or price is None or price.value <= 0:
             # No tradeable fill yet (e.g. a status-only update) — nothing to do.
             return

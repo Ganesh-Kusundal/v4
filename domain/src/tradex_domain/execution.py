@@ -23,7 +23,10 @@ from tradex_domain.serialization import Serializable
 from tradex_domain.value_objects import AccountId, CorrelationId, Money, OrderId, Price, Quantity
 
 _LEGAL_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
-    OrderStatus.NEW: frozenset({OrderStatus.PENDING, OrderStatus.CANCELLED, OrderStatus.REJECTED}),
+    # NEW may reach PARTIALLY_FILLED directly: some venues/brokers report a
+    # first partial fill before any explicit ack round-trip, and the OMS
+    # applies such fills through the FSM rather than bypassing it.
+    OrderStatus.NEW: frozenset({OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED}),
     OrderStatus.PENDING: frozenset({OrderStatus.ACK, OrderStatus.CANCELLED, OrderStatus.REJECTED}),
     OrderStatus.ACK: frozenset({
         OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED,
@@ -93,8 +96,11 @@ class Order(Serializable):
     target_price: Price | None = None
     stop_loss_price: Price | None = None
     trailing_jump: Price | None = None
+    avg_price_traded: Price | None = None
 
-    def transition_to(self, new_status: OrderStatus) -> Order:
+    def transition_to(
+        self, new_status: OrderStatus, *, filled_quantity: Quantity | None = None,
+    ) -> Order:
         allowed = _LEGAL_TRANSITIONS.get(self.status, frozenset())
         if new_status not in allowed:
             raise SessionStateError(
@@ -116,7 +122,11 @@ class Order(Serializable):
             target_price=self.target_price,
             stop_loss_price=self.stop_loss_price,
             trailing_jump=self.trailing_jump,
-            filled_quantity=self.filled_quantity,
+            avg_price_traded=self.avg_price_traded,
+            filled_quantity=(
+                filled_quantity if filled_quantity is not None
+                else self.filled_quantity
+            ),
         )
 
     @property

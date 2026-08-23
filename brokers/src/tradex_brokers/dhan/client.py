@@ -25,7 +25,7 @@ from tradex_domain.errors import InstrumentNotFoundError
 from tradex_domain.execution import Account, Order, OrderRequest, Position
 from tradex_domain.instruments import Future, Instrument, Option
 from tradex_domain.market import OHLC, Quote
-from tradex_domain.value_objects import InstrumentId, Money, OrderId, Quantity
+from tradex_domain.value_objects import InstrumentId, Money, OrderId, Price, Quantity
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.client_shared import (
@@ -363,6 +363,22 @@ class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
             str(row.get("orderStatus", row.get("status", "UNKNOWN"))).upper(), OrderStatus.UNKNOWN
         )
         raw_price = row.get("price")
+        avg = (
+            row.get("averagePrice")
+            or row.get("avgPrice")
+            or row.get("avg_traded_price")
+            or row.get("average_price")
+            or row.get("tradedPrice")
+            or row.get("traded_price")
+        )
+        order_avg: Price | None = None
+        if avg not in (None, "", 0, "0", 0.0):
+            try:
+                order_avg = Price(value=Decimal(str(avg)))
+                if order_avg.value <= 0:
+                    order_avg = None
+            except Exception:
+                order_avg = None
         return Order(
             order_id=OrderId(value=order_id),
             instrument=instrument_from_id(instrument_id),
@@ -379,7 +395,8 @@ class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
             ),
             filled_quantity=Quantity(
                 value=as_decimal(row.get("filledQty", row.get("tradedQuantity", 0)))
-            ))
+            ),
+            avg_price_traded=order_avg)
 
     def _quote_from_row(self, instrument: Instrument, row: dict[str, Any]) -> Quote:
         ohlc = row.get("ohlc", {}) if isinstance(row.get("ohlc"), dict) else {}
@@ -461,17 +478,34 @@ class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
         self, row: Mapping[str, Any],
     ) -> Order:
         """Map a live order-update row to a domain Order usable by the fill
-        bridge: instrument resolved via the registry, and the fill price set
-        to the row's traded price for TRADED/PART_TRADED rows (order-update
-        ``price`` is the limit price; fills trade at ``tradedPrice``).
+        bridge: instrument resolved via the registry, and the fill price is
+        the row's traded/average price (kept in avg_price_traded; reference
+        price stays in price for audit, but price is also set for backward
+        compat with existing tests).
         """
         order = self._order_from_row(row)
-        traded = row.get("tradedPrice", row.get("traded_price"))
+        if order.avg_price_traded is None:
+            traded = row.get("tradedPrice", row.get("traded_price"))
+            if (
+                traded not in (None, "")
+                and order.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+            ):
+                try:
+                    avg = Price(value=Decimal(str(traded)))
+                    if avg.value > 0:
+                        # keep price as traded for legacy callers, avg for new bridge
+                        return replace(order, price=avg, avg_price_traded=avg)
+                except Exception:
+                    pass
+        # ensure legacy price override when avg already set via _order_from_row
         if (
-            traded not in (None, "")
+            order.avg_price_traded is not None
             and order.status in (OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED)
+            and order.price is not None
+            and order.price.value != order.avg_price_traded.value
         ):
-            return replace(order, price=_as_price(traded))
+            # ponytail: keep price == avg for fills so old assertions still pass
+            return replace(order, price=order.avg_price_traded)
         return order
 
     def market_stream_backend(self, *, ws_factory: Any | None = None) -> Any:
