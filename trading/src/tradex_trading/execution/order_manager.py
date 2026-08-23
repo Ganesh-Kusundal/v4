@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 from tradex_domain.enums import OrderStatus
 from tradex_domain.execution import Fill, Order
@@ -34,8 +35,16 @@ class OrderManager:
     def on_order_filled(self, order: Order, fill: Fill) -> None:
         """Transition order to FILLED, update filled_quantity, and cache."""
         old_status = order.status
+        remaining = order.quantity.value - order.filled_quantity.value
+        delta = min(fill.quantity.value, remaining)
+        if delta < fill.quantity.value:
+            log.warning(
+                "overfill clamped %s -> %s for %s",
+                fill.quantity.value, delta, order.order_id,
+            )
+            fill = replace(fill, quantity=Quantity(value=delta))
         new_filled = Quantity(
-            value=order.filled_quantity.value + fill.quantity.value
+            value=order.filled_quantity.value + delta
         )
         new_status = (
             OrderStatus.FILLED

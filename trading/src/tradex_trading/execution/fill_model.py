@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from tradex_domain.enums import OrderSide, OrderType
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.value_objects import OrderId, Price
 
@@ -55,6 +56,11 @@ class FillModel:
             price = self._slippage_model.apply(
                 price, request.side, request.quantity
             )
+        if request.order_type == OrderType.LIMIT and request.price is not None:
+            if request.side == OrderSide.BUY and price.value > request.price.value:
+                price = request.price  # ponytail: limit is hard, slippage cannot worsen beyond it
+            elif request.side == OrderSide.SELL and price.value < request.price.value:
+                price = request.price  # ponytail: limit is hard, slippage cannot worsen beyond it
         return price
 
     def fill_timestamp(self, request: OrderRequest) -> datetime:

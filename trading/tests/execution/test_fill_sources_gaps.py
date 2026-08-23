@@ -106,10 +106,20 @@ def test_broker_cancel_noop_when_no_cancel_order() -> None:
 
 
 def test_simulated_with_slippage_model_adjusts_price() -> None:
+    # H7: LIMIT BUY slippage beyond limit is clamped, so use MARKET to verify slippage applies
     slippage = MagicMock()
     slippage.apply.return_value = Price(value=Decimal("2501.50"))
     source = SimulatedFillSource(slippage_model=slippage)
-    _order, fill = source.submit(_request(price=Decimal("2500")))
+    req = OrderRequest(
+        instrument=_eq(),
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(value=Decimal("10")),
+        price=Price(value=Decimal("2500")),
+        time_in_force=TimeInForce.DAY,
+        product_type=ProductType.INTRADAY,
+    )
+    _order, fill = source.submit(req)
     assert fill is not None
     assert fill.price.value == Decimal("2501.50")
 
@@ -122,6 +132,7 @@ def test_simulated_with_portfolio_state_calls_get_position() -> None:
 
 
 def test_simulated_with_both_params() -> None:
+    # H7: LIMIT clamp would hide slippage, use MARKET to verify portfolio + slippage
     slippage = MagicMock()
     slippage.apply.return_value = Price(value=Decimal("2502"))
     portfolio = MagicMock()
@@ -129,7 +140,16 @@ def test_simulated_with_both_params() -> None:
         portfolio_state=portfolio,
         slippage_model=slippage,
     )
-    _order, fill = source.submit(_request(price=Decimal("2500")))
+    req = OrderRequest(
+        instrument=_eq(),
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(value=Decimal("10")),
+        price=Price(value=Decimal("2500")),
+        time_in_force=TimeInForce.DAY,
+        product_type=ProductType.INTRADAY,
+    )
+    _order, fill = source.submit(req)
     assert fill is not None
     assert fill.price.value == Decimal("2502")
     portfolio.get_position.assert_called_once_with(_eq())

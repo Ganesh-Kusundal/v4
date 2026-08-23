@@ -428,12 +428,13 @@ class TestFillSourceParity:
 
     @staticmethod
     def _request() -> OrderRequest:
+        # H7: limit is hard — use 200 so LTP 100-101 + slippage 0.25 stays inside limit
         return OrderRequest(
             instrument=INSTRUMENT,
             side=OrderSide.BUY,
             order_type=OrderType.LIMIT,
             quantity=Quantity(value=Decimal("10")),
-            price=Price(value=Decimal("100")),
+            price=Price(value=Decimal("200")),
             time_in_force=TimeInForce.DAY,
             reference_timestamp=datetime(2026, 8, 1, tzinfo=UTC),
         )

@@ -38,10 +38,11 @@ def test_paper_fill_source_with_cache_ltp() -> None:
     cache = MagicMock()
     cache.get_quote.return_value = quote
     source = PaperFillSource(cache=cache)
-    req = _make_request(price="100")
+    # H7: LIMIT 100 with LTP 150 would clamp to 100; use limit 200 so LTP < limit
+    req = _make_request(price="200")
     order, fill = source.submit(req)
     assert fill is not None
-    # Should use cache LTP (150) not request price (100)
+    # Should use cache LTP (150) not request price (200)
     assert fill.price.value == Decimal("150")
 
 
