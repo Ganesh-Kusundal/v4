@@ -94,13 +94,19 @@ def _build_brokers(args):
     load_env_file(str(ROOT / ".env.local"))
     from tradex_trading.runtime.live import build_broker_from_env
     if args.broker in ("dhan", "both"):
-        b = build_broker_from_env("dhan")
-        b.connect()
-        brokers["dhan"] = b
+        try:
+            b = build_broker_from_env("dhan")
+            b.connect()
+            brokers["dhan"] = b
+        except Exception as exc:
+            log.warning("Dhan unavailable (%s) — continuing without it", exc)
     if args.broker in ("upstox", "both"):
-        b = build_broker_from_env("upstox")
-        b.connect()
-        brokers["upstox"] = b
+        try:
+            b = build_broker_from_env("upstox")
+            b.connect()
+            brokers["upstox"] = b
+        except Exception as exc:
+            log.warning("Upstox unavailable (%s) — continuing without it", exc)
     return brokers
 
 

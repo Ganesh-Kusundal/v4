@@ -7,9 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-import pytest
 from tradex_domain import OHLC, Candle, Equity, Timeframe
-from tradex_domain.errors import SDKError
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
 
@@ -81,41 +79,30 @@ class TestSplit:
 # --------------------------------------------------------------------------- #
 
 class TestRouting:
-    def test_short_range_uses_all_brokers(self):
-        """< 30 days → both brokers selected."""
+    def test_multiple_brokers_always_split(self):
+        """Both brokers selected regardless of range — caps handled by chunking."""
         brokers = {"dhan": _make_broker("dhan"), "upstox": _make_broker("upstox")}
         fetcher = ParallelHistoryFetcher(brokers)
-        picked = fetcher._pick_brokers(days=15)
-        assert "dhan" in picked
-        assert "upstox" in picked
+        assert fetcher._pick_brokers() == ["dhan", "upstox"]
 
-    def test_long_range_uses_dhan_only(self):
-        """>= 30 days → Dhan only."""
-        brokers = {"dhan": _make_broker("dhan"), "upstox": _make_broker("upstox")}
-        fetcher = ParallelHistoryFetcher(brokers)
-        picked = fetcher._pick_brokers(days=90)
-        assert picked == ["dhan"]
-
-    def test_long_range_fallback_no_dhan(self):
-        """>= 30 days with no Dhan → use whatever is available."""
+    def test_single_broker_used_as_is(self):
+        """>= 30 days with only Upstox → Upstox (auto-chunked in fetch)."""
         brokers = {"upstox": _make_broker("upstox")}
         fetcher = ParallelHistoryFetcher(brokers)
-        picked = fetcher._pick_brokers(days=90)
+        picked = fetcher._pick_brokers()
         assert "upstox" in picked
 
-    def test_boundary_30_days_uses_dhan(self):
-        """Exactly 30 days → Dhan only (>= threshold)."""
+    def test_long_range_splits_across_both(self):
+        """90-day M1 range → instruments split; each broker chunks its half."""
         brokers = {"dhan": _make_broker("dhan"), "upstox": _make_broker("upstox")}
+        insts = INSTRUMENTS
         fetcher = ParallelHistoryFetcher(brokers)
-        picked = fetcher._pick_brokers(days=30)
-        assert picked == ["dhan"]
-
-    def test_29_days_uses_both(self):
-        """29 days → both brokers."""
-        brokers = {"dhan": _make_broker("dhan"), "upstox": _make_broker("upstox")}
-        fetcher = ParallelHistoryFetcher(brokers)
-        picked = fetcher._pick_brokers(days=29)
-        assert len(picked) == 2
+        results = fetcher.fetch(insts, Timeframe.M1,
+                                datetime(2026, 5, 1), datetime(2026, 7, 30))
+        assert len(results) == 8
+        # Both brokers must have been called: split assigns ~4 symbols each.
+        assert brokers["dhan"].history.call_count >= 1
+        assert brokers["upstox"].history.call_count >= 1
 
 
 # --------------------------------------------------------------------------- #
@@ -124,8 +111,7 @@ class TestRouting:
 
 class TestDhanIntradayWindowGuard:
     def test_dhan_intraday_range_beyond_api_window_auto_chunks(self):
-        """> 90-day M1 range, Dhan only → auto-chunked into 90d windows (was loud guard, now stitched)."""
-        fetcher = ParallelHistoryFetcher({"dhan": _make_broker("dhan")})
+        """> 90-day M1 range, Dhan only → auto-chunked into 90d windows."""
         start, end = datetime(2026, 1, 1), datetime(2026, 5, 1)  # 120 days
         dhan = _make_broker("dhan")
         fetcher = ParallelHistoryFetcher({"dhan": dhan})
@@ -191,16 +177,18 @@ class TestParallelFetch:
         total = dhan.history.call_count + upstox.history.call_count
         assert total == len(INSTRUMENTS)
 
-    def test_fetch_uses_dhan_only_for_long_range(self):
-        """>= 30 days → only Dhan receives history() calls."""
+    def test_fetch_splits_long_range_across_brokers(self):
+        """60-day M1 range → both brokers receive history() calls (split)."""
         dhan = _make_broker("dhan")
         upstox = _make_broker("upstox")
         brokers = {"dhan": dhan, "upstox": upstox}
         fetcher = ParallelHistoryFetcher(brokers, max_workers=4)
         end = BASE + timedelta(days=60)
-        fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
-        assert dhan.history.call_count == len(INSTRUMENTS)
-        assert upstox.history.call_count == 0
+        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        assert len(results) == len(INSTRUMENTS)
+        # Split assignment: both brokers must serve part of the universe.
+        assert dhan.history.call_count >= 1
+        assert upstox.history.call_count >= 3  # 30d cap → chunked windows
 
     def test_failover_to_second_broker(self):
         """If primary broker fails, failover broker serves the symbol."""

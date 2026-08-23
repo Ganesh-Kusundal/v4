@@ -45,12 +45,6 @@ log = logging.getLogger(__name__)
 #: Rate-limiter acquire timeout (seconds) — single-sourced [REF-10a].
 ACQUIRE_TIMEOUT_S = 30.0
 
-# ponytail: 30-day threshold.  Dhan serves 90 days/call, Upstox 1 month.
-# Below 30 days both brokers are equally efficient per-call, so splitting
-# instruments across N brokers gives ~Nx throughput.  Above 30 days Dhan's
-# larger chunk size means fewer total API calls.
-_DUAL_BROKER_THRESHOLD_DAYS = 30
-
 # ponytail: poll caps + auto-chunking — Dhan 90d on intraday, Upstox 30d on
 # minute.  Timeframe sets are single-sourced (domain/timeframe.py) to close
 # SMELL-02.  Long minute ranges are now auto-chunked (sequential windows per
@@ -186,7 +180,7 @@ class ParallelHistoryFetcher:
             timeframe = Timeframe(timeframe)
 
         days = (end - start).days
-        broker_names = self._pick_brokers(days)
+        broker_names = self._pick_brokers()
         # Auto-chunk long minute ranges (SMELL-12): the poll caps mean one
         # request would truncate, so split into consecutive windows and stitch
         # on return.  D1 and non-minute intraday ranges are unlimited.
@@ -370,28 +364,18 @@ class ParallelHistoryFetcher:
 
     # ------------------------------------------------------------------ routing
 
-    def _pick_brokers(self, days: int) -> list[str]:
-        """Select brokers based on date range.
+    def _pick_brokers(self) -> list[str]:
+        """Select serving brokers.
 
-        < 30 days → all available brokers (split instruments for speed)
-        >= 30 days → Dhan only (90-day chunks = fewer calls)
-
-        Upstox V3 `/historical-candle` caps retrieval at ONE MONTH for
-        1-15-minute intervals (1 quarter for >15-min minutes and hours,
-        1 decade for daily) — so for the M1 datalake backfill Dhan is
-        preferred: its `/charts/intraday` polls up to 90 days per request.
-        Ranges beyond the serving broker's cap are auto-chunked in
-        ``fetch()`` (``_date_windows``); daily+ timeframes use Dhan
-        `/charts/historical` (unlimited) and are unaffected.
+        All configured brokers are used: instruments are split across them,
+        and per-broker poll caps (Dhan 90d intraday, Upstox 30d minute) are
+        handled by auto-chunking in ``fetch()``.  Splitting halves each
+        broker's quota pressure — live backfills showed Dhan's
+        /charts/intraday enforcing burst walls well below its documented
+        5/s after ~100 calls, so concentrating a long range on Dhan alone
+        was the slowest possible routing.
         """
-        names = list(self._brokers.keys())
-        if days < _DUAL_BROKER_THRESHOLD_DAYS:
-            return names  # use all brokers
-        # Prefer dhan for longer ranges: 90-day intraday chunks vs Upstox's
-        # 1-month cap on minute intervals (V3 /historical-candle).
-        if "dhan" in names:
-            return ["dhan"]
-        return names  # fallback: whatever we have
+        return list(self._brokers.keys())
 
     # ------------------------------------------------------------------ info
 
