@@ -96,6 +96,7 @@ class MarketFeed:
         self._depth_fn: Any | None = None
         self._depth_on = False
         self._last_tick: dict[InstrumentId, datetime] = {}
+        self._last_tick_lock = threading.Lock()
         self._stale_after = float(stale_after)
         # Streaming capability surface: the broker's declared depth level and
         # per-connection instrument cap. Only a real BrokerCapabilities table
@@ -292,17 +293,25 @@ class MarketFeed:
     def _on_quote(self, quote: Quote) -> None:
         if quote.instrument.instrument_id in self._instruments:
             self._bus.publish(quote)
-            self._last_tick[quote.instrument.instrument_id] = datetime.now(UTC)
+            with self._last_tick_lock:
+                self._last_tick[quote.instrument.instrument_id] = datetime.now(UTC)
 
     def _on_depth(self, depth: Depth) -> None:
         if depth.instrument.instrument_id in self._instruments:
             self._bus.publish(depth)
 
     def check_stale(self) -> list[StaleFeed]:
-        """Emit StaleFeed for instruments with no tick for longer than stale_after."""
+        """Emit StaleFeed for instruments with no tick for longer than stale_after.
+
+        Poll-driven: call ``check_stale()`` periodically (metrics tick or
+        strategy watchdog). No background Timer — future: add Timer if needed.
+        Thread-safe via ``_last_tick_lock``.
+        """
         now = datetime.now(UTC)
         stale: list[StaleFeed] = []
-        for iid, last in list(self._last_tick.items()):
+        with self._last_tick_lock:
+            snapshot = list(self._last_tick.items())
+        for iid, last in snapshot:
             inst = self._instruments.get(iid)
             if inst is None:
                 continue

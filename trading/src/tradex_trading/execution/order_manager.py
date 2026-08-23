@@ -51,24 +51,7 @@ class OrderManager:
             if new_filled.value >= order.quantity.value
             else OrderStatus.PARTIALLY_FILLED
         )
-        filled_order = Order(
-            order_id=order.order_id,
-            instrument=order.instrument,
-            side=order.side,
-            order_type=order.order_type,
-            quantity=order.quantity,
-            price=order.price,
-            time_in_force=order.time_in_force,
-            status=new_status,
-            correlation_id=order.correlation_id,
-            trigger_price=order.trigger_price,
-            product_type=order.product_type,
-            tag=order.tag,
-            filled_quantity=new_filled,
-            target_price=order.target_price,
-            stop_loss_price=order.stop_loss_price,
-            trailing_jump=order.trailing_jump,
-        )
+        filled_order = replace(order, filled_quantity=new_filled, status=new_status)
         self._cache.update_order(filled_order)
         log.info("Order %s: %s -> %s", order.order_id, old_status, new_status)
 

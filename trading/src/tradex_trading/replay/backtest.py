@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -26,6 +27,8 @@ from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
 from tradex_trading.strategy.core.protocols import Strategy
+
+log = logging.getLogger(__name__)
 
 
 def _parse_ex_date(value: str) -> date:
@@ -405,6 +408,7 @@ class BacktestEngine:
             returns.append((equity_curve[i] - prev) / prev if prev != 0.0 else 0.0)
 
         # C3: infer Sharpe frequency from candle timeframe when default "1m" is left on D1 data
+        # ponytail: silent fallback when no timeframe — raise when strict mode needed
         frequency = self._sharpe_frequency
         if frequency == "1m" and data:
             try:
@@ -424,6 +428,10 @@ class BacktestEngine:
                         inferred = mapping.get(tf)  # type: ignore[arg-type]
                         if inferred is not None and inferred != "1m":
                             frequency = inferred
+                    else:
+                        log.warning("sharpe_frequency fallback to '1m': no timeframe on data[0]")
+                else:
+                    log.warning("sharpe_frequency fallback to '1m': no timeframe on data[0]")
             except Exception:
                 pass
 

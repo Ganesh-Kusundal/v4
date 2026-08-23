@@ -339,6 +339,7 @@ class ExecutionEngine:
         self._kill_switch = threading.Event()
         self._reconciler = ReconciliationEngine()
         self._brokerage_accrued: dict[str, Decimal] = {}
+        self._brokerage_lock = threading.Lock()  # ponytail: unbounded, LRU 50k if needed
         #: Fingerprints of OrderFilled events already applied to the OMS
         #: (order_id + side + qty + price) — re-published broker fills are
         #: skipped, distinct partial fills are each applied in full.
@@ -585,12 +586,13 @@ class ExecutionEngine:
         )
         calculated = breakdown.broker_fee
         oid = fill.order_id.value if hasattr(fill.order_id, "value") else str(fill.order_id)
-        accrued = self._brokerage_accrued.get(oid, Decimal("0"))
-        remaining = _BROKERAGE_CAP - accrued
-        if remaining < Decimal("0"):
-            remaining = Decimal("0")
-        capped = min(calculated, remaining)
-        self._brokerage_accrued[oid] = accrued + capped
+        with self._brokerage_lock:
+            accrued = self._brokerage_accrued.get(oid, Decimal("0"))
+            remaining = _BROKERAGE_CAP - accrued
+            if remaining < Decimal("0"):
+                remaining = Decimal("0")
+            capped = min(calculated, remaining)
+            self._brokerage_accrued[oid] = accrued + capped
         if capped < calculated:
             # Recompute GST on the capped brokerage so total stays consistent.
             gst_new = q2(
@@ -661,11 +663,12 @@ class ExecutionEngine:
                 self._applied_fills.popitem(last=False)
 
         existing = self._cache.get_order(fill.order_id.value)
-        if existing is not None and existing.status in (
-            OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.FILLED,
-        ):
+        if existing is not None and existing.status == OrderStatus.FILLED:
             # FILLED already = the synchronous pipeline path applied this fill
             # before publishing its own OrderFilled event — never double-apply.
+            return
+        if existing is not None and existing.status == OrderStatus.REJECTED:
+            # REJECTED stays rejected — do not position-update.
             return
         if not getattr(self._fill, "position_projection_owned", False):
             self._position_manager.on_fill(fill)
