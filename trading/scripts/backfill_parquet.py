@@ -119,6 +119,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="Symbols per batch (default: 20)")
     p.add_argument("--workers", type=int, default=4,
                    help="Concurrent fetch threads (default: 4)")
+    p.add_argument("--backoff-base", type=float, default=60.0,
+                   help="Initial sleep after a throttled batch, seconds (default: 60)")
+    p.add_argument("--backoff-max", type=float, default=900.0,
+                   help="Backoff ceiling, seconds (default: 900)")
     p.add_argument("--dry-run", action="store_true",
                    help="Use PaperBroker with synthetic data")
     p.add_argument("--limit", type=int, default=0,
@@ -172,38 +176,75 @@ def main(argv: list[str] | None = None) -> int:
         log.info("Nothing to backfill.")
         return 0
 
-    # Batch fetch -> upsert -> discard
+    # Batch fetch -> upsert -> discard, with adaptive throttle backoff:
+    # brokers (Dhan historical) enforce burst quotas — a batch with missing
+    # symbols usually means 429s, so sleep exponentially and requeue it
+    # instead of burning through the rest of the universe on failure spam.
     total_written = 0
     batches = [to_fetch[i:i + args.batch_size] for i in range(0, len(to_fetch), args.batch_size)]
 
-    for batch_idx, batch in enumerate(batches, 1):
+    backoff_s = float(args.backoff_base)
+    max_backoff_s = float(args.backoff_max)
+    queue = list(enumerate(batches, 1))
+    attempt: dict[int, int] = {}
+    max_attempts = 6
+
+    while queue:
+        batch_idx, batch = queue.pop(0)
         t0 = time.perf_counter()
         try:
             results = fetcher.fetch(batch, Timeframe(args.timeframe), start, end)
-            if not results:
-                log.warning("Batch %d/%d: empty", batch_idx, len(batches))
-                continue
-
-            # Convert HistoricalSeries -> DataFrame
-            frames = []
-            for inst_id, series in results.items():
-                sym = inst_id.split(":")[-1] if ":" in inst_id else inst_id
-                df = _series_to_frame(series, sym)
-                if not df.empty:
-                    frames.append(df)
-
-            if not frames:
-                continue
-
-            combined = pd.concat(frames, ignore_index=True)
-            written = store.upsert(combined)
-            total_written += written
-            elapsed = time.perf_counter() - t0
-            log.info("Batch %d/%d: %d rows in %.1fs (%.0f rows/s)",
-                     batch_idx, len(batches), written, elapsed,
-                     written / elapsed if elapsed > 0 else 0)
         except Exception as exc:
             log.exception("Batch %d failed: %s", batch_idx, exc)
+            results = {}
+
+        n_expected = len(batch)
+        if len(results) < n_expected:
+            attempt[batch_idx] = attempt.get(batch_idx, 0) + 1
+            if len(results) == 0:
+                log.warning(
+                    "Batch %d/%d: empty (%d/%d attempts) — broker throttling?",
+                    batch_idx, len(batches), attempt[batch_idx], max_attempts,
+                )
+            else:
+                log.warning(
+                    "Batch %d/%d: partial %d/%d symbols (%d/%d attempts)",
+                    batch_idx, len(batches), len(results), n_expected,
+                    attempt[batch_idx], max_attempts,
+                )
+            if attempt[batch_idx] < max_attempts:
+                # Requeue at the back so a different batch drains the
+                # recovering quota window in the meantime.
+                queue.append((batch_idx, batch))
+                log.info("Backing off %.0fs before next batch", backoff_s)
+                time.sleep(backoff_s)
+                backoff_s = min(backoff_s * 2, max_backoff_s)
+            else:
+                log.error(
+                    "Batch %d/%d: giving up after %d attempts",
+                    batch_idx, len(batches), max_attempts,
+                )
+                backoff_s = float(args.backoff_base)
+            continue
+
+        backoff_s = float(args.backoff_base)
+        frames = []
+        for inst_id, series in results.items():
+            sym = inst_id.split(":")[-1] if ":" in inst_id else inst_id
+            df = _series_to_frame(series, sym)
+            if not df.empty:
+                frames.append(df)
+
+        if not frames:
+            continue
+
+        combined = pd.concat(frames, ignore_index=True)
+        written = store.upsert(combined)
+        total_written += written
+        elapsed = time.perf_counter() - t0
+        log.info("Batch %d/%d: %d rows in %.1fs (%.0f rows/s)",
+                 batch_idx, len(batches), written, elapsed,
+                 written / elapsed if elapsed > 0 else 0)
 
     log.info("=" * 60)
     log.info("Backfill complete: %d rows across %d batches", total_written, len(batches))
