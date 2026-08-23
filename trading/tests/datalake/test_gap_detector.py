@@ -145,3 +145,24 @@ class TestSessionAwareDetection:
         inst, ranges = gaps[0]
         assert inst.symbol == "RELIANCE"
         assert ranges == [(datetime(2026, 7, 6, 11, 15), datetime(2026, 7, 6, 11, 45))]
+
+    def test_min_gap_stamps_drops_noise_keeps_real_holes(self, tmp_path):
+        # Friday entirely absent (real hole, 13 stamps) vs a 2-stamp noise
+        # hole on Monday: floor of 3 keeps only the real gap.
+        store = ParquetStorage(tmp_path)
+        noise = {dtime(10, 45), dtime(11, 15)}
+        store.upsert(_frame(_session_rows("2026-07-06", skip=noise)))
+        detector = GapDetector(store)
+        insts = [_FakeInst("RELIANCE")]
+
+        exact = detector.detect(insts, start=datetime(2026, 7, 3, 9, 15),
+                                end=datetime(2026, 7, 6, 15, 30),
+                                timeframe="1m", bar_freq="30min")
+        assert len(exact) == 1 and len(exact[0][1]) == 2
+
+        floored = detector.detect(insts, start=datetime(2026, 7, 3, 9, 15),
+                                  end=datetime(2026, 7, 6, 15, 30),
+                                  timeframe="1m", bar_freq="30min",
+                                  min_gap_stamps=3)
+        assert len(floored) == 1
+        assert floored[0][1] == [(datetime(2026, 7, 3, 9, 15), datetime(2026, 7, 3, 15, 15))]

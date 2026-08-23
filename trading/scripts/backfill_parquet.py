@@ -135,6 +135,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="Cap symbols processed (0 = no limit)")
     p.add_argument("--skip-existing", action="store_true",
                    help="Skip symbols with full coverage (gap-aware)")
+    p.add_argument("--min-gap-stamps", type=int, default=15,
+                   help="Ignore gaps shorter than N stamps when skipping "
+                        "(broker tail noise; 0-exact = 1) (default: 15)")
     p.add_argument("--log-level", default="INFO",
                    choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     args = p.parse_args(argv)
@@ -172,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
             instruments, start=start, end=end,
             timeframe=args.timeframe, bar_freq="1min",
             holidays=NSE_HOLIDAYS_2026,
+            min_gap_stamps=args.min_gap_stamps,
         )
         missing = {inst.symbol for inst, ranges in gaps if ranges}
         to_fetch = [inst for inst in instruments if inst.symbol in missing]

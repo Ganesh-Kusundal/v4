@@ -66,12 +66,17 @@ class GapDetector:
         timeframe: str = "5m",
         bar_freq: str = "5min",
         holidays: set[date] | None = None,
+        min_gap_stamps: int = 1,
     ) -> list[tuple]:
         """Return instruments with their missing date ranges.
 
         ``bar_freq`` defines the expected cadence for gap detection.
         ``holidays`` optionally excludes exchange holidays from the expected
-        grid (weekday sessions are always included).
+        grid (weekday sessions are always included).  ``min_gap_stamps``
+        drops detected gaps shorter than N stamps — brokers sometimes serve
+        truncated tails or drop stray closing bars; without a floor such
+        noise flags every symbol as gapped and ``--skip-existing`` refetches
+        the whole universe on every run.
         """
         results: list[tuple] = []
         holiday_set = frozenset(holidays) if holidays else frozenset()
@@ -106,6 +111,13 @@ class GapDetector:
                     gap_start = t
                 prev = t
             gaps.append((gap_start, prev))
+
+            if min_gap_stamps > 1:
+                step = pd.Timedelta(bar_freq)
+                gaps = [
+                    (gs, ge) for gs, ge in gaps
+                    if (ge - gs) // step + 1 >= min_gap_stamps
+                ]
 
             if gaps:
                 results.append((inst, gaps))
