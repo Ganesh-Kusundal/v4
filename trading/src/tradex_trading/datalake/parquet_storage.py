@@ -19,11 +19,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
-
 # ponytail: pyarrow is already installed (ParquetDataCatalog depends on it).
 import pyarrow as pa
 import pyarrow.parquet as pq
+from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 
 _BASE_COLUMNS = [
     "symbol", "exchange", "kind", "timeframe", "timestamp",
