@@ -41,6 +41,7 @@ Notes
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -190,14 +191,16 @@ class MarketFeed:
             for inst in instruments:
                 require_depth_supported(inst)
         self._check_cap(instruments)
-        added: list[Instrument] = []
-        for inst in instruments:
-            iid = inst.instrument_id
-            if iid not in self._instruments:
-                self._instruments[iid] = inst
-                added.append(inst)
+        added = [inst for inst in instruments if inst.instrument_id not in self._instruments]
         if added:
-            self._quote_sub = self._broker.subscribe_quotes(added, self._quote_cb)
+            try:
+                sub = self._broker.subscribe_quotes(added, self._quote_cb)
+            except Exception:
+                raise
+            else:
+                for inst in added:
+                    self._instruments[inst.instrument_id] = inst
+                self._quote_sub = sub
         if want_depth:
             missing = [
                 inst
@@ -205,7 +208,10 @@ class MarketFeed:
                 if inst.instrument_id not in self._depth_instruments
             ]
             if missing:
-                self._ensure_depth(missing)
+                try:
+                    self._ensure_depth(missing)
+                except Exception:
+                    raise
 
     def unsubscribe(self, instruments: Sequence[Instrument]) -> None:
         """Remove *instruments* from the wanted set.
@@ -322,6 +328,7 @@ class FeedRegistry:
         self._counts: dict[InstrumentId, int] = {}
         self._depth_counts: dict[InstrumentId, int] = {}
         self._connections = 0
+        self._lock = threading.Lock()
 
     @property
     def feed(self) -> MarketFeed | None:
@@ -362,29 +369,30 @@ class FeedRegistry:
         if want_depth:
             for inst in instruments:
                 require_depth_supported(inst)
-        with_depth: list[Instrument] = []
-        quote_only: list[Instrument] = []
-        if self._feed is not None:
-            # Pre-check the broker's per-connection cap before mutating refs,
-            # so an oversized request leaves the registry untouched.
-            cap = self._feed.max_stream_instruments
-            if isinstance(cap, int):
-                projected = len(self._counts) + sum(
-                    1 for inst in instruments if inst.instrument_id not in self._counts
-                )
-                if projected > cap:
-                    raise ValueError(
-                        f"stream instrument cap exceeded: {projected} > {cap} "
-                        f"(max_stream_instruments)"
+        with self._lock:
+            if self._feed is not None:
+                # Pre-check the broker's per-connection cap before mutating refs,
+                # so an oversized request leaves the registry untouched.
+                cap = self._feed.max_stream_instruments
+                if isinstance(cap, int):
+                    projected = len(self._counts) + sum(
+                        1 for inst in instruments if inst.instrument_id not in self._counts
                     )
-        for inst in instruments:
-            iid = inst.instrument_id
-            self._counts[iid] = self._counts.get(iid, 0) + 1
-            if want_depth:
-                self._depth_counts[iid] = self._depth_counts.get(iid, 0) + 1
-                with_depth.append(inst)
-            else:
-                quote_only.append(inst)
+                    if projected > cap:
+                        raise ValueError(
+                            f"stream instrument cap exceeded: {projected} > {cap} "
+                            f"(max_stream_instruments)"
+                        )
+            with_depth: list[Instrument] = []
+            quote_only: list[Instrument] = []
+            for inst in instruments:
+                iid = inst.instrument_id
+                self._counts[iid] = self._counts.get(iid, 0) + 1
+                if want_depth:
+                    self._depth_counts[iid] = self._depth_counts.get(iid, 0) + 1
+                    with_depth.append(inst)
+                else:
+                    quote_only.append(inst)
         if self._feed is not None:
             # Quote-only instruments join without pulling depth into the feed;
             # depth-requested instruments always enable depth for themselves.
@@ -395,25 +403,27 @@ class FeedRegistry:
 
     def unsubscribe(self, instruments: Sequence[Instrument]) -> None:
         """Drop refs for *instruments*; last holder removes them from the feed."""
-        dropped: list[Instrument] = []
-        for inst in instruments:
-            iid = inst.instrument_id
-            remaining = self._counts.get(iid, 0) - 1
-            if remaining <= 0:
-                self._counts.pop(iid, None)
-                dropped.append(inst)
-            else:
-                self._counts[iid] = remaining
-            depth_remaining = self._depth_counts.get(iid, 0) - 1
-            if depth_remaining <= 0:
-                self._depth_counts.pop(iid, None)
-            else:
-                self._depth_counts[iid] = depth_remaining
+        with self._lock:
+            dropped: list[Instrument] = []
+            for inst in instruments:
+                iid = inst.instrument_id
+                remaining = self._counts.get(iid, 0) - 1
+                if remaining <= 0:
+                    self._counts.pop(iid, None)
+                    dropped.append(inst)
+                else:
+                    self._counts[iid] = remaining
+                depth_remaining = self._depth_counts.get(iid, 0) - 1
+                if depth_remaining <= 0:
+                    self._depth_counts.pop(iid, None)
+                else:
+                    self._depth_counts[iid] = depth_remaining
+            any_depth = any(self._depth_counts.values())
         if self._feed is not None and dropped:
             self._feed.unsubscribe(dropped)
         # Tear down the depth stream once the last depth client is gone, so a
         # later quote-only subscription never gets a depth socket opened.
-        if self._feed is not None and not self.any_depth and self._feed.depth_enabled:
+        if self._feed is not None and not any_depth and self._feed.depth_enabled:
             self._feed.stop_depth()
 
 

@@ -91,6 +91,7 @@ def run_walk_forward(
     test_window: int = 63,
     step_size: int | None = None,
     score_fn: Callable[[BacktestResult], float] | None = None,
+    purge_bars: int = 0,
 ) -> WalkForwardReport:
     """Run walk-forward analysis over index-based windows.
 
@@ -110,6 +111,9 @@ def run_walk_forward(
         Step size between windows. Defaults to test_window.
     score_fn : Callable | None
         Scoring function. Defaults to total_return.
+    purge_bars : int
+        Bars to skip at the start of each OOS test window (warmup/overlap
+        purge). 0 = no purge (compat default).
 
     Returns
     -------
@@ -131,9 +135,14 @@ def run_walk_forward(
     step_idx = 0
     start = 0
 
+    # ponytail: carry warmup by seeding strategy._closes from train tail  # noqa: E501
+    # when test_window < slow_period — add when test_window < 50  # noqa: E501
     while start + train_window + test_window <= len(data):
         train_end = start + train_window
         test_end = min(train_end + test_window, len(data))
+        _test_data = data[train_end:test_end]
+        if purge_bars:
+            _test_data = _test_data[purge_bars:]
         steps.append(_evaluate_step(
             step_index=step_idx,
             train_start=start,
@@ -141,7 +150,7 @@ def run_walk_forward(
             test_start=train_end,
             test_end=test_end,
             train_data=data[start:train_end],
-            test_data=data[train_end:test_end],
+            test_data=_test_data,
             run_fn=run_fn,
             optimize_fn=optimize_fn,
             score_fn=score_fn,
@@ -168,6 +177,7 @@ def run_walk_forward_by_date(
     train_days: int = 30,
     test_days: int = 15,
     score_fn: Callable[[BacktestResult], float] | None = None,
+    purge_bars: int = 0,
 ) -> WalkForwardReport:
     """Run walk-forward analysis over calendar-date windows.
 
@@ -190,6 +200,9 @@ def run_walk_forward_by_date(
         Testing window length in calendar days.
     score_fn : Callable | None
         Scoring function. Defaults to total_return.
+    purge_bars : int
+        Bars to skip at the start of each OOS test window (warmup purge).
+        0 = no purge (compat default).
 
     Returns
     -------
@@ -218,9 +231,14 @@ def run_walk_forward_by_date(
     steps: list[WalkForwardStep] = []
     step_idx = 0
     start = 0
+    # ponytail: carry warmup by seeding strategy._closes from train tail  # noqa: E501
+    # when test_window < slow_period — add when test_window < 50  # noqa: E501
     while start + train_days + test_days <= len(dates):
         train_dates = dates[start:start + train_days]
         test_dates = dates[start + train_days:start + train_days + test_days]
+        _test_data = [c for d in test_dates for c in by_date[d]]
+        if purge_bars:
+            _test_data = _test_data[purge_bars:]
         steps.append(_evaluate_step(
             step_index=step_idx,
             train_start=start,
@@ -228,7 +246,7 @@ def run_walk_forward_by_date(
             test_start=start + train_days,
             test_end=start + train_days + test_days,
             train_data=[c for d in train_dates for c in by_date[d]],
-            test_data=[c for d in test_dates for c in by_date[d]],
+            test_data=_test_data,
             run_fn=run_fn,
             optimize_fn=optimize_fn,
             score_fn=score_fn,

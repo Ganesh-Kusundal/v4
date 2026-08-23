@@ -279,6 +279,10 @@ class BacktestEngine:
         # returns signals keeps its orders flowing through the engine exactly
         # as before (no double-counting), while a recording-only strategy's
         # signals still reach the unified pipeline and produce fills.
+        # M3 — Fill timing: recording-only bridge fills at this bar's close
+        # (legacy sequential match); returning signals fill at the *next* bar's
+        # open via ReactiveStrategyEngine. Recording vs returning therefore
+        # determines fill timing — callers must not mix both for one signal.
         claimed_signal_ids: set[int] = set()
         bridged_signal_ids: set[int] = set()
         bridge_seq = 0
@@ -509,6 +513,9 @@ class BacktestEngine:
         ``qty * close`` (positive), short positions contribute
         ``qty * close`` (negative, since qty is negative) — so the MTM
         correctly reflects the mark-to-market P&L of short holdings.
+
+        Instruments without candles contribute 0 MTM (intentional — no mark
+        available); such positions are held at cost until a candle arrives.
         """
         mtm = Decimal("0")
         for inst_id, pos in positions.items():

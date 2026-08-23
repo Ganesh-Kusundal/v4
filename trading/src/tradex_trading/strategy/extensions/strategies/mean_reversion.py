@@ -22,6 +22,10 @@ class MeanReversionStrategy:
     ``BUY`` when it crosses below *oversold* (default 30). Signals are
     emitted only on *transitions into* a zone, not every bar, so a
     sustained extreme does not spam orders.
+
+    Note: long-only gate is caller responsibility (allow_short flag) — this
+    reference strategy emits SELL on overbought; callers must filter when
+    short selling is disallowed.
     """
 
     def __init__(

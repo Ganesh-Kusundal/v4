@@ -89,3 +89,23 @@ class TestCorporateActionFrozen:
         action = CorporateAction("NSE_TCS", "DIVIDEND", "2024-06-01")
         with pytest.raises(AttributeError):
             action.instrument = "NSE_REL"  # type: ignore[misc]
+
+
+class TestAdjustSeriesBonus:
+    def test_adjust_series_bonus(self):
+        store = CorporateActionStore()
+        store.add_typed(CorporateAction("NSE_REL", "BONUS", "2024-06-01", ratio=2.0))
+        candles = [MockCandle(100.0, 110.0, 90.0, 105.0)]
+        adjusted = store.adjust_series(candles, "NSE_REL")
+        assert adjusted[0]["open"] == pytest.approx(50.0)
+        assert adjusted[0]["close"] == pytest.approx(52.5)
+
+    def test_adjust_series_split_and_bonus(self):
+        store = CorporateActionStore()
+        store.add_typed(CorporateAction("NSE_REL", "SPLIT", "2024-03-01", ratio=2.0))
+        store.add_typed(CorporateAction("NSE_REL", "BONUS", "2024-09-01", ratio=2.0))
+        # cumulative = 4.0
+        candles = [MockCandle(100.0, 110.0, 90.0, 105.0)]
+        adjusted = store.adjust_series(candles, "NSE_REL")
+        assert adjusted[0]["open"] == pytest.approx(25.0)
+        assert adjusted[0]["close"] == pytest.approx(26.25)

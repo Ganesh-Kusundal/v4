@@ -14,7 +14,12 @@ from tradex_domain.strategy import StrategyContext
 
 
 class SmaCrossStrategy:
-    """BUY on fast-SMA crossing above slow-SMA; SELL on the reverse cross."""
+    """BUY on fast-SMA crossing above slow-SMA; SELL on the reverse cross.
+
+    Note: long-only gate is caller responsibility (allow_short flag) — this
+    reference strategy emits both BUY and SELL; callers must filter SELL
+    when short selling is disallowed.
+    """
 
     def __init__(
         self,

@@ -568,3 +568,43 @@ class TestStaleFeed:
         from tradex_domain.events import StaleFeed as DomainStale
 
         assert MFStale is DomainStale
+
+
+class TestFeedRegistryThreadSafe:
+    def test_feed_registry_thread_safe(self) -> None:
+        import threading
+
+        fake = _FakeBroker(has_depth_30=True)
+        bus = ReactiveBus()
+        feed = MarketFeed(broker=fake, bus=bus)
+        reg = FeedRegistry(feed)
+        # concurrent subscribes must not lose counts — requires lock
+        assert hasattr(reg, "_lock")
+        n_threads = 10
+        n_iter = 100
+
+        def worker() -> None:
+            for _ in range(n_iter):
+                reg.subscribe([_reliance()])
+
+        threads = [threading.Thread(target=worker) for _ in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert reg._counts[_reliance().instrument_id] == n_threads * n_iter
+
+    def test_market_feed_atomic_subscribe_no_phantom_on_failure(self) -> None:
+        class FailingBroker(_FakeBroker):
+            def subscribe_quotes(self, instruments, handler):  # type: ignore[override]
+                raise RuntimeError("wire fail")
+
+        fake = FailingBroker()
+        bus = ReactiveBus()
+        feed = MarketFeed(broker=fake, bus=bus)
+        try:
+            feed.subscribe([_reliance()])
+        except RuntimeError:
+            pass
+        assert feed.instruments == frozenset()
+        assert feed.active is False

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -77,6 +78,8 @@ class TradeBookFillIdResolver:
         self._trade_id_key = trade_id_key
         self._given: dict[str, set[str]] = {}
         self._lock = threading.Lock()
+        self._last_fetch_time: float = 0.0
+        self._last_rows: list[dict] = []
 
     def next_trade_id(self, order_id: str) -> str | None:
         """Next unused trade id for *order_id*, or ``None`` when the trade
@@ -89,10 +92,16 @@ class TradeBookFillIdResolver:
         """
         with self._lock:
             given = self._given.setdefault(order_id, set())
-            try:
-                rows = self._trade_book()
-            except Exception:  # noqa: BLE001 – network hiccup: degrade to composite fingerprint
-                return None
+            now = time.monotonic()
+            if now - self._last_fetch_time < 2.0 and self._last_rows:
+                rows = self._last_rows
+            else:
+                try:
+                    rows = self._trade_book()
+                except Exception:  # noqa: BLE001 – network hiccup: degrade to composite fingerprint
+                    return None
+                self._last_rows = rows
+                self._last_fetch_time = now
             for row in rows:
                 oid = row.get(self._order_id_key)
                 tid = row.get(self._trade_id_key)

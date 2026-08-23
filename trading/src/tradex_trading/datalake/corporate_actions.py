@@ -91,12 +91,12 @@ class CorporateActionStore:
         return results
 
     def adjust_series(self, candles: list[Any], symbol: str) -> list[dict[str, Any]]:
-        """Return new candle-like dicts with prices adjusted for cumulative splits.
+        """Return new candle-like dicts with prices adjusted for cumulative splits/bonus.
 
-        Looks up all SPLIT typed actions for *symbol* and computes the cumulative
-        adjustment ratio.  Each candle's OHLC values are divided by that ratio.
+        Looks up all SPLIT and BONUS typed actions for *symbol* and computes the
+        cumulative adjustment ratio.  Each candle's OHLC values are divided by that ratio.
         """
-        splits = self.get_typed(symbol, action_type="SPLIT")
+        splits = self.get_typed(symbol, "SPLIT") + self.get_typed(symbol, "BONUS")
         if not splits:
             return [
                 {

@@ -28,6 +28,10 @@ class MultiSymbolSmaCross:
     Maintains per-instrument close histories and emits a BUY/SELL signal per
     instrument when its fast SMA crosses its slow SMA. Instruments that never
     produce a cross emit nothing — the engine simply sees no signal for them.
+
+    Note: long-only gate is caller responsibility (allow_short flag) — this
+    reference strategy emits both BUY and SELL; callers must filter SELL
+    when short selling is disallowed.
     """
 
     def __init__(
