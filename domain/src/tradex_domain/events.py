@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from tradex_domain.execution import Fill, Order, OrderRequest
+from tradex_domain.instruments import Instrument
 from tradex_domain.market import Candle
 from tradex_domain.value_objects import CorrelationId
 
@@ -70,6 +71,13 @@ class PlaceOrderCommand(DomainEvent):
     request: OrderRequest
 
 
+@dataclass(frozen=True, slots=True)
+class StaleFeed:
+    instrument: Instrument
+    age_seconds: float
+    last_timestamp: datetime | None
+
+
 __all__ = [
     "CandleReceived",
     "DomainEvent",
@@ -80,4 +88,5 @@ __all__ = [
     "OrderPlaced",
     "OrderRejected",
     "PlaceOrderCommand",
+    "StaleFeed",
 ]

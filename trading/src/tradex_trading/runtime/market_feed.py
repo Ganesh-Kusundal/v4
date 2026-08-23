@@ -42,8 +42,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
+from tradex_domain.events import StaleFeed
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote, require_depth_supported
 from tradex_domain.value_objects import InstrumentId
@@ -81,7 +83,9 @@ class MarketFeed:
     client can inspect. Level choice is bounded by broker capability.
     """
 
-    def __init__(self, broker: Any, bus: Any, capabilities: Any | None = None) -> None:
+    def __init__(
+        self, broker: Any, bus: Any, capabilities: Any | None = None, stale_after: float = 30.0
+    ) -> None:
         self._broker = broker
         self._bus = bus
         self._instruments: dict[InstrumentId, Instrument] = {}
@@ -90,6 +94,8 @@ class MarketFeed:
         self._depth_sub: object | None = None
         self._depth_fn: Any | None = None
         self._depth_on = False
+        self._last_tick: dict[InstrumentId, datetime] = {}
+        self._stale_after = float(stale_after)
         # Streaming capability surface: the broker's declared depth level and
         # per-connection instrument cap. Only a real BrokerCapabilities table
         # is trusted (duck-typed fakes/mocks expose none); backends are still
@@ -280,10 +286,26 @@ class MarketFeed:
     def _on_quote(self, quote: Quote) -> None:
         if quote.instrument.instrument_id in self._instruments:
             self._bus.publish(quote)
+            self._last_tick[quote.instrument.instrument_id] = datetime.now(UTC)
 
     def _on_depth(self, depth: Depth) -> None:
         if depth.instrument.instrument_id in self._instruments:
             self._bus.publish(depth)
+
+    def check_stale(self) -> list[StaleFeed]:
+        """Emit StaleFeed for instruments with no tick for longer than stale_after."""
+        now = datetime.now(UTC)
+        stale: list[StaleFeed] = []
+        for iid, last in list(self._last_tick.items()):
+            inst = self._instruments.get(iid)
+            if inst is None:
+                continue
+            age = (now - last).total_seconds()
+            if age > self._stale_after:
+                evt = StaleFeed(instrument=inst, age_seconds=age, last_timestamp=last)
+                stale.append(evt)
+                self._bus.publish(evt)
+        return stale
 
 
 class FeedRegistry:
@@ -395,4 +417,4 @@ class FeedRegistry:
             self._feed.stop_depth()
 
 
-__all__ = ["FeedRegistry", "MarketFeed", "normalize_depth"]
+__all__ = ["FeedRegistry", "MarketFeed", "StaleFeed", "normalize_depth"]

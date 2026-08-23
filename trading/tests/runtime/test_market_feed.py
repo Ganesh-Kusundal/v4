@@ -523,3 +523,48 @@ class TestFeedRegistry:
         reg, feed, fake, _ = self._make_registry()
         reg.release()
         assert reg.connection_count == 0
+
+
+class TestStaleFeed:
+    def test_stale_feed_emitted_when_no_ticks(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from tradex_domain.events import StaleFeed
+
+        fake = _FakeBroker()
+        bus = ReactiveBus()
+        feed = MarketFeed(broker=fake, bus=bus, stale_after=0.1)
+        feed.subscribe([_reliance()])
+        received: list[StaleFeed] = []
+        bus.of_type(StaleFeed).subscribe(received.append)
+        fake.emit_quote(_quote(_reliance()))
+        # Make last tick appear stale
+        iid = _reliance().instrument_id
+        feed._last_tick[iid] = datetime.now(UTC) - timedelta(seconds=1)
+        stale = feed.check_stale()
+        assert len(stale) == 1
+        assert len(received) == 1
+        assert received[0].instrument == _reliance()
+        assert received[0].age_seconds > 0.1
+        assert received[0].last_timestamp is not None
+
+    def test_stale_feed_not_emitted_when_fresh(self) -> None:
+        from tradex_domain.events import StaleFeed
+
+        fake = _FakeBroker()
+        bus = ReactiveBus()
+        feed = MarketFeed(broker=fake, bus=bus, stale_after=30.0)
+        feed.subscribe([_reliance()])
+        received: list[StaleFeed] = []
+        bus.of_type(StaleFeed).subscribe(received.append)
+        fake.emit_quote(_quote(_reliance()))
+        stale = feed.check_stale()
+        assert stale == []
+        assert received == []
+
+    def test_stale_feed_importable_from_runtime(self) -> None:
+        from tradex_trading.runtime.market_feed import StaleFeed as MFStale
+
+        from tradex_domain.events import StaleFeed as DomainStale
+
+        assert MFStale is DomainStale
