@@ -8,7 +8,7 @@ from decimal import Decimal
 from typing import Any
 
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
-from tradex_domain.enums import OrderStatus, OrderType
+from tradex_domain.enums import OrderStatus, OrderType, Timeframe
 from tradex_domain.events import OrderFilled, PlaceOrderCommand
 from tradex_domain.execution import OrderRequest
 from tradex_domain.utils import q2
@@ -111,6 +111,7 @@ class BacktestEngine:
         corporate_actions: CorporateActionStore | None = None,
         risk_manager: Any | None = None,
         initial_capital: Decimal | float | str = Decimal("100000"),
+        sharpe_frequency: str = "1m",
     ) -> None:
         """Initialize backtest engine.
 
@@ -158,6 +159,7 @@ class BacktestEngine:
         self._corporate_actions = corporate_actions
         self._risk_manager = risk_manager
         self._initial_capital = Decimal(str(initial_capital))
+        self._sharpe_frequency = sharpe_frequency
 
     def submit(self, request: Any) -> Any:
         """Route a strategy order through the backtest engine.
@@ -398,9 +400,32 @@ class BacktestEngine:
             prev = equity_curve[i - 1]
             returns.append((equity_curve[i] - prev) / prev if prev != 0.0 else 0.0)
 
+        # C3: infer Sharpe frequency from candle timeframe when default "1m" is left on D1 data
+        frequency = self._sharpe_frequency
+        if frequency == "1m" and data:
+            try:
+                first = data[0]
+                if hasattr(first, "timeframe"):
+                    tf = getattr(first, "timeframe", None)
+                    if tf is not None:
+                        mapping = {
+                            Timeframe.D1: "daily",
+                            Timeframe.M1: "1m",
+                            Timeframe.M5: "5m",
+                            Timeframe.M15: "15m",
+                            Timeframe.H1: "hour",
+                            Timeframe.M30: "30m",
+                            Timeframe.W1: "weekly",
+                        }
+                        inferred = mapping.get(tf)  # type: ignore[arg-type]
+                        if inferred is not None and inferred != "1m":
+                            frequency = inferred
+            except Exception:
+                pass
+
         return BacktestResult(
             total_return=total_return(equity_curve),
-            sharpe=sharpe_ratio(returns),
+            sharpe=sharpe_ratio(returns, frequency=frequency),
             max_drawdown=max_drawdown(equity_curve),
             num_trades=num_trades,
             trades=signals,
