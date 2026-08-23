@@ -338,6 +338,7 @@ class ExecutionEngine:
         self._position_manager = PositionManager(self._cache)
         self._kill_switch = threading.Event()
         self._reconciler = ReconciliationEngine()
+        self._brokerage_accrued: dict[str, Decimal] = {}
         #: Fingerprints of OrderFilled events already applied to the OMS
         #: (order_id + side + qty + price) — re-published broker fills are
         #: skipped, distinct partial fills are each applied in full.
@@ -561,10 +562,51 @@ class ExecutionEngine:
         enabled. No-op when no fee calculator is bound or no position exists.
         Failures propagate loudly — a silently-swallowed fee bug is exactly
         the accounting divergence the parity work exists to prevent.
+
+        Brokerage ₹20 per-order cap is enforced across partial fills:
+        each fill's brokerage is capped to the remaining headroom
+        ``20 - accrued`` so an order with two 5-lot fills at 10k pays
+        15 + 5 = 20, not 15 + 15 = 30 (H2).
         """
         if self._fee_calculator is None:
             return
-        fee = self._fee_calculator.calculate(fill)
+        from tradex_domain.utils import q2
+        from tradex_domain.value_objects import Money
+
+        from tradex_trading.execution.fees import (
+            _BROKERAGE_CAP,
+            _GST_RATE,
+            FeeCalculator,
+        )
+
+        # Canonical breakdown to isolate the per-fill brokerage.
+        breakdown = FeeCalculator.equity_intraday(
+            side=fill.side, price=fill.price.value, quantity=fill.quantity.value
+        )
+        calculated = breakdown.broker_fee
+        oid = fill.order_id.value if hasattr(fill.order_id, "value") else str(fill.order_id)
+        accrued = self._brokerage_accrued.get(oid, Decimal("0"))
+        remaining = _BROKERAGE_CAP - accrued
+        if remaining < Decimal("0"):
+            remaining = Decimal("0")
+        capped = min(calculated, remaining)
+        self._brokerage_accrued[oid] = accrued + capped
+        if capped < calculated:
+            # Recompute GST on the capped brokerage so total stays consistent.
+            gst_new = q2(
+                (capped + breakdown.exchange_fee + breakdown.sebi_fee) * _GST_RATE
+            )
+            total = (
+                capped
+                + breakdown.exchange_fee
+                + breakdown.stt
+                + breakdown.sebi_fee
+                + breakdown.stamp_duty
+                + gst_new
+            )
+            fee = Money(amount=q2(total))
+        else:
+            fee = self._fee_calculator.calculate(fill)
         if fee.amount > 0:
             self._position_manager.on_fee(fill, fee)
 
