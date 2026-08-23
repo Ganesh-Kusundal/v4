@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from decimal import Decimal
 
 from tradex_domain.execution import Fill, Position
@@ -10,10 +11,10 @@ from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import Money
 
 from tradex_trading.execution.position_math import (
-    q2,
     apply_dividend,
     apply_fill,
     apply_split,
+    q2,
 )
 from tradex_trading.execution.reconciliation import DriftItem, ReconciliationEngine
 from tradex_trading.execution.trading_cache import TradingCache
@@ -32,6 +33,15 @@ class PositionManager:
     def __init__(self, cache: TradingCache) -> None:
         self._cache = cache
         self._reconciler = ReconciliationEngine()
+        # ponytail: per-instrument locks, single global if throughput never matters
+        self._instrument_locks: dict[str, threading.RLock] = {}
+        self._locks_guard = threading.Lock()
+
+    def _instrument_lock(self, key: str) -> threading.RLock:
+        with self._locks_guard:
+            if key not in self._instrument_locks:
+                self._instrument_locks[key] = threading.RLock()
+            return self._instrument_locks[key]
 
     def on_fill(self, fill: Fill) -> Position:
         """Update position based on fill. Returns updated position.
@@ -42,9 +52,10 @@ class PositionManager:
         """
         instrument = fill.instrument
         symbol = instrument.symbol
-        existing = self._cache.get_position(instrument)
-        pos = apply_fill(existing, fill)
-        self._cache.update_position(pos)
+        with self._instrument_lock(str(fill.instrument.instrument_id)):
+            existing = self._cache.get_position(instrument)
+            pos = apply_fill(existing, fill)
+            self._cache.update_position(pos)
         log.info(
             "Position updated: %s qty=%s avg=%s",
             symbol, pos.quantity.value, pos.avg_price.value,
@@ -59,17 +70,18 @@ class PositionManager:
         net cash accounting (parity review HIGH-6b). Paisa-quantized like
         the shared accounting model.
         """
-        existing = self._cache.get_position(fill.instrument)
-        if existing is None:
-            return None
-        pos = Position(
-            instrument=existing.instrument,
-            quantity=existing.quantity,
-            avg_price=existing.avg_price,
-            realized_pnl=Money(amount=q2(existing.realized_pnl.amount - fee.amount)),
-            unrealized_pnl=existing.unrealized_pnl,
-        )
-        self._cache.update_position(pos)
+        with self._instrument_lock(str(fill.instrument.instrument_id)):
+            existing = self._cache.get_position(fill.instrument)
+            if existing is None:
+                return None
+            pos = Position(
+                instrument=existing.instrument,
+                quantity=existing.quantity,
+                avg_price=existing.avg_price,
+                realized_pnl=Money(amount=q2(existing.realized_pnl.amount - fee.amount)),
+                unrealized_pnl=existing.unrealized_pnl,
+            )
+            self._cache.update_position(pos)
         log.info(
             "Fees %s deducted from %s realized PnL",
             fee.amount, fill.instrument.symbol,
@@ -92,21 +104,22 @@ class PositionManager:
         identically (parity review area #4). No-op when the position is not
         open. Returns the updated position or ``None`` when nothing was open.
         """
-        existing = self._cache.get_position(instrument)
-        if existing is None:
-            return None
-        kind = action_type.upper()
-        if kind in ("SPLIT", "BONUS"):
-            if ratio is None:
-                raise ValueError(f"{kind} requires a ratio")
-            pos = apply_split(existing, Decimal(str(ratio)))
-        elif kind == "DIVIDEND":
-            if per_share is None:
-                raise ValueError("DIVIDEND requires per_share")
-            pos = apply_dividend(existing, Decimal(str(per_share)))
-        else:
-            raise ValueError(f"unsupported corporate action type: {action_type}")
-        self._cache.update_position(pos)
+        with self._instrument_lock(str(instrument.instrument_id)):
+            existing = self._cache.get_position(instrument)
+            if existing is None:
+                return None
+            kind = action_type.upper()
+            if kind in ("SPLIT", "BONUS"):
+                if ratio is None:
+                    raise ValueError(f"{kind} requires a ratio")
+                pos = apply_split(existing, Decimal(str(ratio)))
+            elif kind == "DIVIDEND":
+                if per_share is None:
+                    raise ValueError("DIVIDEND requires per_share")
+                pos = apply_dividend(existing, Decimal(str(per_share)))
+            else:
+                raise ValueError(f"unsupported corporate action type: {action_type}")
+            self._cache.update_position(pos)
         log.info(
             "%s applied to %s (qty=%s avg=%s)",
             kind, instrument.symbol, pos.quantity.value, pos.avg_price.value,

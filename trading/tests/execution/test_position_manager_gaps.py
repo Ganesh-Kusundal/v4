@@ -71,3 +71,49 @@ def test_on_fill_zero_quantity_edge_case() -> None:
     assert pos.quantity.value == Decimal("0")
     # Realized PnL should reflect the round-trip profit
     assert pos.realized_pnl.amount != Decimal("0")
+
+
+def test_concurrent_same_instrument_fills_atomic() -> None:
+    """H4: concurrent on_fill for same instrument must be atomic (no lost update)."""
+    import threading
+
+    cache = TradingCache()
+    pm = PositionManager(cache)
+    instrument = Equity.of("NSE", "RELIANCE")
+
+    def _fill() -> Fill:
+        return Fill(
+            order_id=OrderId(value="oid-conc"),
+            instrument=instrument,
+            side=OrderSide.BUY,
+            quantity=Quantity(value=Decimal("5")),
+            price=Price(value=Decimal("100")),
+            timestamp=datetime.now(UTC),
+        )
+
+    barrier = threading.Barrier(2)
+
+    def worker() -> None:
+        barrier.wait(timeout=5)
+        pm.on_fill(_fill())
+
+    t1 = threading.Thread(target=worker)
+    t2 = threading.Thread(target=worker)
+    t1.start()
+    t2.start()
+    t1.join(timeout=5)
+    t2.join(timeout=5)
+    assert not t1.is_alive() and not t2.is_alive(), "threads hung"
+
+    pos = pm.get_position(instrument)
+    assert pos is not None
+    assert pos.quantity.value == Decimal("10"), f"lost update: qty={pos.quantity.value}"
+
+    # ponytail: assert lock infrastructure exists (deterministic even if race not triggered)
+    assert hasattr(pm, "_instrument_locks")
+    assert hasattr(pm, "_locks_guard")
+    assert hasattr(pm, "_instrument_lock")
+    assert callable(pm._instrument_lock)
+    key = str(instrument.instrument_id)
+    lock = pm._instrument_lock(key)
+    assert lock is pm._instrument_lock(key)
