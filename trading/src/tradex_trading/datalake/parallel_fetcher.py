@@ -5,8 +5,9 @@ Routes by date range:
   >= 30 days → Dhan only (90-day chunks = fewer API calls; Upstox caps
   minute intervals at 1 month, so it cannot cover multi-month minute ranges)
 
-Dhan intraday minute ranges (> 90 days) fail loud instead of silently
-truncating, since the fetcher does not chunk across the 90-day per-poll cap.
+Long intraday minute ranges are auto-chunked into consecutive windows
+(Dhan caps one poll at 90 days, Upstox at 30) and stitched on return,
+so callers never need to split ranges themselves.
 
 The fetcher throttles through a per-broker historical rate-limit bucket
 (5/s for Dhan, 50/s for Upstox) so fan-out never exceeds the serving broker's
@@ -38,7 +39,6 @@ from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.timeframe import DHAN_INTRADAY as _DHAN_INTRADAY_TIMEFRAMES
-from tradex_domain.timeframe import UPSTOX_MINUTE as _UPSTOX_MINUTE_TIMEFRAMES
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +59,9 @@ _DHAN_INTRADAY_MAX_DAYS = 90
 _UPSTOX_INTRADAY_MAX_DAYS = 30
 
 
-def _date_windows(start: datetime, end: datetime, *, max_days: int) -> list[tuple[datetime, datetime]]:
+def _date_windows(
+    start: datetime, end: datetime, *, max_days: int,
+) -> list[tuple[datetime, datetime]]:
     """Split [start, end] into consecutive windows of at most max_days."""
     if max_days <= 0:
         return [(start, end)]
@@ -174,8 +176,9 @@ class ParallelHistoryFetcher:
           - date range < 30 days → split instruments across all brokers
           - date range >= 30 days → Dhan only (fewer API calls via 90-day chunks)
 
-        A Dhan-only intraday range longer than 90 days raises ``SDKError``
-        instead of silently returning truncated data (see ``_pick_brokers``).
+        Intraday minute ranges longer than the serving broker's per-poll cap
+        (Dhan 90d, Upstox 30d) are auto-chunked into consecutive windows and
+        stitched — no truncation, no raise (see ``_chunk_cap_for``).
         """
         if not instruments:
             return {}
@@ -190,7 +193,10 @@ class ParallelHistoryFetcher:
         cap = _chunk_cap_for(timeframe, broker_names)
         needs_chunk = cap is not None and days > cap
         if needs_chunk:
-            log.info("ParallelHistoryFetcher: auto-chunking %d-day %s into %d-day windows", days, timeframe, cap)
+            log.info(
+                "ParallelHistoryFetcher: auto-chunking %d-day %s into %d-day windows",
+                days, timeframe, cap,
+            )
         log.info("ParallelHistoryFetcher: %d instruments, %d days, brokers=%s",
                  len(instruments), days, broker_names)
 
@@ -211,12 +217,16 @@ class ParallelHistoryFetcher:
         #: broker-wide outage costs ~M + N calls instead of N x M.
         failed_brokers: set[str] = set()
 
-        def _call_history(broker: Any, inst: Instrument, *, s: datetime, e: datetime) -> HistoricalSeries | None:
+        def _call_history(
+            broker: Any, inst: Instrument, *, s: datetime, e: datetime,
+        ) -> HistoricalSeries | None:
             """One broker.history call with the right cap-window shape."""
             # Broker adapters accept (instrument, timeframe, start, end) positional
             return broker.history(inst, timeframe, s, e)
 
-        def _fetch_one_chunked(broker_name: str, broker: Any, inst: Instrument) -> HistoricalSeries | None:
+        def _fetch_one_chunked(
+            broker_name: str, broker: Any, inst: Instrument,
+        ) -> HistoricalSeries | None:
             """Fetch all windows for one instrument, stitch or fail over as a whole."""
             assert cap is not None
             windows = _date_windows(start, end, max_days=cap)
@@ -225,7 +235,10 @@ class ParallelHistoryFetcher:
                 # Rate-limit per window call (was per-instrument before)
                 limiter = self._limiters[broker_name]
                 if not limiter.acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
-                    log.warning("rate-limit gate timed out for %s via %s — proceeding anyway", inst.instrument_id, broker_name)
+                    log.warning(
+                        "rate-limit gate timed out for %s via %s — proceeding anyway",
+                        inst.instrument_id, broker_name,
+                    )
                 part = _call_history(broker, inst, s=ws, e=we)
                 if part is not None and part.candles:
                     stitched.extend(part.candles)
@@ -240,7 +253,9 @@ class ParallelHistoryFetcher:
                         deduped.append(c)
                 # Build a stitched series (start/end are the original request window)
                 tf = Timeframe(timeframe) if isinstance(timeframe, str) else timeframe  # type: ignore[arg-type]
-                return HistoricalSeries(instrument=inst, timeframe=tf, candles=deduped, start=start, end=end)
+                return HistoricalSeries(
+                    instrument=inst, timeframe=tf, candles=deduped, start=start, end=end,
+                )
             return None
 
         def _fetch_one(broker_name: str, broker: Any, inst: Instrument) -> None:
@@ -255,7 +270,9 @@ class ParallelHistoryFetcher:
                         return
                     # Empty stitched result -> let failover try (if any), else record error below
                     # Fall through to failover loop without marking broker as failed yet
-                    raise RuntimeError(f"{broker_name}: empty stitched series for {inst.instrument_id}")
+                    raise RuntimeError(
+                        f"{broker_name}: empty stitched series for {inst.instrument_id}"
+                    )
                 if not limiter.acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
                     log.warning(
                         "ParallelHistoryFetcher: rate-limit gate timed out for "
@@ -281,12 +298,21 @@ class ParallelHistoryFetcher:
                 try:
                     if needs_chunk:
                         # Failover also chunked with the other broker's limiter
-                        other_cap = _chunk_cap_for(timeframe, [other_name]) or _UPSTOX_INTRADAY_MAX_DAYS
+                        other_cap = (
+                            _chunk_cap_for(timeframe, [other_name])
+                            or _UPSTOX_INTRADAY_MAX_DAYS
+                        )
                         windows = _date_windows(start, end, max_days=other_cap)
                         stitched2: list = []
                         for ws, we in windows:
-                            if not self._limiters[other_name].acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
-                                log.warning("rate-limit gate timed out for %s via %s — proceeding anyway", inst.instrument_id, other_name)
+                            if not self._limiters[other_name].acquire(
+                                "historical", timeout=ACQUIRE_TIMEOUT_S,
+                            ):
+                                log.warning(
+                                    "rate-limit gate timed out for %s via %s"
+                                    " — proceeding anyway",
+                                    inst.instrument_id, other_name,
+                                )
                             part2 = _call_history(other_broker, inst, s=ws, e=we)
                             if part2 is not None and part2.candles:
                                 stitched2.extend(part2.candles)
@@ -298,12 +324,20 @@ class ParallelHistoryFetcher:
                                     seen2.add(c.timestamp)
                                     deduped2.append(c)
                             tf2 = Timeframe(timeframe) if isinstance(timeframe, str) else timeframe  # type: ignore[arg-type]
-                            series = HistoricalSeries(instrument=inst, timeframe=tf2, candles=deduped2, start=start, end=end)
+                            series = HistoricalSeries(
+                                instrument=inst, timeframe=tf2,
+                                candles=deduped2, start=start, end=end,
+                            )
                             with lock:
                                 results[str(inst.instrument_id)] = series
                             return
-                        raise RuntimeError(f"{other_name}: empty stitched failover for {inst.instrument_id}")
-                    if not self._limiters[other_name].acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
+                        raise RuntimeError(
+                            f"{other_name}: empty stitched failover"
+                            f" for {inst.instrument_id}"
+                        )
+                    if not self._limiters[other_name].acquire(
+                        "historical", timeout=ACQUIRE_TIMEOUT_S
+                    ):
                         log.warning(
                             "ParallelHistoryFetcher: rate-limit gate timed out for "
                             "%s via %s — proceeding anyway",
@@ -344,11 +378,10 @@ class ParallelHistoryFetcher:
 
         Upstox V3 `/historical-candle` caps retrieval at ONE MONTH for
         1-15-minute intervals (1 quarter for >15-min minutes and hours,
-        1 decade for daily) — so for the M1 datalake backfill Upstox cannot
-        serve a multi-month range without truncation. Dhan's `/charts/intraday`
-        polls up to 90 days per request, making it the only broker that covers
-        >= 30-day minute ranges. Long Dhan-only minute ranges (> 90 days) raise
-        in ``fetch()`` (the fetcher does not chunk); daily+ timeframes use Dhan
+        1 decade for daily) — so for the M1 datalake backfill Dhan is
+        preferred: its `/charts/intraday` polls up to 90 days per request.
+        Ranges beyond the serving broker's cap are auto-chunked in
+        ``fetch()`` (``_date_windows``); daily+ timeframes use Dhan
         `/charts/historical` (unlimited) and are unaffected.
         """
         names = list(self._brokers.keys())
