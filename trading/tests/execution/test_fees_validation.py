@@ -62,6 +62,16 @@ def test_vwap_with_all_zero_quantities_raises() -> None:
         )
 
 
+def test_fee_gst_base_includes_sebi_canonical() -> None:
+    """Canonical GST includes SEBI in base; legacy excludes — pinned for H1."""
+    from tradex_domain.utils import q2
+
+    bd = FeeCalculator.equity_intraday(
+        side=OrderSide.BUY, price=Decimal("100"), quantity=Decimal("10")
+    )
+    assert bd.gst == q2((bd.broker_fee + bd.exchange_fee + bd.sebi_fee) * Decimal("0.18"))
+
+
 def test_valid_inputs_still_work() -> None:
     calc = FeeCalculator()
     fee = calc.calculate(_fill(price=100, qty=10))

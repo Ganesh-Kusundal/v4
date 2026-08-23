@@ -1,8 +1,15 @@
+# ruff: noqa: E501
 """Fee calculation and pricing services.
 
 Pure Decimal math, no I/O.  STT/brokerage/exchange/GST rates for the
 equity cash segment; all values quantized to 2 dp (paisa) with
 ROUND_HALF_UP.
+
+SEBI statutory ₹20/crore (0.0002%) — _SEBI_RATE canonical; constructor sebi_charge_pct is percent (0.0001 → 0.0001% = ₹10/crore, not statutory — clarified).
+
+Delivery STT pre-Oct-2024 sell-only; post-Oct-2024 both sides — current equity_delivery models conservative pre-reform.
+
+Stamp duty equity buy-side only — we charge both sides (conservative).
 """
 
 from __future__ import annotations
@@ -54,6 +61,8 @@ class FeeCalculator:
     """Calculates trading fees (STT, exchange charges, brokerage, etc.).
 
     Defaults are tuned for Indian equity intraday (zero-brokerage model).
+
+    SEBI statutory ₹20/crore (0.0002%) — _SEBI_RATE canonical; constructor sebi_charge_pct is percent (0.0001 → 0.0001% = ₹10/crore, not statutory — clarified).
     """
 
     def __init__(
@@ -123,9 +132,7 @@ class FeeCalculator:
     def _calculate_legacy(self, fill: Fill) -> Money:
         """Percentage-of-value fee path (custom rate overrides).
 
-        Structurally identical to the canonical model — STT on sells only,
-        GST on (brokerage + exchange) — so a custom-rate calculator and the
-        default calculator stay consistent for any rate set.
+        GST base differs: canonical (brokerage+exchange+sebi)*0.18, legacy (brokerage+exchange)*0.18 — flagged for removal. STT on sells only in both paths.
         """
         trade_value = fill.price.value * fill.quantity.value
 
