@@ -26,7 +26,12 @@ _LEGAL_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
     # NEW may reach PARTIALLY_FILLED directly: some venues/brokers report a
     # first partial fill before any explicit ack round-trip, and the OMS
     # applies such fills through the FSM rather than bypassing it.
-    OrderStatus.NEW: frozenset({OrderStatus.PENDING, OrderStatus.PARTIALLY_FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED}),
+    OrderStatus.NEW: frozenset({
+        OrderStatus.PENDING,
+        OrderStatus.PARTIALLY_FILLED,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+    }),
     OrderStatus.PENDING: frozenset({OrderStatus.ACK, OrderStatus.CANCELLED, OrderStatus.REJECTED}),
     OrderStatus.ACK: frozenset({
         OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED,
@@ -36,7 +41,7 @@ _LEGAL_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
         {OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED}
     ),
     OrderStatus.FILLED: frozenset(),
-    OrderStatus.CANCELLED: frozenset(),
+    OrderStatus.CANCELLED: frozenset({OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}),
     OrderStatus.REJECTED: frozenset(),
     OrderStatus.SUBMITTED: frozenset(
         {OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED, OrderStatus.CANCELLED}

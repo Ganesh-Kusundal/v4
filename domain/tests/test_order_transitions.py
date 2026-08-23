@@ -55,6 +55,8 @@ class TestLegalTransitions:
             (OrderStatus.SUBMITTED, OrderStatus.PARTIALLY_FILLED),
             (OrderStatus.SUBMITTED, OrderStatus.FILLED),
             (OrderStatus.SUBMITTED, OrderStatus.CANCELLED),
+            (OrderStatus.CANCELLED, OrderStatus.FILLED),
+            (OrderStatus.CANCELLED, OrderStatus.PARTIALLY_FILLED),
         ],
     )
     def test_legal_transition(self, from_status: OrderStatus, to_status: OrderStatus):
@@ -72,7 +74,6 @@ class TestIllegalTransitions:
             (OrderStatus.FILLED, OrderStatus.NEW),
             (OrderStatus.FILLED, OrderStatus.CANCELLED),
             (OrderStatus.CANCELLED, OrderStatus.NEW),
-            (OrderStatus.CANCELLED, OrderStatus.FILLED),
             (OrderStatus.REJECTED, OrderStatus.NEW),
             (OrderStatus.REJECTED, OrderStatus.ACK),
             (OrderStatus.UNKNOWN, OrderStatus.NEW),
@@ -90,10 +91,32 @@ class TestIllegalTransitions:
 class TestTerminalStates:
     @pytest.mark.parametrize(
         "terminal",
-        [OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.UNKNOWN],
+        [OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.UNKNOWN],
     )
     def test_terminal_state_has_no_outgoing(self, terminal: OrderStatus):
         order = _make_order(terminal)
         for target in OrderStatus:
+            with pytest.raises(SessionStateError):
+                order.transition_to(target)
+
+
+class TestCancelledFillAfterCancel:
+    """H3: fill-after-cancel race — venue fills a locally-cancelled order."""
+
+    def test_cancelled_can_be_filled_on_race(self):
+        order = _make_order(OrderStatus.CANCELLED)
+        filled = order.transition_to(OrderStatus.FILLED)
+        assert filled.status == OrderStatus.FILLED
+        # original unchanged (frozen)
+        assert order.status == OrderStatus.CANCELLED
+
+    def test_cancelled_can_be_partially_filled_on_race(self):
+        order = _make_order(OrderStatus.CANCELLED)
+        pf = order.transition_to(OrderStatus.PARTIALLY_FILLED)
+        assert pf.status == OrderStatus.PARTIALLY_FILLED
+
+    def test_cancelled_still_rejects_other_transitions(self):
+        order = _make_order(OrderStatus.CANCELLED)
+        for target in (OrderStatus.NEW, OrderStatus.PENDING, OrderStatus.ACK, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.SUBMITTED, OrderStatus.UNKNOWN):
             with pytest.raises(SessionStateError):
                 order.transition_to(target)
