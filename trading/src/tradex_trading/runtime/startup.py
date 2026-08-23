@@ -228,7 +228,57 @@ def boot(
         global _ACTIVE_WRITER_LOCK
         _ACTIVE_WRITER_LOCK = writer_lock
         atexit.register(writer_lock.release)  # stale-PID auto-clear covers crashes
+        try:
+            return _boot_tail(
+                cfg, bus, broker, wire_strategies, writer_lock,
+                fill_source=fill_source, metrics=metrics, guard=guard,
+                fee_calculator=fee_calculator, order_store=order_store,
+            )
+        except BaseException:
+            # Rollback: best-effort teardown so a failed live boot never
+            # leaves a connected transport or a stranded writer lockfile.
+            disconnect = getattr(broker, "disconnect", None)
+            if callable(disconnect):
+                try:
+                    disconnect()
+                except Exception:  # noqa: BLE001 — best-effort rollback
+                    log.warning(
+                        "broker disconnect during boot rollback failed",
+                        exc_info=True,
+                    )
+            try:
+                writer_lock.release()
+            except Exception:  # noqa: BLE001 — best-effort rollback
+                log.warning(
+                    "writer lock release during boot rollback failed",
+                    exc_info=True,
+                )
+            raise
 
+    # Non-live modes have no writer lock to protect — run the tail directly.
+    return _boot_tail(
+        cfg, bus, broker, wire_strategies, None,
+        fill_source=fill_source, metrics=metrics, guard=guard,
+        fee_calculator=fee_calculator, order_store=order_store,
+    )
+
+
+def _boot_tail(
+    cfg: AppConfig,
+    bus: ReactiveBus | ThreadSafeReactiveBus,
+    broker: Any,
+    wire_strategies: bool,
+    writer_lock: Any,
+    *,
+    fill_source: Any,
+    metrics: MetricsRegistry,
+    guard: Any,
+    fee_calculator: FeeCalculator | None,
+    order_store: Any,
+) -> TradingSession:
+    """Steps 5→end of :func:`boot`, extracted so the live path can be
+    rollback-wrapped. The body is the original ``boot()`` logic unchanged.
+    """
     # 5. Create risk manager
     risk_manager = RiskManager(
         max_order_value=cfg.risk.max_order_value,
@@ -314,6 +364,15 @@ def boot(
             except Exception as exc:  # noqa: BLE001 – degrade, don't fail boot
                 log.warning("live fill bridge unavailable at boot: %s", exc)
                 fill_bridge = None
+        else:
+            # Live mode with no order-stream backend: broker fills can never
+            # reach the OMS (no OrderFilled events) — the local book will
+            # silently diverge from the venue. Loud, but not fatal.
+            log.warning(
+                "LIVE MODE WITHOUT ORDER-STREAM BACKEND: broker order/fill "
+                "updates will NOT reach the OMS; local order state will "
+                "diverge from the venue until reconciliation runs."
+            )
 
     # 7c. Scanner engine — bind the market provider so the session's
     # ScannerService can run every auto-discovered extension scanner.
@@ -401,15 +460,44 @@ def boot(
             book = broker.get_orderbook()
         except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
             log.warning("startup order-book reconcile unavailable: %s", exc)
-        else:
-            drifts = engine.reconcile(broker_orders=book)
-            for row in book:
-                current = engine.cache.get_order(row.order_id.value)
-                if current is not None and current.status != row.status:
-                    engine.cache.update_order(row)
+            book = None
+        try:
+            broker_positions = broker.get_positions()
+        except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
+            log.warning("startup position reconcile unavailable: %s", exc)
+            broker_positions = None
+        if book is not None or broker_positions is not None:
+            drifts = engine.reconcile(
+                broker_orders=book, broker_positions=broker_positions,
+            )
+            if book is not None:
+                for row in book:
+                    current = engine.cache.get_order(row.order_id.value)
+                    if current is not None and current.status != row.status:
+                        engine.cache.update_order(row)
             if drifts:
                 for item in drifts:
                     log.warning("startup drift: %s", item)
+                critical = [
+                    d for d in drifts
+                    if str(getattr(d, "severity", "")).upper()
+                    in ("HIGH", "CRITICAL")
+                ]
+                if critical:
+                    log.critical(
+                        "Trading HALTED: %d unreconciled HIGH/CRITICAL drift "
+                        "item(s) between local book and broker at startup "
+                        "(e.g. %s). Trip kill switch to prevent trading on a "
+                        "diverged book.",
+                        len(critical),
+                        ", ".join(
+                            getattr(d, "key", "") or getattr(d, "symbol", "")
+                            for d in critical[:5]
+                        ),
+                    )
+                    engine.trip_kill_switch(
+                        reason="startup_reconciliation_drift"
+                    )
 
     if master_scheduler is not None:
         master_scheduler.start()

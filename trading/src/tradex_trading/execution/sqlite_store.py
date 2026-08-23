@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from pathlib import Path
 
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
@@ -187,54 +188,73 @@ class SQLiteIdempotencyGuard:
     def __init__(self, db_path: str | Path = ":memory:") -> None:
         self._conn = sqlite3.connect(
             str(db_path) if db_path != ":memory:" else ":memory:",
+            check_same_thread=False,
         )
+        # One writer lock: SQLite connections are not thread-safe for
+        # concurrent writes even with check_same_thread=False — the guard
+        # is called from both the reactive pipeline and API threads.
+        self._write_lock = threading.Lock()
         self._conn.execute(self._CREATE_TABLE)
         self._conn.commit()
 
     def check_and_reserve(
         self, correlation_id: CorrelationId,
     ) -> object | None:
-        """Reserve a correlation id.
+        """Reserve a correlation id atomically.
 
         Returns ``None`` when *new*, or an ``IdempotencyDuplicate``-compatible
-        object when already completed.
+        object when already completed. The INSERT is attempted first and
+        relies on the PRIMARY KEY constraint — a concurrent duplicate insert
+        raises ``IntegrityError`` inside the same transaction, closing the
+        SELECT-then-INSERT race window.
         """
         from tradex_trading.execution.engine import IdempotencyDuplicate
 
         key = str(correlation_id.value)
-        cursor = self._conn.execute(
-            "SELECT status FROM idempotency WHERE correlation_id = ?",
-            (key,),
-        )
-        row = cursor.fetchone()
-        if row is not None:
-            if row[0] == "completed":
-                return IdempotencyDuplicate(result=key)
-            return None  # reserved but not yet completed — allow through
-        self._conn.execute(
-            "INSERT INTO idempotency (correlation_id, status) VALUES (?, 'reserved')",
-            (key,),
-        )
-        self._conn.commit()
-        return None
+        with self._write_lock:
+            try:
+                self._conn.execute(
+                    "INSERT INTO idempotency (correlation_id, status) VALUES (?, 'reserved')",
+                    (key,),
+                )
+                self._conn.commit()
+                return None  # fresh reservation
+            except sqlite3.IntegrityError:
+                # Key exists — completed means replay; reserved-but-not-
+                # completed after a crash between reserve and record must
+                # NOT allow a duplicate through: fail loud so the caller can
+                # reconcile instead of silently double-submitting.
+                row = self._conn.execute(
+                    "SELECT status FROM idempotency WHERE correlation_id = ?",
+                    (key,),
+                ).fetchone()
+                if row is not None and row[0] == "completed":
+                    return IdempotencyDuplicate(result=key)
+                raise RuntimeError(
+                    f"idempotency key {key} is reserved but incomplete "
+                    f"(crash between reserve and record?) — refusing to "
+                    f"duplicate-submit; release() or reconcile manually"
+                )
 
     def record_result(self, correlation_id: CorrelationId, result: object) -> None:
         """Mark a reserved correlation id as completed."""
         key = str(correlation_id.value)
-        self._conn.execute(
-            "UPDATE idempotency SET status = 'completed' WHERE correlation_id = ?",
-            (key,),
-        )
-        self._conn.commit()
+        with self._write_lock:
+            self._conn.execute(
+                "UPDATE idempotency SET status = 'completed' WHERE correlation_id = ?",
+                (key,),
+            )
+            self._conn.commit()
 
     def release(self, correlation_id: CorrelationId) -> None:
         """Release a reserved (but not completed) correlation id."""
         key = str(correlation_id.value)
-        self._conn.execute(
-            "DELETE FROM idempotency WHERE correlation_id = ? AND status = 'reserved'",
-            (key,),
-        )
-        self._conn.commit()
+        with self._write_lock:
+            self._conn.execute(
+                "DELETE FROM idempotency WHERE correlation_id = ? AND status = 'reserved'",
+                (key,),
+            )
+            self._conn.commit()
 
     def close(self) -> None:
         """Close the SQLite connection."""

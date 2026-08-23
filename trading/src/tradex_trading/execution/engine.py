@@ -163,6 +163,7 @@ class RiskManager:
         *,
         live_orders_enabled: bool = True,
         positions_provider: Any | None = None,
+        price_provider: Any | None = None,
     ) -> None:
         self._max_order_value = max_order_value
         self._max_position_value = max_position_value
@@ -174,13 +175,21 @@ class RiskManager:
         #: ``max_position_value`` can be enforced against live exposure. When
         #: None (backtest boot, unit tests), the position check is skipped.
         self._positions_provider = positions_provider
+        #: Callable mapping an instrument to its current market price (Price
+        #: or Decimal). When None (or when it yields no usable price),
+        #: exposure falls back to the position's avg_price.
+        self._price_provider = price_provider
         #: Count of orders denied by ``check()`` (any gate). Read by
         #: BacktestEngine to populate ``BacktestResult.num_rejected`` without
         #: re-implementing rejection bookkeeping in its own loop.
         self._rejected_count = 0
 
     def _position_exposure(self) -> Decimal:
-        """Absolute notional of all open positions (qty * avg_price)."""
+        """Absolute notional of all open positions (qty * market or avg price).
+
+        Prefers the current market price via the bound ``price_provider``
+        when available; falls back to the position's avg_price otherwise.
+        """
         total = Decimal("0")
         if self._positions_provider is None:
             return total
@@ -190,8 +199,26 @@ class RiskManager:
             avg = getattr(pos, "avg_price", None)
             if qty is None or avg is None:
                 continue
-            total += abs(qty.value) * avg.value
+            mark = self._mark_price(getattr(pos, "instrument", None))
+            total += abs(qty.value) * (mark if mark is not None else avg.value)
         return total
+
+    def _mark_price(self, instrument: Any) -> Decimal | None:
+        """Current market price for an instrument, or None if unavailable."""
+        if self._price_provider is None or instrument is None:
+            return None
+        try:
+            quote = self._price_provider(instrument)
+        except Exception:
+            return None
+        if quote is None:
+            return None
+        value = getattr(quote, "value", quote)
+        try:
+            value = Decimal(str(value))
+        except Exception:
+            return None
+        return value if value > 0 else None
 
     def _incoming_exposure(self, request: OrderRequest) -> Decimal:
         """Notional of the incoming order (price * quantity)."""
@@ -217,6 +244,15 @@ class RiskManager:
         position check is skipped.
         """
         self._positions_provider = provider
+
+    def set_price_provider(self, provider: Any) -> None:
+        """Bind a market-price source for exposure marking.
+
+        ``provider`` is a one-arg callable mapping an instrument to its
+        current price (``Price`` or ``Decimal``). When unset — or when it
+        returns nothing usable — exposure falls back to avg_price.
+        """
+        self._price_provider = provider
 
     @property
     def positions_provider_bound(self) -> bool:
@@ -797,6 +833,12 @@ class ExecutionEngine:
         if order.status in _TERMINAL_STATUSES:
             raise OrderRejectedError(
                 f"Order {order_id.value} is {order.status.value} and cannot be modified"
+            )
+        if request.quantity.value <= order.filled_quantity.value:
+            raise OrderRejectedError(
+                f"Order {order_id.value}: modified quantity "
+                f"{request.quantity.value} must exceed already-filled "
+                f"quantity {order.filled_quantity.value}"
             )
         modify_fn = getattr(self._fill, "modify", None)
         if callable(modify_fn):

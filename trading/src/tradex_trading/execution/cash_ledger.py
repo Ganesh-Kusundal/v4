@@ -19,9 +19,26 @@ from tradex_domain.value_objects import Money, Price, Quantity
 class CashLedger:
     """Deterministic cash account for backtest runs."""
 
-    def __init__(self, initial: Decimal | float | str = Decimal("100000")) -> None:
+    def __init__(
+        self,
+        initial: Decimal | float | str = Decimal("100000"),
+        allow_negative: bool = False,
+    ) -> None:
         self._cash = Decimal(str(initial))
         self._fees = Decimal("0")
+        #: When False (default), any debit that would take cash below zero
+        #: raises ValueError. Callers that permit margin/overdraft opt in
+        #: with allow_negative=True.
+        self._allow_negative = allow_negative
+
+    def _debit(self, amount: Decimal, what: str) -> None:
+        """Debit ``amount`` from cash, guarding the buying-power floor."""
+        if not self._allow_negative and self._cash - amount < 0:
+            raise ValueError(
+                f"insufficient buying power: {what} of {amount} would take "
+                f"cash from {self._cash} to {self._cash - amount}"
+            )
+        self._cash -= amount
 
     @property
     def cash(self) -> Decimal:
@@ -37,14 +54,14 @@ class CashLedger:
         """Apply a fill's notional to cash (debit BUY, credit SELL)."""
         notional = quantity.value * price.value
         if side.value == "BUY":
-            self._cash -= notional
+            self._debit(notional, "BUY fill")
         else:
             self._cash += notional
 
     def on_fee(self, fee: Decimal | Money) -> None:
         """Debit a fill's fee from cash."""
         amount = fee.amount if isinstance(fee, Money) else Decimal(str(fee))
-        self._cash -= amount
+        self._debit(amount, "fee")
         self._fees += amount
 
     def credit(self, amount: Decimal) -> None:
