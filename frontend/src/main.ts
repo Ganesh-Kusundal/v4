@@ -7,6 +7,7 @@ import {
   createChart,
   darkTheme,
   ReplayController,
+  TimeNavigator,
   type IndicatorApi,
   type SeriesApi,
 } from "openalgo-charts";
@@ -18,6 +19,8 @@ import { createWatchlist } from "./shell/watchlist";
 import { createDrawRail } from "./shell/draw-rail";
 import { showIndicatorModal } from "./shell/indicator-modal";
 import { createBottomDock } from "./shell/bottom-dock";
+import { wireCompare, toggleCompareUi } from "./shell/comparison";
+import { wireChartSettings, toggleChartSettingsUi } from "./shell/chart-settings";
 
 registerTradexIntervals();
 
@@ -331,6 +334,20 @@ rpBtn.addEventListener("click", () => {
   enterBarReplay();
 });
 
+// Compare + chart settings (library controllers, Tradex bars)
+const cmpBtn = document.createElement("button");
+cmpBtn.className = "tbtn";
+cmpBtn.textContent = "Compare";
+cmpBtn.title = "Overlay a second instrument (percentage scale)";
+cmpBtn.addEventListener("click", toggleCompareUi);
+const setBtn = document.createElement("button");
+setBtn.className = "tbtn";
+setBtn.textContent = "Settings";
+setBtn.title = "Chart settings (schema-driven, engine-applied)";
+setBtn.addEventListener("click", toggleChartSettingsUi);
+wireCompare(chart, chartFeed as never, () => ({ ...state }));
+wireChartSettings(chart);
+
 shellbar.append(
   brand, divider(),
   symBtn, divider(),
@@ -340,6 +357,8 @@ shellbar.append(
   fitBtn, divider(),
   lsave, lload, divider(),
   qtyInput, buyBtn, sellBtn,
+  divider(),
+  cmpBtn, setBtn,
 );
 const statusWrap = document.createElement("div");
 statusWrap.className = "status";
@@ -356,8 +375,12 @@ createDrawRail(railEl, chart, { magnetCheckbox: magnetBox });
 
 // ---------- legend (OHLC readout via subscribeCrosshairMove) ----------------------
 const legendEl = $("legend");
-type CrossEvt = { bar?: { open: number; high: number; low: number; close: number; volume?: number; time: number } | null };
+// Zoom/pan navigator: library primitive, fades in near the plot bottom.
+const timeNav = new TimeNavigator({ id: "tradex-nav" } as never);
+chart.addPrimitive(timeNav as never);
+type CrossEvt = { bar?: { open: number; high: number; low: number; close: number; volume?: number; time: number } | null; point?: { x: number; y: number } | null };
 chart.subscribeCrosshairMove?.(((e: CrossEvt) => {
+  (timeNav as unknown as { setPointer(p: { x: number; y: number } | null): void }).setPointer(e.point ?? null);
   const b = e.bar;
   if (!b) { legendEl.innerHTML = ""; return; }
   legendEl.innerHTML = "";
