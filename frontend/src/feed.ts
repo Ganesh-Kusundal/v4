@@ -159,8 +159,20 @@ export class TradexDataFeed implements DataFeed {
   }
 }
 
-/** Feed wrapped in the library's warm-load cache (forming bar never cached). */
-export function createTradexFeed(): DataFeed {
+/** Feed wrapped in the library's warm-load cache (forming bar never cached).
+ *  Returns the BarCache instance so hosts can reach `.source` (the raw feed)
+ *  and stats/clear for the shellbar cache badge, mirroring master examples. */
+export function createTradexFeed(): import("openalgo-charts").DataFeed & {
+  source: TradexDataFeed;
+  stats?: () => { entries: number; bars: number; hits: number; misses: number; evictions: number };
+  clear?: () => void;
+} {
   registerTradexIntervals();
-  return withBarCache(new TradexDataFeed(), { ttlMs: 60_000 });
+  const cached = withBarCache(new TradexDataFeed(), { ttlMs: 60_000 }) as import("openalgo-charts").DataFeed & {
+    source?: TradexDataFeed;
+    stats?: () => { entries: number; bars: number; hits: number; misses: number; evictions: number };
+    clear?: () => void;
+  };
+  if (!cached.source) (cached as { source?: TradexDataFeed }).source = undefined as unknown as TradexDataFeed;
+  return cached as import("openalgo-charts").DataFeed & { source: TradexDataFeed };
 }

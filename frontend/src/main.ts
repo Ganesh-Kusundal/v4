@@ -1,68 +1,42 @@
-// TradeX v4 terminal shell — standardized against
-// openalgo-charts-master/examples/yfinance + src/feed/cache + src/indicators/external.
-// The backend owns every computation; this host owns chrome, routing, and controller lifecycles.
-import { createChart, darkTheme, ReplayController, type SeriesApi } from "openalgo-charts";
-import { createTradexFeed } from "./feed";
-import { registerBackendIndicators, setIndicatorContext, setIndicatorInterval } from "./backend-indicators";
+// TradeX v4 terminal shell — drives the openalgo-charts-master-style chrome in
+// index.html (#shellbar, .rail, #chart, #replaybar, #setmodal) while every
+// computation stays in tradex_trading: bars from /api/charts/history via
+// withBarCache, indicators via Tier-2 POST /api/charts/indicators/compute,
+// orders via POST /orders + WS control queue, replay dual-mode.
+import {
+  createChart,
+  darkTheme,
+  ReplayController,
+  type IndicatorApi,
+  type SeriesApi,
+} from "openalgo-charts";
+import { createTradexFeed, registerTradexIntervals } from "./feed";
+import { registerBackendIndicators, setIndicatorContext, setIndicatorInterval, type CatalogueEntry } from "./backend-indicators";
+import { TradexTradeFeed, fetchBook } from "./trade-feed";
 import { createStrategiesPanel, fetchStrategyCatalogue, type PanelHost } from "./panels/strategies";
 import { createWatchlist } from "./shell/watchlist";
-import { createReplayBar } from "./shell/replay-bar";
+import { createDrawRail } from "./shell/draw-rail";
+import { showIndicatorModal } from "./shell/indicator-modal";
 import { createBottomDock } from "./shell/bottom-dock";
 
-const el = document.getElementById("app");
-if (!el) throw new Error("missing #app mount point");
+registerTradexIntervals();
 
-// ---------- layout: topbar | watchlist | center | panel | bottom-dock --------
-el.innerHTML = "";
-const topbar = document.createElement("div");
-topbar.id = "topbar";
-const watchlistEl = document.createElement("div");
-watchlistEl.id = "watchlist";
-const center = document.createElement("div");
-center.id = "center";
-const toolbar = document.createElement("div");
-toolbar.id = "toolbar";
-const chartHost = document.createElement("div");
-chartHost.id = "chart-host";
-const replayBarEl = document.createElement("div");
-replayBarEl.id = "replay-bar";
-center.append(toolbar, chartHost, replayBarEl);
-const panelHostEl = document.createElement("div");
-panelHostEl.id = "panel-host";
-const bottomDockEl = document.createElement("div");
-bottomDockEl.id = "bottom-dock";
-el.append(topbar, watchlistEl, center, panelHostEl, bottomDockEl);
-
-// ---------- topbar -----------------------------------------------------------
-const brand = document.createElement("span");
-brand.className = "brand";
-brand.textContent = "TradeX Terminal";
-const statusSpan = document.createElement("span");
-statusSpan.className = "status";
-statusSpan.textContent = "paper";
-const modePill = document.createElement("span");
-modePill.className = "pill live";
-modePill.textContent = "LIVE";
-const sourcePill = document.createElement("span");
-sourcePill.className = "pill";
-sourcePill.textContent = "datalake";
-const spacer = document.createElement("span");
-spacer.className = "spacer";
-topbar.append(brand, spacer, sourcePill, modePill, statusSpan);
+const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`missing #${id}`);
+  return el as T;
+};
 
 // ---------- state + persistence ---------------------------------------------
 interface SymbolState { exchange: string; symbol: string; interval: string; }
 function loadState(): SymbolState {
   try {
     const url = new URL(location.href);
-    const qSym = url.searchParams.get("symbol");
-    const qEx = url.searchParams.get("exchange");
-    const qIv = url.searchParams.get("interval");
     const stored = JSON.parse(localStorage.getItem("tradex:state") || "null") as Partial<SymbolState> | null;
     return {
-      exchange: (qEx || stored?.exchange || "NSE").toUpperCase(),
-      symbol: (qSym || stored?.symbol || "RELIANCE").toUpperCase(),
-      interval: qIv || stored?.interval || "5m",
+      exchange: (url.searchParams.get("exchange") || stored?.exchange || "NSE").toUpperCase(),
+      symbol: (url.searchParams.get("symbol") || stored?.symbol || "RELIANCE").toUpperCase(),
+      interval: url.searchParams.get("interval") || stored?.interval || "5m",
     };
   } catch { return { exchange: "NSE", symbol: "RELIANCE", interval: "5m" }; }
 }
@@ -76,16 +50,19 @@ function persistState(): void {
   history.replaceState(null, "", url.toString());
 }
 
-// ---------- chart (DataFeed-driven: withBarCache handles freshness) ----------
-const dataFeed = createTradexFeed();
+// ---------- feeds (backend-owned data plane) ---------------------------------
+const chartFeed = createTradexFeed(); // withBarCache-wrapped DataFeed
+const rawFeed = chartFeed.source; // TradexDataFeed underneath the cache
+const tradeFeed = new TradexTradeFeed();
+
+// ---------- chart -------------------------------------------------------------
+const chartHost = $<HTMLDivElement>("chart");
 const chart = createChart(chartHost, {
   theme: darkTheme,
   timezone: "Asia/Kolkata",
-  dataFeed,
+  dataFeed: chartFeed,
 } as unknown as Record<string, unknown>);
 
-// Price + volume series: chart owns the timeline, we only ensure series exist.
-// The DataFeed supplies bars; ReplayController will use the same series.
 let priceSeries: SeriesApi | null = null;
 let volumeSeries: SeriesApi | null = null;
 
@@ -98,109 +75,303 @@ function ensureSeries(): void {
 }
 ensureSeries();
 
-// Programmatic history load that also drives Tier-2 indicator window.
-// When chart.dataFeed is present, prefer it (withBarCache); fallback to
-// direct fetch for environments that haven't wired dataFeed into chart yet.
+// ---------- status -------------------------------------------------------------
+const statusDot = document.createElement("span");
+statusDot.className = "status-dot";
+const statusText = document.createElement("span");
+statusText.id = "status";
+statusText.textContent = "ready";
+const sourcePill = document.createElement("span");
+sourcePill.className = "pill";
+sourcePill.textContent = "datalake";
+const modePill = document.createElement("span");
+modePill.className = "pill live";
+modePill.textContent = "LIVE";
+function setStatus(on: boolean): void { statusDot.classList.toggle("on", on); }
+
+// feed.ts WsBarHub reconnects silently; reflect liveness via first bar ack.
+let wsLive = false;
+setInterval(() => setStatus(wsLive), 1000);
+
+// ---------- history load --------------------------------------------------------
 async function loadHistory(): Promise<void> {
   setIndicatorContext(state.exchange, state.symbol);
   setIndicatorInterval(state.interval);
-  statusSpan.textContent = "loading…";
+  statusText.textContent = "loading…";
   try {
-    // Use the DataFeed so withBarCache freshness applies. Fallback keeps
-    // behavior identical if chart ignores dataFeed (legacy path).
-    const bars = await dataFeed.getBars({
-      symbol: state.symbol,
-      exchange: state.exchange,
-      interval: state.interval,
-    });
+    const bars = await chartFeed.getBars({ symbol: state.symbol, exchange: state.exchange, interval: state.interval });
     ensureSeries();
-    priceSeries!.setData(bars as unknown as never[]);
-    volumeSeries!.setData((bars as unknown as { time: number; volume?: number }[]).map((b) => ({ time: b.time, value: (b as unknown as { volume: number }).volume ?? 0 })) as never[]);
+    priceSeries!.setData(bars as never[]);
+    volumeSeries!.setData(
+      (bars as unknown as { time: number; volume?: number }[]).map((b) => ({ time: b.time, value: b.volume ?? 0 })) as never[],
+    );
+    const source = (rawFeed as unknown as { lastSource?: string }).lastSource;
+    sourcePill.textContent = source ?? "datalake";
     if (bars.length > 0) {
       chart.setVisibleLogicalRange({ from: Math.max(0, bars.length - 150), to: bars.length + 5 });
-      sourcePill.textContent = "datalake";
     }
-    statusSpan.textContent = `${bars.length} bars · ${state.exchange}:${state.symbol} ${state.interval}`;
+    statusText.textContent = `${bars.length} bars · ${state.exchange}:${state.symbol} ${state.interval}`;
+    symBtn.textContent = "";
+    const b = document.createElement("b");
+    b.textContent = `${state.exchange}:${state.symbol}`;
+    symBtn.append(b);
     persistState();
-    // Live bars continue via DataFeed.subscribeBars hub (feed.ts).
+    renderChips();
   } catch (err) {
-    statusSpan.textContent = err instanceof Error ? err.message : String(err);
+    statusText.textContent = err instanceof Error ? err.message : String(err);
   }
 }
 
-// Listen for live bars through the same series (feed.ts hub) — single writer.
-// DataFeed.subscribeBars already pushes bar frames; the mirror below keeps
-// volume aligned for forming bars without fighting the feed.
 let liveUnsub: (() => void) | null = null;
 function bindLiveBars(): void {
   liveUnsub?.();
-  liveUnsub = dataFeed.subscribeBars?.(
-    { symbol: state.symbol, exchange: state.exchange, interval: state.interval },
-    (bar) => {
-      if (!priceSeries || !volumeSeries) return;
-      const update = {
-        time: (bar as unknown as { time: number }).time,
-        open: (bar as unknown as { open: number }).open,
-        high: (bar as unknown as { high: number }).high,
-        low: (bar as unknown as { low: number }).low,
-        close: (bar as unknown as { close: number }).close,
-      };
-      priceSeries!.update(update as never);
-      // Only commit volume on closed bar; forming bar keeps prior volume.
-      // feed.ts BarFrame.closed is not exposed via Bar type, treat all as forming
-      // and let the closed frame arrive as a new bar via setData continuation.
-    },
-  ) ?? null;
+  liveUnsub =
+    chartFeed.subscribeBars?.(
+      { symbol: state.symbol, exchange: state.exchange, interval: state.interval },
+      () => { wsLive = true; },
+    ) ?? null;
 }
 
-// ---------- toolbar ----------------------------------------------------------
-const intervalSelect = document.createElement("select");
-intervalSelect.id = "interval-select";
-for (const iv of ["1m", "5m", "15m", "30m", "1h", "D"]) {
-  const opt = document.createElement("option");
-  opt.value = iv;
-  opt.textContent = iv;
-  if (iv === state.interval) opt.selected = true;
-  intervalSelect.append(opt);
-}
-const indicatorSelect = document.createElement("select");
-indicatorSelect.id = "indicator-select";
-const intervalBadge = document.createElement("span");
-intervalBadge.className = "badge";
-intervalBadge.textContent = state.interval;
-toolbar.append(intervalSelect, indicatorSelect, intervalBadge);
+// ---------- shellbar ------------------------------------------------------------
+const shellbar = $("shellbar");
+const INTERVALS = ["1m", "5m", "15m", "30m", "1h", "D"] as const;
+const catalogueById = new Map<string, CatalogueEntry>();
 
-intervalSelect.addEventListener("change", () => {
-  state.interval = intervalSelect.value;
-  intervalBadge.textContent = state.interval;
-  void loadHistory();
-  bindLiveBars();
+const symBtn = document.createElement("button");
+symBtn.className = "tbtn";
+symBtn.title = "Change symbol (searches GET /api/charts/symbols)";
+{
+  const b = document.createElement("b");
+  b.textContent = `${state.exchange}:${state.symbol}`;
+  symBtn.append(b);
+}
+symBtn.addEventListener("click", () => {
+  const side = $("sidepanel");
+  side.scrollIntoView({ behavior: "smooth" });
+  ($("watchlist").querySelector('input[type="search"]') as HTMLInputElement | null)?.focus();
 });
 
-// ---------- backend indicators (Tier-2) --------------------------------------
-async function initIndicators(): Promise<void> {
-  const entries = await registerBackendIndicators();
-  const placeholder = document.createElement("option");
-  placeholder.value = "";
-  placeholder.textContent = "+ Indicator";
-  indicatorSelect.append(placeholder);
-  for (const e of entries) {
-    const opt = document.createElement("option");
-    opt.value = e.id;
-    opt.textContent = e.name;
-    indicatorSelect.append(opt);
-  }
-  indicatorSelect.addEventListener("change", () => {
-    const id = indicatorSelect.value;
-    if (!id) return;
-    // Settings carry symbol/exchange/interval so refetchOn invalidates.
-    chart.addIndicator(id, { symbol: state.symbol, exchange: state.exchange, interval: state.interval } as unknown as Record<string, unknown>);
-    indicatorSelect.value = "";
+const brand = document.createElement("div");
+brand.className = "brand";
+brand.innerHTML = '<span class="brand-dot"></span> TradeX <em>v4</em>';
+
+const divider = (): HTMLSpanElement => Object.assign(document.createElement("span"), { className: "divider" });
+
+const pills = document.createElement("div");
+pills.className = "pills";
+for (const iv of INTERVALS) {
+  const b = document.createElement("button");
+  b.textContent = iv.toUpperCase();
+  b.dataset.iv = iv;
+  if (iv === state.interval) b.classList.add("is-on");
+  b.addEventListener("click", () => {
+    state.interval = iv;
+    for (const x of Array.from(pills.children)) x.classList.toggle("is-on", (x as HTMLElement).dataset.iv === iv);
+    void loadHistory();
+    bindLiveBars();
   });
+  pills.append(b);
 }
 
-// ---------- watchlist --------------------------------------------------------
-const watchlist = createWatchlist(watchlistEl, (item) => {
+// Indicators menu + chips
+const indWrap = document.createElement("span");
+indWrap.style.display = "inline-flex";
+indWrap.style.gap = "6px";
+indWrap.style.alignItems = "center";
+const indBtn = document.createElement("button");
+indBtn.className = "tbtn";
+indBtn.textContent = "Indicators";
+indBtn.title = "Add indicator — catalogue served by tradex_trading analytics registry";
+const indList = document.createElement("span");
+indList.className = "indlist";
+indWrap.append(indBtn, indList);
+
+indBtn.addEventListener("click", () => {
+  const existing = document.querySelector(".menu[data-role='ind']");
+  if (existing) { existing.remove(); return; }
+  const menu = document.createElement("div");
+  menu.className = "menu";
+  menu.dataset.role = "ind";
+  const rect = indBtn.getBoundingClientRect();
+  menu.style.left = `${rect.left}px`;
+  menu.style.top = `${rect.bottom + 6}px`;
+  const find = document.createElement("div");
+  find.className = "menu-find";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "Filter…";
+  find.append(input);
+  menu.append(find);
+  const listBody = document.createElement("div");
+  for (const entry of catalogueById.values()) {
+    const row = document.createElement("button");
+    row.textContent = entry.name;
+    row.dataset.name = entry.name.toLowerCase();
+    row.addEventListener("click", () => {
+      addIndicator(`backend:${entry.id}`);
+      menu.remove();
+    });
+    listBody.append(row);
+  }
+  menu.append(listBody);
+  input.addEventListener("input", () => {
+    const q = input.value.trim().toLowerCase();
+    for (const r of Array.from(listBody.querySelectorAll("button"))) {
+      (r as HTMLElement).hidden = q !== "" && !(r.dataset.name ?? "").includes(q);
+    }
+  });
+  document.body.append(menu);
+  setTimeout(() => document.addEventListener("click", function close(e) {
+    if (!menu.contains(e.target as Node)) { menu.remove(); document.removeEventListener("click", close); }
+  }), 0);
+});
+
+function addIndicator(descriptorId: string): void {
+  const inst = chart.addIndicator(descriptorId, {
+    symbol: state.symbol,
+    exchange: state.exchange,
+    interval: state.interval,
+  } as unknown as Record<string, unknown>) as unknown as IndicatorApi;
+  renderChips();
+  void inst;
+}
+
+function renderChips(): void {
+  indList.innerHTML = "";
+  for (const inst of chart.indicators() as readonly IndicatorApi[]) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    const name = document.createElement("b");
+    name.textContent = inst.name.replace(/ \(backend\)$/, "");
+    const gear = document.createElement("button");
+    gear.textContent = "⚙";
+    gear.title = "Settings";
+    gear.addEventListener("click", () =>
+      showIndicatorModal(inst, catalogueById.get(inst.indicatorId)));
+    const eye = document.createElement("button");
+    eye.textContent = inst.visible() ? "●" : "○";
+    eye.title = inst.visible() ? "Hide" : "Show";
+    eye.addEventListener("click", () => { inst.setVisible(!inst.visible()); renderChips(); });
+    const x = document.createElement("button");
+    x.textContent = "×";
+    x.title = "Remove";
+    x.addEventListener("click", () => { inst.remove(); renderChips(); });
+    chip.append(name, eye, gear, x);
+    indList.append(chip);
+  }
+}
+
+// Order ticket: qty field + Buy/Sell market orders through the execution spine.
+const qtyInput = document.createElement("input");
+qtyInput.type = "number"; qtyInput.className = "field field--qty";
+qtyInput.value = "10"; qtyInput.min = "1"; qtyInput.title = "Quantity";
+function placeOrder(side: "BUY" | "SELL"): void {
+  const qty = Math.max(1, Math.round(Number(qtyInput.value) || 1));
+  tradeFeed.placeOrder({ symbol: state.symbol, exchange: state.exchange, side, type: "MARKET", qty })
+    .then(() => logLine(`order ${side} ${qty} ${state.symbol} sent`))
+    .catch((e) => logLine(`order rejected: ${e instanceof Error ? e.message : String(e)}`));
+}
+const buyBtn = document.createElement("button");
+buyBtn.className = "tbtn tbtn--buy";
+buyBtn.innerHTML = "<b>Buy</b>";
+buyBtn.addEventListener("click", () => placeOrder("BUY"));
+const sellBtn = document.createElement("button");
+sellBtn.className = "tbtn tbtn--sell";
+sellBtn.innerHTML = "<b>Sell</b>";
+sellBtn.addEventListener("click", () => placeOrder("SELL"));
+
+// Fit + layout save/restore (chart.getState/restoreState)
+const fitBtn = document.createElement("button");
+fitBtn.className = "tbtn";
+fitBtn.textContent = "Fit";
+fitBtn.title = "Fit all bars";
+fitBtn.addEventListener("click", () => {
+  (chart.timeScale as unknown as { fitContent?: () => void } | undefined)?.fitContent?.();
+});
+const lsave = document.createElement("button");
+lsave.className = "tbtn";
+lsave.textContent = "Layout ⤓";
+lsave.title = "Save chart state (viewport, panes, indicators) to localStorage";
+lsave.addEventListener("click", () => {
+  try {
+    localStorage.setItem("tradex:layout", JSON.stringify(chart.getState()));
+    statusText.textContent = "layout saved";
+  } catch (e) { statusText.textContent = `save failed: ${String(e)}`; }
+});
+const lload = document.createElement("button");
+lload.className = "tbtn";
+lload.textContent = "⤒ Restore";
+lload.title = "Restore chart state, then rebuild series data + indicator instances";
+lload.addEventListener("click", () => {
+  try {
+    const raw = localStorage.getItem("tradex:layout");
+    if (!raw) { statusText.textContent = "no saved layout"; return; }
+    const report = chart.restoreState(JSON.parse(raw));
+    if (!report.applied) { statusText.textContent = "layout not applicable"; return; }
+    ensureSeries();
+    // Re-add indicators the state carried (restore does not recreate instances).
+    const st = JSON.parse(raw) as { indicators?: { indicatorId: string; settings: Record<string, unknown> }[] };
+    for (const spec of st.indicators ?? []) {
+      chart.addIndicator(spec.indicatorId, spec.settings as never);
+    }
+    void loadHistory();
+    renderChips();
+    statusText.textContent = "layout restored";
+  } catch (e) { statusText.textContent = `restore failed: ${String(e)}`; }
+});
+
+// Replay toggle lives in shellbar too (transport detail in #replaybar).
+const rpBtn = document.createElement("button");
+rpBtn.className = "tbtn";
+rpBtn.innerHTML = "<span>Replay</span>";
+rpBtn.title = "Bar replay (prefix-slice) / tick replay (SyntheticTickGenerator)";
+rpBtn.addEventListener("click", () => {
+  if (barReplay) { exitBarReplay(); return; }
+  if (tickReplayActive) { stopTickReplay(); return; }
+  enterBarReplay();
+});
+
+shellbar.append(
+  brand, divider(),
+  symBtn, divider(),
+  pills, divider(),
+  indWrap, divider(),
+  rpBtn, divider(),
+  fitBtn, divider(),
+  lsave, lload, divider(),
+  qtyInput, buyBtn, sellBtn,
+);
+const statusWrap = document.createElement("div");
+statusWrap.className = "status";
+statusWrap.append(statusDot, statusText, sourcePill, modePill);
+shellbar.append(statusWrap);
+
+// ---------- draw rail -----------------------------------------------------------
+const railEl = $("rail");
+const magnetBox = document.createElement("input");
+magnetBox.type = "checkbox";
+magnetBox.checked = true;
+magnetBox.id = "magnet";
+createDrawRail(railEl, chart, { magnetCheckbox: magnetBox });
+
+// ---------- legend (OHLC readout via subscribeCrosshairMove) ----------------------
+const legendEl = $("legend");
+type CrossEvt = { bar?: { open: number; high: number; low: number; close: number; volume?: number; time: number } | null };
+chart.subscribeCrosshairMove?.(((e: CrossEvt) => {
+  const b = e.bar;
+  if (!b) { legendEl.innerHTML = ""; return; }
+  legendEl.innerHTML = "";
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = `${state.symbol} · ${state.interval}`;
+  const meta = document.createElement("span");
+  meta.className = "meta";
+  meta.textContent = ` O ${b.open} H ${b.high} L ${b.low} C ${b.close}${b.volume !== undefined ? ` V ${Math.round(b.volume)}` : ""}`;
+  legendEl.append(name, meta);
+}) as never);
+
+// ---------- watchlist / panel / dock ----------------------------------------------
+const watchlist = createWatchlist($("watchlist"), (item) => {
   state.symbol = item.symbol.toUpperCase();
   state.exchange = item.exchange.toUpperCase();
   watchlist.setActive({ symbol: state.symbol, exchange: state.exchange });
@@ -208,16 +379,33 @@ const watchlist = createWatchlist(watchlistEl, (item) => {
   bindLiveBars();
 }, { symbol: state.symbol, exchange: state.exchange });
 
-// ---------- bottom dock + strategies -----------------------------------------
-const dock = createBottomDock(bottomDockEl);
-const logsEl = document.createElement("div");
-logsEl.textContent = "Logs: WS + order events appear here.";
+const dock = createBottomDock($("bottom-dock"));
+const panelHost = $("panel-host");
 const ordersEl = document.createElement("div");
-ordersEl.textContent = "Orders: live positions and working orders (TradeFeed WS).";
+ordersEl.textContent = "Loading book…";
+const logsEl = document.createElement("div");
 
-const strategyCataloguePromise = fetchStrategyCatalogue().catch(() => null);
-void strategyCataloguePromise.then((catalogue) => {
-  if (!catalogue) return;
+tradeFeed.subscribeOrders(async () => {
+  const book = await fetchBook();
+  ordersEl.innerHTML = "";
+  const tbl = document.createElement("table");
+  tbl.className = "scanner-table";
+  tbl.innerHTML = "<tr><th>Side</th><th>Symbol</th><th>Type</th><th>Qty</th><th>Price</th><th>Status</th></tr>";
+  for (const o of book.orders as Record<string, unknown>[]) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${o["side"] ?? ""}</td><td>${o["symbol"] ?? ""}</td><td>${o["type"] ?? ""}</td><td>${o["qty"] ?? ""}</td><td>${o["price"] ?? ""}</td><td>${o["status"] ?? ""}</td>`;
+    tbl.append(tr);
+  }
+  ordersEl.append(tbl);
+});
+tradeFeed.subscribePositions(async () => {
+  const book = await fetchBook();
+  logLine(`positions: ${(book.positions as unknown[]).length}`);
+});
+dock.setContent("orders", ordersEl);
+dock.setContent("logs", logsEl);
+
+void fetchStrategyCatalogue().then((catalogue) => {
   const host: PanelHost = {
     showEquityCurve(points) {
       const series = chart.addSeries("line", { paneIndex: chart.panes().length });
@@ -227,7 +415,6 @@ void strategyCataloguePromise.then((catalogue) => {
     showTradeMarkers(trades) {
       for (const t of trades) {
         if (t.rejected || !t.price) continue;
-        // TradeController lives on chart.trading in draw/trade tier; guard.
         const trading = (chart as unknown as { trading?: { addTrade(o: unknown): void } }).trading;
         trading?.addTrade({
           id: `${t.time}-${t.side}-${t.price}`,
@@ -240,133 +427,159 @@ void strategyCataloguePromise.then((catalogue) => {
       }
     },
   };
-  // Right panel: strategy form
-  createStrategiesPanel(panelHostEl, host, catalogue, state);
-  // Bottom dock: scanner compact (second lightweight panel bound to dock)
-  const dockStrategiesHost = document.createElement("div");
-  createStrategiesPanel(dockStrategiesHost, host, catalogue, state);
-  dock.setContent("scanner", dockStrategiesHost);
-  const btHost = document.createElement("div");
-  btHost.textContent = "Backtest results render as equity pane + markers.";
-  dock.setContent("backtest", btHost);
-});
-dock.setContent("orders", ordersEl);
-dock.setContent("logs", logsEl);
+  createStrategiesPanel(panelHost, host, catalogue, state);
+  const dockStrat = document.createElement("div");
+  createStrategiesPanel(dockStrat, host, catalogue, state);
+  dock.setContent("scanner", dockStrat);
+}).catch(() => { /* panel degrades; scanner/backtest still reachable via API */ });
+const btNote = document.createElement("div");
+btNote.textContent = "Backtest results render as an equity pane plus trade markers.";
+dock.setContent("backtest", btNote);
 
-// ---------- replay: two modes ------------------------------------------------
-// 1) Bar-replay (trader practice): ReplayController prefix-slice — indicators
-//    recompute historically for free because Chart._setData triggers recompute.
-// 2) Tick-replay (fill parity): WS SyntheticTickGenerator ticks → BarAggregator
-//    → bar frames, proving execution parity (existing /ws replay_* flow).
+// ---------- replay -----------------------------------------------------------------
+const bar2: HTMLDivElement = $("replaybar");
 let barReplay: InstanceType<typeof ReplayController> | null = null;
 let tickReplayActive = false;
-let tickReplaySpeed = 10;
+let tickSpeed = 10;
 
-// Shared WS for tick-replay control (reuse feed's hub WS would conflate bar
-// frames and replay control, so a dedicated control socket here).
 class ControlSocket {
   private ws: WebSocket | null = null;
   private readonly handlers = new Set<(msg: Record<string, unknown>) => void>();
   connect(): void {
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
+    if (this.ws && this.ws.readyState !== WebSocket.CLOSED && this.ws.readyState !== WebSocket.CLOSING) return;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}/ws/stream`);
     this.ws = ws;
     ws.onmessage = (ev) => {
-      try { const msg = JSON.parse(ev.data as string) as Record<string, unknown>; for (const h of this.handlers) h(msg); } catch { /* ignore */ }
+      try { const m = JSON.parse(ev.data as string) as Record<string, unknown>; for (const h of this.handlers) h(m); }
+      catch { /* ignore */ }
     };
   }
-  send(msg: Record<string, unknown>): boolean {
+  send(msg: Record<string, unknown>): void {
     this.connect();
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) { this.ws.send(JSON.stringify(msg)); return true; }
-    // retry once after open
-    window.setTimeout(() => {
-      if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
-    }, 300);
-    return false;
+    if (this.ws?.readyState === WebSocket.OPEN) { this.ws.send(JSON.stringify(msg)); return; }
+    window.setTimeout(() => { if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg)); }, 300);
   }
-  on(h: (msg: Record<string, unknown>) => void): () => void { this.handlers.add(h); return () => this.handlers.delete(h); }
+  on(h: (msg: Record<string, unknown>) => void): void { this.handlers.add(h); }
 }
 const controlSocket = new ControlSocket();
 controlSocket.connect();
 
-const replayBar = createReplayBar(replayBarEl, {
-  onSeek(index) { barReplay?.seek(index); },
-  onPlay() { barReplay?.play(); },
-  onPause() { barReplay?.pause(); },
-  onStop() {
-    if (barReplay) { barReplay.stop(); barReplay = null; replayBarEl.classList.remove("active"); modePill.textContent = "LIVE"; modePill.className = "pill live"; }
-    if (tickReplayActive) { controlSocket.send({ type: "replay_stop" }); tickReplayActive = false; replayBar.setTickActive(false); }
-  },
-  onSpeed(speed) { barReplay?.play({ speed }); },
-  onTickReplayToggle() {
-    if (tickReplayActive) {
-      controlSocket.send({ type: "replay_stop" });
-      tickReplayActive = false;
-      replayBar.setTickActive(false);
-      modePill.textContent = "LIVE"; modePill.className = "pill live";
-      return;
-    }
-    tickReplayActive = true;
-    replayBar.setTickActive(true);
-    modePill.textContent = "TICK-REPLAY"; modePill.className = "pill replay";
-    controlSocket.send({ type: "replay_start", instrument: `${state.exchange}:${state.symbol}`, interval: "1m", speed: tickReplaySpeed, seed: 42 });
-  },
-  onTickSpeed(speed) { tickReplaySpeed = speed; if (tickReplayActive) controlSocket.send({ type: "replay_speed", speed }); },
+// Transport built into master-styled #replaybar.
+const rbPlay = document.createElement("button"); rbPlay.textContent = "▶";
+const rbExit = document.createElement("button"); rbExit.textContent = "✕"; rbExit.title = "Exit replay";
+const rbSpeed = document.createElement("select"); rbSpeed.className = "field";
+for (const s of [1, 2, 5, 10]) { const o = document.createElement("option"); o.value = String(s); o.textContent = `${s}x`; rbSpeed.append(o); }
+const rbRange = document.createElement("input"); rbRange.type = "range"; rbRange.min = "0"; rbRange.max = "0"; rbRange.value = "0";
+const rbCount = document.createElement("span"); rbCount.className = "rcount"; rbCount.textContent = "0/0";
+const rbClock = document.createElement("span"); rbClass(rbClock, "rclock"); rbClock.textContent = "--";
+const rbSep = document.createElement("span"); rbClass(rbSep, "vsep");
+const rbTick = document.createElement("button"); rbTick.textContent = "Sim ticks"; rbTick.title = "Tick-replay: SyntheticTickGenerator → BarAggregator (fill parity)";
+const rbTickSpeed = document.createElement("select"); rbTickSpeed.className = "field";
+for (const s of [5, 10, 20, 50]) { const o = document.createElement("option"); o.value = String(s); o.textContent = `${s}x`; o.selected = s === 10; rbTickSpeed.append(o); }
+function rbClass(el: HTMLElement, cls: string): void { el.classList.add(cls); }
+bar2.append(rbPlay, rbSpeed, rbRange, rbCount, rbClock, rbSep, rbTick, rbTickSpeed, rbExit);
+
+let rbPlaying = false;
+rbPlay.addEventListener("click", () => {
+  if (!barReplay) return;
+  if (rbPlaying) barReplay.pause(); else barReplay.play();
+});
+rbExit.addEventListener("click", () => { if (barReplay) exitBarReplay(); else if (tickReplayActive) stopTickReplay(); });
+rbSpeed.addEventListener("change", () => { if (barReplay) barReplay.play({ speed: Number(rbSpeed.value) }); });
+rbRange.addEventListener("input", () => { if (barReplay) barReplay.seek(Number(rbRange.value)); });
+rbTick.addEventListener("click", () => { tickReplayActive ? stopTickReplay() : startTickReplay(); });
+rbTickSpeed.addEventListener("change", () => {
+  tickSpeed = Number(rbTickSpeed.value);
+  if (tickReplayActive) controlSocket.send({ type: "replay_speed", speed: tickSpeed });
 });
 
+function setMode(pill: "live" | "replay" | "tick"): void {
+  modePill.className = pill === "live" ? "pill live" : "pill replay";
+  modePill.textContent = pill === "live" ? "LIVE" : pill === "replay" ? "REPLAY" : "TICK-REPLAY";
+  rpBtn.classList.toggle("is-on", pill !== "live");
+  bar2.hidden = pill === "live";
+}
+
 function enterBarReplay(): void {
-  if (!priceSeries) return;
-  // Snapshot is the last loaded history; ReplayController owns the timeline.
-  const bars = (priceSeries as unknown as { getData(): unknown[] }).getData?.() ?? [];
-  if (bars.length === 0) return;
-  // Ensure volume series follows the same timeline.
-  const seriesList = [priceSeries, volumeSeries].filter(Boolean) as SeriesApi[];
-  barReplay?.stop();
-  barReplay = new ReplayController(chart as unknown as never, {
-    series: seriesList as unknown as never,
+  const bars = (priceSeries as unknown as { getData?(): unknown[] }).getData?.() ?? [];
+  if (bars.length === 0) { statusText.textContent = "no bars to replay"; return; }
+  barReplay = new ReplayController(chart as never, {
+    series: [priceSeries!, volumeSeries!].filter(Boolean) as never,
     bars: bars as never,
-    barMs: 800,
+    barMs: 700,
     speed: 1,
     onFrame: (s: { index: number; total: number; playing: boolean; speed: number; bar: { time: number } | null }) => {
-      replayBar.setState({ index: s.index, total: s.total, playing: s.playing, speed: s.speed, barTime: s.bar?.time ?? null });
-      modePill.textContent = s.playing ? "REPLAY" : "REPLAY·PAUSED";
-      modePill.className = "pill replay";
+      rbPlaying = s.playing;
+      rbRange.max = String(Math.max(0, s.total - 1));
+      rbRange.value = String(s.index);
+      rbCount.textContent = `${s.index}/${s.total - 1}`;
+      rbPlay.textContent = s.playing ? "❚❚" : "▶";
+      rbClock.textContent = s.bar
+        ? new Date(s.bar.time * 1000).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })
+        : "--";
     },
-  } as unknown as never);
-  replayBar.setState({ index: 0, total: bars.length, playing: false, speed: 1, barTime: (bars[0] as { time: number }).time ?? null });
-  replayBarEl.classList.add("active");
+  } as never);
+  setMode("replay");
+}
+
+function exitBarReplay(): void {
+  barReplay?.stop();
+  barReplay = null;
+  rbPlaying = false;
+  rbPlay.textContent = "▶";
+  setMode("live");
+}
+
+function startTickReplay(): void {
+  tickReplayActive = true;
+  rbTick.classList.add("is-on");
+  setMode("tick");
+  controlSocket.send({
+    type: "replay_start",
+    instrument: `${state.exchange}:${state.symbol}`,
+    interval: "1m",
+    speed: tickSpeed,
+    seed: 42,
+  });
+}
+function stopTickReplay(): void {
+  controlSocket.send({ type: "replay_stop" });
+  tickReplayActive = false;
+  rbTick.classList.remove("is-on");
+  setMode("live");
 }
 
 controlSocket.on((msg) => {
-  const t = msg["type"] as string;
-  if (t === "replay_done" || t === "replay_stopped") {
+  const t = msg["type"];
+  if (t === "replay_done") {
+    stopTickReplay();
+    void loadHistory();
+  } else if (t === "replay_stopped") {
     tickReplayActive = false;
-    replayBar.setTickActive(false);
-    modePill.textContent = "LIVE"; modePill.className = "pill live";
-    if (t === "replay_done") void loadHistory();
+    rbTick.classList.remove("is-on");
+    setMode("live");
+  } else if (t === "bar") {
+    wsLive = true;
   }
-  if (t === "replay_speed") { /* ack */ }
 });
 
-// Expose bar-replay entry for toolbar (kept minimal: double-click chart toggles).
-chartHost.addEventListener("dblclick", () => {
-  if (barReplay) { barReplay.stop(); barReplay = null; replayBarEl.classList.remove("active"); modePill.textContent = "LIVE"; modePill.className = "pill live"; }
-  else enterBarReplay();
-});
-
-// ---------- boot -------------------------------------------------------------
-void loadHistory().then(() => bindLiveBars());
-void initIndicators();
-
-// Simple logs tap: mirror WS control messages for operator visibility.
-const logLine = (s: string) => {
+// ---------- logs ---------------------------------------------------------------------
+function logLine(s: string): void {
   const line = document.createElement("div");
   line.textContent = `${new Date().toLocaleTimeString()} ${s}`;
   logsEl.prepend(line);
   while (logsEl.childElementCount > 200) logsEl.removeChild(logsEl.lastChild!);
-};
+}
 controlSocket.on((msg) => {
   const t = String(msg["type"] ?? "");
-  if (["bar", "replay_done", "replay_stopped", "order", "fill"].includes(t)) logLine(`ws:${t}`);
+  if (["replay_start_ack", "replay_pause_ack", "replay_resume_ack", "replay_speed_ack", "replay_stop_ack"].includes(t)) logLine(`ws:${t}`);
 });
+
+// ---------- boot -----------------------------------------------------------------------
+void (async () => {
+  const entries = await registerBackendIndicators();
+  catalogueById.clear();
+  for (const e of entries) catalogueById.set(`backend:${e.id}`, e);
+})();
+void loadHistory().then(() => bindLiveBars());
