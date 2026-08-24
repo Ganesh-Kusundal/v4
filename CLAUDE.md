@@ -105,6 +105,18 @@ results = fetcher.fetch(instruments, Timeframe.M1, start, end)
 # Returns dict[str, HistoricalSeries] keyed by instrument_id
 ```
 
+### Chart UI (openalgo-charts frontend)
+
+```bash
+# Build the frontend (output: frontend/dist/, served by FastAPI at /ui/)
+cd frontend && npm install && npm run build
+
+# Serve everything (REST + WS + UI) — then open http://127.0.0.1:8000/ui/
+python -m tradex_trading.interface.cli serve --broker paper --port 8000
+```
+
+The chart is render-only: every computation lives in `tradex_trading`. Bars come from `/api/charts/history` (datalake-first, broker fallback), indicators from the backend registry surfaced through the chart's Tier-2 contract (`frontend/src/backend-indicators.ts`), backtests/scanners run `BacktestEngine`/`ScannerEngine` server-side (`POST /api/charts/backtest`, `POST /api/charts/scanner/run`), and forming bars/replay stream over `/ws/stream` (`subscribe_bars`, `replay_start/pause/resume/speed/stop`). Replay drives the SAME BarAggregator path as live quotes via `SyntheticTickGenerator`. Chart timestamps are UTC seconds of IST wall clock; the chart renders in Asia/Kolkata.
+
 ---
 
 ## Datalake Facts
@@ -123,6 +135,7 @@ results = fetcher.fetch(instruments, Timeframe.M1, start, end)
 domain/          → Pure domain types (Equity, Candle, Order, Signal, etc.)
 brokers/         → Broker adapters (Dhan, Upstox, Paper)
 trading/         → Trading engine, strategies, datalake, analytics
+frontend/        → openalgo-charts UI (Vite build; dist served at /ui)
 Dependencies/    → Universe CSVs (nifty50/100/200/500)
 data/            → Parquet datalake (ohlcv/)
 runtime/         → Token state, broker runtime files
@@ -141,3 +154,4 @@ runtime/         → Token state, broker runtime files
 5. **DON'T** fetch intraday history for ranges > 90 days from Dhan (API limit — `ParallelHistoryFetcher` raises `SDKError`)
 6. **DON'T** reinvent parallel fetching — use `ParallelHistoryFetcher`
 7. **DON'T** manually parse universe CSVs — use `load_universe()`
+8. **DON'T** compute indicators/strategy logic in the frontend — the chart renders; `tradex_trading` computes (new backend indicator registry entries appear in the UI automatically via the Tier-2 wiring)

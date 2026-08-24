@@ -65,7 +65,26 @@ class AnalyticsEngine:
         """Compute a single indicator over a HistoricalSeries.
 
         The indicator output replaces the close of the trailing
-        ``len(values)`` candles of the input series.
+        ``len(values)`` candles of the input series. Closes are ``Price``
+        (non-negative by domain invariant), so this surface fits
+        price-ranged indicators; signed outputs (roc, macd) must go through
+        :meth:`indicator_values`, which returns raw floats without wrapping.
+        """
+        return self._wrap_in_series(
+            series, name, self.indicator_values(series, name, **params),
+        )
+
+    def indicator_values(
+        self,
+        series: HistoricalSeries,
+        name: str,
+        **params: Any,
+    ) -> list[float | None]:
+        """Raw indicator values aligned to the series tail (None = warmup).
+
+        Single computation path for every consumer; :meth:`indicator`
+        delegates here before re-wrapping into candles. Signed values pass
+        through untouched — no Price validation on this surface.
         """
         key = name.lower()
         func = self._INDICATORS.get(key)
@@ -75,10 +94,25 @@ class AnalyticsEngine:
         closes = [float(c.ohlc.close.value) for c in series.candles]
         values = func(closes, period)
         if self._warmup_bars > 0:
-            # Preserve None padding so output length matches input length
             padded: list[float | None] = [None] * self._warmup_bars
             padded.extend(float(v) for v in values if v is not None)
-            return self._with_close_nullable(series, padded)
+            return padded
+        return [float(v) if v is not None else None for v in values]
+
+    def _wrap_in_series(
+        self,
+        series: HistoricalSeries,
+        name: str,
+        values: list[float | None],
+    ) -> HistoricalSeries:
+        """Wrap raw values as trailing-close replacements (Price-wrapped).
+
+        Routing mirrors the pre-refactor contract exactly: explicit warmup
+        mode keeps every input candle (Nones hold originals); default mode
+        strips Nones and replaces ONLY the trailing computed candles.
+        """
+        if self._warmup_bars > 0:
+            return self._with_close_nullable(series, values)
         # Strip None padding — only non-None values replace trailing closes
         non_none = [v for v in values if v is not None]
         return self._with_close(series, non_none)

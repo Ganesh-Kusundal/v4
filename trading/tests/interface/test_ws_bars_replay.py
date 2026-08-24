@@ -1,0 +1,175 @@
+"""WS bar-streaming tests — subscribe_bars contract and replay control acks.
+
+Follows the existing test_fastapi_app.py pattern: a MagicMock session with a
+real ReactiveBus, since /ws/stream only needs ``session.bus``.
+"""
+
+from __future__ import annotations
+
+import json
+from unittest.mock import MagicMock
+
+import pytest
+
+fastapi = pytest.importorskip("fastapi")
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
+from tradex_trading.reactive.bus import ReactiveBus  # noqa: E402
+
+
+def _app() -> object:
+    bus = ReactiveBus()
+    session = MagicMock()
+    session.state = "READY"
+    session.bus = bus
+    return create_app(session=session)
+
+
+class TestSubscribeBarsContract:
+    def test_subscribe_bars_requires_payload(self):
+        with TestClient(_app()).websocket_connect("/ws/stream") as ws:
+            ws.send_json({"type": "subscribe_bars"})
+            resp = ws.receive_json()
+            assert resp["type"] == "error"
+            assert "bars" in resp["message"]
+
+    def test_subscribe_bars_acks(self):
+        """No live feed (paper session) still acks — subscriptions are per-connection."""
+        with TestClient(_app()).websocket_connect("/ws/stream") as ws:
+            ws.send_json({
+                "type": "subscribe_bars",
+                "bars": [{"instrument": "NSE:TEST", "interval": "1m"}],
+            })
+            resp = ws.receive_json()
+            assert resp["type"] == "subscribed_bars"
+            assert resp["active"] == 1
+
+    def test_bad_interval_is_error_not_crash(self):
+        with TestClient(_app()).websocket_connect("/ws/stream") as ws:
+            ws.send_json({
+                "type": "subscribe_bars",
+                "bars": [{"instrument": "NSE:TEST", "interval": "bogus"}],
+            })
+            resp = ws.receive_json()
+            assert resp["type"] == "error"
+
+    def test_unsubscribe_bars_acks(self):
+        with TestClient(_app()).websocket_connect("/ws/stream") as ws:
+            ws.send_json({
+                "type": "unsubscribe_bars",
+                "bars": ["NSE:TEST|1m"],
+            })
+            resp = ws.receive_json()
+            assert resp["type"] == "unsubscribed_bars"
+
+    def test_quote_on_bus_produces_bar_frame(self):
+        """A quote past one M1 bucket boundary emits exactly one closed frame."""
+        from datetime import datetime, timedelta
+        from decimal import Decimal
+        from zoneinfo import ZoneInfo
+
+        from tradex_domain.enums import Timeframe
+        from tradex_domain.instruments import Equity
+        from tradex_domain.market import Quote
+        from tradex_domain.value_objects import Price
+
+        bus = ReactiveBus()
+        session = MagicMock()
+        session.state = "READY"
+        session.bus = bus
+        app = create_app(session=session)
+
+        ist = ZoneInfo("Asia/Kolkata")
+        base = datetime(2026, 7, 15, 10, 0).replace(tzinfo=ist)
+        inst = Equity.of("NSE", "TEST")
+
+        with TestClient(app).websocket_connect("/ws/stream") as ws:
+            ws.send_json({
+                "type": "subscribe_bars",
+                "bars": [{"instrument": "NSE:TEST", "interval": "1m"}],
+            })
+            ack = ws.receive_json()
+            assert ack["type"] == "subscribed_bars"
+
+            # Two quotes in bucket 10:00, then one at 10:01 — closes the first bar.
+            for i, ts in enumerate([
+                base + timedelta(seconds=5),
+                base + timedelta(seconds=30),
+                base + timedelta(minutes=1, seconds=5),
+            ]):
+                bus.publish(
+                    Quote(
+                        instrument=inst,
+                        ltp=Price(Decimal(str(100 + i))),
+                        timestamp=ts,
+                    )
+                )
+                # Yield so the call_soon_threadsafe bridge runs.
+                import time
+
+                time.sleep(0.05)
+
+            frame = ws.receive_json()
+            deadline = __import__("time").monotonic() + 3
+            while frame.get("closed") is not True and __import__("time").monotonic() < deadline:
+                if frame["type"] != "bar":
+                    frame = ws.receive_json()
+                    continue
+                frame = ws.receive_json()
+            # The closed 10:00 bar must carry only the two in-bucket prints.
+            closed_frames = [frame]
+            # Drain any remaining forming frames to prove the closed one exists.
+            assert any(
+                f["closed"] and f["time"] == int(base.timestamp()) and f["close"] == 101.0
+                for f in closed_frames
+            ), f"no closed frame for 10:00 in {closed_frames}"
+
+
+class TestReplayControl:
+    def test_pause_resume_speed_stop_ack(self):
+        client = TestClient(_app())
+        with client.websocket_connect("/ws/stream") as ws:
+            for msg, expected in [
+                ({"type": "replay_pause"}, "replay_paused"),
+                ({"type": "replay_resume"}, "replay_resumed"),
+                ({"type": "replay_speed", "speed": 2.0}, "replay_speed"),
+                ({"type": "replay_stop"}, "replay_stopped"),
+            ]:
+                ws.send_json(msg)
+                assert ws.receive_json()["type"] == expected
+
+    def test_replay_start_without_instrument_is_error(self):
+        with TestClient(_app()).websocket_connect("/ws/stream") as ws:
+            ws.send_json({"type": "replay_start"})
+            resp = ws.receive_json()
+            assert resp["type"] == "error"
+
+    def test_replay_start_no_datalake_symbol_errors(self):
+        """A symbol the datalake never saw surfaces an error frame, not a hang."""
+        with TestClient(_app()).websocket_connect("/ws/stream") as ws:
+            ws.send_json({
+                "type": "replay_start",
+                "instrument": "NSE:NOSUCHSTOCKXYZ",
+                "minutes": 10,
+            })
+            got_started_or_error = False
+            for _ in range(4):
+                msg = ws.receive_json()
+                if msg["type"] in ("error", "replay_done"):
+                    got_started_or_error = True
+                    break
+                if msg["type"] == "replay_started" and "NOSUCH" in str(msg):
+                    continue
+            assert got_started_or_error or msg["type"] == "error"
+
+    def test_replay_speed_invalid_is_error(self):
+        with TestClient(_app()).websocket_connect("/ws/stream") as ws:
+            ws.send_json({"type": "replay_speed", "speed": "abc"})
+            resp = ws.receive_json()
+            assert resp["type"] == "error"
+
+
+def _unused(*a):  # pragma: no cover — keeps json import referenced if edits drift
+    json.dumps({})

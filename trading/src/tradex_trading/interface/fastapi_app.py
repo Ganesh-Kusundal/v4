@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Security, WebSocket, WebSocketDisconnect
@@ -123,6 +124,16 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 # App factory
 # ---------------------------------------------------------------------------
 
+#: Built frontend assets (``frontend/dist``), resolved relative to the repo
+#: root two levels up from this package's ``interface/`` directory. The mount
+#: is opt-in by presence: no dist directory means API-only behavior, exactly
+#: as before, so a source checkout without a built frontend serves nothing
+#: extra and tests never depend on a node build having run.
+_UI_DIST_DIR = (
+    Path(__file__).resolve().parents[4] / "frontend" / "dist"
+)
+
+
 def create_app(
     session: Any | None = None,
     api_key: str | None = None,
@@ -140,6 +151,11 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Chart data plane (closed-bar history, indicator compute, strategy
+    # backtests): one router the openalgo-charts frontend is built against.
+    from tradex_trading.interface.chart_api import create_chart_router
+
+    app.include_router(create_chart_router(session))
     app.state.session = session
     app.state.api_key = api_key
     # Per-app refcounting registry: shares the session's live MarketFeed
@@ -748,6 +764,21 @@ def create_app(
                 elif msg_type == "unsubscribe_orders":
                     _unsubscribe_orders()
                     _ack({"type": "unsubscribed_orders"})
+                elif msg_type == "subscribe_bars":
+                    await _subscribe_bars(msg)
+                elif msg_type == "unsubscribe_bars":
+                    _unsubscribe_bars(msg)
+                    _ack({"type": "unsubscribed_bars"})
+                elif msg_type == "replay_start":
+                    await _replay_start(msg)
+                elif msg_type == "replay_pause":
+                    await _replay_pause()
+                elif msg_type == "replay_resume":
+                    await _replay_resume()
+                elif msg_type == "replay_speed":
+                    await _replay_speed(msg)
+                elif msg_type == "replay_stop":
+                    await _replay_stop()
                 elif msg_type == "stats":
                     # Surface backpressure stats so a client can observe how
                     # many ticks were dropped under overload (drop counter).
@@ -790,6 +821,252 @@ def create_app(
                     handle.cancel()
                 except Exception:  # noqa: BLE001 – best-effort teardown
                     pass
+
+            # --- Bar streaming (chart forming bars + replay) ----------------
+            #
+            # One BarAggregator per (instrument, interval) per connection.
+            # Quotes reach the aggregator through a bus subscription filtered
+            # by the bar wanted-set; frames ride the ticks queue so a slow
+            # chart client drops old forming bars rather than stalling. The
+            # same aggregation path serves live quotes and (Task: replay)
+            # synthetic ones — the source only changes what gets published.
+            bar_aggregators: dict[tuple[str, str], Any] = {}
+            bar_disposables: list[Any] = []
+            replay_state: dict[str, Any] = {"task": None}
+
+            def _send_bar_frame(frame: Any) -> None:
+                dropped[0] += _enqueue_drop_oldest(ticks, {
+                    "type": "bar",
+                    "instrument": frame.instrument,
+                    "interval": frame.timeframe,
+                    "time": frame.time,
+                    "open": frame.open,
+                    "high": frame.high,
+                    "low": frame.low,
+                    "close": frame.close,
+                    "volume": frame.volume,
+                    "closed": frame.closed,
+                    "source": getattr(frame, "source", "live"),
+                })
+
+            def _make_aggregator(inst_id: str, interval: str) -> Any:
+                from tradex_domain.enums import Timeframe
+                from tradex_trading.runtime.bar_aggregator import BarAggregator
+
+                return BarAggregator(
+                    inst_id,
+                    Timeframe(interval),
+                    on_frame=_send_bar_frame,
+                )
+
+            def _on_bar_quote(quote: Quote) -> None:
+                """Route a quote into any matching per-connection aggregator."""
+                iid = str(quote.instrument.instrument_id)
+                ts = quote.timestamp if quote.timestamp is not None else None
+                if ts is None:
+                    return
+                from datetime import datetime as _dt
+                from zoneinfo import ZoneInfo
+
+                ist = ZoneInfo("Asia/Kolkata")
+                ts_ist = (
+                    ts.astimezone(ist).replace(tzinfo=None)
+                    if ts.tzinfo is not None
+                    else ts
+                )
+                for (bar_iid, _interval), agg in list(bar_aggregators.items()):
+                    if bar_iid == iid:
+                        price = quote.ltp.value
+                        volume = quote.volume.value if quote.volume is not None else None
+                        try:
+                            agg.on_quote(ts_ist, price, volume)
+                        except Exception:  # noqa: BLE001 — one bad tick never kills the socket
+                            log.exception("bar aggregation failed for %s", iid)
+
+            async def _subscribe_bars(msg: dict[str, Any]) -> None:
+                raw = msg.get("bars") or msg.get("instruments")
+                if not isinstance(raw, list) or not raw:
+                    _ack({"type": "error", "message": "subscribe_bars needs 'bars': [{instrument, interval}]"})
+                    return
+                added: list[tuple[str, str]] = []
+                for item in raw:
+                    if not isinstance(item, dict):
+                        continue
+                    iid = str(item.get("instrument", ""))
+                    interval = str(item.get("interval", "1m"))
+                    key = (iid, interval)
+                    if key in bar_aggregators:
+                        continue
+                    try:
+                        bar_aggregators[key] = _make_aggregator(iid, interval)
+                    except (ValueError, KeyError) as exc:
+                        _ack({"type": "error", "message": f"bad bar subscription {key}: {exc}"})
+                        return
+                    added.append(key)
+                if not bar_disposables:
+                    bar_disposables.append(bus.of_type(Quote).subscribe(_on_bar_quote))
+                _ack({
+                    "type": "subscribed_bars",
+                    "bars": [f"{i}|{iv}" for i, iv in added],
+                    "active": len(bar_aggregators),
+                })
+
+            def _unsubscribe_bars(msg: dict[str, Any]) -> None:
+                raw = msg.get("bars")
+                if not isinstance(raw, list):
+                    return
+                for item in raw:
+                    if isinstance(item, dict):
+                        key = (str(item.get("instrument", "")), str(item.get("interval", "")))
+                    else:
+                        iid, _, interval = str(item).partition("|")
+                        key = (iid, interval)
+                    bar_aggregators.pop(key, None)
+
+            # --- Replay / simulation -----------------------------------------
+            #
+            # replay_start spawns a per-connection task that drives the SAME
+            # aggregators with synthetic ticks over datalake history. Frames
+            # are tagged source='sim' so the frontend can distinguish them.
+
+            async def _replay_start(msg: dict[str, Any]) -> None:
+                import asyncio as _asyncio
+
+                instrument = str(msg.get("instrument", ""))
+                interval = str(msg.get("interval", "1m"))
+                method = str(msg.get("method", "anchored"))
+                seed = msg.get("seed")
+                speed = float(msg.get("speed", 1.0))
+                if not instrument:
+                    _ack({"type": "error", "message": "replay_start needs 'instrument'"})
+                    return
+                await _replay_stop(silent=True)
+
+                async def _run() -> None:
+                    from zoneinfo import ZoneInfo
+
+                    from tradex_trading.replay.synthetic_ticks import SyntheticTickGenerator
+                    from tradex_trading.reactive.bus import ReactiveBus
+
+                    mini_bus = ReactiveBus()
+                    ist = ZoneInfo("Asia/Kolkata")
+
+                    gen = SyntheticTickGenerator(
+                        mini_bus,
+                        ticks_per_bar=int(msg.get("ticks_per_bar", 60)),
+                        seed=seed if seed is None else int(seed),
+                        method=method,
+                    )
+
+                    def _on_sim_quote(quote: Quote) -> None:
+                        iid = str(quote.instrument.instrument_id)
+                        ts = quote.timestamp
+                        if ts is None:
+                            return
+                        ts_ist = (
+                            ts.astimezone(ist).replace(tzinfo=None)
+                            if ts.tzinfo is not None else ts
+                        )
+                        for (bar_iid, _iv), agg in list(bar_aggregators.items()):
+                            if bar_iid == iid:
+                                try:
+                                    agg.on_quote(
+                                        ts_ist,
+                                        quote.ltp.value,
+                                        quote.volume.value if quote.volume is not None else None,
+                                    )
+                                except Exception:  # noqa: BLE001
+                                    log.exception("sim bar aggregation failed for %s", iid)
+
+                    mini_bus.of_type(Quote).subscribe(_on_sim_quote)
+
+                    # Load the requested window from the datalake and drive it.
+                    from tradex_brokers.common.market_builders import candles_from_dataframe
+                    from tradex_domain.enums import Timeframe as _TF
+                    from tradex_trading.datalake.parquet_storage import ParquetStorage
+                    from datetime import datetime as _dt, timedelta as _td
+
+                    store = ParquetStorage("data/")
+                    symbol = instrument.split(":")[-1]
+                    minutes = int(msg.get("minutes", 390))
+                    # Anchor on the datalake's own last day when the trailing
+                    # wall-clock window misses it (weekends, stale lake): a
+                    # sim replays *recorded* history, so "latest available"
+                    # beats "right now".
+                    to_dt = _dt.now()
+                    df = store.read(symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt)
+                    if df.empty:
+                        # Unknown symbol: date_range returns None (not a
+                        # 2-tuple) — treat any non-tuple as "no coverage".
+                        rng = store.date_range(symbol)
+                        hi = rng[1] if isinstance(rng, tuple) else None
+                        if hi is None:
+                            _ack({"type": "error", "message": f"no datalake history for {symbol}"})
+                            return
+                        to_dt = hi
+                        df = store.read(symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt)
+                    if df.empty:
+                        _ack({"type": "error", "message": f"no datalake history in last {minutes}m for {symbol}"})
+                        return
+                    from tradex_domain.instruments import Equity
+
+                    sim_instrument = Equity.of(instrument.split(":")[0], symbol)
+                    candles = candles_from_dataframe(sim_instrument, df, timeframe=_TF.M1)
+
+                    def _current_delay() -> float:
+                        # Read live so a mid-run replay_speed takes effect on
+                        # the next bar instead of being ignored.
+                        return 1.0 / max(float(replay_state.get("speed", speed)), 0.01) / 60.0
+
+                    for candle in candles:
+                        if replay_state["task"] is None:
+                            return  # stopped
+                        while replay_state.get("paused"):
+                            await _asyncio.sleep(0.05)
+                        gen.feed_bar(candle)
+                        await _asyncio.sleep(_current_delay())
+                    # Flat-close whatever is open.
+                    for agg in bar_aggregators.values():
+                        try:
+                            agg.flush()
+                        except Exception:  # noqa: BLE001
+                            pass
+                    _ack({"type": "replay_done"})
+
+                replay_state["task"] = _asyncio.create_task(_run())
+                replay_state["paused"] = False
+                replay_state["speed"] = speed
+                _ack({"type": "replay_started", "instrument": instrument, "interval": interval})
+
+            async def _replay_pause() -> None:
+                replay_state["paused"] = True
+                _ack({"type": "replay_paused"})
+
+            async def _replay_resume() -> None:
+                replay_state["paused"] = False
+                _ack({"type": "replay_resumed"})
+
+            async def _replay_speed(msg: dict[str, Any]) -> None:
+                try:
+                    replay_state["speed"] = float(msg.get("speed", 1.0))
+                except (TypeError, ValueError):
+                    _ack({"type": "error", "message": "speed must be a number"})
+                    return
+                _ack({"type": "replay_speed", "speed": replay_state["speed"]})
+
+            async def _replay_stop(silent: bool = False) -> None:
+                import asyncio as _asyncio
+
+                task = replay_state.get("task")
+                replay_state["task"] = None
+                if task is not None:
+                    task.cancel()
+                    try:
+                        await task
+                    except (_asyncio.CancelledError, Exception):  # noqa: BLE001
+                        pass
+                if not silent:
+                    _ack({"type": "replay_stopped"})
 
             async def _snapshot(instruments: list[Any]) -> None:
                 """Push one-shot REST quotes (and depth when requested).
@@ -856,11 +1133,34 @@ def create_app(
                     pass
             # Cancel any live broker order-stream subscription for this client.
             _unsubscribe_orders()
+            # Cancel any in-flight replay: cancel + await inside the live loop
+            # (run_until_complete would raise "loop is running" here).
+            replay_task = replay_state.get("task")
+            replay_state["task"] = None
+            if replay_task is not None:
+                replay_task.cancel()
+                try:
+                    await replay_task
+                except (asyncio.CancelledError, Exception):  # noqa: BLE001 – teardown
+                    pass
+            bar_aggregators.clear()
+            for d in bar_disposables:
+                try:
+                    d.dispose()
+                except Exception:  # pragma: no cover – defensive
+                    pass
             for d in disposables:
                 try:
                     d.dispose()
                 except Exception:  # pragma: no cover – defensive
                     pass
+
+    # Built frontend, when present: single origin for API + UI (no CORS in
+    # production). Absent dist = API-only app, byte-identical to before.
+    if _UI_DIST_DIR.is_dir():
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/ui", StaticFiles(directory=_UI_DIST_DIR, html=True), name="ui")
 
     return app
 

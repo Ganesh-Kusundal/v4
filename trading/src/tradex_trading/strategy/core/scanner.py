@@ -99,8 +99,19 @@ class ScannerEngine:
             return 0.0
         if name == "close":
             return float(series.candles[-1].ohlc.close.value)
-        # AnalyticsEngine.indicator returns a HistoricalSeries; the
-        # IndicatorComputer protocol widens it to object.
+        # Raw-values surface: signed indicators (roc, macd) are legitimate
+        # condition inputs but cannot ride the Price-typed close of a
+        # HistoricalSeries. Prefer indicator_values when the engine provides
+        # it; fall back to close-wrapping for engines that only implement the
+        # base protocol (their price-ranged indicators still work).
+        get_values = getattr(self._analytics, "indicator_values", None)
+        if callable(get_values):
+            values = cast(
+                "list[float | None]",
+                get_values(series, name, **params),
+            )
+            tail = next((v for v in reversed(values) if v is not None), None)
+            return float(tail) if tail is not None else 0.0
         indicator = cast(HistoricalSeries, self._analytics.indicator(series, name, **params))
         if not indicator.candles:
             return 0.0

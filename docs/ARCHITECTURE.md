@@ -177,6 +177,27 @@ boot(live) with cfg.persistence.path:
   │   current cache state into SQLite at publish time
   └─ post-start: broker.get_orderbook() → engine.reconcile + status refresh
 session.stop() ─► bus.dispose() detaches persister ─► writer lock released
+### F11 — Chart UI (openalgo-charts frontend, render-only)
+```
+browser http://127.0.0.1:8000/ui/  (frontend/dist via FastAPI StaticFiles)
+  ├─ history   GET /api/charts/history/{exch}:{sym} ─ datalake-first
+  │             (ParquetStorage + candles_from_dataframe + resample),
+  │             broker fallback; IST-naive → UTC seconds at the edge
+  ├─ indicators chart.addIndicator('backend:*') ─ Tier-2 fetch contract →
+  │             POST /api/charts/indicators/compute (backend registry only;
+  │             zero formulas in JS; new registry entries appear automatically)
+  ├─ live bars WS /ws/stream subscribe_bars → Quote bus → BarAggregator
+  │             (never caches the forming bar) → bar frames
+  ├─ replay    replay_start → SyntheticTickGenerator over datalake M1 →
+  │             the SAME BarAggregator path as live (source-parity by design);
+  │             window clamps to the lake's last day when now misses it
+  ├─ trading   GET /api/charts/book → TradingController.setOrders/
+  │             setPositions; writes go through /orders (one execution spine)
+  └─ strategy  POST /api/charts/backtest (BacktestEngine, fills carry real
+               prices) · POST /api/charts/scanner/run (ScannerEngine +
+               ParquetMarketProvider, offline) · forms built from
+               GET /api/charts/strategies metadata
+Division of labor invariant: the backend computes; the chart renders.
 ```
 
 ---

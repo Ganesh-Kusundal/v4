@@ -10,7 +10,7 @@ from typing import Any
 
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
 from tradex_domain.enums import OrderStatus, OrderType, Timeframe
-from tradex_domain.events import OrderFilled, PlaceOrderCommand
+from tradex_domain.events import OrderFilled, OrderRejected, PlaceOrderCommand
 from tradex_domain.execution import OrderRequest
 from tradex_domain.utils import q2
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
@@ -100,6 +100,12 @@ class BacktestResult:
     #: Signals whose orders failed the configured risk manager and were
     #: skipped (no fill, no P&L) — the backtest mirror of OrderRejected.
     num_rejected: int = 0
+    #: Executed fills recorded by the pipeline (the same OrderFilled events
+    #: the cash ledger consumes). Unlike ``trades`` these carry real fill
+    #: prices/timestamps; chart markers should plot THESE. Rejections appear
+    #: here with ``rejected=True`` and price 0 so a UI can render them as
+    #: error markers without consulting ``num_rejected`` arithmetic.
+    fills: list[dict[str, Any]] = field(default_factory=list)
 
 
 class BacktestEngine:
@@ -229,13 +235,36 @@ class BacktestEngine:
         ledger = CashLedger(initial_capital)
 
         # Cash ledger subscribes to fills (orchestrated cash tracking).
+        recorded_fills: list[dict[str, Any]] = []
+
         def _on_fill(ev: OrderFilled) -> None:
             f = ev.fill
             ledger.on_fill(f.side, f.quantity, f.price)
             if self._fee_calculator is not None:
                 ledger.on_fee(self._fee_calculator.calculate(f).amount)
+            recorded_fills.append({
+                "time": f.timestamp,
+                "side": str(getattr(f.side, "value", f.side)).upper(),
+                "price": float(f.price.value),
+                "qty": float(f.quantity.value),
+                "rejected": False,
+                "reason": "",
+            })
 
         bus.of_type(OrderFilled).subscribe(_on_fill)
+
+        def _on_rejected(ev: OrderRejected) -> None:
+            ts = getattr(ev.order, "reference_timestamp", None)
+            recorded_fills.append({
+                "time": ts or self._clock.now(),
+                "side": str(getattr(ev.order.side, "value", ev.order.side)).upper(),
+                "price": 0.0,
+                "qty": float(ev.order.quantity.value),
+                "rejected": True,
+                "reason": ev.reason,
+            })
+
+        bus.of_type(OrderRejected).subscribe(_on_rejected)
 
         # Strategy engine (next_open) drives PlaceOrderCommand at next-open.
         strategy_engine = ReactiveStrategyEngine(bus, fill_reference="next_open")
@@ -444,6 +473,7 @@ class BacktestEngine:
             total_fees=float(total_fees),
             equity_curve=equity_curve,
             num_rejected=rejected,
+            fills=sorted(recorded_fills, key=lambda f: f["time"]),
         )
 
     def _apply_actions_due(
