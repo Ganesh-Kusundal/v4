@@ -414,3 +414,7 @@ def cmd_watch(args: object) -> None:
 
 
 __all__ = ["main", "run_cli"]
+
+
+if __name__ == "__main__":  # python -m tradex_trading.interface.cli serve ...
+    raise SystemExit(main())

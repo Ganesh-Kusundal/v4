@@ -187,3 +187,38 @@ class TestCliMain:
     def test_main_invalid_args_returns_2(self, capsys) -> None:
         result = main(["--invalid"])
         assert result == 2
+
+
+class TestModuleEntryPoint:
+    """`python -m tradex_trading.interface.cli` must actually dispatch.
+
+    Regression: cli.py had no ``__main__`` guard, so runpy executed the file
+    top-to-bottom and exited without calling main() — `python -m ... serve`
+    silently did nothing (the console-script entry point was unaffected).
+    """
+
+    def test_help_via_dash_m_exits_zero(self) -> None:
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        trading_src = Path(tradex_cli_file()).parents[2]  # .../trading/src
+        repo_pkgs = trading_src.parent  # v4/trading
+        srcs = os.pathsep.join(str(x / "src") for x in (repo_pkgs, repo_pkgs.parent / "domain", repo_pkgs.parent / "brokers"))
+        env = dict(os.environ)
+        env["PYTHONPATH"] = srcs + os.pathsep + env.get("PYTHONPATH", "")
+        proc = subprocess.run(
+            [sys.executable, "-m", "tradex_trading.interface.cli", "--help"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        assert proc.returncode == 0
+        assert "serve" in proc.stdout
+
+
+def tradex_cli_file() -> str:
+    import tradex_trading.interface.cli as m
+    return m.__file__
