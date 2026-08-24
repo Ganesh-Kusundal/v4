@@ -1,13 +1,12 @@
 // Backend indicator wiring. Every formula lives in tradex_trading; this file
 // only teaches the chart about them through the Tier-2 external-data
 // contract, so a new backend registry entry reaches the UI with zero JS
-// changes.
+// changes. Standardized against openalgo-charts-master/src/indicators/external.ts.
 import { createTier2Indicator, type Tier2Context } from "openalgo-charts/indicators";
 import {
   registerIndicator,
   type IndicatorInput,
   type IndicatorPlot,
-  type IndicatorSettings,
 } from "openalgo-charts";
 
 export interface CatalogueEntry {
@@ -19,13 +18,18 @@ export interface CatalogueEntry {
   plots: { key: string; kind: string; title: string }[];
 }
 
-/** Chart context the fetch needs beyond what Tier2Context carries. */
-let currentSymbol = "";
-let currentExchange = "";
+// Legacy module-state fallback until every caller passes symbol/exchange
+// through IndicatorSettings (migration shim, not the source of truth).
+let fallbackSymbol = "";
+let fallbackExchange = "";
+let fallbackInterval = "5m";
 
 export function setIndicatorContext(exchange: string, symbol: string): void {
-  currentExchange = exchange;
-  currentSymbol = symbol;
+  fallbackExchange = exchange;
+  fallbackSymbol = symbol;
+}
+export function setIndicatorInterval(interval: string): void {
+  fallbackInterval = interval;
 }
 
 interface ComputeResponse {
@@ -35,31 +39,36 @@ interface ComputeResponse {
 
 async function computeOnBackend(
   id: string,
-  params: IndicatorSettings,
-  from: number,
-  to: number,
+  params: Record<string, unknown>,
+  ctx: Tier2Context,
 ): Promise<ComputeResponse> {
+  // Settings are the source of truth (Tier-2 refetchOn); fallback covers
+  // callers that still use setIndicatorContext() before first paint.
+  const exchange = (params["exchange"] as string) || (ctx.settings["exchange"] as string) || fallbackExchange || "NSE";
+  const symbol = (params["symbol"] as string) || (ctx.settings["symbol"] as string) || fallbackSymbol || "RELIANCE";
+  const interval = (params["interval"] as string) || (ctx.settings["interval"] as string) || fallbackInterval;
+  // Strip routing keys from indicator params so backend validation sees only
+  // declared indicator params (backend rejects unknown keys loudly).
+  const indicatorParams: Record<string, unknown> = { ...params };
+  delete indicatorParams["exchange"];
+  delete indicatorParams["symbol"];
+  delete indicatorParams["interval"];
+
   const resp = await fetch("/api/charts/indicators/compute", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      exchange: currentExchange,
-      symbol: currentSymbol,
-      interval: currentInterval,
-      from,
-      to,
+      exchange,
+      symbol,
+      interval,
+      from: ctx.from,
+      to: ctx.to,
       id,
-      params,
+      params: indicatorParams,
     }),
   });
   if (!resp.ok) throw new Error(`indicator ${id} compute failed: ${await resp.text()}`);
   return resp.json() as Promise<ComputeResponse>;
-}
-
-let currentInterval = "5m";
-
-export function setIndicatorInterval(interval: string): void {
-  currentInterval = interval;
 }
 
 /**
@@ -73,12 +82,20 @@ export async function registerBackendIndicators(): Promise<CatalogueEntry[]> {
   const body = (await resp.json()) as { indicators: CatalogueEntry[] };
 
   for (const entry of body.indicators) {
-    const inputs: IndicatorInput[] = entry.params.map((p) => ({
+    const numberInputs: IndicatorInput[] = entry.params.map((p) => ({
       key: p.name,
-      type: p.type === "int" ? "number" : "number",
+      type: "number",
       label: p.name.replace(/_/g, " "),
       default: Number(p.default),
     }));
+    const inputs: IndicatorInput[] = [
+      // Routing inputs hidden from the cog but present in settings so
+      // refetchOn can invalidate when symbol/interval changes.
+      { key: "symbol", type: "text", label: "Symbol", default: fallbackSymbol || "RELIANCE" } as unknown as IndicatorInput,
+      { key: "exchange", type: "text", label: "Exchange", default: fallbackExchange || "NSE" } as unknown as IndicatorInput,
+      { key: "interval", type: "text", label: "Interval", default: fallbackInterval } as unknown as IndicatorInput,
+      ...numberInputs,
+    ];
 
     const plots: IndicatorPlot[] = entry.plots.map((p) => ({
       key: p.key,
@@ -94,16 +111,11 @@ export async function registerBackendIndicators(): Promise<CatalogueEntry[]> {
         placement: entry.placement === "overlay" ? "onchart" : "pane",
         inputs,
         plots,
-        // Symbol/exchange/interval live in module state, not settings, so
-        // refetchOn cannot express them; every fetch is window-scoped anyway
-        // and the host refetches on symbol change by re-adding instances.
+        refetchOn: ["symbol", "exchange", "interval", ...entry.params.map((p) => p.name)],
         fetch: async (ctx: Tier2Context) => {
-          const out = await computeOnBackend(
-            entry.id,
-            Object.fromEntries(inputs.map((i) => [i.key, i.default])),
-            ctx.from,
-            ctx.to,
-          );
+          // Forward live settings (user-edited period etc) — not defaults.
+          const liveParams = { ...ctx.settings } as Record<string, unknown>;
+          const out = await computeOnBackend(entry.id, liveParams, ctx);
           return out.points.map((p) => {
             const values: Record<string, number | null> = {};
             for (const plot of entry.plots) {

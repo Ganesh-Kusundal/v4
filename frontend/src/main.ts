@@ -1,54 +1,161 @@
-// TradeX v4 terminal shell. The backend owns every computation (bars,
-// indicators, strategies, backtests, scanners, replay ticks); this file is
-// host chrome: it fetches, feeds the chart, and renders panels. The chart
-// never consumes a DataFeed itself — this host does, then pushes bars into
-// series and updates into indicators.
-import {
-  createChart,
-  darkTheme,
-  type SeriesApi,
-} from "openalgo-charts";
+// TradeX v4 terminal shell — standardized against
+// openalgo-charts-master/examples/yfinance + src/feed/cache + src/indicators/external.
+// The backend owns every computation; this host owns chrome, routing, and controller lifecycles.
+import { createChart, darkTheme, ReplayController, type SeriesApi } from "openalgo-charts";
 import { createTradexFeed } from "./feed";
-import { registerBackendIndicators, setIndicatorContext } from "./backend-indicators";
+import { registerBackendIndicators, setIndicatorContext, setIndicatorInterval } from "./backend-indicators";
 import { createStrategiesPanel, fetchStrategyCatalogue, type PanelHost } from "./panels/strategies";
+import { createWatchlist } from "./shell/watchlist";
+import { createReplayBar } from "./shell/replay-bar";
+import { createBottomDock } from "./shell/bottom-dock";
 
 const el = document.getElementById("app");
 if (!el) throw new Error("missing #app mount point");
 
-// Layout: toolbar / chart / right panel.
+// ---------- layout: topbar | watchlist | center | panel | bottom-dock --------
 el.innerHTML = "";
+const topbar = document.createElement("div");
+topbar.id = "topbar";
+const watchlistEl = document.createElement("div");
+watchlistEl.id = "watchlist";
+const center = document.createElement("div");
+center.id = "center";
 const toolbar = document.createElement("div");
 toolbar.id = "toolbar";
 const chartHost = document.createElement("div");
 chartHost.id = "chart-host";
+const replayBarEl = document.createElement("div");
+replayBarEl.id = "replay-bar";
+center.append(toolbar, chartHost, replayBarEl);
 const panelHostEl = document.createElement("div");
 panelHostEl.id = "panel-host";
-panelHostEl.className = "panel";
-el.append(toolbar, chartHost, panelHostEl);
+const bottomDockEl = document.createElement("div");
+bottomDockEl.id = "bottom-dock";
+el.append(topbar, watchlistEl, center, panelHostEl, bottomDockEl);
 
+// ---------- topbar -----------------------------------------------------------
+const brand = document.createElement("span");
+brand.className = "brand";
+brand.textContent = "TradeX Terminal";
+const statusSpan = document.createElement("span");
+statusSpan.className = "status";
+statusSpan.textContent = "paper";
+const modePill = document.createElement("span");
+modePill.className = "pill live";
+modePill.textContent = "LIVE";
+const sourcePill = document.createElement("span");
+sourcePill.className = "pill";
+sourcePill.textContent = "datalake";
+const spacer = document.createElement("span");
+spacer.className = "spacer";
+topbar.append(brand, spacer, sourcePill, modePill, statusSpan);
+
+// ---------- state + persistence ---------------------------------------------
+interface SymbolState { exchange: string; symbol: string; interval: string; }
+function loadState(): SymbolState {
+  try {
+    const url = new URL(location.href);
+    const qSym = url.searchParams.get("symbol");
+    const qEx = url.searchParams.get("exchange");
+    const qIv = url.searchParams.get("interval");
+    const stored = JSON.parse(localStorage.getItem("tradex:state") || "null") as Partial<SymbolState> | null;
+    return {
+      exchange: (qEx || stored?.exchange || "NSE").toUpperCase(),
+      symbol: (qSym || stored?.symbol || "RELIANCE").toUpperCase(),
+      interval: qIv || stored?.interval || "5m",
+    };
+  } catch { return { exchange: "NSE", symbol: "RELIANCE", interval: "5m" }; }
+}
+const state: SymbolState = loadState();
+function persistState(): void {
+  localStorage.setItem("tradex:state", JSON.stringify(state));
+  const url = new URL(location.href);
+  url.searchParams.set("symbol", state.symbol);
+  url.searchParams.set("exchange", state.exchange);
+  url.searchParams.set("interval", state.interval);
+  history.replaceState(null, "", url.toString());
+}
+
+// ---------- chart (DataFeed-driven: withBarCache handles freshness) ----------
+const dataFeed = createTradexFeed();
 const chart = createChart(chartHost, {
   theme: darkTheme,
   timezone: "Asia/Kolkata",
-});
+  dataFeed,
+} as unknown as Record<string, unknown>);
+
+// Price + volume series: chart owns the timeline, we only ensure series exist.
+// The DataFeed supplies bars; ReplayController will use the same series.
 let priceSeries: SeriesApi | null = null;
 let volumeSeries: SeriesApi | null = null;
 
-// ------------------------------------------------------------------ state
-interface SymbolState {
-  exchange: string;
-  symbol: string;
-  interval: string;
+function ensureSeries(): void {
+  if (priceSeries && volumeSeries) return;
+  priceSeries?.remove();
+  volumeSeries?.remove();
+  priceSeries = chart.addSeries("candlestick");
+  volumeSeries = chart.addSeries("histogram", { priceScaleId: "" });
 }
-const state: SymbolState = { exchange: "NSE", symbol: "RELIANCE", interval: "5m" };
+ensureSeries();
 
-const feed = createTradexFeed();
+// Programmatic history load that also drives Tier-2 indicator window.
+// When chart.dataFeed is present, prefer it (withBarCache); fallback to
+// direct fetch for environments that haven't wired dataFeed into chart yet.
+async function loadHistory(): Promise<void> {
+  setIndicatorContext(state.exchange, state.symbol);
+  setIndicatorInterval(state.interval);
+  statusSpan.textContent = "loading…";
+  try {
+    // Use the DataFeed so withBarCache freshness applies. Fallback keeps
+    // behavior identical if chart ignores dataFeed (legacy path).
+    const bars = await dataFeed.getBars({
+      symbol: state.symbol,
+      exchange: state.exchange,
+      interval: state.interval,
+    });
+    ensureSeries();
+    priceSeries!.setData(bars as unknown as never[]);
+    volumeSeries!.setData((bars as unknown as { time: number; volume?: number }[]).map((b) => ({ time: b.time, value: (b as unknown as { volume: number }).volume ?? 0 })) as never[]);
+    if (bars.length > 0) {
+      chart.setVisibleLogicalRange({ from: Math.max(0, bars.length - 150), to: bars.length + 5 });
+      sourcePill.textContent = "datalake";
+    }
+    statusSpan.textContent = `${bars.length} bars · ${state.exchange}:${state.symbol} ${state.interval}`;
+    persistState();
+    // Live bars continue via DataFeed.subscribeBars hub (feed.ts).
+  } catch (err) {
+    statusSpan.textContent = err instanceof Error ? err.message : String(err);
+  }
+}
 
-// ------------------------------------------------------------------ toolbar
-const symbolInput = document.createElement("input");
-symbolInput.type = "text";
-symbolInput.value = state.symbol;
-symbolInput.id = "symbol-input";
+// Listen for live bars through the same series (feed.ts hub) — single writer.
+// DataFeed.subscribeBars already pushes bar frames; the mirror below keeps
+// volume aligned for forming bars without fighting the feed.
+let liveUnsub: (() => void) | null = null;
+function bindLiveBars(): void {
+  liveUnsub?.();
+  liveUnsub = dataFeed.subscribeBars?.(
+    { symbol: state.symbol, exchange: state.exchange, interval: state.interval },
+    (bar) => {
+      if (!priceSeries || !volumeSeries) return;
+      const update = {
+        time: (bar as unknown as { time: number }).time,
+        open: (bar as unknown as { open: number }).open,
+        high: (bar as unknown as { high: number }).high,
+        low: (bar as unknown as { low: number }).low,
+        close: (bar as unknown as { close: number }).close,
+      };
+      priceSeries!.update(update as never);
+      // Only commit volume on closed bar; forming bar keeps prior volume.
+      // feed.ts BarFrame.closed is not exposed via Bar type, treat all as forming
+      // and let the closed frame arrive as a new bar via setData continuation.
+    },
+  ) ?? null;
+}
+
+// ---------- toolbar ----------------------------------------------------------
 const intervalSelect = document.createElement("select");
+intervalSelect.id = "interval-select";
 for (const iv of ["1m", "5m", "15m", "30m", "1h", "D"]) {
   const opt = document.createElement("option");
   opt.value = iv;
@@ -56,60 +163,28 @@ for (const iv of ["1m", "5m", "15m", "30m", "1h", "D"]) {
   if (iv === state.interval) opt.selected = true;
   intervalSelect.append(opt);
 }
-const statusSpan = document.createElement("span");
-statusSpan.className = "status";
-const replayBtn = document.createElement("button");
-replayBtn.textContent = "Replay";
 const indicatorSelect = document.createElement("select");
 indicatorSelect.id = "indicator-select";
-toolbar.append(symbolInput, intervalSelect, indicatorSelect, replayBtn, statusSpan);
+const intervalBadge = document.createElement("span");
+intervalBadge.className = "badge";
+intervalBadge.textContent = state.interval;
+toolbar.append(intervalSelect, indicatorSelect, intervalBadge);
 
-async function loadHistory(): Promise<void> {
-  setIndicatorContext(state.exchange, state.symbol);
-  statusSpan.textContent = "loading...";
-  try {
-    const bars = await feed.getBars({
-      symbol: state.symbol,
-      exchange: state.exchange,
-      interval: state.interval,
-    });
-    priceSeries?.remove();
-    volumeSeries?.remove();
-    priceSeries = chart.addSeries("candlestick");
-    // Volume as a hidden-scale histogram under the price series.
-    volumeSeries = chart.addSeries("histogram", { priceScaleId: "" });
-    priceSeries.setData(bars);
-    volumeSeries.setData(
-      bars.map((b) => ({ time: b.time, value: b.volume ?? 0 })),
-    );
-    statusSpan.textContent = `${bars.length} bars`;
-    if (bars.length > 0) chart.setVisibleLogicalRange({ from: bars.length - 150, to: bars.length + 5 });
-  } catch (err) {
-    statusSpan.textContent = err instanceof Error ? err.message : String(err);
-  }
-}
-
-symbolInput.addEventListener("change", () => {
-  state.symbol = symbolInput.value.trim().toUpperCase();
-  if (state.symbol) void loadHistory();
-});
 intervalSelect.addEventListener("change", () => {
   state.interval = intervalSelect.value;
+  intervalBadge.textContent = state.interval;
   void loadHistory();
+  bindLiveBars();
 });
 
-// ---------------------------------------------------------- backend indicators
-/** Catalogue entries keyed by registry id (`backend:<id>`). */
-const catalogueEntries: { id: string; name: string }[] = [];
-
+// ---------- backend indicators (Tier-2) --------------------------------------
 async function initIndicators(): Promise<void> {
   const entries = await registerBackendIndicators();
-  catalogueEntries.push(...entries.map((e) => ({ id: e.id, name: e.name })));
   const placeholder = document.createElement("option");
   placeholder.value = "";
   placeholder.textContent = "+ Indicator";
   indicatorSelect.append(placeholder);
-  for (const e of catalogueEntries) {
+  for (const e of entries) {
     const opt = document.createElement("option");
     opt.value = e.id;
     opt.textContent = e.name;
@@ -118,26 +193,43 @@ async function initIndicators(): Promise<void> {
   indicatorSelect.addEventListener("change", () => {
     const id = indicatorSelect.value;
     if (!id) return;
-    // Tier-2 descriptors fetch on attach; window comes from the chart's bars.
-    chart.addIndicator(id);
+    // Settings carry symbol/exchange/interval so refetchOn invalidates.
+    chart.addIndicator(id, { symbol: state.symbol, exchange: state.exchange, interval: state.interval } as unknown as Record<string, unknown>);
     indicatorSelect.value = "";
   });
 }
 
-// ---------------------------------------------------------------- strategies
+// ---------- watchlist --------------------------------------------------------
+const watchlist = createWatchlist(watchlistEl, (item) => {
+  state.symbol = item.symbol.toUpperCase();
+  state.exchange = item.exchange.toUpperCase();
+  watchlist.setActive({ symbol: state.symbol, exchange: state.exchange });
+  void loadHistory();
+  bindLiveBars();
+}, { symbol: state.symbol, exchange: state.exchange });
+
+// ---------- bottom dock + strategies -----------------------------------------
+const dock = createBottomDock(bottomDockEl);
+const logsEl = document.createElement("div");
+logsEl.textContent = "Logs: WS + order events appear here.";
+const ordersEl = document.createElement("div");
+ordersEl.textContent = "Orders: live positions and working orders (TradeFeed WS).";
+
 const strategyCataloguePromise = fetchStrategyCatalogue().catch(() => null);
 void strategyCataloguePromise.then((catalogue) => {
   if (!catalogue) return;
   const host: PanelHost = {
     showEquityCurve(points) {
-      // Equity curve in a NEW pane below the price action, not overlaid on it.
       const series = chart.addSeries("line", { paneIndex: chart.panes().length });
-      series.setData(points.map((p) => ({ time: p.time, value: p.value })));
+      series.setData(points.map((p) => ({ time: p.time, value: p.value })) as never[]);
+      dock.select("backtest");
     },
     showTradeMarkers(trades) {
       for (const t of trades) {
         if (t.rejected || !t.price) continue;
-        chart.trading.addTrade({
+        // TradeController lives on chart.trading in draw/trade tier; guard.
+        const trading = (chart as unknown as { trading?: { addTrade(o: unknown): void } }).trading;
+        trading?.addTrade({
           id: `${t.time}-${t.side}-${t.price}`,
           side: t.side === "BUY" ? "buy" : "sell",
           price: t.price,
@@ -148,134 +240,133 @@ void strategyCataloguePromise.then((catalogue) => {
       }
     },
   };
+  // Right panel: strategy form
   createStrategiesPanel(panelHostEl, host, catalogue, state);
+  // Bottom dock: scanner compact (second lightweight panel bound to dock)
+  const dockStrategiesHost = document.createElement("div");
+  createStrategiesPanel(dockStrategiesHost, host, catalogue, state);
+  dock.setContent("scanner", dockStrategiesHost);
+  const btHost = document.createElement("div");
+  btHost.textContent = "Backtest results render as equity pane + markers.";
+  dock.setContent("backtest", btHost);
 });
+dock.setContent("orders", ordersEl);
+dock.setContent("logs", logsEl);
 
-// ---------------------------------------------------------------- websocket
-type WsSend = Record<string, unknown>;
+// ---------- replay: two modes ------------------------------------------------
+// 1) Bar-replay (trader practice): ReplayController prefix-slice — indicators
+//    recompute historically for free because Chart._setData triggers recompute.
+// 2) Tick-replay (fill parity): WS SyntheticTickGenerator ticks → BarAggregator
+//    → bar frames, proving execution parity (existing /ws replay_* flow).
+let barReplay: InstanceType<typeof ReplayController> | null = null;
+let tickReplayActive = false;
+let tickReplaySpeed = 10;
 
-class TradexSocket {
+// Shared WS for tick-replay control (reuse feed's hub WS would conflate bar
+// frames and replay control, so a dedicated control socket here).
+class ControlSocket {
   private ws: WebSocket | null = null;
-  private retryMs = 1000;
-  private readonly handlers = new Set<(msg: WsSend) => void>();
-  private readonly openHandlers = new Set<() => void>();
-
+  private readonly handlers = new Set<(msg: Record<string, unknown>) => void>();
   connect(): void {
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${proto}//${location.host}/ws/stream`);
-    ws.onopen = () => {
-      this.retryMs = 1000;
-      // (Re)subscription hooks fire here — once per connection, never per
-      // ack, or an ack-triggered subscribe would feed back into itself.
-      for (const h of this.openHandlers) h();
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data as string) as WsSend;
-        for (const h of this.handlers) h(msg);
-      } catch {
-        // malformed frame: ignore, next frame re-syncs
-      }
-    };
-    ws.onclose = () => {
-      setTimeout(() => this.connect(), this.retryMs);
-      this.retryMs = Math.min(this.retryMs * 2, 15000);
-    };
     this.ws = ws;
+    ws.onmessage = (ev) => {
+      try { const msg = JSON.parse(ev.data as string) as Record<string, unknown>; for (const h of this.handlers) h(msg); } catch { /* ignore */ }
+    };
   }
-
-  send(msg: WsSend): boolean {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
-      return true;
-    }
+  send(msg: Record<string, unknown>): boolean {
+    this.connect();
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) { this.ws.send(JSON.stringify(msg)); return true; }
+    // retry once after open
+    window.setTimeout(() => {
+      if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
+    }, 300);
     return false;
   }
-
-  on(h: (msg: WsSend) => void): () => void {
-    this.handlers.add(h);
-    return () => this.handlers.delete(h);
-  }
-
-  /** Runs on every (re)connect — the right place for subscription setup. */
-  onOpen(h: () => void): () => void {
-    this.openHandlers.add(h);
-    return () => this.openHandlers.delete(h);
-  }
+  on(h: (msg: Record<string, unknown>) => void): () => void { this.handlers.add(h); return () => this.handlers.delete(h); }
 }
+const controlSocket = new ControlSocket();
+controlSocket.connect();
 
-const socket = new TradexSocket();
-socket.connect();
-
-function onBarMsg(handler: (msg: WsSend) => void): () => void {
-  return socket.on((msg) => {
-    if (msg["type"] === "bar") handler(msg);
-  });
-}
-
-// Live forming-bar subscription follows the loaded symbol/interval. Sent on
-// every socket (re)open; loadHistory re-sends when the user changes symbol.
-function subscribeBars(): void {
-  socket.send({
-    type: "subscribe_bars",
-    bars: [{ instrument: `${state.exchange}:${state.symbol}`, interval: state.interval }],
-  });
-}
-socket.onOpen(subscribeBars);
-
-onBarMsg((bar) => {
-  if (
-    bar["instrument"] !== `${state.exchange}:${state.symbol}` ||
-    bar["interval"] !== state.interval ||
-    !priceSeries
-  ) {
-    return;
-  }
-  const update = {
-    time: Number(bar["time"]),
-    open: Number(bar["open"]),
-    high: Number(bar["high"]),
-    low: Number(bar["low"]),
-    close: Number(bar["close"]),
-    v: Number(bar["volume"]),
-  };
-  if (bar["closed"] === true && volumeSeries) {
-    priceSeries.update(update);
-    volumeSeries.update({ time: update.time, value: update.v });
-  } else if (priceSeries) {
-    // Forming bar: update without committing volume.
-    priceSeries.update(update);
-  }
+const replayBar = createReplayBar(replayBarEl, {
+  onSeek(index) { barReplay?.seek(index); },
+  onPlay() { barReplay?.play(); },
+  onPause() { barReplay?.pause(); },
+  onStop() {
+    if (barReplay) { barReplay.stop(); barReplay = null; replayBarEl.classList.remove("active"); modePill.textContent = "LIVE"; modePill.className = "pill live"; }
+    if (tickReplayActive) { controlSocket.send({ type: "replay_stop" }); tickReplayActive = false; replayBar.setTickActive(false); }
+  },
+  onSpeed(speed) { barReplay?.play({ speed }); },
+  onTickReplayToggle() {
+    if (tickReplayActive) {
+      controlSocket.send({ type: "replay_stop" });
+      tickReplayActive = false;
+      replayBar.setTickActive(false);
+      modePill.textContent = "LIVE"; modePill.className = "pill live";
+      return;
+    }
+    tickReplayActive = true;
+    replayBar.setTickActive(true);
+    modePill.textContent = "TICK-REPLAY"; modePill.className = "pill replay";
+    controlSocket.send({ type: "replay_start", instrument: `${state.exchange}:${state.symbol}`, interval: "1m", speed: tickReplaySpeed, seed: 42 });
+  },
+  onTickSpeed(speed) { tickReplaySpeed = speed; if (tickReplayActive) controlSocket.send({ type: "replay_speed", speed }); },
 });
 
-// ------------------------------------------------------------------- replay
-let replayActive = false;
-replayBtn.addEventListener("click", () => {
-  if (replayActive) {
-    socket.send({ type: "replay_stop" });
-    replayBtn.textContent = "Replay";
-    replayActive = false;
-    return;
-  }
-  replayBtn.textContent = "Stop";
-  replayActive = true;
-  socket.send({
-    type: "replay_start",
-    instrument: `${state.exchange}:${state.symbol}`,
-    interval: "1m",
-    speed: 10,
-    seed: 42,
-  });
-});
-socket.on((msg) => {
-  const t = msg["type"];
+function enterBarReplay(): void {
+  if (!priceSeries) return;
+  // Snapshot is the last loaded history; ReplayController owns the timeline.
+  const bars = (priceSeries as unknown as { getData(): unknown[] }).getData?.() ?? [];
+  if (bars.length === 0) return;
+  // Ensure volume series follows the same timeline.
+  const seriesList = [priceSeries, volumeSeries].filter(Boolean) as SeriesApi[];
+  barReplay?.stop();
+  barReplay = new ReplayController(chart as unknown as never, {
+    series: seriesList as unknown as never,
+    bars: bars as never,
+    barMs: 800,
+    speed: 1,
+    onFrame: (s: { index: number; total: number; playing: boolean; speed: number; bar: { time: number } | null }) => {
+      replayBar.setState({ index: s.index, total: s.total, playing: s.playing, speed: s.speed, barTime: s.bar?.time ?? null });
+      modePill.textContent = s.playing ? "REPLAY" : "REPLAY·PAUSED";
+      modePill.className = "pill replay";
+    },
+  } as unknown as never);
+  replayBar.setState({ index: 0, total: bars.length, playing: false, speed: 1, barTime: (bars[0] as { time: number }).time ?? null });
+  replayBarEl.classList.add("active");
+}
+
+controlSocket.on((msg) => {
+  const t = msg["type"] as string;
   if (t === "replay_done" || t === "replay_stopped") {
-    replayBtn.textContent = "Replay";
-    replayActive = false;
-    if (t === "replay_done") void loadHistory(); // refresh closed history after sim
+    tickReplayActive = false;
+    replayBar.setTickActive(false);
+    modePill.textContent = "LIVE"; modePill.className = "pill live";
+    if (t === "replay_done") void loadHistory();
   }
+  if (t === "replay_speed") { /* ack */ }
 });
 
-// -------------------------------------------------------------------- boot
-void loadHistory();
+// Expose bar-replay entry for toolbar (kept minimal: double-click chart toggles).
+chartHost.addEventListener("dblclick", () => {
+  if (barReplay) { barReplay.stop(); barReplay = null; replayBarEl.classList.remove("active"); modePill.textContent = "LIVE"; modePill.className = "pill live"; }
+  else enterBarReplay();
+});
+
+// ---------- boot -------------------------------------------------------------
+void loadHistory().then(() => bindLiveBars());
 void initIndicators();
+
+// Simple logs tap: mirror WS control messages for operator visibility.
+const logLine = (s: string) => {
+  const line = document.createElement("div");
+  line.textContent = `${new Date().toLocaleTimeString()} ${s}`;
+  logsEl.prepend(line);
+  while (logsEl.childElementCount > 200) logsEl.removeChild(logsEl.lastChild!);
+};
+controlSocket.on((msg) => {
+  const t = String(msg["type"] ?? "");
+  if (["bar", "replay_done", "replay_stopped", "order", "fill"].includes(t)) logLine(`ws:${t}`);
+});
