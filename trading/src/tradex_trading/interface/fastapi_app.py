@@ -407,9 +407,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="No session bound")
         try:
             from tradex_brokers.common.provider_common import instrument_from_id
-            from tradex_domain.instruments import Equity
             from tradex_domain.value_objects import InstrumentId
-            
+
             # Resolve instrument from exchange:symbol
             iid = InstrumentId.parse(f"{exchange}:{symbol}")
             instrument = instrument_from_id(iid)
@@ -585,27 +584,53 @@ def create_app(
         dropped: list[int] = [0]  # closure cell — incremented by producers
 
         async def _writer() -> None:
-            """Drain control first, then ticks; exit when the socket closes."""
+            """Drain control first, then ticks; exit when the socket closes.
+
+            Regression guard: with ``asyncio.wait(FIRST_COMPLETED)`` over two
+            non-empty queues, BOTH getter tasks complete at once. Popping a
+            single ``done`` future discarded the other's already-dequeued
+            message — observed as lost ``replay_stopped`` acks under a bar
+            flood, and able to drop order/fill controls during any tick
+            storm. Consume every completed getter and send control first.
+            """
+            async def _get_tagged(
+                q: asyncio.Queue[dict[str, Any]], priority: int
+            ) -> tuple[int, dict[str, Any]]:
+                return (priority, await q.get())
+
             while True:
+                batch: list[tuple[int, dict[str, Any]]] = []
+                # Strict priority for anything already queued: control first.
                 try:
-                    payload = control.get_nowait()
+                    while True:
+                        batch.append((0, control.get_nowait()))
                 except asyncio.QueueEmpty:
-                    tick_get = asyncio.create_task(ticks.get())
-                    ctrl_get = asyncio.create_task(control.get())
+                    pass
+                try:
+                    while True:
+                        batch.append((1, ticks.get_nowait()))
+                except asyncio.QueueEmpty:
+                    pass
+                if not batch:
+                    t_get = asyncio.create_task(_get_tagged(ticks, 1))
+                    c_get = asyncio.create_task(_get_tagged(control, 0))
                     try:
                         done, _pending = await asyncio.wait(
-                            {tick_get, ctrl_get},
+                            {t_get, c_get},
                             return_when=asyncio.FIRST_COMPLETED,
                         )
-                        payload = done.pop().result()
+                        for fut in done:
+                            batch.append(fut.result())
                     finally:
-                        for fut in (tick_get, ctrl_get):
+                        for fut in (t_get, c_get):
                             if not fut.done():
                                 fut.cancel()
-                try:
-                    await ws.send_json(payload)
-                except Exception:  # socket closed; receive loop cleans up
-                    return
+                batch.sort(key=lambda item: item[0])
+                for _, payload in batch:
+                    try:
+                        await ws.send_json(payload)
+                    except Exception:  # socket closed; receive loop cleans up
+                        return
 
         writer_task = asyncio.create_task(_writer())
 
@@ -851,6 +876,7 @@ def create_app(
 
             def _make_aggregator(inst_id: str, interval: str) -> Any:
                 from tradex_domain.enums import Timeframe
+
                 from tradex_trading.runtime.bar_aggregator import BarAggregator
 
                 return BarAggregator(
@@ -865,7 +891,6 @@ def create_app(
                 ts = quote.timestamp if quote.timestamp is not None else None
                 if ts is None:
                     return
-                from datetime import datetime as _dt
                 from zoneinfo import ZoneInfo
 
                 ist = ZoneInfo("Asia/Kolkata")
@@ -886,7 +911,10 @@ def create_app(
             async def _subscribe_bars(msg: dict[str, Any]) -> None:
                 raw = msg.get("bars") or msg.get("instruments")
                 if not isinstance(raw, list) or not raw:
-                    _ack({"type": "error", "message": "subscribe_bars needs 'bars': [{instrument, interval}]"})
+                    _ack({
+                        "type": "error",
+                        "message": "subscribe_bars needs 'bars': [{instrument, interval}]",
+                    })
                     return
                 added: list[tuple[str, str]] = []
                 for item in raw:
@@ -945,8 +973,8 @@ def create_app(
                 async def _run() -> None:
                     from zoneinfo import ZoneInfo
 
-                    from tradex_trading.replay.synthetic_ticks import SyntheticTickGenerator
                     from tradex_trading.reactive.bus import ReactiveBus
+                    from tradex_trading.replay.synthetic_ticks import SyntheticTickGenerator
 
                     mini_bus = ReactiveBus()
                     ist = ZoneInfo("Asia/Kolkata")
@@ -981,10 +1009,13 @@ def create_app(
                     mini_bus.of_type(Quote).subscribe(_on_sim_quote)
 
                     # Load the requested window from the datalake and drive it.
+                    from datetime import datetime as _dt
+                    from datetime import timedelta as _td
+
                     from tradex_brokers.common.market_builders import candles_from_dataframe
                     from tradex_domain.enums import Timeframe as _TF
+
                     from tradex_trading.datalake.parquet_storage import ParquetStorage
-                    from datetime import datetime as _dt, timedelta as _td
 
                     store = ParquetStorage("data/")
                     symbol = instrument.split(":")[-1]
@@ -1004,9 +1035,14 @@ def create_app(
                             _ack({"type": "error", "message": f"no datalake history for {symbol}"})
                             return
                         to_dt = hi
-                        df = store.read(symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt)
+                        df = store.read(
+                            symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt
+                        )
                     if df.empty:
-                        _ack({"type": "error", "message": f"no datalake history in last {minutes}m for {symbol}"})
+                        _ack({
+                            "type": "error",
+                            "message": f"no datalake history in last {minutes}m for {symbol}",
+                        })
                         return
                     from tradex_domain.instruments import Equity
 

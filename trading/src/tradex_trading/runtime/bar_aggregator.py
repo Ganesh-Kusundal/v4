@@ -15,9 +15,8 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
-from typing import Any
 
 from tradex_domain.enums import Timeframe
 
@@ -66,11 +65,11 @@ class _Bucket:
 
     __slots__ = ("start", "open", "high", "low", "close", "volume")
 
-    def __init__(self, start: datetime, o: float, h: float, l: float, c: float, v: float) -> None:
+    def __init__(self, start: datetime, o: float, h: float, low: float, c: float, v: float) -> None:
         self.start = start
         self.open = o
         self.high = h
-        self.low = l
+        self.low = low
         self.close = c
         self.volume = v
 
@@ -109,7 +108,12 @@ class BarAggregator:
 
     # ------------------------------------------------------------------ input
 
-    def on_quote(self, ts_ist: datetime, price: Decimal | float, volume: Decimal | float | None) -> None:
+    def on_quote(
+        self,
+        ts_ist: datetime,
+        price: Decimal | float,
+        volume: Decimal | float | None,
+    ) -> None:
         """Feed one trade print (IST-naive timestamp like the datalake)."""
         p = float(price)
         v = float(volume) if volume is not None else 0.0

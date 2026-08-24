@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tradex_domain.capabilities import BrokerCapabilities, require_capability
+
+if TYPE_CHECKING:
+    from tradex_domain.events import OrderCancelled, OrderModified
 from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.events import OrderFilled
 from tradex_domain.market import Depth, Quote

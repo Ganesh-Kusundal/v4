@@ -17,10 +17,10 @@ from typing import Any
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
-from tradex_domain.market import Candle, Depth, OHLC
+from tradex_domain.market import OHLC, Candle, Depth
+from tradex_domain.value_objects import Price, Quantity
 
 from tradex_brokers.common.provider_common import as_decimal, as_price
-from tradex_domain.value_objects import Price, Quantity
 
 
 def make_candle(
@@ -84,16 +84,33 @@ def build_depth(
 
     def _level(d: dict[str, Any]) -> tuple[Price, Quantity]:
         q = d.get(qty_key, 0)
-        return as_price(d.get(price_key)), Quantity(value=as_decimal(str(q) if q is not None else 0))
+        raw_qty = str(q) if q is not None else 0
+        return as_price(d.get(price_key)), Quantity(value=as_decimal(raw_qty))
 
     if depth_data is not None:
         bids_raw = [x for x in depth_data.get("buy", []) if isinstance(x, dict)]
         asks_raw = [x for x in depth_data.get("sell", []) if isinstance(x, dict)]
     bids_raw = bids_raw or []
     asks_raw = asks_raw or []
-    bids = tuple(sorted((_level(x) for x in bids_raw if isinstance(x, dict)), key=lambda lv: lv[0].value, reverse=True))
-    asks = tuple(sorted((_level(x) for x in asks_raw if isinstance(x, dict)), key=lambda lv: lv[0].value))
-    return Depth(instrument=instrument, bids=bids, asks=asks, timestamp=timestamp or datetime.now(UTC))
+    bids = tuple(
+        sorted(
+            (_level(x) for x in bids_raw if isinstance(x, dict)),
+            key=lambda lv: lv[0].value,
+            reverse=True,
+        )
+    )
+    asks = tuple(
+        sorted(
+            (_level(x) for x in asks_raw if isinstance(x, dict)),
+            key=lambda lv: lv[0].value,
+        )
+    )
+    return Depth(
+        instrument=instrument,
+        bids=bids,
+        asks=asks,
+        timestamp=timestamp or datetime.now(UTC),
+    )
 
 
 __all__ = ["build_depth", "candles_from_dataframe", "make_candle"]

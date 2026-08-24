@@ -8,12 +8,11 @@ backtesting run offline over the full Nifty universe.
 
 from __future__ import annotations
 
-import pandas as pd
-
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 from tradex_domain.enums import Timeframe
 from tradex_domain.market import Candle, HistoricalSeries
 

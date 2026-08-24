@@ -98,8 +98,8 @@ async def ws_checks() -> None:
                     continue
         except asyncio.TimeoutError:
             silent = True
-        check("ws.replay_stop honored", stopped or silent,
-              "ack received" if stopped else "no further frames (stopped silently)")
+        check("ws.replay_stop ack", stopped,
+              "ack received" if stopped else "no ack within drain window")
 
 
 def main() -> int:

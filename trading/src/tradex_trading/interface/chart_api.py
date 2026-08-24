@@ -18,7 +18,6 @@ from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
-
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
 
@@ -223,7 +222,10 @@ def create_chart_router(session: Any | None) -> APIRouter:
         """
         from tradex_trading.datalake.universe import load_universe
 
-        members = [{"symbol": i.symbol, "exchange": str(i.exchange.value)} for i in load_universe(universe)]
+        members = [
+            {"symbol": i.symbol, "exchange": str(i.exchange.value)}
+            for i in load_universe(universe)
+        ]
         results = members
         if q:
             needle = q.strip().upper()
@@ -394,7 +396,8 @@ def create_chart_router(session: Any | None) -> APIRouter:
         orders = []
         for o in raw_orders or []:
             try:
-                filled = float(o.filled_quantity.value) if getattr(o, "filled_quantity", None) else 0.0
+                filled_q = getattr(o, "filled_quantity", None)
+                filled = float(filled_q.value) if filled_q else 0.0
                 trigger = (
                     float(o.trigger_price.value)
                     if getattr(o, "trigger_price", None) is not None
@@ -531,7 +534,11 @@ def create_chart_router(session: Any | None) -> APIRouter:
         ist = ZoneInfo(_IST)
 
         def _fill_time(ts: datetime) -> int:
-            naive = ts.replace(tzinfo=None) if ts.tzinfo is None else ts.astimezone(ist).replace(tzinfo=None)
+            naive = (
+                ts.replace(tzinfo=None)
+                if ts.tzinfo is None
+                else ts.astimezone(ist).replace(tzinfo=None)
+            )
             return _ist_to_utc_seconds(naive)
 
         trades = [
@@ -572,7 +579,6 @@ def create_chart_router(session: Any | None) -> APIRouter:
 
         from tradex_trading.datalake.market_provider import BulkPrefetchMarketProvider
         from tradex_trading.strategy.core.scanner import ScannerEngine
-        from tradex_trading.strategy.extensions import all_scanners
         from tradex_trading.strategy.extensions import scanners as scanners_pkg
 
         scanner_id = str(body.get("id", ""))

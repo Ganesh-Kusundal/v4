@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
 NumericValue = float | Decimal
 
@@ -201,9 +204,9 @@ def true_ranges(candles: list) -> list[float | None]:
     out: list[float | None] = [None]
     for i in range(1, len(candles)):
         h = _to_float(candles[i].ohlc.high.value)
-        l = _to_float(candles[i].ohlc.low.value)
+        low = _to_float(candles[i].ohlc.low.value)
         pc = _to_float(candles[i - 1].ohlc.close.value)
-        out.append(max(h - l, abs(h - pc), abs(l - pc)))
+        out.append(max(h - low, abs(h - pc), abs(low - pc)))
     return out
 
 
@@ -331,9 +334,9 @@ def supertrend(candles: list, period: int = 10, multiplier: float = 3.0) -> dict
         if a is None:
             continue
         h = _to_float(candles[i].ohlc.high.value)
-        l = _to_float(candles[i].ohlc.low.value)
+        low = _to_float(candles[i].ohlc.low.value)
         c = _to_float(candles[i].ohlc.close.value)
-        mid = (h + l) / 2.0
+        mid = (h + low) / 2.0
         ub = mid + multiplier * a
         lb = mid - multiplier * a
         if not started:
@@ -395,9 +398,6 @@ def vwap_session(candles: list) -> list[float | None]:
 # indicator menu from this catalogue; adding an entry here is the entire
 # act of shipping a new indicator to the UI.
 # ---------------------------------------------------------------------------
-
-from dataclasses import dataclass, field  # noqa: E402
-from typing import Any, Callable  # noqa: E402
 
 
 @dataclass(frozen=True, slots=True)

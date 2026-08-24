@@ -171,5 +171,76 @@ class TestReplayControl:
             assert resp["type"] == "error"
 
 
+class TestWriterControlUnderFlood:
+    """Regression: the outbound writer used ``done.pop()`` on
+    asyncio.wait(FIRST_COMPLETED) over two non-empty queues, discarding the
+    other getter's already-dequeued message. Under a bar flood that silently
+    ate control messages (replay_stopped acks; potentially order/fill).
+    The writer must consume EVERY completed getter and deliver all of them,
+    control priority first."""
+
+    def test_stats_acks_survive_concurrent_bar_flood(self):
+        import time as _time
+        from datetime import datetime, timedelta
+        from decimal import Decimal
+        from zoneinfo import ZoneInfo
+
+        from tradex_domain.enums import Timeframe
+        from tradex_domain.instruments import Equity
+        from tradex_domain.market import Quote
+        from tradex_domain.value_objects import Price
+
+        bus = ReactiveBus()
+        session = MagicMock()
+        session.state = "READY"
+        session.bus = bus
+        app = create_app(session=session)
+
+        ist = ZoneInfo("Asia/Kolkata")
+        base = datetime(2026, 7, 15, 10, 0).replace(tzinfo=ist)
+        inst = Equity.of("NSE", "TEST")
+        STATS = 20
+
+        with TestClient(app).websocket_connect("/ws/stream") as ws:
+            ws.send_json({
+                "type": "subscribe_bars",
+                "bars": [{"instrument": "NSE:TEST", "interval": "1m"}],
+            })
+            assert ws.receive_json()["type"] == "subscribed_bars"
+
+            # Interleave bucket-crossing quote bursts (tick frames) with stats
+            # requests (control frames) so both queues hold data at once.
+            stats_sent = 0
+            for block in range(STATS // 2):
+                for j in range(6):
+                    i = block * 6 + j
+                    bus.publish(Quote(
+                        instrument=inst,
+                        ltp=Price(Decimal(str(100 + i))),
+                        timestamp=base + timedelta(minutes=i + 1, seconds=5),
+                    ))
+                _time.sleep(0.02)
+                ws.send_json({"type": "stats"})
+                stats_sent += 1
+                ws.send_json({"type": "stats"})
+                stats_sent += 1
+
+            # Read everything; every stats request must come back.
+            ws._receive_timeout = 15  # TestClient session read guard
+            deadline = __import__("time").monotonic() + 15
+            got_stats = 0
+            saw_bar = False
+            while got_stats < stats_sent and __import__("time").monotonic() < deadline:
+                msg = ws.receive_json()
+                if msg["type"] == "stats":
+                    got_stats += 1
+                elif msg["type"] == "bar":
+                    saw_bar = True
+            assert saw_bar, "no bar frames flowed - flood did not engage"
+            assert got_stats == stats_sent, (
+                f"control loss: {got_stats}/{stats_sent} stats acks survived"
+            )
+
+
 def _unused(*a):  # pragma: no cover — keeps json import referenced if edits drift
     json.dumps({})

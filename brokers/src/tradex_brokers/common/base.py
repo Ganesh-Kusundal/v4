@@ -384,12 +384,12 @@ class BaseBroker:
         lookback_days: int | None = None,
     ) -> HistoricalSeries:
         """Get historical data.
-        
+
         Canonical: history(inst, timeframe, start, end).
         Convenience: history(inst, interval="5m", lookback_days=5).
         """
         from tradex_domain.enums import Timeframe
-        
+
         if interval is not None:
             timeframe = Timeframe(interval)
         if timeframe is None:

@@ -21,13 +21,20 @@ from tradex_domain.enums import Timeframe
 
 # canon -> {dhan_interval, upstox_unit, upstox_interval, bucket_seconds, is_intraday}
 _TIMEFRAMES: dict[str, dict[str, object]] = {
-    "1m": {"dhan": "1", "upstox_unit": "minutes", "upstox_interval": "1", "seconds": 60, "intraday": True},
-    "5m": {"dhan": "5", "upstox_unit": "minutes", "upstox_interval": "5", "seconds": 300, "intraday": True},
-    "15m": {"dhan": "15", "upstox_unit": "minutes", "upstox_interval": "15", "seconds": 900, "intraday": True},
-    "30m": {"dhan": None, "upstox_unit": "minutes", "upstox_interval": "30", "seconds": 1800, "intraday": True},
-    "1h": {"dhan": "60", "upstox_unit": "hours", "upstox_interval": "1", "seconds": 3600, "intraday": True},
-    "1d": {"dhan": None, "upstox_unit": "days", "upstox_interval": "1", "seconds": 86400, "intraday": False},
-    "1w": {"dhan": None, "upstox_unit": "weeks", "upstox_interval": "1", "seconds": 604800, "intraday": False},
+    "1m": {"dhan": "1", "upstox_unit": "minutes",
+       "upstox_interval": "1", "seconds": 60, "intraday": True},
+    "5m": {"dhan": "5", "upstox_unit": "minutes",
+       "upstox_interval": "5", "seconds": 300, "intraday": True},
+    "15m": {"dhan": "15", "upstox_unit": "minutes",
+        "upstox_interval": "15", "seconds": 900, "intraday": True},
+    "30m": {"dhan": None, "upstox_unit": "minutes",
+        "upstox_interval": "30", "seconds": 1800, "intraday": True},
+    "1h": {"dhan": "60", "upstox_unit": "hours",
+       "upstox_interval": "1", "seconds": 3600, "intraday": True},
+    "1d": {"dhan": None, "upstox_unit": "days",
+       "upstox_interval": "1", "seconds": 86400, "intraday": False},
+    "1w": {"dhan": None, "upstox_unit": "weeks",
+       "upstox_interval": "1", "seconds": 604800, "intraday": False},
 }
 
 _TF_BY_VALUE: dict[str, Timeframe] = {
@@ -40,7 +47,9 @@ _SECONDS_BY_TF: dict[Timeframe, int] = {
     Timeframe.H1: 3600, Timeframe.D1: 86400, Timeframe.W1: 604800,
 }
 
-DHAN_INTRADAY: frozenset[Timeframe] = frozenset({Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1})
+DHAN_INTRADAY: frozenset[Timeframe] = frozenset(
+    {Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1}
+)
 UPSTOX_MINUTE: frozenset[Timeframe] = frozenset({Timeframe.M1, Timeframe.M5, Timeframe.M15})
 
 

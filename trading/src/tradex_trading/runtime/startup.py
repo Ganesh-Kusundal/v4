@@ -11,8 +11,8 @@ into the session's ``ScannerService`` (via ``scanner_definitions``).
 
 from __future__ import annotations
 
-import logging
 import atexit
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -405,11 +405,11 @@ def _boot_tail(
     market_feed: Any = None
     master_scheduler: Any = None
     if cfg.mode == "live":
+        from tradex_trading.runtime.market_feed import MarketFeed
         from tradex_trading.runtime.master_lifecycle import (
             InstrumentRefreshScheduler,
             MasterLoader,
         )
-        from tradex_trading.runtime.market_feed import MarketFeed
 
         market_feed = MarketFeed(broker=broker, bus=bus)
         loader = getattr(broker, "master_loader", None)

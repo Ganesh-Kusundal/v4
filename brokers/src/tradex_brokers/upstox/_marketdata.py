@@ -5,14 +5,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.errors import CapabilityNotSupportedError, SDKError
 from tradex_domain.instruments import Instrument, Option
 from tradex_domain.market import OHLC, Candle, Depth, HistoricalSeries, Quote
 from tradex_domain.options import Expiry, OptionChain, OptionPair
-from tradex_domain.value_objects import InstrumentId, Price, Quantity
+from tradex_domain.value_objects import InstrumentId, Price
 
 if TYPE_CHECKING:
     from tradex_brokers.upstox._facade import UptoxFacade
@@ -20,7 +20,6 @@ if TYPE_CHECKING:
 
 from tradex_brokers.common.client_shared import parse_timestamp_fallback
 from tradex_brokers.common.provider_common import (
-    as_decimal,
     as_price,
     parse_date,
     provider_key,

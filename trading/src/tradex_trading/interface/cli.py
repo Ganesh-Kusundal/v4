@@ -77,8 +77,9 @@ def _build_parser() -> argparse.ArgumentParser:
     serve_parser.add_argument(
         "--broker",
         default="PAPER",
+        type=str.upper,
         choices=["PAPER", "DHAN", "UPSTOX"],
-        help="Broker to serve (default PAPER; live brokers require credentials)",
+        help="Broker to serve, case-insensitive (default PAPER; live brokers require credentials)",
     )
     serve_parser.add_argument(
         "--api-key", default=None, help="Optional API key required on requests"

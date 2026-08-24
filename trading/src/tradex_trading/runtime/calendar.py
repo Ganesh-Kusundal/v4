@@ -5,7 +5,7 @@ Provides trading day detection and market hours for Indian exchanges.
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 

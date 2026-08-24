@@ -41,9 +41,7 @@ from tradex_brokers.common.endpoints import (
     UPSTOX_REST_BASE_URL,
     UPSTOX_V3_BASE_URL,
 )
-
 from tradex_brokers.common.provider_client import ProviderHttpClient
-from tradex_brokers.common.streaming import NullStreamBackend
 from tradex_brokers.common.provider_common import (
     as_decimal,
     as_price,
@@ -52,6 +50,7 @@ from tradex_brokers.common.provider_common import (
     provider_key,
     unwrap_data,
 )
+from tradex_brokers.common.streaming import NullStreamBackend
 from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 from tradex_brokers.upstox._admin import AdminMixin
 from tradex_brokers.upstox._alerts import AlertsMixin

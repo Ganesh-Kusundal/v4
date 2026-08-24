@@ -7,29 +7,34 @@ facade owns shared state and internal helpers.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument, Option
-from tradex_domain.market import OHLC, Candle, Depth, HistoricalSeries, Quote
+from tradex_domain.market import Depth, HistoricalSeries, Quote
+from tradex_domain.market_calendar import (
+    DHAN_SESSION_CLOSE as _SESSION_CLOSE,
+)
+from tradex_domain.market_calendar import (
+    DHAN_SESSION_OPEN as _SESSION_OPEN,
+)
+from tradex_domain.market_calendar import (
+    MARKET_CLOSE_STR as _DEFAULT_SESSION_CLOSE,
+)
+from tradex_domain.market_calendar import (
+    MARKET_OPEN_STR as _DEFAULT_SESSION_OPEN,
+)
 from tradex_domain.options import Expiry, OptionChain, OptionPair
-from tradex_domain.value_objects import InstrumentId, Price, Quantity
+from tradex_domain.value_objects import InstrumentId, Price
 
 from tradex_brokers.common.client_shared import parse_timestamp_fallback
 from tradex_brokers.common.provider_common import (
-    as_decimal,
     as_price,
     parse_date,
     require_success,
     unwrap_data,
-)
-from tradex_domain.market_calendar import (
-    DHAN_SESSION_CLOSE as _SESSION_CLOSE,
-    DHAN_SESSION_OPEN as _SESSION_OPEN,
-    MARKET_CLOSE_STR as _DEFAULT_SESSION_CLOSE,
-    MARKET_OPEN_STR as _DEFAULT_SESSION_OPEN,
 )
 
 if TYPE_CHECKING:

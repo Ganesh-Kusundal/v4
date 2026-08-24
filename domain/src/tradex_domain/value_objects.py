@@ -51,7 +51,11 @@ class InstrumentId:
         if exchange not in valid:
             raise ValueError(f"Invalid exchange: {self.exchange!r}")
         object.__setattr__(self, "exchange", exchange)
-        object.__setattr__(self, "underlying", normalize_symbol(self.underlying, strip_provider_suffixes=False))
+        object.__setattr__(
+            self,
+            "underlying",
+            normalize_symbol(self.underlying, strip_provider_suffixes=False),
+        )
         if self.strike is not None and not isinstance(self.strike, Decimal):
             object.__setattr__(self, "strike", Decimal(str(self.strike)))
         if self.right is not None:
