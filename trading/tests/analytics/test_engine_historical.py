@@ -169,3 +169,125 @@ class TestWithClose:
         assert float(result.candles[1].ohlc.close.value) == pytest.approx(99.0)
         # Other OHLC fields preserved
         assert result.candles[0].ohlc.open == series.candles[-2].ohlc.open
+
+
+# ---------------------------------------------------------------------------
+# indicator_values() — two-tier resolution (native fast-path + registry
+# fallback).  All 11 registered indicators must resolve here.
+# ---------------------------------------------------------------------------
+
+# 5 native indicators (fast-path via _INDICATORS dict)
+_NATIVE_INDICATORS = ["sma", "ema", "rsi", "roc", "macd"]
+
+# 6 registry-fallback indicators (compute_indicator / IndicatorSpec)
+_REGISTRY_INDICATORS = ["bollinger", "atr", "vwap", "obv", "stochastic", "supertrend"]
+
+# All 11 registered indicators usable as scanner conditions
+ALL_INDICATORS = _NATIVE_INDICATORS + _REGISTRY_INDICATORS
+
+
+class TestIndicatorValues:
+    """AnalyticsEngine.indicator_values — all 11 indicators resolve and return
+    raw values aligned to the series tail (None = warmup)."""
+
+    @pytest.mark.parametrize("name", ALL_INDICATORS)
+    def test_all_11_indicators_return_non_none_tail(self, name: str) -> None:
+        """Every registered indicator must produce a computed value at the tail."""
+        engine = AnalyticsEngine()
+        series = _series([float(i) for i in range(1, 31)])
+        values = engine.indicator_values(series, name)
+        assert len(values) == 30
+        assert values[-1] is not None
+
+    @pytest.mark.parametrize("name", ALL_INDICATORS)
+    def test_returns_raw_floats_not_wrapped(self, name: str) -> None:
+        engine = AnalyticsEngine()
+        series = _series([float(i) for i in range(1, 31)])
+        values = engine.indicator_values(series, name)
+        assert isinstance(values, list)
+        # tail is a plain float (Price-wrapping happens only in indicator())
+        assert isinstance(values[-1], float)
+
+    @pytest.mark.parametrize("name", _NATIVE_INDICATORS)
+    def test_native_fast_path(self, name: str) -> None:
+        """Native indicators use the _INDICATORS dict fast-path."""
+        engine = AnalyticsEngine()
+        series = _series([float(i) for i in range(1, 31)])
+        values = engine.indicator_values(series, name)
+        # The native path reads closes from candles and calls func(closes, period)
+        assert values[-1] is not None
+
+    def test_registry_fallback_bollinger_returns_first_plot(self) -> None:
+        """Multi-plot bollinger (upper/middle/lower) → engine returns first
+        plot, which is 'upper'."""
+        from tradex_trading.analytics.indicators import bollinger
+
+        engine = AnalyticsEngine()
+        closes = [float(i) for i in range(1, 31)]
+        series = _series(closes)
+        values = engine.indicator_values(series, "bollinger", period=20, num_std=2.0)
+        direct = bollinger(closes, period=20, num_std=2.0)
+        # First declared plot of bollinger is "upper"
+        assert values[-1] == pytest.approx(direct["upper"][-1])
+
+    def test_registry_fallback_stochastic_returns_first_plot(self) -> None:
+        """Multi-plot stochastic (k/d) → engine returns first plot, 'k'."""
+        from tradex_trading.analytics.indicators import stochastic
+
+        engine = AnalyticsEngine()
+        series = _series([float(i) for i in range(1, 31)])
+        values = engine.indicator_values(
+            series, "stochastic", k_period=14, d_period=3
+        )
+        direct = stochastic(series.candles, k_period=14, d_period=3)
+        assert values[-1] == pytest.approx(direct["k"][-1])
+
+    def test_registry_fallback_supertrend_returns_first_plot(self) -> None:
+        """Multi-plot supertrend (line/direction) → engine returns 'line'."""
+        from tradex_trading.analytics.indicators import supertrend
+
+        engine = AnalyticsEngine()
+        series = _series([float(i) for i in range(1, 31)])
+        values = engine.indicator_values(
+            series, "supertrend", period=10, multiplier=3.0
+        )
+        direct = supertrend(series.candles, period=10, multiplier=3.0)
+        assert values[-1] == pytest.approx(direct["line"][-1])
+
+    def test_native_sma_matches_direct_function(self) -> None:
+        engine = AnalyticsEngine()
+        closes = [float(i) for i in range(1, 31)]
+        series = _series(closes)
+        values = engine.indicator_values(series, "sma", period=20)
+        from tradex_trading.analytics.indicators import sma
+        direct = sma(closes, 20)
+        for v_eng, v_dir in zip(values, direct, strict=True):
+            if v_eng is not None:
+                assert v_eng == pytest.approx(v_dir)
+            else:
+                assert v_dir is None
+
+    def test_custom_period_native(self) -> None:
+        engine = AnalyticsEngine()
+        series = _series([float(i) for i in range(1, 11)])
+        values = engine.indicator_values(series, "sma", period=3)
+        assert len(values) == 10
+        assert values[-1] is not None
+        assert values[-1] == pytest.approx((8.0 + 9.0 + 10.0) / 3)
+
+    def test_warmup_bars_prepends_none_padding(self) -> None:
+        """warmup_bars > 0 prepends None padding, non-None values follow."""
+        engine = AnalyticsEngine(warmup_bars=5)
+        series = _series([float(i) for i in range(1, 31)])
+        values = engine.indicator_values(series, "sma", period=20)
+        # sma(20) on 30 closes → 19 Nones + 11 non-None (first valid at idx 19)
+        # warmup: 5 Nones prepended + 11 non-None values = 16 total
+        assert len(values) == 16
+        assert all(v is None for v in values[:5])
+        assert all(v is not None for v in values[5:])
+
+    def test_unknown_indicator_raises(self) -> None:
+        engine = AnalyticsEngine()
+        series = _series([1.0, 2.0, 3.0])
+        with pytest.raises(CapabilityNotSupportedError, match="not implemented"):
+            engine.indicator_values(series, "totally_bogus")

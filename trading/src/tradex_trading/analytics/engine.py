@@ -85,19 +85,51 @@ class AnalyticsEngine:
         Single computation path for every consumer; :meth:`indicator`
         delegates here before re-wrapping into candles. Signed values pass
         through untouched — no Price validation on this surface.
+
+        Resolution order:
+          1. Native functions in ``_INDICATORS`` (fast path for the 5
+             core indicators that accept a flat close-values list).
+          2. The ``IndicatorSpec`` registry (``compute_indicator``) — any
+             indicator registered there is automatically available to
+             scanners and callers without touching this engine.
+          3. ``CapabilityNotSupportedError`` for truly unknown names.
         """
         key = name.lower()
         func = self._INDICATORS.get(key)
-        if func is None:
-            raise CapabilityNotSupportedError(f"indicator {name!r} is not implemented")
-        period = int(params.get("period", self._DEFAULTS[key]))
-        closes = [float(c.ohlc.close.value) for c in series.candles]
-        values = func(closes, period)
+        if func is not None:
+            period = int(params.get("period", self._DEFAULTS[key]))
+            closes = [float(c.ohlc.close.value) for c in series.candles]
+            raw_values = func(closes, period)
+        else:
+            # Fallback: dispatch to the IndicatorSpec registry so that every
+            # registered indicator (bollinger, atr, obv, stochastic, vwap,
+            # supertrend, …) is usable as a scanner condition or via
+            # AnalyticsEngine.indicator_values() without a separate
+            # _INDICATORS entry.
+            from tradex_trading.analytics.indicators import compute_indicator
+
+            try:
+                result = compute_indicator(key, series.candles, params or None)
+            except ValueError:
+                raise CapabilityNotSupportedError(
+                    f"indicator {name!r} is not implemented"
+                )
+            # compute_indicator returns {plot_key: [values]}.
+            # For single-plot indicators the key is "value"; for multi-plot
+            # indicators (e.g. bollinger → upper/middle/lower) we return the
+            # first declared plot's values, which is the primary reading a
+            # scanner condition evaluates against.
+            if "value" in result:
+                raw_values = result["value"]
+            else:
+                first_key = next(iter(result))
+                raw_values = result[first_key]
+
         if self._warmup_bars > 0:
             padded: list[float | None] = [None] * self._warmup_bars
-            padded.extend(float(v) for v in values if v is not None)
+            padded.extend(float(v) for v in raw_values if v is not None)
             return padded
-        return [float(v) if v is not None else None for v in values]
+        return [float(v) if v is not None else None for v in raw_values]
 
     def _wrap_in_series(
         self,

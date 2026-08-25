@@ -14,6 +14,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from tradex_domain import (
     OHLC,
     Candle,
@@ -293,3 +294,86 @@ class TestReactiveStrategyEngine:
         engine.register(_RecordingStrategy("s2"))
         engine.dispose_all()
         assert engine.strategies == {}
+
+# ---------------------------------------------------------------------------
+# Scanner with registry-fallback indicators (6 of 11 total)
+#
+# Previously only the 5 native indicators (sma, ema, rsi, roc, macd) could be
+# used as scanner conditions because ScannerEngine._value() dispatched to
+# AnalyticsEngine.indicator_values(), which only knew about _INDICATORS.
+# The two-tier resolution now falls back to compute_indicator for the 6
+# registry indicators (bollinger, atr, vwap, obv, stochastic, supertrend).
+# ---------------------------------------------------------------------------
+
+_REGISTRY_SCANNER_INDICATORS = [
+    "bollinger", "atr", "vwap", "obv", "stochastic", "supertrend",
+]
+_NATIVE_SCANNER_INDICATORS = ["sma", "ema", "rsi", "roc", "macd"]
+
+
+class TestScannerAllIndicators:
+    """ScannerEngine resolves all 11 indicators (5 native + 6 registry) as
+    condition sources."""
+
+    @pytest.mark.parametrize("name", _REGISTRY_SCANNER_INDICATORS)
+    def test_scanner_resolves_registry_indicator(self, name: str) -> None:
+        """Each of the 6 registry indicators is usable as a scanner condition."""
+        closes = [float(i) for i in range(1, 31)]
+        market = _FakeMarket(_series(closes))
+        engine = ScannerEngine(market=market)
+        cond = Condition(name=name, operator=">", threshold=0.0)
+        defn = ScannerDefinition(universe=[_eq()], conditions=[cond])
+        results = engine.run(defn)
+        assert len(results) == 1
+        assert name in results[0].indicator_values
+        # Value must be a real computed value, not the 0.0 fallback that
+        # _value() returns when indicator_values() yields all-None.
+        assert results[0].indicator_values[name] != 0.0
+        assert name in results[0].matched_conditions
+
+    @pytest.mark.parametrize("name", _NATIVE_SCANNER_INDICATORS)
+    def test_scanner_resolves_native_indicator(self, name: str) -> None:
+        """The 5 native indicators continue to work via the fast-path."""
+        closes = [float(i) for i in range(1, 31)]
+        market = _FakeMarket(_series(closes))
+        engine = ScannerEngine(market=market)
+        cond = Condition(name=name, operator=">", threshold=0.0)
+        defn = ScannerDefinition(universe=[_eq()], conditions=[cond])
+        results = engine.run(defn)
+        assert len(results) == 1
+        assert name in results[0].indicator_values
+        assert results[0].indicator_values[name] != 0.0
+
+    def test_scanner_mixed_native_and_registry_conditions(self) -> None:
+        """A single scan can mix native and registry indicators."""
+        closes = [float(i) for i in range(1, 31)]
+        market = _FakeMarket(_series(closes))
+        engine = ScannerEngine(market=market)
+        defn = ScannerDefinition(
+            universe=[_eq()],
+            conditions=[
+                Condition(name="sma", operator=">", threshold=0.0),
+                Condition(name="bollinger", operator=">", threshold=0.0),
+                Condition(name="rsi", operator="<", threshold=101.0),
+                Condition(name="atr", operator=">", threshold=0.0),
+            ],
+        )
+        results = engine.run(defn)
+        assert len(results) == 1
+        assert results[0].score == 1.0
+        assert set(results[0].matched_conditions) == {
+            "sma", "bollinger", "rsi", "atr",
+        }
+        assert len(results[0].indicator_values) == 4
+
+    @pytest.mark.parametrize("name", _REGISTRY_SCANNER_INDICATORS)
+    def test_scanner_matches_when_threshold_exceeded(self, name: str) -> None:
+        """A condition should match when the indicator value exceeds the
+        threshold (proves the tail value is not silently zeroed)."""
+        closes = [float(i) for i in range(100, 130)]
+        market = _FakeMarket(_series(closes))
+        engine = ScannerEngine(market=market)
+        cond = Condition(name=name, operator=">", threshold=0.0)
+        defn = ScannerDefinition(universe=[_eq()], conditions=[cond])
+        results = engine.run(defn)
+        assert name in results[0].matched_conditions
