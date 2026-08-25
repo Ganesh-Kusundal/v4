@@ -113,9 +113,20 @@ export async function registerBackendIndicators(): Promise<CatalogueEntry[]> {
         plots,
         refetchOn: ["symbol", "exchange", "interval", ...entry.params.map((p) => p.name)],
         fetch: async (ctx: Tier2Context) => {
-          // Forward live settings (user-edited period etc) — not defaults.
-          const liveParams = { ...ctx.settings } as Record<string, unknown>;
-          const out = await computeOnBackend(entry.id, liveParams, ctx);
+          // Forward only declared indicator params — the chart's IndicatorSettings
+          // also carries style keys like `value:color` and routing keys that the
+          // backend rightly rejects as unknown. Filter to the catalogue's param
+          // list so Compute stays strict.
+          const allowed = new Set(entry.params.map((p) => p.name));
+          const filtered: Record<string, unknown> = {};
+          const settings = ctx.settings as Record<string, unknown>;
+          for (const key of allowed) {
+            if (key in settings) filtered[key] = settings[key];
+          }
+          // Routing (symbol/exchange/interval) is read by computeOnBackend from
+          // ctx.settings / fallback, not from indicator params — keep it out of
+          // the filtered payload by design.
+          const out = await computeOnBackend(entry.id, filtered, ctx);
           return out.points.map((p) => {
             const values: Record<string, number | null> = {};
             for (const plot of entry.plots) {
