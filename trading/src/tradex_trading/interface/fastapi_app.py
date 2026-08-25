@@ -5,11 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from tradex_domain.errors import CapabilityNotSupportedError
 
@@ -90,377 +89,28 @@ def create_app(
 
     verify_api_key = make_verify_api_key(lambda: app.state)
 
-    # --- Health ----------------------------------------------------------------
-
-    @app.get("/health", response_model=HealthResponse, response_model_exclude_none=True)
-    async def health() -> HealthResponse:
-        return HealthResponse(status="ok")
-
-    @app.get("/health/live", response_model=HealthResponse, response_model_exclude_none=True)
-    async def health_live() -> HealthResponse:
-        return HealthResponse(status="ok", check="live")
-
-    @app.get("/health/ready", response_model=HealthResponse, response_model_exclude_none=True)
-    async def health_ready() -> HealthResponse:
-        ready = _readiness(app.state.session)
-        if not _is_ready(app.state.session):
-            raise HTTPException(
-                status_code=503,
-                detail=f"session not ready: {ready.session_state}",
-            )
-        return ready
-
-    # --- Positions -------------------------------------------------------------
-
-    @app.get("/positions", response_model=list[PositionResponse])
-    async def get_positions(instrument: str | None = None) -> list[PositionResponse]:
-        s = app.state.session
-        if s is None:
-            return []
-        positions = s.portfolio.positions()
-        result = [_serialize_position(p) for p in positions]
-        if instrument is not None:
-            result = [p for p in result if instrument.lower() in p.instrument.lower()]
-        return result
-
-    # --- Holdings --------------------------------------------------------------
-
-    @app.get("/holdings", response_model=list)
-    async def get_holdings() -> list[dict]:
-        """Get holdings (long-term positions)."""
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=400, detail="no session bound")
-        try:
-            holdings = s.portfolio.holdings() if hasattr(s.portfolio, 'holdings') else []
-            return [
-                {
-                    "instrument_id": (
-                        str(h.instrument.instrument_id)
-                        if hasattr(h, "instrument")
-                        else str(h)
-                    ),
-                    "quantity": float(h.quantity.value) if hasattr(h, 'quantity') else 0,
-                }
-                for h in holdings
-            ]
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
-
-    # --- Orders ----------------------------------------------------------------
-
-    @app.get("/orders", response_model=list[OrderResponse])
-    async def list_orders(
-        status: str | None = None,
-        limit: int = 50,
-        offset: int = 0,
-    ) -> list[OrderResponse]:
-        s = app.state.session
-        if s is None:
-            return []
-        orders = (
-            s.trade.get_orderbook() if hasattr(s.trade, "get_orderbook") else []
-        )
-        result = [
-            OrderResponse(order_id=str(o.order_id), status=str(o.status))
-            for o in orders
-        ]
-        if status is not None:
-            result = [o for o in result if o.status.lower() == status.lower()]
-        return result[offset : offset + limit]
-
-    @app.get("/orders/{order_id}", response_model=OrderResponse)
-    async def get_order(order_id: str) -> OrderResponse:
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=404, detail="No session bound")
-        try:
-            order = s.trade.get_order(order_id)
-            return OrderResponse(order_id=str(order.order_id), status=str(order.status))
-        except Exception as e:
-            raise HTTPException(status_code=404, detail=str(e)) from e
-
-    @app.post("/orders", response_model=OrderResponse, dependencies=[Depends(verify_api_key)])
-    async def place_order(body: dict) -> OrderResponse:
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=503, detail="no session bound")
-        try:
-            from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-            from tradex_domain.execution import OrderRequest
-            from tradex_domain.instruments import Equity
-            from tradex_domain.value_objects import Price, Quantity
-
-            # Resolve instrument
-            instrument_id = body.get("instrument_id")
-            if instrument_id:
-                parts = instrument_id.split(":", 1)
-                if len(parts) == 2:
-                    instrument = Equity.of(parts[0], parts[1])
-                else:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="instrument_id must be in 'EXCHANGE:SYMBOL' format",
-                    )
-            else:
-                exchange = body.get("exchange")
-                symbol = body.get("symbol")
-                if not exchange or not symbol:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="provide either 'instrument_id' or both 'exchange' and 'symbol'",
-                    )
-                instrument = Equity.of(exchange, symbol)
-
-            # Build OrderRequest
-            side = OrderSide(body["side"])
-            order_type = OrderType(body.get("order_type", "MARKET"))
-            quantity = Quantity(Decimal(str(body["quantity"])))
-            price = Price(Decimal(str(body["price"]))) if body.get("price") is not None else None
-            time_in_force = (
-                TimeInForce(body["time_in_force"])
-                if body.get("time_in_force")
-                else TimeInForce.DAY
-            )
-
-            request = OrderRequest(
-                instrument=instrument,
-                side=side,
-                order_type=order_type,
-                quantity=quantity,
-                price=price,
-                time_in_force=time_in_force,
-            )
-
-            receipt = s.trade.submit(request)
-            return OrderResponse(
-                order_id=receipt.order_id.value,
-                status=str(receipt.status),
-                message=receipt.message,
-            )
-        except HTTPException:
-            raise
-        except KeyError as exc:
-            raise HTTPException(status_code=422, detail=f"missing required field: {exc}") from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except Exception as exc:
-            log.exception("order submission failed")
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    @app.put(
-        "/orders/{order_id}",
-        response_model=OrderResponse,
-        dependencies=[Depends(verify_api_key)],
+    # -- HTTP routes (each module owns its slice) ----------------------------
+    # Stream route is intentionally NOT included — the WebSocket closure
+    # depends on app.state.feed_registry + normalize_depth + outbound_max
+    # and stays in this function below.
+    from tradex_trading.interface.routes import (
+        account as _account_route,
+        extensions as _extensions_route,
+        health as _health_route,
+        market_data as _market_data_route,
+        orders as _orders_route,
+        portfolio as _portfolio_route,
     )
-    async def modify_order(order_id: str, body: dict) -> OrderResponse:
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=400, detail="no session bound")
-        try:
-            from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-            from tradex_domain.execution import OrderRequest
-            from tradex_domain.value_objects import Price, Quantity
 
-            instrument = s.broker.search(body["symbol"])[0]
-            side = OrderSide(body["side"])
-            order_type = OrderType(body.get("order_type", "LIMIT"))
-            quantity = Quantity(Decimal(str(body["quantity"])))
-            price = Price(Decimal(str(body["price"]))) if body.get("price") is not None else None
-            time_in_force = (
-                TimeInForce(body["time_in_force"])
-                if body.get("time_in_force")
-                else TimeInForce.DAY
-            )
-            request = OrderRequest(
-                instrument=instrument,
-                side=side,
-                order_type=order_type,
-                quantity=quantity,
-                price=price,
-                time_in_force=time_in_force,
-            )
-            order = s.trade.modify_order(order_id, request)
-            return OrderResponse(order_id=str(order.order_id), status="modified")
-        except HTTPException:
-            raise
-        except KeyError as exc:
-            raise HTTPException(status_code=422, detail=f"missing required field: {exc}") from exc
-        except IndexError as exc:
-            raise HTTPException(status_code=422, detail="unknown symbol") from exc
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-
-    @app.delete(
-        "/orders/{order_id}",
-        response_model=OrderResponse,
-        dependencies=[Depends(verify_api_key)],
-    )
-    async def cancel_order(order_id: str) -> OrderResponse:
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=400, detail="no session bound")
-        try:
-            order = s.trade.cancel(order_id)
-            return OrderResponse(order_id=str(order.order_id), status="cancelled")
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e)) from e
-
-    # --- Market data -----------------------------------------------------------
-
-    @app.get("/quotes/{exchange}:{symbol}", response_model=dict[str, Any])
-    async def get_quote(exchange: str, symbol: str) -> dict[str, Any]:
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=404, detail="No session bound")
-        try:
-            from tradex_brokers.common.provider_common import instrument_from_id
-            from tradex_domain.value_objects import InstrumentId
-
-            # Resolve instrument from exchange:symbol
-            iid = InstrumentId.parse(f"{exchange}:{symbol}")
-            instrument = instrument_from_id(iid)
-            quote = s.broker.get_quote(instrument)
-            return dict(quote) if not isinstance(quote, dict) else quote
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=str(e)) from e
-
-    @app.get("/search", response_model=list[str])
-    async def search_instruments(q: str) -> list[str]:
-        s = app.state.session
-        if s is None:
-            return []
-        try:
-            results = s.broker.search(q)
-            return list(results)
-        except Exception:
-            return []
-
-    @app.get("/history/{instrument_id}", response_model=list)
-    async def get_history(
-        instrument_id: str,
-        timeframe: str = "1d",
-        limit: int = 100,
-    ) -> list[dict]:
-        """Get historical bars for an instrument."""
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=400, detail="no session bound")
-        try:
-            from tradex_domain.enums import Timeframe
-            from tradex_domain.value_objects import InstrumentId
-
-            iid = InstrumentId.parse(instrument_id)
-            from tradex_brokers.common.provider_common import instrument_from_id
-            instrument = instrument_from_id(iid)
-            tf = Timeframe(timeframe)
-            history = s.broker.history(instrument, tf)
-            bars = []
-            for bar in history:
-                bars.append({
-                    "timestamp": str(bar.timestamp),
-                    "open": float(bar.ohlc.open.value),
-                    "high": float(bar.ohlc.high.value),
-                    "low": float(bar.ohlc.low.value),
-                    "close": float(bar.ohlc.close.value),
-                    "volume": float(bar.volume.value) if bar.volume else 0,
-                })
-            return bars[:limit]
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
-
-    @app.get("/option-chain/{underlying}")
-    async def get_option_chain(
-        underlying: str,
-        expiry: str | None = None,
-        live: bool = False,
-    ) -> dict:
-        """Option chain for an underlying.
-
-        ``underlying`` accepts ``EXCHANGE:SYMBOL`` (e.g. ``MCX:GOLD``), a
-        registry alias/key, or a bare symbol resolved from the loaded master.
-        NFO/BFO chains come from the live REST endpoint (OI/volume/greeks);
-        MCX and other non-NFO exchanges are derived from the instrument master.
-        An optional ``expiry`` (YYYY-MM-DD) filters to a single expiry.
-        ``live=true`` enriches the nearest expiry's strikes with real-time
-        LTP / OI / volume (best-effort batch quotes for the ATM region).
-        """
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=400, detail="no session bound")
-        try:
-            inst = _resolve_underlying_instrument(s, underlying)
-            chain = s.broker.get_option_chain(inst, expiry)
-            if live:
-                return _enrich_chain_live(s, chain)
-            return _serialize_option_chain(chain)
-        except LookupError as e:
-            raise HTTPException(status_code=404, detail=str(e)) from e
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
-
-    @app.get("/future-chain/{underlying}")
-    async def get_future_chain(underlying: str) -> dict:
-        """Future contracts on an underlying, derived from the loaded master."""
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=400, detail="no session bound")
-        try:
-            inst = _resolve_underlying_instrument(s, underlying)
-            futures = s.broker.future_chain(inst)
-            return {
-                "underlying": str(inst.instrument_id),
-                "futures": [
-                    {
-                        "instrument": str(f.instrument_id),
-                        "symbol": f.symbol,
-                        "expiry": f.expiry.isoformat() if getattr(f, "expiry", None) else None,
-                    }
-                    for f in futures
-                ],
-            }
-        except LookupError as e:
-            raise HTTPException(status_code=404, detail=str(e)) from e
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
-
-    # --- Account ---------------------------------------------------------------
-
-    @app.get("/account", response_model=AccountResponse)
-    async def get_account() -> AccountResponse:
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=404, detail="no session bound")
-        acct = s.portfolio.account()
-        return AccountResponse(
-            balance=str(acct.balance),
-            margin=str(acct.margin),
-            equity=str(acct.equity),
-        )
-
-    # --- Extensions ------------------------------------------------------------
-
-    @app.get("/extensions")
-    async def list_extensions() -> dict:
-        """List broker capability flags."""
-        s = app.state.session
-        if s is None:
-            raise HTTPException(status_code=400, detail="no session bound")
-        try:
-            caps = getattr(s.broker, "capabilities", None)
-            cap_map = {}
-            if caps is not None:
-                for name in ("supports_super_order", "supports_forever_order",
-                             "supports_slice_order", "supports_edis",
-                             "supports_kill_switch"):
-                    cap_map[name] = getattr(caps, name, False)
-            return {"capabilities": cap_map}
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
+    for _r in (
+        _health_route.router,
+        _portfolio_route.router,
+        _orders_route.router,
+        _market_data_route.router,
+        _account_route.router,
+        _extensions_route.router,
+    ):
+        app.include_router(_r)
 
     # --- WebSocket (ReactiveBus bridge) ----------------------------------------
 
@@ -1255,37 +905,14 @@ def _enrich_chain_live(session: Any, chain: Any, max_strikes: int = 11) -> dict:
     }
 
 
-def _serialize_position(pos: Any) -> PositionResponse:
-    """Serialize a Position domain object to a PositionResponse."""
-    return PositionResponse(
-        instrument=str(pos.instrument.instrument_id),
-        quantity=str(pos.quantity.value),
-        avg_price=str(pos.avg_price.value),
-        realized_pnl=str(pos.realized_pnl.amount),
-        unrealized_pnl=str(pos.unrealized_pnl.amount),
-        total_pnl=str(pos.total_pnl.amount),
-        is_long=pos.is_long,
-        is_short=pos.is_short,
-    )
-
-
-def _readiness(session: Any) -> HealthResponse:
-    """Readiness facts — single source of truth for /health/ready and the
-    pre-bind probe in :func:`start_fastapi_server`.
-
-    ``None`` session (no session bound) counts as ready, mirroring the
-    pre-existing no-session behaviour of the route.
-    """
-    if session is None:
-        return HealthResponse(status="ok", check="ready")
-    return HealthResponse(status="ok", check="ready", session_state=str(session.state))
-
-
-def _is_ready(session: Any) -> bool:
-    """True when the bound session (if any) is READY — the /health/ready gate."""
-    if session is None:
-        return True
-    return str(getattr(session, "state", None)) == "READY"
+# The actual definitions live in :mod:`tradex_trading.interface._helpers`
+# (so route modules can import them without a cycle). Re-exported here
+# for back-compat with code that imports them off fastapi_app.
+from tradex_trading.interface._helpers import (  # noqa: F401
+    is_ready as _is_ready,
+    readiness as _readiness,
+    serialize_position as _serialize_position,
+)
 
 
 #: Serve-spec environment keys — how the importable ASGI factory below learns
