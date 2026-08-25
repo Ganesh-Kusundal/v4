@@ -176,11 +176,13 @@ class TestWithClose:
 # fallback).  All 11 registered indicators must resolve here.
 # ---------------------------------------------------------------------------
 
-# 5 native indicators (fast-path via _INDICATORS dict)
-_NATIVE_INDICATORS = ["sma", "ema", "rsi", "roc", "macd"]
+# Native indicators (fast-path via _INDICATORS dict)
+_NATIVE_INDICATORS = ["sma", "ema", "rsi", "roc"]
 
-# 6 registry-fallback indicators (compute_indicator / IndicatorSpec)
-_REGISTRY_INDICATORS = ["bollinger", "atr", "vwap", "obv", "stochastic", "supertrend"]
+# Registry-fallback indicators (compute_indicator / IndicatorSpec)
+_REGISTRY_INDICATORS = [
+    "macd", "bollinger", "atr", "vwap", "obv", "stochastic", "supertrend",
+]
 
 # All 11 registered indicators usable as scanner conditions
 ALL_INDICATORS = _NATIVE_INDICATORS + _REGISTRY_INDICATORS

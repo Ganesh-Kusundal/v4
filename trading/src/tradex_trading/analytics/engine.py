@@ -85,7 +85,7 @@ class AnalyticsEngine:
         through untouched — no Price validation on this surface.
 
         Resolution order:
-          1. Native functions in ``_INDICATORS`` (fast path for the 5
+          1. Native functions in ``_INDICATORS`` (fast path for the
              core indicators that accept a flat close-values list).
           2. The ``IndicatorSpec`` registry (``compute_indicator``) — any
              indicator registered there is automatically available to

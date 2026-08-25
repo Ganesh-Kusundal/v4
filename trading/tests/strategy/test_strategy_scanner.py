@@ -298,26 +298,27 @@ class TestReactiveStrategyEngine:
 # ---------------------------------------------------------------------------
 # Scanner with registry-fallback indicators (6 of 11 total)
 #
-# Previously only the 5 native indicators (sma, ema, rsi, roc, macd) could be
+# Previously only the native indicators (sma, ema, rsi, roc) could be
 # used as scanner conditions because ScannerEngine._value() dispatched to
 # AnalyticsEngine.indicator_values(), which only knew about _INDICATORS.
-# The two-tier resolution now falls back to compute_indicator for the 6
-# registry indicators (bollinger, atr, vwap, obv, stochastic, supertrend).
+# The two-tier resolution now falls back to compute_indicator for the 7
+# registry indicators (macd, bollinger, atr, vwap, obv, stochastic,
+# supertrend).
 # ---------------------------------------------------------------------------
 
 _REGISTRY_SCANNER_INDICATORS = [
-    "bollinger", "atr", "vwap", "obv", "stochastic", "supertrend",
+    "macd", "bollinger", "atr", "vwap", "obv", "stochastic", "supertrend",
 ]
-_NATIVE_SCANNER_INDICATORS = ["sma", "ema", "rsi", "roc", "macd"]
+_NATIVE_SCANNER_INDICATORS = ["sma", "ema", "rsi", "roc"]
 
 
 class TestScannerAllIndicators:
-    """ScannerEngine resolves all 11 indicators (5 native + 6 registry) as
+    """ScannerEngine resolves all 11 indicators (4 native + 7 registry) as
     condition sources."""
 
     @pytest.mark.parametrize("name", _REGISTRY_SCANNER_INDICATORS)
     def test_scanner_resolves_registry_indicator(self, name: str) -> None:
-        """Each of the 6 registry indicators is usable as a scanner condition."""
+        """Each of the 7 registry indicators is usable as a scanner condition."""
         closes = [float(i) for i in range(1, 31)]
         market = _FakeMarket(_series(closes))
         engine = ScannerEngine(market=market)
@@ -333,7 +334,7 @@ class TestScannerAllIndicators:
 
     @pytest.mark.parametrize("name", _NATIVE_SCANNER_INDICATORS)
     def test_scanner_resolves_native_indicator(self, name: str) -> None:
-        """The 5 native indicators continue to work via the fast-path."""
+        """The 4 native indicators continue to work via the fast-path."""
         closes = [float(i) for i in range(1, 31)]
         market = _FakeMarket(_series(closes))
         engine = ScannerEngine(market=market)
