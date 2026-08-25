@@ -286,6 +286,8 @@ def stochastic(
     """
     if k_period <= 0 or d_period <= 0:
         raise ValueError("periods must be positive")
+    if smooth_k <= 0:
+        raise ValueError("smooth_k must be positive")
     n = len(candles)
     raw: list[float | None] = [None] * n
     for i in range(k_period - 1, n):

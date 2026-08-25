@@ -1,7 +1,7 @@
 """Golden parity: every registered indicator must match the actual
 openalgo-charts TypeScript implementation exactly (1e-9, None-aligned)."""
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -60,7 +60,8 @@ class _Vol:
 
 class _Candle:
     def __init__(self, time, o, h, l, c, v):
-        self.timestamp = datetime.fromtimestamp(time)  # tz-naive, IST wall clock
+        IST = timezone(timedelta(hours=5, minutes=30))
+        self.timestamp = datetime.fromtimestamp(time, tz=IST).replace(tzinfo=None)
         self.ohlc = _OHLC(o, h, l, c)
         self.volume = _Vol(v)
 
@@ -101,11 +102,7 @@ def test_parity_against_ts_source(ts_id):
     if ts_id == "supertrend":
         # TS splits the line into up/down by direction; backend emits one line.
         up, down, direction = golden["plots"]["up"], golden["plots"]["down"], got["direction"]
-        expected = [
-            u if d == 1 else w
-            for u, w, d in zip(up, down, direction)
-            if True
-        ]
+        expected = [u if d == 1 else w for u, w, d in zip(up, down, direction)]
         _compare("line", got["line"], expected)
         return
 
