@@ -1,4 +1,4 @@
-# v4 — kanban digest (2026-08-23T17:56:47Z)
+# v4 — kanban digest (2026-08-25T17:58:30Z)
 
 ## Work in progress
 - none
@@ -13,22 +13,22 @@
 - none
 
 ## Tests
-- no pytest cache found — run the test suite to populate
+- last pytest run: 0 failing (1310 passed, 12 deselected) — 2026-08-25 23:38 IST
 
 ## Drift since previous scan
 - none
 
 ## Recent commits
-- 33cdf06 fix(review): wire H3 fill-after-cancel, lock H2 cap, preserve avg_price_traded, poll staleness docs (final review)
-- e086eda fix(medium): BONUS series, WF purge, registry locks, feed atomicity (M1-M8)
-- 37ebcfc feat(feed): typed StaleFeed event for feed health (H6)
-- db9036a fix(execution): overfill clamp + limit-through guard (H5/H7)
-- 9521e40 fix(execution): per-instrument lock for position RMW (H4)
-- c040e73 fix(domain): allow CANCELLED->FILLED for fill-after-cancel race (H3)
-- 10c7494 fix(fees): per-order brokerage cap across partial fills (H2)
-- fbb82b4 docs(fees): clarify GST base, SEBI statutory, STT/stamp caveats (H1)
+- 1df9720 feat(scripts): topup_gaps — fill broker-unservable spans via filler broker
+- 0bd070d fix(datalake): min_gap_stamps tolerance — broker tail noise forced nightly refetch
+- da4de09 feat(datalake): dual-broker routing for long ranges — split beats Dhan-only
+- 36a5a12 feat(scripts): adaptive throttle backoff in backfill_parquet
+- 8ae2fde style(datalake): ruff auto-fix — drop unused Decimal, sort parquet_storage imports
+- 0a7ee2e chore: untrack data/ohlcv parquet store, ignore tool state
+- df928b4 feat(domain): NSE_HOLIDAYS_2026 — wire holidays into backfill gap detection
+- 3c3b8da docs(datalake): correct fetcher docs — long ranges auto-chunk, not fail-loud; wrap E501s
 
-(208 uncommitted changes in working tree)
+(34 uncommitted changes in working tree)
 
 ## Architecture & components
 - none
@@ -37,25 +37,18 @@
 - none
 
 ## Knowledge graph (graphify)
-- 7869 nodes · 24820 edges · 303 communities (built 2026-08-21T17:29:38Z)
-- STALE (109 modified, 19 deleted, 23 new since build) — refresh with `/graphify update`
-  - modified: brokers/src/tradex_brokers/__init__.py
-  - modified: brokers/src/tradex_brokers/common/base.py
-  - modified: brokers/src/tradex_brokers/common/client_shared.py
-  - modified: brokers/src/tradex_brokers/common/provider_client.py
-  - modified: brokers/src/tradex_brokers/common/resilience.py
-  - modified: brokers/src/tradex_brokers/common/streaming.py
-  - modified: brokers/src/tradex_brokers/common/transport.py
-  - modified: brokers/src/tradex_brokers/common/ws_shared.py
-  - modified: brokers/src/tradex_brokers/dhan/_marketdata.py
-  - modified: brokers/src/tradex_brokers/dhan/_orders.py
+- 8948 nodes · 26963 edges · 334 communities (built 2026-08-25T17:59:46Z, commit 05504c51)
+- Refreshed post-Phase 4.5 / D1 refactor: `models.py`, `queueing.py`, `auth.py` extracted;
+  `routes/{health,portfolio,orders,market_data,account,extensions,stream,chart}.py` split out;
+  `chart_api.py` moved to `routes/chart.py`.
+- `fastapi_app.py`: 1021 LOC · `create_app` CC=A(5), COG=370, NLOC=708 · graphify degree 45.
 - AUTO-REFRESH: run `/graphify update` now, then re-run `kanban.py update` to refresh this digest.
 
 ## Data / execution flows
 - none
 
 ## Dependencies
-- unavailable
+- frontend: openalgo-charts
 
 ## Technical debt & risks
 - none
