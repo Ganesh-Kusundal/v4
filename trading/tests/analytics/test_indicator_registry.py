@@ -19,6 +19,7 @@ from tradex_trading.analytics.indicators import (
     sma,
     stochastic,
     supertrend,
+    true_ranges,
     vwap_session,
 )
 
@@ -99,8 +100,13 @@ class TestGoldenValues:
         candles = [_candle(10, 12, 9, 11)] * 20
         values = atr(candles, period=14)
         assert values[-1] == pytest.approx(3.0)
-        assert values[14] is not None
-        assert all(v is None for v in values[:14])
+        # TS parity: seed lands at index period-1 (Wilder SMA over
+        # TR[0..13]); everything before is warmup.
+        assert values[13] == pytest.approx(3.0)
+        assert all(v is None for v in values[:13])
+        # TR[0] = high - low (=3), so the seed includes it as a full member.
+        true_ranges_out = true_ranges(candles)
+        assert true_ranges_out[0] == pytest.approx(3.0)
 
     def test_bollinger_flat_series(self):
         flat = [50.0] * 25

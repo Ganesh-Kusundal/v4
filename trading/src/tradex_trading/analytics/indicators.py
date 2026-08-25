@@ -197,11 +197,17 @@ __all__ = [
 ]
 
 
-def true_ranges(candles: list) -> list[float | None]:
-    """True range per candle: max(H-L, |H-prevC|, |L-prevC|); first is None."""
+def true_ranges(candles: list) -> list[float]:
+    """True range per candle: TR[0]=H-L; thereafter max(H-L, |H-prevC|, |L-prevC|).
+
+    Matches openalgo-charts ``trueRange`` (src/indicators/atr.ts): the first
+    bar has no prior close, so its true range is just high-low.
+    """
     if not candles:
         return []
-    out: list[float | None] = [None]
+    first_h = _to_float(candles[0].ohlc.high.value)
+    first_l = _to_float(candles[0].ohlc.low.value)
+    out: list[float] = [first_h - first_l]
     for i in range(1, len(candles)):
         h = _to_float(candles[i].ohlc.high.value)
         low = _to_float(candles[i].ohlc.low.value)
@@ -213,30 +219,29 @@ def true_ranges(candles: list) -> list[float | None]:
 def atr(candles: list, period: int = 14) -> list[float | None]:
     """Average True Range (Wilder smoothing).
 
+    Matches openalgo-charts ``atr`` (src/indicators/atr.ts): the seed is the
+    SMA of TR[0..period-1] and lands at index ``period - 1``; earlier slots
+    are None-padded warmup.
+
     Args:
         candles: Candle objects exposing ``.ohlc.high/.low/.close`` (Decimal)
         period: Smoothing window (default 14)
 
     Returns:
-        ATR values (None until the first full window)
+        ATR values (None before index period-1)
     """
     if period <= 0:
         raise ValueError("period must be positive")
     trs = true_ranges(candles)
-    # TR[0] is None; the seeded average consumes the first `period` finite TRs
-    # (candles 1..period), so the first ATR lands exactly on index `period`.
-    finite = [t for t in trs[1:] if t is not None]
-    n = len(candles)
-    if len(finite) < period or n <= period:
-        return [None] * n
-    out: list[float | None] = [None] * period
-    prev = sum(finite[:period]) / period
-    out.append(prev)
-    for i in range(period + 1, n):
-        tr = trs[i]
-        value = tr if tr is not None else 0.0
-        prev = (prev * (period - 1) + value) / period
-        out.append(prev)
+    n = len(trs)
+    out: list[float | None] = [None] * n
+    if n < period:
+        return out
+    prev = sum(trs[:period]) / period
+    out[period - 1] = prev
+    for i in range(period, n):
+        prev = (prev * (period - 1) + trs[i]) / period
+        out[i] = prev
     return out
 
 
@@ -317,8 +322,13 @@ def stochastic(candles: list, k_period: int = 14, d_period: int = 3) -> dict[str
 def supertrend(candles: list, period: int = 10, multiplier: float = 3.0) -> dict[str, list]:
     """Supertrend line with its direction flag (+1 up / -1 down).
 
-    Returns dict keyed 'line'/'direction'. Direction flips when price closes
-    through the band; None-padded until the first ATR is available.
+    Matches openalgo-charts ``supertrend`` (src/indicators/supertrend.ts):
+    bands carry forward unless price broke the previous band; which band is
+    followed is tracked by comparing the previous line to the previous upper
+    band (not by direction alone). TS convention is -1=uptrend/+1=downtrend;
+    this backend emits the inverse (+1 up / -1 down) per its contract.
+
+    Returns dict keyed 'line'/'direction'. None-padded during ATR warmup.
     """
     if period <= 0:
         raise ValueError("period must be positive")
@@ -326,8 +336,9 @@ def supertrend(candles: list, period: int = 10, multiplier: float = 3.0) -> dict
     atrs = atr(candles, period)
     line: list[float | None] = [None] * n
     direction: list[int | None] = [None] * n
-    upper_band: float | None = None
-    lower_band: float | None = None
+    prev_upper: float | None = None
+    prev_lower: float | None = None
+    prev_line: float | None = None
     started = False
     for i in range(n):
         a = atrs[i]
@@ -337,25 +348,33 @@ def supertrend(candles: list, period: int = 10, multiplier: float = 3.0) -> dict
         low = _to_float(candles[i].ohlc.low.value)
         c = _to_float(candles[i].ohlc.close.value)
         mid = (h + low) / 2.0
-        ub = mid + multiplier * a
-        lb = mid - multiplier * a
+        basic_upper = mid + multiplier * a
+        basic_lower = mid - multiplier * a
         if not started:
-            upper_band, lower_band = ub, lb
-            direction[i] = 1
-            line[i] = lb
-            started = True
-            continue
-        assert upper_band is not None and lower_band is not None
-        # Bands ratchet: never loosen against an established trend.
-        pc = _to_float(candles[i - 1].ohlc.close.value)
-        upper_band = ub if (ub < upper_band or pc > upper_band) else upper_band
-        lower_band = lb if (lb > lower_band or pc < lower_band) else lower_band
-        prev_dir = direction[i - 1]
-        if prev_dir == 1:
-            direction[i] = -1 if c < lower_band else 1
+            final_upper, final_lower = basic_upper, basic_lower
         else:
-            direction[i] = 1 if c > upper_band else -1
-        line[i] = lower_band if direction[i] == 1 else upper_band
+            assert prev_upper is not None and prev_lower is not None
+            pc = _to_float(candles[i - 1].ohlc.close.value)
+            final_upper = (
+                basic_upper if (basic_upper < prev_upper or pc > prev_upper) else prev_upper
+            )
+            final_lower = (
+                basic_lower if (basic_lower > prev_lower or pc < prev_lower) else prev_lower
+            )
+        # Which band was previously followed? (TS rule: prevST == prevUpper.)
+        follows_upper = not started or prev_line == prev_upper
+        if follows_upper:
+            # was resistance above price; flip up only if close clears it
+            ts_dir = 1 if c <= final_upper else -1
+            st = final_upper if ts_dir == 1 else final_lower
+        else:
+            # was support below price; flip down only if close breaks it
+            ts_dir = -1 if c >= final_lower else 1
+            st = final_lower if ts_dir == -1 else final_upper
+        direction[i] = -ts_dir  # backend convention: +1 up / -1 down
+        line[i] = st
+        prev_upper, prev_lower, prev_line = final_upper, final_lower, st
+        started = True
     return {"line": line, "direction": direction}
 
 
