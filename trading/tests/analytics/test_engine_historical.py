@@ -254,6 +254,17 @@ class TestIndicatorValues:
         direct = supertrend(series.candles, period=10, multiplier=3.0)
         assert values[-1] == pytest.approx(direct["line"][-1])
 
+    def test_registry_fallback_macd_returns_line_not_histogram(self) -> None:
+        """Multi-plot macd → engine returns first plot; the line must be
+        declared first so scanners read the MACD line, not the histogram."""
+        from tradex_trading.analytics.indicators import compute_indicator
+
+        engine = AnalyticsEngine()
+        series = _series([float(i) for i in range(1, 31)])
+        values = engine.indicator_values(series, "macd")
+        direct = compute_indicator("macd", series.candles)
+        assert values[-1] == pytest.approx(direct["macd"][-1])
+
     def test_native_sma_matches_direct_function(self) -> None:
         engine = AnalyticsEngine()
         closes = [float(i) for i in range(1, 31)]

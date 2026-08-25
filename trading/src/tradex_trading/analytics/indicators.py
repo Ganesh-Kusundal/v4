@@ -515,9 +515,9 @@ def _builtin_specs() -> list[IndicatorSpec]:
             id="macd", name="MACD", category="Momentum", placement="pane",
             params=(("fast", "int", 12), ("slow", "int", 26), ("signal", "int", 9)),
             plots=(
-                ("histogram", "histogram", "Histogram"),
                 ("macd", "line", "MACD"),
                 ("signal", "line", "Signal"),
+                ("histogram", "histogram", "Histogram"),
             ),
             levels=({"value": 0}),
             fn=_fn_macd,
