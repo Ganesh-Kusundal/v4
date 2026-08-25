@@ -12,6 +12,7 @@ from tradex_trading.analytics.indicators import (
     atr,
     bollinger,
     compute_indicator,
+    ema,
     indicator_catalogue,
     obv,
     register_indicator,
@@ -91,6 +92,12 @@ class TestGoldenValues:
         assert result[2] == pytest.approx((10 + 11 + 12) / 3)
         assert result[3] == pytest.approx((11 + 12 + 11.5) / 3)
         assert result[:2] == [None, None]
+
+    def test_ema_seeds_from_first_value(self):
+        result = ema(CLOSES, 3)
+        assert result[0] == CLOSES[0]
+        k = 2.0 / 4.0
+        assert result[1] == pytest.approx(CLOSES[1] * k + CLOSES[0] * (1 - k))
 
     def test_rsi_all_gains_is_100(self):
         rising = [float(i) for i in range(1, 20)]

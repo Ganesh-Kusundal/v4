@@ -46,36 +46,22 @@ def sma(values: list, period: int) -> list:
 
 
 def ema(values: list, period: int) -> list:
-    """Exponential Moving Average.
+    """Exponential Moving Average, seeded from values[0] (openalgo-charts parity).
 
-    Args:
-        values: List of numeric values (Decimal or float)
-        period: Window size
-
-    Returns:
-        List of EMA values (same length as input, None-padded at start)
+    Emits from index 0 — no warmup padding. k = 2/(period+1).
     """
     if period <= 0:
         raise ValueError("period must be positive")
-    if len(values) < period:
-        return [None] * len(values)
-
     floats = [_to_float(v) for v in values]
-    result: list[float | None] = [None] * (period - 1)
-
-    # Initial SMA for first EMA value
-    initial_sma = sum(floats[:period]) / period
-    result.append(initial_sma)
-
-    multiplier = 2.0 / (period + 1)
-    prev_ema = initial_sma
-
-    for i in range(period, len(floats)):
-        current_ema = (floats[i] - prev_ema) * multiplier + prev_ema
-        result.append(current_ema)
-        prev_ema = current_ema
-
-    return result
+    if not floats:
+        return []
+    k = 2.0 / (period + 1)
+    prev = floats[0]
+    out = [prev]
+    for i in range(1, len(floats)):
+        prev = floats[i] * k + prev * (1.0 - k)
+        out.append(prev)
+    return out
 
 
 def rsi(values: list, period: int = 14) -> list:
