@@ -6,10 +6,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from tradex_trading.interface.fastapi_app import (
-    _enrich_chain_live,
-    _resolve_underlying_instrument,
-    _serialize_option_chain,
+from tradex_trading.interface.routes._market_helpers import (
+    enrich_chain_live,
+    resolve_underlying_instrument,
+    serialize_option_chain,
 )
 from tradex_trading.interface.routes.deps import get_session
 
@@ -104,11 +104,11 @@ async def get_option_chain(
     if session is None:
         raise HTTPException(status_code=400, detail="no session bound")
     try:
-        inst = _resolve_underlying_instrument(session, underlying)
+        inst = resolve_underlying_instrument(session, underlying)
         chain = session.broker.get_option_chain(inst, expiry)
         if live:
-            return _enrich_chain_live(session, chain)
-        return _serialize_option_chain(chain)
+            return enrich_chain_live(session, chain)
+        return serialize_option_chain(chain)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except HTTPException:
@@ -126,7 +126,7 @@ async def get_future_chain(
     if session is None:
         raise HTTPException(status_code=400, detail="no session bound")
     try:
-        inst = _resolve_underlying_instrument(session, underlying)
+        inst = resolve_underlying_instrument(session, underlying)
         futures = session.broker.future_chain(inst)
         return {
             "underlying": str(inst.instrument_id),
@@ -145,9 +145,3 @@ async def get_future_chain(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-# ponytail: _resolve_underlying_instrument, _serialize_option_chain, and
-# _enrich_chain_live still live in fastapi_app. They have no session-
-# independent callers, so moving them to routes/_market_helpers.py is
-# a clean follow-up (one rename + the imports above).
