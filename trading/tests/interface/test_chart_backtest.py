@@ -55,7 +55,7 @@ class TestBacktestEndpoint:
         """Endpoint metrics equal a direct BacktestEngine.run over identical candles."""
         from datetime import timedelta
 
-        from tradex_trading.interface.chart_api import _backtest_candles, _window
+        from tradex_trading.interface.routes.chart import _backtest_candles, _window
         from tradex_trading.replay.backtest import BacktestEngine
 
         client = _client()

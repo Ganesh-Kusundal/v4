@@ -84,7 +84,7 @@ class TestHistoryContract:
         from_utc = int(start_naive.replace(tzinfo=ist).timestamp())
         to_utc = int(end_naive.replace(tzinfo=ist).timestamp())
         with patch(
-            "tradex_trading.interface.chart_api._get_store", return_value=store
+            "tradex_trading.interface.routes.chart._get_store", return_value=store
         ):
             client = _client()
             resp = client.get(
@@ -104,7 +104,7 @@ class TestHistoryContract:
         """A bar's chart time is the UTC epoch of the same wall clock read as IST."""
         from zoneinfo import ZoneInfo
 
-        from tradex_trading.interface.chart_api import _ist_to_utc_seconds
+        from tradex_trading.interface.routes.chart import _ist_to_utc_seconds
 
         ist = ZoneInfo("Asia/Kolkata")
         # 09:15 IST == 03:45 UTC (IST is UTC+5:30, no DST).
@@ -121,7 +121,7 @@ class TestHistoryContract:
 
 
 def _bar(candle) -> dict:
-    from tradex_trading.interface.chart_api import _ist_to_utc_seconds
+    from tradex_trading.interface.routes.chart import _ist_to_utc_seconds
 
     return {
         "time": _ist_to_utc_seconds(candle.timestamp),

@@ -67,7 +67,7 @@ def create_app(
     )
     # Chart data plane (closed-bar history, indicator compute, strategy
     # backtests): one router the openalgo-charts frontend is built against.
-    from tradex_trading.interface.chart_api import create_chart_router
+    from tradex_trading.interface.routes.chart import create_chart_router
 
     app.include_router(create_chart_router(session))
     app.state.session = session

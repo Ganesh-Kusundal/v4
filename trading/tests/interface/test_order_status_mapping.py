@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from tradex_domain.enums import OrderStatus
-from tradex_trading.interface.chart_api import map_order_status
+from tradex_trading.interface.routes.chart import map_order_status
 
 
 class TestExhaustiveMapping:
