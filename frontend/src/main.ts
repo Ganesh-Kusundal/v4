@@ -451,12 +451,15 @@ void fetchStrategyCatalogue().then((catalogue) => {
     },
   };
   createStrategiesPanel(panelHost, host, catalogue, state);
-  const dockStrat = document.createElement("div");
-  createStrategiesPanel(dockStrat, host, catalogue, state);
-  dock.setContent("scanner", dockStrat);
+  // Bottom SCANNER tab shows live results placeholder; Backtest shows equity note
+  const scannerNote = document.createElement("div");
+  scannerNote.style.cssText = "color:var(--muted);font:12px \"Sora\",sans-serif;padding:8px";
+  scannerNote.textContent = "Run a scanner from the right panel — results appear here.";
+  dock.setContent("scanner", scannerNote);
 }).catch(() => { /* panel degrades; scanner/backtest still reachable via API */ });
 const btNote = document.createElement("div");
-btNote.textContent = "Backtest results render as an equity pane plus trade markers.";
+btNote.style.cssText = "color:var(--muted);font:12px \"Sora\",sans-serif;padding:8px";
+btNote.textContent = "Backtest results render as an equity pane plus trade markers on the chart.";
 dock.setContent("backtest", btNote);
 
 // ---------- replay -----------------------------------------------------------------
