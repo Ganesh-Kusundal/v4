@@ -36,7 +36,8 @@ def test_indicator_short_inputs_and_option_expiry_edges() -> None:
     # v4 indicators return None-padded lists (same length as input) when
     # the input is shorter than the period, unlike v3 which returned [].
     assert sma([], 3) == []
-    assert ema([1.0], 2) == [None]
+    # ema emits from index 0, seeded from values[0] — even for short inputs
+    assert ema([1.0], 2) == [1.0]
     assert rsi([1.0], 14) == [None]
     # rsi with exactly period+1 values → first RSI appears at index period
     assert rsi([1.0, 1.0, 1.0], 2) == [None, None, 100.0]

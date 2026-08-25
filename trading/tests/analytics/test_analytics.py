@@ -55,9 +55,11 @@ class TestAnalyticsEngine:
         result = engine.compute(values, ["ema"])
         assert "ema" in result
         assert len(result["ema"]) == len(values)
-        assert result["ema"][0] is None
-        # First non-None value is SMA seed
-        assert result["ema"][19] == pytest.approx(10.5)
+        # Emits from index 0, seeded from the first value
+        assert result["ema"][0] == pytest.approx(values[0])
+        # Rising ramp: EMA lags below the latest value
+        assert all(a < b for a, b in zip(result["ema"], result["ema"][1:]))
+        assert result["ema"][-1] < values[-1]
 
     def test_compute_rsi(self) -> None:
         engine = AnalyticsEngine()
@@ -158,9 +160,10 @@ class TestIndicators:
         values = [1.0, 2.0, 3.0, 4.0, 5.0]
         result = ema(values, 3)
         assert len(result) == 5
-        assert result[0] is None
-        assert result[1] is None
-        assert result[2] == pytest.approx(2.0)  # seed = SMA
+        assert result[0] == pytest.approx(1.0)  # seed = values[0]
+        # k = 2/(3+1) = 0.5 → each step moves halfway toward the new value
+        assert result[1] == pytest.approx(1.5)
+        assert result[2] == pytest.approx(2.25)
         assert result[-1] < 5.0
 
     def test_rsi_monotonic_uptrend(self) -> None:
@@ -205,8 +208,8 @@ class TestIndicators:
         values = [float(i) for i in range(1, 30)]
         result = macd(values, 8)  # fast=4, slow=8
         assert len(result) == len(values)
-        # Leading values None-padded (slow period - 1)
-        assert result[0] is None
+        # Both EMAs emit from index 0; at index 0 they share the same seed
+        assert result[0] == pytest.approx(0.0)
         non_none = [v for v in result if v is not None]
         assert non_none
         # For a linear ramp, EMA lag ≈ (period-1)/2, so MACD ≈ (8-4)/2 = 2.0
