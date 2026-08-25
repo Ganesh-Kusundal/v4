@@ -11,7 +11,10 @@ v4 API differences:
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
+from tradex_domain import OHLC, Price
 
 from tradex_trading.analytics import (
     AnalyticsEngine,
@@ -29,6 +32,22 @@ from tradex_trading.analytics import (
     total_return,
     win_rate,
 )
+from tradex_trading.analytics.indicators import compute_indicator
+
+# Shared closes for standalone MACD checks (linear ramp).
+CLOSES = [float(i) for i in range(1, 30)]
+
+
+class _FakeCandle:
+    """Minimal candle stand-in: registry fns read .ohlc.close.value."""
+
+    def __init__(self, close: float) -> None:
+        p = Price(value=Decimal(str(close)))
+        self.ohlc = OHLC(open=p, high=p, low=p, close=p)
+
+
+def _fake_candles(closes: list[float]) -> list[_FakeCandle]:
+    return [_FakeCandle(c) for c in closes]
 
 # ---------------------------------------------------------------------------
 # AnalyticsEngine.compute()
@@ -85,11 +104,9 @@ class TestAnalyticsEngine:
         assert non_none[-1] == pytest.approx(10.0)
 
     def test_compute_macd(self) -> None:
-        engine = AnalyticsEngine()
-        values = [float(i) for i in range(1, 30)]
-        result = engine.compute(values, ["macd"])
-        non_none = [v for v in result["macd"] if v is not None]
-        assert non_none
+        result = compute_indicator("macd", _fake_candles(CLOSES))
+        assert set(result) >= {"macd", "signal", "histogram"}
+        assert all(len(plot) == len(CLOSES) for plot in result.values())
 
     def test_indicator_roc_via_engine(self) -> None:
         """ScannerEngine's indicator() path supports roc conditions."""
@@ -204,20 +221,25 @@ class TestIndicators:
         with pytest.raises(ValueError):
             roc([1.0, 2.0], 0)
 
-    def test_macd_is_fast_ema_minus_slow_ema(self) -> None:
-        values = [float(i) for i in range(1, 30)]
-        result = macd(values, 8)  # fast=4, slow=8
-        assert len(result) == len(values)
-        # Both EMAs emit from index 0; at index 0 they share the same seed
-        assert result[0] == pytest.approx(0.0)
-        non_none = [v for v in result if v is not None]
-        assert non_none
-        # For a linear ramp, EMA lag ≈ (period-1)/2, so MACD ≈ (8-4)/2 = 2.0
-        assert non_none[-1] == pytest.approx(2.0, abs=0.2)
+    def test_macd_line_is_fast_minus_slow_ema(self) -> None:
+        result = macd(CLOSES)
+        fast, slow = ema(CLOSES, 12), ema(CLOSES, 26)
+        expected = [f - s for f, s in zip(fast, slow)]
+        assert result["macd"] == pytest.approx(expected)
 
-    def test_macd_rejects_small_period(self) -> None:
+    def test_macd_signal_is_ema_of_macd_line(self) -> None:
+        result = macd(CLOSES)
+        assert result["signal"] == pytest.approx(ema(result["macd"], 9))
+
+    def test_macd_histogram_is_line_minus_signal(self) -> None:
+        result = macd(CLOSES)
+        assert result["histogram"] == pytest.approx(
+            [m - s for m, s in zip(result["macd"], result["signal"])]
+        )
+
+    def test_macd_rejects_nonpositive_periods(self) -> None:
         with pytest.raises(ValueError):
-            macd([1.0, 2.0, 3.0], 1)
+            macd([1.0, 2.0], fast=0)
 
 
 # ---------------------------------------------------------------------------

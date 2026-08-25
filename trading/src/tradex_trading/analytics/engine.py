@@ -11,7 +11,7 @@ from tradex_domain.market import Candle, HistoricalSeries
 from tradex_domain.value_objects import Price
 
 from tradex_trading.analytics.breadth import advance_decline
-from tradex_trading.analytics.indicators import ema, macd, roc, rsi, sma
+from tradex_trading.analytics.indicators import ema, roc, rsi, sma
 from tradex_trading.analytics.probability import win_rate
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
 from tradex_trading.analytics.volatility import realized_vol
@@ -21,9 +21,9 @@ class AnalyticsEngine:
     """Coordinates analytics computations."""
 
     _INDICATORS: dict[str, Callable[[list, int], list]] = {
-        "sma": sma, "ema": ema, "rsi": rsi, "roc": roc, "macd": macd,
+        "sma": sma, "ema": ema, "rsi": rsi, "roc": roc,
     }
-    _DEFAULTS = {"sma": 20, "ema": 20, "rsi": 14, "roc": 10, "macd": 26}
+    _DEFAULTS = {"sma": 20, "ema": 20, "rsi": 14, "roc": 10}
 
     def __init__(self, warmup_bars: int = 0) -> None:
         self._warmup_bars = warmup_bars
@@ -49,8 +49,6 @@ class AnalyticsEngine:
                 result['rsi'] = rsi(series, period=14)
             elif indicator == 'roc':
                 result['roc'] = roc(series, period=10)
-            elif indicator == 'macd':
-                result['macd'] = macd(series, period=26)
             else:
                 raise ValueError(f"Unknown indicator: {indicator}")
 

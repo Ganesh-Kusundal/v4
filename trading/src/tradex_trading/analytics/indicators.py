@@ -140,32 +140,17 @@ def roc(values: list, period: int = 10) -> list:
     return result
 
 
-def macd(values: list, period: int = 26) -> list:
-    """MACD line — fast EMA minus slow EMA.
-
-    The uniform indicator signature takes a single ``period``; here it is the
-    slow EMA period and the fast EMA is ``period // 2`` (e.g. 26 -> fast 13),
-    giving the standard fast/slow spread without extra parameters.
-
-    Args:
-        values: List of numeric values (Decimal or float)
-        period: Slow EMA period (default: 26)
-
-    Returns:
-        List of MACD-line values (None-padded at start)
-    """
-    if period < 2:
-        raise ValueError("period must be at least 2")
-    fast_period = max(2, period // 2)
-    fast = ema(values, fast_period)
-    slow = ema(values, period)
-    result: list[float | None] = []
-    for f, s in zip(fast, slow, strict=True):
-        if f is None or s is None:
-            result.append(None)
-        else:
-            result.append(f - s)
-    return result
+def macd(values: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, list]:
+    """MACD: EMA(fast) − EMA(slow), plus signal EMA and histogram (parity with
+    openalgo-charts). Full-length lists, no warmup padding."""
+    if min(fast, slow, signal) < 1:
+        raise ValueError("periods must be positive")
+    f = ema(values, fast)
+    s = ema(values, slow)
+    line = [a - b for a, b in zip(f, s, strict=True)]
+    sig = ema(line, signal)
+    hist = [m - g for m, g in zip(line, sig, strict=True)]
+    return {"macd": line, "signal": sig, "histogram": hist}
 
 
 __all__ = [
@@ -496,14 +481,8 @@ def _builtin_specs() -> list[IndicatorSpec]:
     def _fn_roc(candles, period):
         return roc(closes_only(candles), int(period))
 
-    def _fn_macd(candles, period):
-        fast_period = max(2, int(period) // 2)
-        f = ema(closes_only(candles), fast_period)
-        s = ema(closes_only(candles), int(period))
-        return [
-            None if (a is None or b is None) else a - b
-            for a, b in zip(f, s, strict=True)
-        ]
+    def _fn_macd(candles, fast, slow, signal):
+        return macd(closes_only(candles), int(fast), int(slow), int(signal))
 
     return [
         IndicatorSpec(
@@ -534,8 +513,12 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="macd", name="MACD", category="Momentum", placement="pane",
-            params=(("period", "int", 26),),
-            plots=(("value", "line", "MACD"),),
+            params=(("fast", "int", 12), ("slow", "int", 26), ("signal", "int", 9)),
+            plots=(
+                ("histogram", "histogram", "Histogram"),
+                ("macd", "line", "MACD"),
+                ("signal", "line", "Signal"),
+            ),
             levels=({"value": 0}),
             fn=_fn_macd,
         ),
