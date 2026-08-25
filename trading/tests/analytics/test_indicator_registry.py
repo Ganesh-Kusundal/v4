@@ -140,17 +140,25 @@ class TestGoldenValues:
         result = obv(candles)
         assert result == [0.0, 200.0, -100.0, -100.0]
 
-    def test_stochastic_bounds_and_alignment(self):
+    def test_stochastic_smoothed_and_aligned(self):
         candles = _candles_from_closes(CLOSES)
-        result = stochastic(candles, k_period=5, d_period=3)
+        result = stochastic(candles, k_period=5, smooth_k=3, d_period=3)
         n = len(CLOSES)
         assert len(result["k"]) == n and len(result["d"]) == n
         for v in result["k"]:
             if v is not None:
                 assert 0.0 <= v <= 100.0
-        # %D starts one d_period later than %K
-        assert result["k"][4] is not None and result["d"][4] is None
-        assert result["d"][6] is not None
+        # raw %K starts at index 4; smoothed %K (3) first lands at index 6;
+        # %D (3) two more again
+        assert result["k"][6] is not None
+        assert result["k"][5] is None
+        assert result["d"][8] is not None
+        assert result["d"][7] is None
+
+    def test_stochastic_flat_window_is_none_not_zero(self):
+        candles = [_candle(10, 10, 10, 10)] * 8
+        result = stochastic(candles, k_period=3, smooth_k=1, d_period=1)
+        assert all(v is None for v in result["k"])
 
     def test_supertrend_flip_on_breakdown(self):
         closes = [50.0 + i for i in range(15)] + [

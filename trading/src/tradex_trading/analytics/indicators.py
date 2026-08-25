@@ -264,29 +264,39 @@ def obv(candles: list) -> list[float]:
     return out
 
 
-def stochastic(candles: list, k_period: int = 14, d_period: int = 3) -> dict[str, list]:
-    """Stochastic Oscillator: %K raw and %D (SMA of %K), both 0-100.
+def _rolling_sma(values: list[float | None], period: int) -> list[float | None]:
+    """SMA that yields None unless ALL window entries are finite (TS calc.ts semantics)."""
+    n = len(values)
+    out: list[float | None] = [None] * n
+    for i in range(period - 1, n):
+        window = values[i - period + 1 : i + 1]
+        if any(v is None for v in window):
+            continue
+        out[i] = sum(window) / period
+    return out
 
+
+def stochastic(
+    candles: list, k_period: int = 14, smooth_k: int = 3, d_period: int = 3
+) -> dict[str, list]:
+    """Stochastic Oscillator: %K smoothed by SMA(smooth_k), %D SMA(d_period).
+
+    Raw %K is None where high==low over the window (TS: span<=0 -> NaN -> null).
     Returns dict keyed 'k'/'d'.
     """
     if k_period <= 0 or d_period <= 0:
         raise ValueError("periods must be positive")
     n = len(candles)
-    k: list[float | None] = [None] * n
+    raw: list[float | None] = [None] * n
     for i in range(k_period - 1, n):
         window = candles[i - k_period + 1 : i + 1]
         hh = max(_to_float(c.ohlc.high.value) for c in window)
         ll = min(_to_float(c.ohlc.low.value) for c in window)
         close = _to_float(candles[i].ohlc.close.value)
-        rng = hh - ll
-        k[i] = 0.0 if rng == 0 else ((close - ll) / rng) * 100.0
-    # %D: rolling SMA over the defined %K values only (skip the warmup pad).
-    d: list[float | None] = [None] * n
-    start = k_period - 1
-    for i in range(start + d_period - 1, n):
-        window = [v for v in k[i - d_period + 1 : i + 1] if v is not None]
-        if len(window) == d_period:
-            d[i] = sum(window) / d_period
+        rng_span = hh - ll
+        raw[i] = None if rng_span <= 0 else ((close - ll) / rng_span) * 100.0
+    k = _rolling_sma(raw, smooth_k)
+    d = _rolling_sma(k, d_period)
     return {"k": k, "d": d}
 
 
@@ -555,7 +565,7 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="stochastic", name="Stochastic", category="Momentum", placement="pane",
-            params=(("k_period", "int", 14), ("d_period", "int", 3)),
+            params=(("k_period", "int", 14), ("smooth_k", "int", 3), ("d_period", "int", 3)),
             plots=(("k", "line", "%K"), ("d", "line", "%D"),),
             levels=({"value": 80}, {"value": 20}),
             fn=stochastic,
