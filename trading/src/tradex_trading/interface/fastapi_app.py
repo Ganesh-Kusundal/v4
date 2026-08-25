@@ -9,115 +9,30 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Security, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import APIKeyHeader
-from pydantic import BaseModel, ConfigDict
 from tradex_domain.errors import CapabilityNotSupportedError
 
+# Pydantic response models, WebSocket queue helpers, and the API-key auth
+# dependency now live in sibling modules. They are re-exported from here so
+# existing callers and tests that import them off ``fastapi_app`` keep
+# working; new code should import directly from the sibling modules.
+from tradex_trading.interface.auth import api_key_header, make_verify_api_key
+from tradex_trading.interface.models import (  # noqa: F401  (re-exported)
+    AccountResponse,
+    ErrorResponse,
+    HealthResponse,
+    OrderResponse,
+    PositionResponse,
+)
+from tradex_trading.interface.queueing import (  # noqa: F401  (re-exported)
+    CONTROL_QUEUE_MAX,
+    OUTBOUND_QUEUE_MAX,
+    _enqueue_control_drop_oldest,
+    _enqueue_drop_oldest,
+)
+
 log = logging.getLogger(__name__)
-
-#: Per-connection outbound queue bounds for /ws/stream. Producers (broker
-#: threads via ``call_soon_threadsafe``) never await the socket; a single
-#: writer task drains the queues, so a slow client cannot grow memory
-#: unboundedly or stall the event loop.
-#:
-#: Ticks (quote/depth) are freshness-bound: on overflow the *oldest* queued
-#: tick is dropped. Control messages (acks, fills) carry order events, so
-#: they get a dedicated priority queue — the writer drains control first. A
-#: control queue that is still full (client effectively gone) evicts its own
-#: *oldest* message, so the newest order event always lands.
-OUTBOUND_QUEUE_MAX = 1024
-CONTROL_QUEUE_MAX = 256
-
-
-def _enqueue_drop_oldest(
-    queue: asyncio.Queue[dict[str, Any]], payload: dict[str, Any]
-) -> int:
-    """Enqueue *payload*, dropping the oldest queued message on overflow.
-
-    Returns the number of messages dropped (0 normally).
-    """
-    try:
-        queue.put_nowait(payload)
-        return 0
-    except asyncio.QueueFull:
-        try:
-            queue.get_nowait()  # drop the oldest queued message
-            queue.put_nowait(payload)
-            return 1
-        except (asyncio.QueueEmpty, asyncio.QueueFull):
-            return 0
-
-
-def _enqueue_control_drop_oldest(
-    control: asyncio.Queue[dict[str, Any]], payload: dict[str, Any]
-) -> int:
-    """Enqueue a control message, dropping the oldest control on overflow.
-
-    Returns the number of messages dropped (0 normally). Control messages
-    (acks/fills) ride a small dedicated queue that the writer drains before
-    ticks. When it is full (a client too slow to keep up), the *oldest*
-    control is evicted — the newest order event always lands. Note a full
-    control queue cannot be relieved by evicting ticks: the two queues have
-    independent capacities, so overflow drops within the control queue.
-    """
-    try:
-        control.put_nowait(payload)
-        return 0
-    except asyncio.QueueFull:
-        try:
-            control.get_nowait()  # drop the oldest queued control
-            control.put_nowait(payload)
-            return 1
-        except (asyncio.QueueEmpty, asyncio.QueueFull):
-            return 0
-
-
-# ---------------------------------------------------------------------------
-# Pydantic response models
-# ---------------------------------------------------------------------------
-
-class HealthResponse(BaseModel):
-    model_config = ConfigDict(json_schema_extra={"exclude_none": True})
-
-    status: str
-    check: str | None = None
-    session_state: str | None = None
-
-
-class PositionResponse(BaseModel):
-    instrument: str
-    quantity: str
-    avg_price: str
-    realized_pnl: str
-    unrealized_pnl: str
-    total_pnl: str
-    is_long: bool
-    is_short: bool
-
-
-class AccountResponse(BaseModel):
-    balance: str | None = None
-    margin: str | None = None
-    equity: str | None = None
-
-
-class OrderResponse(BaseModel):
-    order_id: str
-    status: str
-    message: str = ""
-
-
-class ErrorResponse(BaseModel):
-    error: str
-
-
-# ---------------------------------------------------------------------------
-# Auth header scheme (reusable across the module)
-# ---------------------------------------------------------------------------
-
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 # ---------------------------------------------------------------------------
@@ -171,16 +86,9 @@ def create_app(
     # MarketFeed/FeedRegistry) — imported once, not per WebSocket connection.
     from tradex_trading.runtime.market_feed import normalize_depth
 
-    # -- Auth dependency (closure over *app*) ----------------------------------
+    # -- Auth dependency (built once per app via the auth module) -----------
 
-    async def verify_api_key(
-        api_key: str | None = Security(api_key_header),
-    ) -> None:
-        expected = app.state.api_key
-        if expected is None:
-            return  # No auth configured
-        if api_key != expected:
-            raise HTTPException(status_code=403, detail="Invalid API key")
+    verify_api_key = make_verify_api_key(lambda: app.state)
 
     # --- Health ----------------------------------------------------------------
 
