@@ -28,6 +28,7 @@ from tradex_trading.analytics.indicators import (
     vwap_session,
     wma,
 )
+from tradex_trading.analytics.ma_vol import lsma, mcginley, twap, vwma
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +250,43 @@ class TestGoldenValues:
         expected = (tp1 * 900 + tp2 * 100) / 1000
         assert result[1] == pytest.approx(expected)
 
+    # --- B1-T3 parallel split (ma_vol.py) edge tests ---
+
+    def test_vwma_zero_volume_window_is_none(self):
+        # TS parity: sma(volume)=0 over a window -> NaN -> None at those slots.
+        values = [10.0, 11.0, 12.0, 13.0]
+        volumes = [0.0, 0.0, 0.0, 50.0]
+        result = vwma(values, volumes, 3)
+        assert result[:3] == [None, None, None]  # window [0,0,0] sums to zero volume
+        assert result[3] == pytest.approx(13.0)  # only the volume-carrying bar counts
+
+    def test_twap_first_value_is_ohlc4_and_never_resets(self):
+        candles = _candles_from_closes(CLOSES)
+        result = twap(candles)
+        ohlc4_0 = (9.5 + 10.5 + 9.0 + 10.0) / 4
+        assert result[0] == pytest.approx(ohlc4_0)
+        # continuous anchor: bar i's value includes every bar before it
+        assert result[-1] > result[len(CLOSES) // 2]
+
+    def test_mcginley_constant_series_flat_from_l_minus_1(self):
+        # Seed branch: SMA-seeded EMA of a constant series is that constant,
+        # so McGinley prints the constant from index period - 1.
+        flat = [42.0] * 30
+        result = mcginley(flat, 5)
+        assert all(v is None for v in result[:4])
+        assert all(v == pytest.approx(42.0) for v in result[4:])
+
+    def test_lsma_linear_series_has_no_lag(self):
+        # A perfect line fits itself: endpoint = the line's own value there,
+        # and offset steps back down the fitted line by exactly `offset` units
+        # per bar of slope.
+        line = [2.0 * i for i in range(20)]
+        result = lsma(line, 5)
+        assert all(v is None for v in result[:4])
+        assert result[10] == pytest.approx(20.0)
+        with_offset = lsma(line, 5, offset=1)
+        assert with_offset[10] == pytest.approx(18.0)
+
 
 # ---------------------------------------------------------------------------
 # Registry contract
@@ -311,6 +349,51 @@ class TestRegistry:
         )
         ids = {e["id"] for e in indicator_catalogue()}
         assert marker in ids
+
+
+# ---------------------------------------------------------------------------
+# Band overlays (Batch 1 parallel split — band_overlays.py)
+# ---------------------------------------------------------------------------
+
+
+class TestBandOverlays:
+    def test_envelope_flat_series_all_equal_constant(self):
+        from tradex_trading.analytics.band_overlays import envelope
+
+        flat = [50.0] * 25
+        result = envelope(flat, period=20, percent=10.0)
+        assert all(v == pytest.approx(55.0) for v in result["upper"][19:])
+        assert all(v == pytest.approx(50.0) for v in result["middle"][19:])
+        assert all(v == pytest.approx(45.0) for v in result["lower"][19:])
+        assert all(v is None for v in result["middle"][:19])
+
+    def test_donchian_mid_is_avg_of_extremes_at_known_index(self):
+        from tradex_trading.analytics.band_overlays import donchian
+
+        candles = _candles_from_closes(CLOSES)
+        result = donchian(candles, period=3)
+        # window [11.5+1, 13.5] highs / [10.5, 12.0] lows over i=2..4:
+        # upper=13.5, lower=10.5 -> mid 12.0
+        assert result["upper"][4] == pytest.approx(13.5)
+        assert result["lower"][4] == pytest.approx(10.5)
+        assert result["middle"][4] == pytest.approx(12.0)
+        assert result["upper"][1] is None
+
+    def test_keltner_rails_are_basis_plus_mult_atr(self):
+        from tradex_trading.analytics.band_overlays import keltner_channel
+        from tradex_trading.analytics.indicators import _sma_seeded_ema
+
+        candles = _candles_from_closes(CLOSES)
+        result = keltner_channel(candles, period=5, mult=2.0, atr_length=3)
+        mid = result["middle"]
+        # basis is the SMA-seeded EMA of closes over period 5
+        assert mid[4] == pytest.approx(_sma_seeded_ema(CLOSES, 5)[4])
+        # rail is backend atr (Wilder seed at atr_length-1); band starts when
+        # both legs exist: max(period, atr_length) - 1 = index 4
+        a = atr(candles, 3)
+        off = 2.0 * a[4]
+        assert result["upper"][4] == pytest.approx(mid[4] + off)
+        assert result["lower"][4] == pytest.approx(mid[4] - off)
 
 
 # ---------------------------------------------------------------------------
@@ -379,4 +462,3 @@ class TestMedianStudy:
         assert [p[0] for p in SPEC_MEDIAN.plots] == [
             "median", "upper", "lower", "median_ema",
         ]
-
