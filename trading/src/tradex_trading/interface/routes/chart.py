@@ -374,6 +374,30 @@ def create_chart_router(session: Any | None) -> APIRouter:
             "meta": {"source": "datalake", "params": params},
         }
 
+    @router.post("/transforms/{transform_id}")
+    async def compute_transform_endpoint(transform_id: str, body: dict) -> dict:
+        """Rebucket a bar window through one series transform (stateless).
+
+        Body: {id, params?, bars: [{time, open, high, low, close, volume}]}.
+        No datalake or session is touched — the chart posts its visible
+        window and gets the transformed bars back verbatim.
+        """
+        from tradex_trading.analytics.transforms import compute_transform
+
+        bars = body.get("bars") or []
+        if not isinstance(bars, list) or not bars:
+            raise HTTPException(
+                status_code=422, detail="transform requires a non-empty bars array"
+            )
+        params = body.get("params") or {}
+        if not isinstance(params, dict):
+            raise HTTPException(status_code=422, detail="'params' must be an object")
+        try:
+            result = compute_transform(transform_id, bars, params)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"id": transform_id, "bars": result}
+
     # ------------------------------------------------------------------ trading
 
     @router.get("/book")
