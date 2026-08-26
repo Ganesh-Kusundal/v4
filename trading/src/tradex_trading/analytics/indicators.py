@@ -786,3 +786,30 @@ def _builtin_specs() -> list[IndicatorSpec]:
 
 for _spec in _builtin_specs():
     register_indicator(_spec)
+
+# Batch 1 ports — full IndicatorSpec objects (metadata + fn) defined beside
+# their implementations; registering them here is the whole act of shipping.
+from .band_overlays import (  # noqa: E402
+    SPEC_DONCHIAN,
+    SPEC_ENVELOPE,
+    SPEC_KELTNER_CHANNEL,
+)
+from .ma_vol import (  # noqa: E402
+    SPEC_LSMA,
+    SPEC_MCGINLEY_DYNAMIC,
+    SPEC_TWAP,
+    SPEC_VWMA,
+)
+from .median_study import SPEC_MEDIAN  # noqa: E402
+
+for _spec in (
+    SPEC_VWMA,
+    SPEC_TWAP,
+    SPEC_MCGINLEY_DYNAMIC,
+    SPEC_LSMA,
+    SPEC_ENVELOPE,
+    SPEC_DONCHIAN,
+    SPEC_KELTNER_CHANNEL,
+    SPEC_MEDIAN,
+):
+    register_indicator(_spec)

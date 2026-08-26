@@ -29,6 +29,14 @@ PARAM_MAP = {
     "dema": {"length": "period"},
     "tema": {"length": "period"},
     "alma": {"length": "period", "offset": "offset", "sigma": "sigma"},
+    "vwma": {"length": "period"},
+    "twap": {},
+    "mcginley-dynamic": {"length": "period"},
+    "lsma": {"length": "period"},
+    "envelope": {"length": "period", "percent": "percent"},
+    "donchian": {"length": "period", "offset": "offset"},
+    "keltner-channel": {"length": "period", "mult": "mult", "atrlength": "atrlength"},
+    "median": {"length": "length", "atrLength": "atr_length", "atrMult": "atr_mult"},
 }
 
 # backend plot key -> TS golden plot key (identity when absent).
@@ -50,6 +58,19 @@ PLOT_MAP = {
     "dema": {"value": "dema"},
     "tema": {"value": "tema"},
     "alma": {"value": "alma"},
+    "vwma": {"value": "vwma"},
+    "twap": {"value": "twap"},
+    "mcginley-dynamic": {"value": "mg"},
+    "lsma": {"value": "lsma"},
+    "envelope": {"middle": "basis", "upper": "upper", "lower": "lower"},
+    "donchian": {"middle": "basis", "upper": "upper", "lower": "lower"},
+    "keltner-channel": {"middle": "basis", "upper": "upper", "lower": "lower"},
+    "median": {
+        "median": "median",
+        "upper": "upper",
+        "lower": "lower",
+        "median_ema": "medianEma",
+    },
 }
 
 

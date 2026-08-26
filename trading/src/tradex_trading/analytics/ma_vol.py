@@ -49,16 +49,71 @@ def vwma(values: list[float], volumes: list[float], period: int) -> list[float |
     return out
 
 
-def twap(candles: list) -> list[float | None]:
-    """Time Weighted Average Price — running mean of ohlc4 from bar 0.
+_HOUR_SECONDS = 3600
+_DAY_SECONDS = 86400
 
-    Continuous anchor: never resets across session boundaries. Emits from
-    index 0 (twap[0] == ohlc4[0]); no warmup padding.
+
+def _session_start_flags(candles: list) -> list[bool]:
+    """First bar of each trading session, read back from bar gaps.
+
+    Port of openalgo-charts ``sessionStartIndices``/``sessionStartFlags``
+    (src/feed/time.ts): the overnight break is the widest recurring gap;
+    candidate starts sit behind gaps >= max(4 * medianGap, 4h), accepted only
+    at roughly daily cadence (median open-to-open span <= 36h). With no
+    readable break (daily bars / never-closing market) it falls back to the
+    IST calendar day — the zone default of the TS source. Bar timestamps here
+    are naive-IST wall clock, so ``date()`` is exactly the TS ``isNewIstDay``.
     """
+    n = len(candles)
+    flags = [False] * n
+    times = [c.timestamp for c in candles]
+    gaps = sorted(
+        (b - a).total_seconds()
+        for a, b in zip(times, times[1:], strict=False)
+        if b > a
+    )
+    start_indices: list[int] | None = None
+    if gaps:
+        gap = gaps[len(gaps) // 2]
+        if 0 < gap < _DAY_SECONDS:
+            threshold = max(4 * gap, 4 * _HOUR_SECONDS)
+            starts = [
+                i for i in range(1, n)
+                if (times[i] - times[i - 1]).total_seconds() >= threshold
+            ]
+            if starts:
+                opens = [times[0]] + [times[i] for i in starts]
+                spans = sorted(
+                    (opens[j] - opens[j - 1]).total_seconds()
+                    for j in range(1, len(opens))
+                )
+                if spans[len(spans) // 2] <= 36 * _HOUR_SECONDS:
+                    start_indices = starts
+    if start_indices is None:
+        for i in range(1, n):
+            flags[i] = times[i].date() != times[i - 1].date()
+        return flags
+    for i in start_indices:
+        flags[i] = True
+    return flags
+
+
+def twap(candles: list) -> list[float | None]:
+    """Time Weighted Average Price — running mean of ohlc4 from the anchor.
+
+    Matches openalgo-charts ``TWAP`` (src/indicators/averages.ts): the
+    descriptor's anchor defaults to ``session``, restarting the running mean
+    on each session-start flag read back from the bar gaps. Emits from index
+    0 (twap[0] == ohlc4[0]); no warmup padding.
+    """
+    restarts = _session_start_flags(candles)
     out: list[float | None] = []
     total = 0.0
     count = 0
-    for c in candles:
+    for restart, c in zip(restarts, candles, strict=True):
+        if restart:
+            total = 0.0
+            count = 0
         o = c.ohlc.open.value
         h = c.ohlc.high.value
         l = c.ohlc.low.value
