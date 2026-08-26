@@ -287,7 +287,7 @@ SPEC_CHOPPINESS_INDEX = IndicatorSpec(
     category="Volatility",
     placement="pane",
     params=(("length", "int", 14), ("offset", "int", 0)),
-    plots=(("chop", "line", "CHOP"),),
+    plots=(("value", "line", "CHOP"),),
     levels=({"value": 61.8}, {"value": 50}, {"value": 38.2}),
     fn=_fn_chop,
 )

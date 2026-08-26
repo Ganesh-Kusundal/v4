@@ -769,13 +769,14 @@ class TestVolatilityChop:
 
 
 class TestVolatilityBands:
-    def test_bollinger_percent_b_flat_is_half(self):
+    def test_bollinger_percent_b_flat_is_none(self):
         from tradex_trading.analytics.volatility_bands import bollinger_percent_b
 
         flat = _candles_from_closes([50.0] * 25)
         result = bollinger_percent_b(flat, length=20, mult=2.0)
         assert all(v is None for v in result[:19])
-        assert all(v == pytest.approx(0.5) for v in result[19:])
+        # Collapsed bands (stdev == 0, span == 0) → None (TS: NaN → null)
+        assert all(v is None for v in result[19:])
 
     def test_bollinger_bandwidth_flat_zero(self):
         from tradex_trading.analytics.volatility_bands import bollinger_bandwidth

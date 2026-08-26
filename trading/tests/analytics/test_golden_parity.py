@@ -73,6 +73,17 @@ PARAM_MAP = {
     "chande-momentum": {"length": "length"},
     "connors-rsi": {"lenrsi": "lenrsi", "lenupdown": "lenupdown", "lenroc": "lenroc"},
     "balance-of-power": {},
+    "bollinger-percent-b": {"length": "length", "mult": "mult"},
+    "bollinger-bandwidth": {"length": "length", "mult": "mult"},
+    "bb-trend": {"shortLength": "short_length", "longLength": "long_length", "stdDevMult": "std_dev_mult"},
+    "kama": {"erLength": "er_length", "fastLength": "fast_length", "slowLength": "slow_length"},
+    "choppiness-index": {"length": "length", "offset": "offset"},
+    "historical-volatility": {"length": "length", "per": "per"},
+    "average-daily-range": {"length": "length"},
+    "chop-zone": {},
+    "volatility-stop": {"length": "length", "factor": "factor"},
+    "chandelier-exit": {"length": "length", "atrLength": "atr_length", "atrMultiplier": "atr_multiplier"},
+    "chande-kroll-stop": {"p": "p", "x": "x", "q": "q"},
 }
 
 # backend plot key -> TS golden plot key (identity when absent).
@@ -128,6 +139,17 @@ PLOT_MAP = {
     "chande-momentum": {"cmo": "cmo"},
     "connors-rsi": {"crsi": "crsi"},
     "balance-of-power": {"bop": "bop"},
+    "bollinger-percent-b": {"value": "percentB"},
+    "bollinger-bandwidth": {"bandwidth": "bandwidth"},
+    "bb-trend": {"value": "bbtrend"},
+    "kama": {"value": "kama"},
+    "choppiness-index": {"value": "chop"},
+    "historical-volatility": {"value": "hv"},
+    "average-daily-range": {"value": "adr"},
+    "chop-zone": {"chopZone": "chopZone"},
+    "volatility-stop": {"up": "up", "down": "down"},
+    "chandelier-exit": {"longExit": "longExit", "shortExit": "shortExit"},
+    "chande-kroll-stop": {"stopLong": "stopLong", "stopShort": "stopShort"},
 }
 
 

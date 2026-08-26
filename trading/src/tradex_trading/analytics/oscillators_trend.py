@@ -279,7 +279,7 @@ def cci(
         for j in range(int(period)):
             dev += abs(tp[i - j] - a)
         md = dev / int(period)
-        if md == 0:
+        if md < 1e-12:
             out[i] = 0.0
         else:
             out[i] = (tp[i] - a) / (k * md) if k != 0 else 0.0

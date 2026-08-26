@@ -36,11 +36,19 @@ def sma(values: list, period: int) -> list:
     floats = [_to_float(v) for v in values]
     result: list[float | None] = [None] * (period - 1)
 
-    window_sum = sum(floats[:period])
+    # Separate add/subtract matches JS running-sum micro-drift:
+    # ``sum += v[i]; sum -= v[i-period]`` (two IEEE-754 round-trips per
+    # step) differs from the combined ``sum += v[i] - v[i-period]`` (one
+    # round-trip) in the low bits.  The TS golden was generated with the
+    # JS two-step form, so we reproduce it here for bit-exact parity.
+    window_sum = 0.0
+    for _i in range(period):
+        window_sum += floats[_i]
     result.append(window_sum / period)
 
     for i in range(period, len(floats)):
-        window_sum += floats[i] - floats[i - period]
+        window_sum += floats[i]
+        window_sum -= floats[i - period]
         result.append(window_sum / period)
 
     return result
@@ -845,6 +853,26 @@ from .oscillators_trend import (  # noqa: E402
     SPEC_CCI,
 )
 
+from .volatility_bands import (  # noqa: E402
+    SPEC_BOLLINGER_BANDWIDTH,
+    SPEC_BOLLINGER_PERCENT_B,
+    SPEC_BB_TREND,
+    SPEC_KAMA,
+)
+
+from .volatility_chop import (  # noqa: E402
+    SPEC_AVERAGE_DAILY_RANGE,
+    SPEC_CHOP_ZONE,
+    SPEC_CHOPPINESS_INDEX,
+    SPEC_HISTORICAL_VOLATILITY,
+)
+
+from .volatility_stops import (  # noqa: E402
+    SPEC_CHANDE_KROLL_STOP,
+    SPEC_CHANDELIER_EXIT,
+    SPEC_VOLATILITY_STOP,
+)
+
 for _spec in (
     SPEC_ADX,
     SPEC_AROON,
@@ -867,5 +895,16 @@ for _spec in (
     SPEC_CHANDE_MOMENTUM,
     SPEC_CONNORS_RSI,
     SPEC_BALANCE_OF_POWER,
+    SPEC_BOLLINGER_PERCENT_B,
+    SPEC_BOLLINGER_BANDWIDTH,
+    SPEC_BB_TREND,
+    SPEC_KAMA,
+    SPEC_CHOPPINESS_INDEX,
+    SPEC_HISTORICAL_VOLATILITY,
+    SPEC_AVERAGE_DAILY_RANGE,
+    SPEC_CHOP_ZONE,
+    SPEC_VOLATILITY_STOP,
+    SPEC_CHANDELIER_EXIT,
+    SPEC_CHANDE_KROLL_STOP,
 ):
     register_indicator(_spec)

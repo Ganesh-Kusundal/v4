@@ -15,10 +15,8 @@ Parity notes
 - Bands are identical to the reference ``bands()``: population stdev
   (``sqrt(sum((x - sma)^2)/len)``) over the same ``sma`` window.
 - ``bollinger_percent_b``: ``(src - lower)/(upper - lower)`` when the span
-  is > 0; a collapsed window (flat series, stdev 0) returns ``0.5`` rather
-  than ``NaN`` — the price sits exactly mid-band — so a flat series is
-  ``0.5`` throughout its printed region (required by the edge spec). Warmup
-  stays ``None``.
+  is > 0; a collapsed window (flat series, stdev 0) returns ``None``
+  matching the TS ``NaN``→``null``. Warmup stays ``None``.
 - ``bollinger_bandwidth``: ``((upper - lower)/middle)*100`` per band; the
   two companion rails are rolling extremes *of the bandwidth itself* using a
   NaN-skipped ``highest``/``lowest`` (any ``NaN`` in the window loses the
@@ -128,8 +126,8 @@ def bollinger_percent_b(
 
     Matches ``BOLLINGER_PERCENT_B.calc`` in ``src/indicators/volatility.ts``:
     ``(src - lower)/(upper - lower)`` when ``span > 0``. A flat window
-    (``span == 0``) is mapped to ``0.5`` so the indicator is ``0.5`` instead
-    of ``NaN`` on constant series. ``None`` during ``length - 1`` warmup.
+    (``span == 0``) yields ``None`` (TS ``NaN``→``null``). ``None`` during
+    ``length - 1`` warmup.
     """
     if length <= 0:
         raise ValueError("length must be positive")
@@ -148,9 +146,7 @@ def bollinger_percent_b(
         span = up - lo
         if span > 0:
             out[i] = (values[i] - lo) / span
-        elif span == 0:
-            # collapsed bands — price equals the single level
-            out[i] = 0.5
+        # else span == 0 (TS: NaN → null via nulls())
         # else span is nan/inf should not happen; stays None
     return out
 
