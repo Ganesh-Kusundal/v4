@@ -186,6 +186,8 @@ class ParallelHistoryFetcher:
             raise ValueError("ParallelHistoryFetcher requires at least one broker")
         if isinstance(timeframe, str):
             timeframe = Timeframe(timeframe)
+        self._timeframe: Timeframe = timeframe
+        self._req_start, self._req_end = start, end
 
         days = (end - start).days
         broker_names = self._pick_brokers()
@@ -243,52 +245,17 @@ class ParallelHistoryFetcher:
             # Broker adapters accept (instrument, timeframe, start, end) positional
             return broker.history(inst, timeframe, s, e)
 
-        def _fetch_windowed(
-            broker_name: str, broker: Any, inst: Instrument,
-            windows: list[tuple[datetime, datetime]],
-        ) -> HistoricalSeries | None:
-            """Fetch all poll windows for one instrument, stitch into one series."""
-            stitched: list = []
-            for ws, we in windows:
-                # Rate-limit per window call (was per-instrument before)
-                limiter = self._limiters[broker_name]
-                if not limiter.acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
-                    log.warning(
-                        "rate-limit gate timed out for %s via %s — proceeding anyway",
-                        inst.instrument_id, broker_name,
-                    )
-                part = _call_history(broker, inst, s=ws, e=we)
-                if part is not None and part.candles:
-                    stitched.extend(part.candles)
-            if stitched:
-                # Deduplicate by timestamp (overlap at window boundaries), preserve order
-                seen: set = set()
-                deduped: list = []
-                for c in sorted(stitched, key=lambda x: x.timestamp):
-                    ts = c.timestamp
-                    if ts not in seen:
-                        seen.add(ts)
-                        deduped.append(c)
-                # Build a stitched series (start/end are the original request window)
-                tf = Timeframe(timeframe) if isinstance(timeframe, str) else timeframe  # type: ignore[arg-type]
-                return HistoricalSeries(
-                    instrument=inst, timeframe=tf, candles=deduped, start=start, end=end,
-                )
-            return None
-
         def _fetch_one(broker_name: str, broker: Any, inst: Instrument) -> None:
             limiter = self._limiters[broker_name]
             first_exc: Exception | None = None
             try:
                 windows = _windows_for(inst, cap)
                 if windows is not None:
-                    series = _fetch_windowed(broker_name, broker, inst, windows)
-                    if series is not None and len(series.candles) > 0:
+                    series = self._stitch_windows(broker_name, broker, inst, windows)
+                    if series is not None and series.candles:
                         with lock:
                             results[str(inst.instrument_id)] = series
                         return
-                    # Empty stitched result -> let failover try (if any), else record error below
-                    # Fall through to failover loop without marking broker as failed yet
                     raise RuntimeError(
                         f"{broker_name}: empty stitched series for {inst.instrument_id}"
                     )
@@ -316,34 +283,13 @@ class ParallelHistoryFetcher:
                         continue
                 try:
                     other_windows = _windows_for(
-                        inst, _chunk_cap_for(timeframe, [other_name]))
+                        inst, _chunk_cap_for(self._timeframe, [other_name])
+                    )
                     if other_windows is not None:
-                        # Failover windowed with the other broker's cap/limiter
-                        stitched2: list = []
-                        for ws, we in other_windows:
-                            if not self._limiters[other_name].acquire(
-                                "historical", timeout=ACQUIRE_TIMEOUT_S,
-                            ):
-                                log.warning(
-                                    "rate-limit gate timed out for %s via %s"
-                                    " — proceeding anyway",
-                                    inst.instrument_id, other_name,
-                                )
-                            part2 = _call_history(other_broker, inst, s=ws, e=we)
-                            if part2 is not None and part2.candles:
-                                stitched2.extend(part2.candles)
-                        if stitched2:
-                            seen2: set = set()
-                            deduped2: list = []
-                            for c in sorted(stitched2, key=lambda x: x.timestamp):
-                                if c.timestamp not in seen2:
-                                    seen2.add(c.timestamp)
-                                    deduped2.append(c)
-                            tf2 = Timeframe(timeframe) if isinstance(timeframe, str) else timeframe  # type: ignore[arg-type]
-                            series = HistoricalSeries(
-                                instrument=inst, timeframe=tf2,
-                                candles=deduped2, start=start, end=end,
-                            )
+                        series = self._stitch_windows(
+                            other_name, other_broker, inst, other_windows
+                        )
+                        if series is not None and series.candles:
                             with lock:
                                 results[str(inst.instrument_id)] = series
                             return
@@ -385,6 +331,43 @@ class ParallelHistoryFetcher:
         return results
 
     # ------------------------------------------------------------------ routing
+
+    def _stitch_windows(
+        self,
+        broker_name: str,
+        broker: Any,
+        inst: Instrument,
+        windows: list[tuple[datetime, datetime]],
+    ) -> HistoricalSeries | None:
+        """Fetch each window with per-call rate limiting, stitch + dedup by timestamp.
+
+        Returns ``None`` if every window returned no candles.  Raises whatever
+        the broker raises (caller decides failover vs. blacklist).
+        """
+        stitched: list = []
+        limiter = self._limiters[broker_name]
+        for ws, we in windows:
+            if not limiter.acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
+                log.warning(
+                    "ParallelHistoryFetcher: rate-limit gate timed out for "
+                    "%s via %s — proceeding anyway",
+                    inst.instrument_id, broker_name,
+                )
+            part = broker.history(inst, self._timeframe, ws, we)
+            if part is not None and part.candles:
+                stitched.extend(part.candles)
+        if not stitched:
+            return None
+        seen: set = set()
+        deduped: list = []
+        for c in sorted(stitched, key=lambda x: x.timestamp):
+            if c.timestamp not in seen:
+                seen.add(c.timestamp)
+                deduped.append(c)
+        return HistoricalSeries(
+            instrument=inst, timeframe=self._timeframe, candles=deduped,
+            start=self._req_start, end=self._req_end,
+        )
 
     def _pick_brokers(self) -> list[str]:
         """Select serving brokers.
