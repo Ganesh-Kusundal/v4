@@ -27,6 +27,7 @@ import { showIndicatorModal } from "./shell/indicator-modal";
 import { createBottomDock } from "./shell/bottom-dock";
 import { wireCompare, toggleCompareUi } from "./shell/comparison";
 import { wireChartSettings, toggleChartSettingsUi } from "./shell/chart-settings";
+import { linkChart, unlinkAll } from "./linking";
 
 registerTradexIntervals();
 
@@ -71,6 +72,11 @@ const chart = createChart(chartHost, {
   timezone: "Asia/Kolkata",
   dataFeed: chartFeed,
 } as unknown as Record<string, unknown>);
+
+// The primary chart joins the link group immediately; a future multi-chart
+// host can add more members via linkChart(). Symbol sync is off, so changing
+// instrument on the member needs no re-linking.
+linkChart(chart as never);
 
 let priceSeries: SeriesApi | null = null;
 let volumeSeries: SeriesApi | null = null;
@@ -596,6 +602,20 @@ setBtn.className = "tbtn";
 setBtn.textContent = "Settings";
 setBtn.title = "Chart settings (schema-driven, engine-applied)";
 setBtn.addEventListener("click", toggleChartSettingsUi);
+
+// Link toggle: binds/unbinds the primary chart from the workspace LinkGroup
+// (crosshair + viewport mirroring). One member today, so the group is real but
+// the sync is a no-op until a future host adds more charts.
+let linked = true;
+const linkBtn = document.createElement("button");
+linkBtn.className = "tbtn is-on";
+linkBtn.textContent = "Link";
+linkBtn.title = "Chart linking — LinkGroup (crosshair + viewport mirroring)";
+linkBtn.addEventListener("click", () => {
+  linked = !linked;
+  linkBtn.classList.toggle("is-on", linked);
+  if (linked) linkChart(chart as never); else unlinkAll();
+});
 wireCompare(chart, chartFeed as never, () => ({ ...state }));
 wireChartSettings(chart);
 
@@ -613,7 +633,7 @@ shellbar.append(
   divider(),
   brkLabel, brkEntry, brkStop, brkTarget, brkBuyBtn, brkSellBtn,
   divider(),
-  cmpBtn, setBtn,
+  cmpBtn, setBtn, linkBtn,
 );
 const statusWrap = document.createElement("div");
 statusWrap.className = "status";
