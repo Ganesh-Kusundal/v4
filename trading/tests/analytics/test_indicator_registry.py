@@ -911,3 +911,345 @@ class TestVolumeFlow:
         # KST first prints at max(roclen) + max(smalen) - 1 = 30 + 15 - 1 = 44
         assert all(v is None for v in result["kst"][:44])
         assert result["kst"][44] is not None
+
+
+# ---------------------------------------------------------------------------
+# B5 parallel split (studies_simple.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestStudiesSimple:
+    def test_momentum_first_print_and_flat_zero(self):
+        from tradex_trading.analytics.studies_simple import momentum
+
+        rising = _candles_from_closes([10.0 + i * 0.5 for i in range(30)])
+        mom = momentum(rising, len=10)["mom"]
+        assert all(v is None for v in mom[:10])
+        assert mom[10] == pytest.approx(5.0)
+
+        flat = _candles_from_closes([42.0] * 25)
+        flat_mom = momentum(flat, len=10)["mom"]
+        assert all(v == pytest.approx(0.0) for v in flat_mom[10:])
+
+    def test_ma_cross_sma_lanes_and_cross_slots(self):
+        from tradex_trading.analytics.studies_simple import ma_cross
+
+        # V-shaped recovery: short SMA crosses above the long SMA mid-series.
+        closes = [20.0 - i for i in range(10)] + [12.0 + i for i in range(9)]
+        result = ma_cross(_candles_from_closes(closes), short_length=5, long_length=10)
+        short, long = result["short"], result["long"]
+        cross = result["cross"]
+        assert short[4] == pytest.approx((20 + 19 + 18 + 17 + 16) / 5)
+        assert long[9] == pytest.approx(sum(closes[:10]) / 10)
+        assert any(v is not None for v in cross), "expected a cross on the V series"
+        for i, v in enumerate(cross):
+            if v is not None:
+                assert v == short[i]
+        # Flat series: SMAs sit on each other, so cross never fires.
+        flat_cross = ma_cross(_candles_from_closes([42.0] * 25), 5, 10)["cross"]
+        assert all(v is None for v in flat_cross)
+
+    def test_ma_ribbon_flat_sma_lanes_equal_flat_price(self):
+        from tradex_trading.analytics.studies_simple import ma_ribbon
+
+        result = ma_ribbon(_candles_from_closes([42.0] * 50))
+        # Default SMA lanes warm up at length-1 (10/20/30/40) and then sit flat.
+        assert all(v is None for v in result["ma1"][:9])
+        assert all(v == pytest.approx(42.0) for v in result["ma1"][9:])
+        assert all(v is None for v in result["ma2"][:19])
+        assert all(v == pytest.approx(42.0) for v in result["ma2"][19:])
+        assert all(v is None for v in result["ma3"][:29])
+        assert all(v == pytest.approx(42.0) for v in result["ma3"][29:])
+        assert all(v is None for v in result["ma4"][:39])
+        assert all(v == pytest.approx(42.0) for v in result["ma4"][39:])
+
+    def test_woodies_cci_flat_gap_and_hist_mirrors_cci14(self):
+        from tradex_trading.analytics.studies_simple import woodies_cci
+
+        # Constant series -> mean absolute deviation 0 -> every column is a gap.
+        flat = woodies_cci(_candles_from_closes([50.0] * 30), 5, 14)
+        assert all(v is None for v in flat["hist"])
+        assert all(v is None for v in flat["turbo"])
+        assert all(v is None for v in flat["cci14"])
+
+        live = woodies_cci(_candles_from_closes([10.0 + i * 0.5 for i in range(40)]), 5, 14)
+        # hist and cci14 are the SAME slow series; turbo is the fast CCI.
+        assert live["hist"] == live["cci14"]
+        assert live["turbo"][4] is not None
+        assert live["hist"][4] is None
+        assert live["hist"][13] is not None
+
+    def test_special_k_slowest_term_warmup(self):
+        from tradex_trading.analytics.studies_simple import special_k
+
+        candles = _candles_from_closes([10.0 + i * 0.5 for i in range(400)])
+        result = special_k(candles, length1=10, length2=10)
+        # Slowest term needs roc(195) + smooth(130) - 1 = 324 bars.
+        assert all(v is None for v in result["specialK"][:324])
+        assert result["specialK"][324] is not None
+        assert all(v is not None for v in result["specialK"][324:])
+        # signal = sma(specialK, 10) then sma(..., 10): 324 + 9 + 9 = 342.
+        assert all(v is None for v in result["signal"][:342])
+        assert result["signal"][342] is not None
+
+
+# ---------------------------------------------------------------------------
+# B5 parallel split (studies_trend.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestStudiesTrend:
+    def test_alligator_warmup_order_and_flat_equality(self):
+        from tradex_trading.analytics.studies_trend import alligator
+
+        flat = [_candle(10, 10, 10, 10)] * 40
+        result = alligator(flat)
+        # First prints at length-1+offset: lips 5/3 -> 7, teeth 8/5 -> 12,
+        # jaw 13/8 -> 20. After their warmups every lane is the flat price.
+        assert all(v is None for v in result["lips"][:7])
+        assert all(v == pytest.approx(10.0) for v in result["lips"][7:])
+        assert all(v is None for v in result["teeth"][:12])
+        assert all(v == pytest.approx(10.0) for v in result["teeth"][12:])
+        assert all(v is None for v in result["jaw"][:20])
+        assert all(v == pytest.approx(10.0) for v in result["jaw"][20:])
+
+    def test_parabolic_sar_seed_and_uptrend_stay(self):
+        from tradex_trading.analytics.studies_trend import parabolic_sar
+
+        candles = _candles_from_closes([10.0 + i for i in range(40)])
+        sar = parabolic_sar(candles)["sar"]
+        lows = [10.0 + i - 1.0 for i in range(40)]
+        assert sar[0] is None
+        assert sar[1] == pytest.approx(lows[0])
+        assert all(v is not None for v in sar[1:])
+        # A monotonic rise never flips: SAR stays below the lows throughout.
+        for i in range(2, len(sar)):
+            assert sar[i] < lows[i]
+
+    def test_ichimoku_conversion_base_span_and_lagging(self):
+        from tradex_trading.analytics.studies_trend import ichimoku
+
+        n = 120
+        closes = [10.0 + i * 0.5 for i in range(n)]
+        result = ichimoku(_candles_from_closes(closes), 9, 26, 52, 26)
+        conv, base = result["conversion"], result["base"]
+        assert all(v is None for v in conv[:8])
+        assert conv[8] is not None
+        assert all(v is None for v in base[:25])
+        assert base[25] is not None
+        span_a = result["spanA"]
+        # spanA needs both conversion and base live (25) AND is displaced
+        # forward by 26, so its first print sits at 51.
+        assert all(v is None for v in span_a[:51])
+        assert span_a[51] == pytest.approx((conv[25] + base[25]) / 2.0)
+        span_b = result["spanB"]
+        assert all(v is None for v in span_b[:77])
+        assert span_b[77] is not None
+        lagging = result["lagging"]
+        for i in range(n - 26):
+            assert lagging[i] == pytest.approx(closes[i + 26])
+        assert all(v is None for v in lagging[n - 26:])
+
+    def test_halftrend_flat_level_and_mutual_exclusion(self):
+        from tradex_trading.analytics.studies_trend import halftrend
+
+        flat = [_candle(10, 10, 10, 10)] * 40
+        flat_res = halftrend(flat)
+        # On a flat series the level just follows price and stays one-sided.
+        assert all(v == pytest.approx(10.0) for v in flat_res["up"])
+        assert all(v is None for v in flat_res["down"])
+        for u, d in zip(flat_res["up"], flat_res["down"]):
+            assert not (u is not None and d is not None)
+
+        live = halftrend(_candles_from_closes([10.0 + i * 0.3 for i in range(60)]))
+        for u, d in zip(live["up"], live["down"]):
+            assert not (u is not None and d is not None)
+
+    def test_alphatrend_lagged_is_level_two_back(self):
+        from tradex_trading.analytics.studies_trend import alphatrend
+
+        candles = _candles_from_closes([10.0 + i * 0.4 for i in range(60)])
+        result = alphatrend(candles, coeff=1, ap=14)
+        level, lagged = result["alphatrend"], result["lagged"]
+        assert lagged[0] is None and lagged[1] is None
+        for i in range(2, len(candles)):
+            assert lagged[i] == level[i - 2]
+
+
+# ---------------------------------------------------------------------------
+# B5 parallel split (studies_complex.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestStudiesComplex:
+    def test_cpr_returns_27_keys_and_manual_toggles(self):
+        from datetime import timedelta
+
+        from tradex_trading.analytics.studies_complex import cpr
+
+        base = datetime(2026, 7, 15, 9, 15)
+        candles = []
+        for d in range(2):
+            for m in range(3):
+                candles.append(
+                    _candle(100 + d, 102 + d, 98 + d, 101 + d, 100,
+                            base + timedelta(days=d, minutes=m))
+                )
+        result = cpr(candles, pivot_mode="manual",
+                     show_daily=True, show_weekly=False, show_monthly=False,
+                     display_pivots=True, display_support=True,
+                     display_resistance=True, display_cpr=True, display_s1r1=True)
+        levels = ("Pivot", "S1", "S2", "S3", "R1", "R2", "R3", "Bc", "Tc")
+        prefixes = ("d", "w", "m")
+        assert set(result) == {f"{p}{k}" for p in prefixes for k in levels}
+        assert len(result) == 27
+        # Daily frame is live once the second session opens; weekly/monthly off.
+        for k in levels:
+            assert any(v is not None for v in result[f"d{k}"])
+        for p in ("w", "m"):
+            for k in levels:
+                assert all(v is None for v in result[f"{p}{k}"])
+
+    def test_range_analysis_avg_gated_by_show_average(self):
+        from tradex_trading.analytics.studies_complex import range_analysis
+
+        candles = _candles_from_closes([10.0 + i for i in range(20)])
+        off = range_analysis(candles, show_average=False, avg_length=3)
+        # Fixture bars are high=close+0.5, low=close-1.0 -> range 1.5.
+        assert all(v == pytest.approx(1.5) for v in off["range"])
+        assert all(v is None for v in off["avg_range"])
+
+        on = range_analysis(candles, show_average=True, avg_length=3)
+        assert all(v is None for v in on["avg_range"][:2])
+        assert all(v == pytest.approx(1.5) for v in on["avg_range"][2:])
+
+    def test_vortex_first_print_and_nonnegative(self):
+        from tradex_trading.analytics.studies_complex import vortex
+
+        result = vortex(_candles_from_closes([10.0 + i * 0.5 for i in range(30)]), 14)
+        assert all(v is None for v in result["vip"][:14])
+        assert result["vip"][14] is not None
+        for key in ("vip", "vim"):
+            for v in result[key]:
+                if v is not None:
+                    assert v >= 0.0
+
+    def test_relative_vigor_index_offset_shifts_rvgi(self):
+        from tradex_trading.analytics.studies_complex import relative_vigor_index
+
+        candles = _candles_from_closes([10.0 + i * 0.3 + (i % 3) for i in range(60)])
+        base_rvgi = relative_vigor_index(candles, length=10, offset=0)["rvgi"]
+        assert all(v is None for v in base_rvgi[:12])
+        assert base_rvgi[12] is not None
+        shifted = relative_vigor_index(candles, length=10, offset=1)["rvgi"]
+        assert shifted[0] is None
+        for i in range(len(candles) - 1):
+            assert shifted[i + 1] == base_rvgi[i]
+
+    def test_relative_volatility_index_monotonic_up_approaches_100(self):
+        from tradex_trading.analytics.studies_complex import relative_volatility_index
+
+        candles = _candles_from_closes([10.0 + i * 0.5 for i in range(60)])
+        result = relative_volatility_index(candles, length=10, offset=0,
+                                           ma_type="SMA", ma_length=14, bb_mult=2.0)
+        rvi = result["rvi"]
+        # stddev(10) warmup + fixed 14-bar EMA seed: first at 9 + 13 = 22.
+        assert all(v is None for v in rvi[:22])
+        assert rvi[22] is not None
+        for v in rvi:
+            if v is not None:
+                assert 0.0 <= v <= 100.0
+        # One-way up market: the down-flow EMA is 0, so RVI pins at 100.
+        assert rvi[-1] == pytest.approx(100.0)
+        assert all(v is None for v in result["bb_upper"])
+        assert all(v is None for v in result["bb_lower"])
+
+
+# ---------------------------------------------------------------------------
+# B5 parallel split (studies_signals.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestStudiesSignals:
+    def test_rsi_divergence_rsi_bounded_and_flat_signals(self):
+        from tradex_trading.analytics.studies_signals import rsi_divergence
+
+        result = rsi_divergence([_candle(10, 10, 10, 10)] * 40, 14, 5, 5)
+        for v in result["rsi"]:
+            if v is not None:
+                assert 0.0 <= v <= 100.0
+        assert result["rsi"][-1] == pytest.approx(100.0)
+        # Flat series: no strict RSI pivots, so every signal column is null.
+        for key in ("bull", "bear", "hiddenBull", "hiddenBear"):
+            assert all(v is None for v in result[key])
+
+    def test_trend_strength_index_flat_none_and_monotonic_one(self):
+        from tradex_trading.analytics.studies_signals import trend_strength_index
+
+        flat = [_candle(10, 10, 10, 10)] * 40
+        assert all(v is None for v in trend_strength_index(flat, 14)["tsi"])
+
+        tsi = trend_strength_index(_candles_from_closes([10.0 + i for i in range(40)]), 14)
+        out = tsi["tsi"]
+        assert all(v is None for v in out[:13])
+        assert out[13] is not None
+        assert out[-1] == pytest.approx(1.0, abs=1e-9)
+
+    def test_williams_fractals_null_layer_and_pivot_values(self):
+        from tradex_trading.analytics.studies_signals import williams_fractals
+
+        closes = [10, 11, 12, 11, 10, 12, 13, 12, 11]
+        candles = _candles_from_closes([float(c) for c in closes])
+        highs = [c + 0.5 for c in closes]
+        lows = [c - 1.0 for c in closes]
+        result = williams_fractals(candles, periods=2)
+        assert all(v is None for v in result["fractals"])
+        up, down = result["upFractal"], result["downFractal"]
+        assert up[2] == pytest.approx(highs[2])
+        assert up[6] == pytest.approx(highs[6])
+        assert down[4] == pytest.approx(lows[4])
+        for i, v in enumerate(up):
+            if v is not None:
+                assert v == pytest.approx(highs[i])
+        for i, v in enumerate(down):
+            if v is not None:
+                assert v == pytest.approx(lows[i])
+        # The last `periods` bars are never confirmed, so no fractal there.
+        assert all(v is None for v in up[-2:])
+        assert all(v is None for v in down[-2:])
+
+    def test_williams_vix_fix_bounds_and_toggled_columns_null(self):
+        from tradex_trading.analytics.studies_signals import williams_vix_fix
+
+        candles = _candles_from_closes([10.0 + i * 0.4 for i in range(60)])
+        result = williams_vix_fix(candles, pd=22, bbl=20, mult=2.0, lb=50,
+                                  ph=0.85, pl=1.01)
+        wvf = result["wvf"]
+        assert all(v is None for v in wvf[:21])
+        assert wvf[21] is not None
+        for v in wvf:
+            if v is not None:
+                assert 0.0 <= v <= 100.0
+        # The range/band toggles are not backend params, so all three are null.
+        assert all(v is None for v in result["range_high"])
+        assert all(v is None for v in result["range_low"])
+        assert all(v is None for v in result["upper_band"])
+
+    def test_wavetrend_warmup_and_mom_identity(self):
+        from tradex_trading.analytics.studies_signals import wavetrend
+
+        candles = _candles_from_closes([10.0 + i * 0.5 + (i % 4) for i in range(80)])
+        result = wavetrend(candles, n1=10, n2=21, sig_len=4)
+        wt1, wt2, mom = result["wt1"], result["wt2"], result["mom"]
+        # wt1 prints at 38 (10 + 9 + 20-ish chain), wt2/mom at 41.
+        assert all(v is None for v in wt1[:38])
+        assert wt1[38] is not None
+        assert all(v is None for v in wt2[:41])
+        assert wt2[41] is not None
+        assert all(v is None for v in mom[:41])
+        assert mom[41] is not None
+        for i in range(len(candles)):
+            if wt1[i] is not None and wt2[i] is not None:
+                assert mom[i] == pytest.approx(wt1[i] - wt2[i])
+            else:
+                assert mom[i] is None
