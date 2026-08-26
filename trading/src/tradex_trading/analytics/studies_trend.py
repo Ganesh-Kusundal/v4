@@ -339,9 +339,9 @@ def ichimoku(
 
 def halftrend(
     candles: list,
-    amplitude: int = 3,
-    channel_deviation: float = 1,
-    atr_period: int = 10,
+    amplitude: int = 2,
+    channel_deviation: float = 2,
+    atr_period: int = 100,
 ) -> dict[str, list]:
     """HalfTrend — a trend level that only moves once the opposing range gives
     way, riding half-ATR channels with flip markers.
@@ -678,9 +678,9 @@ SPEC_HALFTREND = IndicatorSpec(
     category="Trend",
     placement="overlay",
     params=(
-        ("amplitude", "int", 3),
-        ("channel_deviation", "float", 1),
-        ("atr_period", "int", 10),
+        ("amplitude", "int", 2),
+        ("channel_deviation", "float", 2),
+        ("atr_period", "int", 100),
     ),
     plots=(
         ("up", "line", "HalfTrend Up"),

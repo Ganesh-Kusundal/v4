@@ -953,15 +953,19 @@ class TestStudiesSimple:
         from tradex_trading.analytics.studies_simple import ma_ribbon
 
         result = ma_ribbon(_candles_from_closes([42.0] * 50))
-        # Default SMA lanes warm up at length-1 (10/20/30/40) and then sit flat.
-        assert all(v is None for v in result["ma1"][:9])
-        assert all(v == pytest.approx(42.0) for v in result["ma1"][9:])
-        assert all(v is None for v in result["ma2"][:19])
-        assert all(v == pytest.approx(42.0) for v in result["ma2"][19:])
-        assert all(v is None for v in result["ma3"][:29])
-        assert all(v == pytest.approx(42.0) for v in result["ma3"][29:])
-        assert all(v is None for v in result["ma4"][:39])
-        assert all(v == pytest.approx(42.0) for v in result["ma4"][39:])
+        # Explicit lane lengths: SMA lanes warm up at length-1 and then sit flat.
+        result = ma_ribbon(
+            _candles_from_closes([42.0] * 50),
+            ma1_length=5, ma2_length=8, ma3_length=10, ma4_length=12,
+        )
+        assert all(v is None for v in result["ma1"][:4])
+        assert all(v == pytest.approx(42.0) for v in result["ma1"][4:])
+        assert all(v is None for v in result["ma2"][:7])
+        assert all(v == pytest.approx(42.0) for v in result["ma2"][7:])
+        assert all(v is None for v in result["ma3"][:9])
+        assert all(v == pytest.approx(42.0) for v in result["ma3"][9:])
+        assert all(v is None for v in result["ma4"][:11])
+        assert all(v == pytest.approx(42.0) for v in result["ma4"][11:])
 
     def test_woodies_cci_flat_gap_and_hist_mirrors_cci14(self):
         from tradex_trading.analytics.studies_simple import woodies_cci

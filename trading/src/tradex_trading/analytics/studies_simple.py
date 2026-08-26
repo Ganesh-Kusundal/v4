@@ -209,8 +209,8 @@ def momentum(candles: list, len: int = 10) -> dict[str, list[float | None]]:
 
 def ma_cross(
     candles: list,
-    short_length: int = 10,
-    long_length: int = 20,
+    short_length: int = 9,
+    long_length: int = 21,
 ) -> dict[str, list[float | None]]:
     """MA Cross — two SMAs of ``close`` plus cross markers.
 
@@ -242,16 +242,16 @@ def ma_ribbon(
     candles: list,
     ma1_type: str = "sma",
     ma1_source: str = "close",
-    ma1_length: int = 10,
+    ma1_length: int = 20,
     ma2_type: str = "sma",
     ma2_source: str = "close",
-    ma2_length: int = 20,
+    ma2_length: int = 50,
     ma3_type: str = "sma",
     ma3_source: str = "close",
-    ma3_length: int = 30,
+    ma3_length: int = 100,
     ma4_type: str = "sma",
     ma4_source: str = "close",
-    ma4_length: int = 40,
+    ma4_length: int = 200,
 ) -> dict[str, list[float | None]]:
     """Moving Average Ribbon — four independent averages on one overlay.
 
@@ -281,7 +281,7 @@ def ma_ribbon(
 
 def woodies_cci(
     candles: list,
-    cci_turbo_length: int = 14,
+    cci_turbo_length: int = 6,
     cci14_length: int = 14,
 ) -> dict[str, list[float | None]]:
     """Woodies CCI — a 14-bar CCI over ``close`` drawn twice plus a fast turbo.
@@ -317,8 +317,8 @@ SPECIAL_K_TERMS: tuple[tuple[int, int, int], ...] = (
 
 def special_k(
     candles: list,
-    length1: int = 10,
-    length2: int = 10,
+    length1: int = 100,
+    length2: int = 100,
 ) -> dict[str, list[float | None]]:
     """Pring's Special K — ten weighted, smoothed ROC terms summed into one line.
 
@@ -399,8 +399,8 @@ SPEC_MA_CROSS = IndicatorSpec(
     category="Trend",
     placement="overlay",
     params=(
-        ("short_length", "int", 10),
-        ("long_length", "int", 20),
+        ("short_length", "int", 9),
+        ("long_length", "int", 21),
     ),
     plots=(
         ("short", "line", "Short MA"),
@@ -418,16 +418,16 @@ SPEC_MA_RIBBON = IndicatorSpec(
     params=(
         ("ma1_type", "select", "sma"),
         ("ma1_source", "source", "close"),
-        ("ma1_length", "int", 10),
+        ("ma1_length", "int", 20),
         ("ma2_type", "select", "sma"),
         ("ma2_source", "source", "close"),
-        ("ma2_length", "int", 20),
+        ("ma2_length", "int", 50),
         ("ma3_type", "select", "sma"),
         ("ma3_source", "source", "close"),
-        ("ma3_length", "int", 30),
+        ("ma3_length", "int", 100),
         ("ma4_type", "select", "sma"),
         ("ma4_source", "source", "close"),
-        ("ma4_length", "int", 40),
+        ("ma4_length", "int", 200),
     ),
     plots=(
         ("ma1", "line", "MA #1"),
@@ -444,7 +444,7 @@ SPEC_WOODIES_CCI = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("cci_turbo_length", "int", 14),
+        ("cci_turbo_length", "int", 6),
         ("cci14_length", "int", 14),
     ),
     plots=(
@@ -462,8 +462,8 @@ SPEC_SPECIAL_K = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("length1", "int", 10),
-        ("length2", "int", 10),
+        ("length1", "int", 100),
+        ("length2", "int", 100),
     ),
     plots=(
         ("specialK", "line", "Special K"),
