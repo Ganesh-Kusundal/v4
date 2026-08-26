@@ -26,6 +26,9 @@ PARAM_MAP = {
     "supertrend": {},
     "wma": {"length": "period"},
     "hma": {"length": "period"},
+    "dema": {"length": "period"},
+    "tema": {"length": "period"},
+    "alma": {"length": "period", "offset": "offset", "sigma": "sigma"},
 }
 
 # backend plot key -> TS golden plot key (identity when absent).
@@ -44,6 +47,9 @@ PLOT_MAP = {
     "vwap": {"value": "vwap"},
     "wma": {"value": "ma"},
     "hma": {"value": "hma"},
+    "dema": {"value": "dema"},
+    "tema": {"value": "tema"},
+    "alma": {"value": "alma"},
 }
 
 

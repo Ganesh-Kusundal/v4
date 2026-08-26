@@ -186,6 +186,113 @@ def hma(values: list, period: int) -> list[float | None]:
     return wma(raw, root)
 
 
+def _sma_seeded_ema(values: list[float | None], period: int) -> list[float | None]:
+    """SMA-seeded EMA (openalgo-charts parity).
+
+    Matches openalgo-charts ``smaSeededEma`` (src/indicators/calc.ts): seeded
+    with the SMA of the first ``period`` values, landing at index
+    ``period - 1``; everything earlier stays None.
+    """
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if n < period:
+        return out
+    prev = sum(v for v in values[:period]) / period
+    out[period - 1] = prev
+    k = 2.0 / (period + 1)
+    for i in range(period, n):
+        prev = values[i] * k + prev * (1.0 - k)
+        out[i] = prev
+    return out
+
+
+def _ema_of_gapped(values: list[float | None], period: int) -> list[float | None]:
+    """EMA chained over a warmup-gapped series (openalgo-charts parity).
+
+    Matches openalgo-charts ``emaOfGapped`` (src/indicators/averages.ts): the
+    reference EMA re-seeds from ``sma(src, length)`` while its previous value
+    is na, so an EMA over a gapped inner series starts ``length - 1`` bars
+    after the inner series' first real value. Implemented by slicing off the
+    leading Nones, running ``_sma_seeded_ema`` on the live tail, and
+    re-padding the front.
+    """
+    n = len(values)
+    out: list[float | None] = [None] * n
+    start = 0
+    while start < n and values[start] is None:
+        start += 1
+    if start >= n:
+        return out
+    out[start:] = _sma_seeded_ema(values[start:], period)
+    return out
+
+
+def dema(values: list, period: int) -> list[float | None]:
+    """Double EMA, ``2*e1 - e2`` with ``e2 = ema(e1)`` (openalgo-charts parity).
+
+    Matches openalgo-charts ``DEMA`` (src/indicators/overlay.ts): both passes
+    are SMA-seeded, and the second runs over e1's own warmup gap, so the
+    first value lands at index ``2*period - 2``.
+    """
+    if period <= 0:
+        raise ValueError("period must be positive")
+    floats = [_to_float(v) for v in values]
+    e1 = _sma_seeded_ema(floats, period)
+    e2 = _ema_of_gapped(e1, period)
+    return [
+        None if a is None or b is None else 2.0 * a - b
+        for a, b in zip(e1, e2, strict=True)
+    ]
+
+
+def tema(values: list, period: int) -> list[float | None]:
+    """Triple EMA, ``3*(e1 - e2) + e3`` (openalgo-charts parity).
+
+    Matches openalgo-charts ``TEMA`` (src/indicators/averages.ts): three
+    chained SMA-seeded EMAs, each over the previous pass's warmup gap, so
+    the first value lands at index ``3*period - 3``.
+    """
+    if period <= 0:
+        raise ValueError("period must be positive")
+    floats = [_to_float(v) for v in values]
+    e1 = _sma_seeded_ema(floats, period)
+    e2 = _ema_of_gapped(e1, period)
+    e3 = _ema_of_gapped(e2, period)
+    return [
+        None if a is None or b is None or c is None else 3.0 * (a - b) + c
+        for a, b, c in zip(e1, e2, e3, strict=True)
+    ]
+
+
+def alma(
+    values: list, period: int, offset: float = 0.85, sigma: float = 6.0
+) -> list[float | None]:
+    """Arnaud Legoux Moving Average (openalgo-charts parity).
+
+    Matches openalgo-charts ``alma`` (src/indicators/calc.ts): Gaussian
+    weights ``exp(-((i - m)^2)/(2 s^2))`` with ``m = offset*(period-1)`` and
+    ``s = period/sigma``, normalized by their sum; oldest bar in the window
+    carries weight[0]. None before index ``period - 1``.
+    """
+    if period <= 0:
+        raise ValueError("period must be positive")
+    if sigma <= 0:
+        raise ValueError("sigma must be positive")
+    floats = [_to_float(v) for v in values]
+    n = len(floats)
+    out: list[float | None] = [None] * n
+    if n < period:
+        return out
+    m = offset * (period - 1)
+    s = period / sigma
+    weights = [math.exp(-((i - m) ** 2) / (2.0 * s * s)) for i in range(period)]
+    norm = sum(weights)
+    for i in range(period - 1, n):
+        window = floats[i - period + 1 : i + 1]
+        out[i] = sum(v * w for v, w in zip(window, weights)) / norm
+    return out
+
+
 def macd(values: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, list]:
     """MACD: EMA(fast) − EMA(slow), plus signal EMA and histogram (parity with
     openalgo-charts). Full-length lists, no warmup padding."""
@@ -200,8 +307,10 @@ def macd(values: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict[
 
 
 __all__ = [
+    "alma",
     "atr",
     "bollinger",
+    "dema",
     "ema",
     "hma",
     "macd",
@@ -211,6 +320,7 @@ __all__ = [
     "sma",
     "stochastic",
     "supertrend",
+    "tema",
     "vwap_session",
     "wma",
 ]
@@ -541,6 +651,15 @@ def _builtin_specs() -> list[IndicatorSpec]:
     def _fn_hma(candles, period):
         return hma(closes_only(candles), int(period))
 
+    def _fn_dema(candles, period):
+        return dema(closes_only(candles), int(period))
+
+    def _fn_tema(candles, period):
+        return tema(closes_only(candles), int(period))
+
+    def _fn_alma(candles, period, offset, sigma):
+        return alma(closes_only(candles), int(period), float(offset), float(sigma))
+
     def _fn_rsi(candles, period):
         return rsi(closes_only(candles), int(period))
 
@@ -574,6 +693,24 @@ def _builtin_specs() -> list[IndicatorSpec]:
             params=(("period", "int", 9),),
             plots=(("value", "line", "HMA"),),
             fn=_fn_hma,
+        ),
+        IndicatorSpec(
+            id="dema", name="DEMA", category="Trend", placement="overlay",
+            params=(("period", "int", 9),),
+            plots=(("value", "line", "DEMA"),),
+            fn=_fn_dema,
+        ),
+        IndicatorSpec(
+            id="tema", name="TEMA", category="Trend", placement="overlay",
+            params=(("period", "int", 9),),
+            plots=(("value", "line", "TEMA"),),
+            fn=_fn_tema,
+        ),
+        IndicatorSpec(
+            id="alma", name="ALMA", category="Trend", placement="overlay",
+            params=(("period", "int", 9), ("offset", "float", 0.85), ("sigma", "float", 6.0)),
+            plots=(("value", "line", "ALMA"),),
+            fn=_fn_alma,
         ),
         IndicatorSpec(
             id="rsi", name="RSI", category="Momentum", placement="pane",

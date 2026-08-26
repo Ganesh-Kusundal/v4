@@ -9,9 +9,11 @@ import pytest
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    alma,
     atr,
     bollinger,
     compute_indicator,
+    dema,
     ema,
     hma,
     indicator_catalogue,
@@ -21,6 +23,7 @@ from tradex_trading.analytics.indicators import (
     sma,
     stochastic,
     supertrend,
+    tema,
     true_ranges,
     vwap_session,
     wma,
@@ -120,6 +123,34 @@ class TestGoldenValues:
         raw = [None if f is None or s is None else 2 * f - s for f, s in zip(fast, slow)]
         expected = wma(raw, 3)
         assert hma(values, 9) == expected
+
+    def test_dema_constant_series_flat_from_2l_minus_2(self):
+        # SMA-seeded EMAs of a constant series are that constant, so DEMA
+        # prints the constant from index 2*period - 2 (TS warmup gap).
+        flat = [42.0] * 30
+        result = dema(flat, 5)
+        assert all(v is None for v in result[:8])
+        assert all(v == pytest.approx(42.0) for v in result[8:])
+
+    def test_tema_constant_series_flat_from_3l_minus_3(self):
+        flat = [7.0] * 40
+        result = tema(flat, 5)
+        assert all(v is None for v in result[:12])
+        assert all(v == pytest.approx(7.0) for v in result[12:])
+
+    def test_alma_constant_series_from_l_minus_1(self):
+        flat = [3.25] * 20
+        result = alma(flat, 9)
+        assert all(v is None for v in result[:8])
+        assert all(v == pytest.approx(3.25) for v in result[8:])
+
+    def test_dema_tema_alma_reject_nonpositive_period(self):
+        with pytest.raises(ValueError, match="positive"):
+            dema([1.0, 2.0], 0)
+        with pytest.raises(ValueError, match="positive"):
+            tema([1.0, 2.0], -1)
+        with pytest.raises(ValueError, match="positive"):
+            alma([1.0, 2.0], 0)
 
     def test_rsi_all_gains_is_100(self):
         rising = [float(i) for i in range(1, 20)]
