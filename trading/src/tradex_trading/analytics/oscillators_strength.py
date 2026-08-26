@@ -397,7 +397,7 @@ SPEC_MFI = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(("period", "int", 14),),
-    plots=(("mfi", "line", "MFI"),),
+    plots=(("value", "line", "MFI"),),
     levels=({"value": 80}, {"value": 20}),
     fn=_fn_mfi,
 )
@@ -429,7 +429,7 @@ SPEC_TRIX = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(("period", "int", 18),),
-    plots=(("trix", "line", "TRIX"),),
+    plots=(("value", "line", "TRIX"),),
     levels=({"value": 0},),
     fn=_fn_trix,
 )
