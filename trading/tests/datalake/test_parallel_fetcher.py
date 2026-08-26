@@ -423,3 +423,39 @@ class TestBrokerHealth:
         # dhan was blacklisted after K distinct misses (default 3), so the
         # remaining primary slots were NOT re-attempted on dhan.
         assert dhan.history.call_count <= 3
+
+
+class TestSharedLimiter:
+    def test_fetcher_uses_broker_owned_limiter(self):
+        """Fetcher must read the same MultiBucketRateLimiter the broker holds."""
+        from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
+
+        shared_limiter = MultiBucketRateLimiter(default=RateLimitConfig())
+        dhan = _make_broker("dhan")
+        dhan.rate_limiter = shared_limiter
+        upstox = _make_broker("upstox")
+        upstox.rate_limiter = MultiBucketRateLimiter(default=RateLimitConfig())
+
+        fetcher = ParallelHistoryFetcher({"dhan": dhan, "upstox": upstox})
+        # Same instance the broker holds, not a fresh one built by the fetcher.
+        assert fetcher._limiters["dhan"] is shared_limiter
+        assert fetcher._limiters["upstox"] is upstox.rate_limiter
+
+    def test_fetcher_falls_back_when_broker_lacks_limiter(self):
+        """Mocks without .rate_limiter keep the old per-broker fallback.
+
+        Note: a bare MagicMock auto-creates any attribute, so we delete
+        rate_limiter after construction to simulate a broker that genuinely
+        doesn't carry one (e.g. a custom user-supplied broker).
+        """
+        from tradex_brokers.common.resilience import MultiBucketRateLimiter
+
+        dhan = _make_broker("dhan")
+        del dhan.rate_limiter  # simulate a broker that lacks the attribute
+        fetcher = ParallelHistoryFetcher({"dhan": dhan})
+        # The fetcher must have built a fresh MultiBucketRateLimiter (fallback path).
+        assert isinstance(fetcher._limiters["dhan"], MultiBucketRateLimiter)
+        # And it's not the (deleted) broker attribute.
+        with pytest.raises(AttributeError):
+            dhan.rate_limiter
+        assert fetcher._limiters["dhan"] is not getattr(dhan, "rate_limiter", None)

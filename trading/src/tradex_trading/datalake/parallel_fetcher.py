@@ -182,11 +182,18 @@ class ParallelHistoryFetcher:
         # provider-tuned limiter so a failover call is throttled by the
         # limiter of the broker actually serving it.
         self._rate_limiter = rate_limiter
-        self._limiters: dict[str, MultiBucketRateLimiter] = (
-            {name: rate_limiter for name in brokers}
-            if rate_limiter is not None
-            else {name: limiter_for_provider(_provider_for(name)) for name in brokers}
-        )
+        self._limiters = {}
+        for name, broker in brokers.items():
+            if rate_limiter is not None:        # explicit override (kept for tests)
+                self._limiters[name] = rate_limiter
+                continue
+            shared = getattr(broker, "rate_limiter", None)
+            if shared is not None:              # production path: read from broker
+                self._limiters[name] = shared
+                continue
+            # ponytail: test doubles / non-standard brokers — fall back to a
+            # provider-tuned limiter so existing test isolation is preserved.
+            self._limiters[name] = limiter_for_provider(_provider_for(name))
 
     # ------------------------------------------------------------------ public
 
