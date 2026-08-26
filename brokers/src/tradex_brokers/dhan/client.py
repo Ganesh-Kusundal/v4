@@ -163,6 +163,7 @@ class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
         base_url: str = "",
         ws_token_provider: Callable[[], str] | None = None) -> None:
         self._http = http
+        self.rate_limiter = self._http.rate_limiter
         self._registry = registry
         self._client_id = client_id
         self._base_url = base_url.rstrip("/")

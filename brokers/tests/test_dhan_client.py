@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from unittest.mock import MagicMock
 from uuid import UUID
 
 import pytest
@@ -32,6 +33,7 @@ from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.client_shared import correlation_id
 from tradex_brokers.common.provider_common import instrument_from_id, parse_date
+from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
 from tradex_brokers.dhan.client import (
     DhanApiClient,
     _as_price,
@@ -999,3 +1001,13 @@ class TestStreamOrderFromRow:
             self._row(correlationId="strat-deadbeef")
         )
         assert order.correlation_id.value == "strat-deadbeef"
+
+
+def test_dhan_api_client_exposes_rate_limiter():
+    """DhanApiClient.rate_limiter is the same instance its HTTP client holds."""
+    limiter = MultiBucketRateLimiter(default=RateLimitConfig())
+    http = MagicMock()
+    http.rate_limiter = limiter
+    client = DhanApiClient(http=http, registry=MagicMock())
+
+    assert client.rate_limiter is limiter

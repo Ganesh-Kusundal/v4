@@ -33,6 +33,7 @@ from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.client_shared import correlation_id
 from tradex_brokers.common.provider_common import instrument_from_id, parse_date
+from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
 from tradex_brokers.common.ws_reconnect import WSReconnectManager
 from tradex_brokers.upstox.client import (
     UpstoxApiClient,
@@ -1308,3 +1309,12 @@ class TestExtendedEndpoints:
         client, _, _ = _make_client()
         with pytest.raises(ValueError):
             client.intraday_candles(_equity(), Timeframe.W1)
+
+
+def test_upstox_api_client_exposes_rate_limiter():
+    limiter = MultiBucketRateLimiter(default=RateLimitConfig())
+    http = MagicMock()
+    http.rate_limiter = limiter
+    client = UpstoxApiClient(http=http, registry=MagicMock())
+
+    assert client.rate_limiter is limiter

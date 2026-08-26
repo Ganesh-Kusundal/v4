@@ -117,6 +117,7 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
         ws_fetch: Callable[..., tuple[int, Any]] | None = None,
         ws_token_provider: Callable[[], str] | None = None) -> None:
         self._http = http
+        self.rate_limiter = self._http.rate_limiter
         self._registry = registry
         self._access_token = access_token
         self._base_url = base_url.rstrip("/")
