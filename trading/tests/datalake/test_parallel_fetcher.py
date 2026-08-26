@@ -461,3 +461,29 @@ class TestSharedLimiter:
         with pytest.raises(AttributeError):
             dhan.rate_limiter
         assert fetcher._limiters["dhan"] is not getattr(dhan, "rate_limiter", None)
+
+    def test_cooldown_short_circuits_fetcher_acquire(self):
+        """trigger_cooldown on the shared limiter must make fetcher acquire fail fast.
+
+        The fetcher's 30s ACQUIRE_TIMEOUT_S only matters when the bucket is
+        empty, not when it's in cooldown. With a shared limiter, the HTTP
+        layer's trigger_cooldown() is visible to the fetcher immediately —
+        the next acquire returns False without blocking 30s for tokens that
+        won't arrive until cooldown expires.
+        """
+        from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
+
+        shared = MultiBucketRateLimiter(default=RateLimitConfig())
+        dhan = _make_broker("dhan")
+        dhan.rate_limiter = shared
+        fetcher = ParallelHistoryFetcher({"dhan": dhan})
+
+        # Simulate a 429 hitting the HTTP layer.
+        shared.trigger_cooldown("historical")
+
+        t0 = time.monotonic()
+        ok = fetcher._limiters["dhan"].acquire("historical", timeout=30.0)
+        elapsed = time.monotonic() - t0
+
+        assert ok is False
+        assert elapsed < 1.0, f"acquire blocked {elapsed:.2f}s during cooldown"
