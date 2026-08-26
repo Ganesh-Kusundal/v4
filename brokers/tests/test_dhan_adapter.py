@@ -836,6 +836,23 @@ class TestNotConnected:
             broker.ltp(_equity())
 
 
+def test_dhan_broker_exposes_rate_limiter():
+    """DhanBroker must expose .rate_limiter as a MultiBucketRateLimiter
+    so ParallelHistoryFetcher can share state with the HTTP client.
+    """
+    from tradex_brokers.common.resilience import MultiBucketRateLimiter
+    from tradex_brokers.dhan.adapter import DhanBroker
+    from unittest.mock import MagicMock
+
+    real_transport = MagicMock()
+    real_transport._pipeline = MagicMock()
+    real_transport._pipeline._rate_limiter = MultiBucketRateLimiter()
+    broker = DhanBroker(transport=real_transport)
+
+    # Same instance as the pipeline holds.
+    assert broker.rate_limiter is real_transport._pipeline._rate_limiter
+
+
 # ---------------------------------------------------------------------------
 # Depth stream wiring
 # ---------------------------------------------------------------------------
@@ -894,3 +911,22 @@ class TestDepthStreamWiring:
         broker.subscribe_depth([Equity.of("NSE", "RELIANCE")], lambda d: None)
         broker.close()
         depth_backend.close.assert_called_once()
+
+
+def test_dhan_broker_exposes_rate_limiter():
+    """DhanBroker must expose .rate_limiter as a MultiBucketRateLimiter
+    so ParallelHistoryFetcher can share state with the HTTP client.
+    """
+    from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
+    from tradex_brokers.dhan.adapter import DhanBroker
+    from unittest.mock import MagicMock
+
+    real_transport = MagicMock()
+    real_transport._pipeline = MagicMock()
+    real_transport._pipeline._rate_limiter = MultiBucketRateLimiter(
+        default=RateLimitConfig(),
+    )
+    broker = DhanBroker(transport=real_transport)
+
+    # Same instance as the pipeline holds.
+    assert broker.rate_limiter is real_transport._pipeline._rate_limiter

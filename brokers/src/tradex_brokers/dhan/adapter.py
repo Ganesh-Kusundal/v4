@@ -69,6 +69,11 @@ class DhanBroker(BaseBroker):
             allow_order_operations=allow_order_operations,
             instrument_loader=instrument_loader,
         )
+        self.rate_limiter = (
+            self._transport._pipeline._rate_limiter
+            if self._transport is not None
+            else None
+        )
 
     @classmethod
     def from_fetch(
