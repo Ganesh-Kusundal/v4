@@ -84,6 +84,30 @@ PARAM_MAP = {
     "volatility-stop": {"length": "length", "factor": "factor"},
     "chandelier-exit": {"length": "length", "atrLength": "atr_length", "atrMultiplier": "atr_multiplier"},
     "chande-kroll-stop": {"p": "p", "x": "x", "q": "q"},
+    "adl": {},
+    "volume": {},
+    "pvt": {},
+    "chaikin-money-flow": {"length": "length"},
+    "chaikin-oscillator": {"short": "short", "long": "long"},
+    "ease-of-movement": {"length": "length", "divisor": "divisor"},
+    "elder-force-index": {"length": "length"},
+    "ulcer-index": {"length": "length"},
+    "nvi": {"maLength": "ma_length"},
+    "pvi": {"maLength": "ma_length"},
+    "pvo": {
+        "fastLength": "fast_length",
+        "slowLength": "slow_length",
+        "signalLength": "signal_length",
+    },
+    "mass-index": {"length": "length"},
+    "know-sure-thing": {
+        "roclen1": "roclen1", "roclen2": "roclen2",
+        "roclen3": "roclen3", "roclen4": "roclen4",
+        "smalen1": "smalen1", "smalen2": "smalen2",
+        "smalen3": "smalen3", "smalen4": "smalen4",
+        "siglen": "siglen",
+    },
+    "klinger-oscillator": {},
 }
 
 # backend plot key -> TS golden plot key (identity when absent).
@@ -150,6 +174,20 @@ PLOT_MAP = {
     "volatility-stop": {"up": "up", "down": "down"},
     "chandelier-exit": {"longExit": "longExit", "shortExit": "shortExit"},
     "chande-kroll-stop": {"stopLong": "stopLong", "stopShort": "stopShort"},
+    "adl": {"adl": "adl"},
+    "volume": {"volume": "volume"},
+    "pvt": {"pvt": "pvt"},
+    "chaikin-money-flow": {"cmf": "cmf"},
+    "chaikin-oscillator": {"osc": "osc"},
+    "ease-of-movement": {"eom": "eom"},
+    "elder-force-index": {"efi": "efi"},
+    "ulcer-index": {"ui": "ui"},
+    "nvi": {"nvi": "nvi", "ema": "ema"},
+    "pvi": {"pvi": "pvi", "ema": "ema"},
+    "pvo": {"hist": "hist", "pvo": "pvo", "signal": "signal"},
+    "mass-index": {"mi": "mi"},
+    "know-sure-thing": {"kst": "kst", "signal": "signal"},
+    "klinger-oscillator": {"kvo": "kvo", "signal": "signal"},
 }
 
 

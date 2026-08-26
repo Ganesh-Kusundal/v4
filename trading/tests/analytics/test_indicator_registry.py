@@ -848,3 +848,66 @@ class TestVolatilityStops:
         result = chande_kroll_stop(candles, p=10, x=1, q=9)
         assert all(v is None for v in result["stopLong"][:17])
         assert result["stopLong"][17] is not None
+
+
+class TestVolumeFlow:
+    def test_adl_flat_doji_bars_zero_contribution(self):
+        from tradex_trading.analytics.volume_simple import adl
+
+        # Doji bars (high == low) contribute nothing to ADL
+        candles = [_candle(10, 10, 10, 10, 1000)] * 20
+        result = adl(candles)
+        # All zeros: no money-flow multiplier on doji bars
+        assert all(v == pytest.approx(0.0) for v in result["adl"])
+
+    def test_cmf_zero_volume_is_none(self):
+        from tradex_trading.analytics.volume_flow import chaikin_money_flow
+
+        candles = [_candle(10, 12, 9, 11, 0)] * 30
+        result = chaikin_money_flow(candles, length=5)
+        # All None: no volume traded in any window
+        assert all(v is None for v in result["cmf"])
+
+    def test_eom_zero_volume_is_none(self):
+        from tradex_trading.analytics.volume_flow import ease_of_movement
+
+        candles = [_candle(10, 12, 9, 11, 0)] * 30
+        result = ease_of_movement(candles, length=5, divisor=10000)
+        assert all(v is None for v in result["eom"])
+
+    def test_pvt_starts_at_zero(self):
+        from tradex_trading.analytics.volume_simple import pvt
+
+        candles = [_candle(10, 12, 9, 11, 1000)] * 20
+        result = pvt(candles)
+        # Bar 0 has no previous close, so PVT starts at 0
+        assert result["pvt"][0] == pytest.approx(0.0)
+
+    def test_nvi_pvi_base_1000(self):
+        from tradex_trading.analytics.volume_indices import nvi, pvi
+
+        candles = [_candle(10, 12, 9, 11, 1000)] * 20
+        n = nvi(candles, ma_length=14)
+        p = pvi(candles, ma_length=14)
+        # Both start at 1000 (base * 1000)
+        assert n["nvi"][0] == pytest.approx(1000.0)
+        assert p["pvi"][0] == pytest.approx(1000.0)
+
+    def test_klinger_signal_uses_ema_of_gapped(self):
+        from tradex_trading.analytics.volume_indices import klinger_oscillator
+
+        candles = [_candle(10, 12, 9, 11, 1000)] * 60
+        result = klinger_oscillator(candles)
+        # Signal plot uses ema_of_gapped which starts after a warmup
+        assert result["signal"][0] is None
+
+    def test_kst_first_print_at_roclen4_plus_smalen4(self):
+        from tradex_trading.analytics.volume_indices import know_sure_thing
+
+        closes = [10.0 + i * 0.5 for i in range(60)]
+        candles = _candles_from_closes(closes)
+        result = know_sure_thing(candles, roclen1=10, roclen2=15, roclen3=20, roclen4=30,
+                                smalen1=10, smalen2=10, smalen3=10, smalen4=15, siglen=9)
+        # KST first prints at max(roclen) + max(smalen) - 1 = 30 + 15 - 1 = 44
+        assert all(v is None for v in result["kst"][:44])
+        assert result["kst"][44] is not None

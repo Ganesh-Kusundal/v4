@@ -18,6 +18,11 @@ def _to_float(value: NumericValue) -> float:
     return value
 
 
+def _isfinite(v: float | None) -> bool:
+    """True when *v* is a finite float (not None, not NaN/inf)."""
+    return v is not None and math.isfinite(v)
+
+
 def sma(values: list, period: int) -> list:
     """Simple Moving Average.
 
@@ -439,6 +444,74 @@ def _rolling_sma(values: list[float | None], period: int) -> list[float | None]:
         if any(v is None for v in window):
             continue
         out[i] = sum(window) / period
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers — batch 4 (volume / flow indicators)
+# ---------------------------------------------------------------------------
+
+
+def _highest(values: list[float | None], period: int) -> list[float | None]:
+    """Rolling max over *period* bars.  None for leading window."""
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 0:
+        return out
+    for i in range(period - 1, n):
+        best = -float("inf")
+        ok = True
+        for k in range(period):
+            v = values[i - k]
+            if v is None:
+                ok = False
+                break
+            if v > best:
+                best = v
+        out[i] = best if ok else None
+    return out
+
+
+def _rolling_sum(values: list[float | None], period: int) -> list[float | None]:
+    """Rolling sum over *period* bars.  None for leading window."""
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 0 or n < period:
+        return out
+    acc = 0.0
+    for i in range(n):
+        v = values[i]
+        if v is None:
+            return out  # None encountered → gap
+        acc += v
+        if i >= period:
+            pv = values[i - period]
+            if pv is None:
+                return out
+            acc -= pv
+        if i >= period - 1:
+            out[i] = acc
+    return out
+
+
+def _cumulative(values: list[float | None]) -> list[float]:
+    """Running total.  Non-finite terms count as 0 (TS calc.ts semantics)."""
+    out: list[float] = []
+    acc = 0.0
+    for v in values:
+        if v is not None and _isfinite(v):
+            acc += v
+        out.append(acc)
+    return out
+
+
+def _change(values: list, n: int = 1) -> list[float | None]:
+    """Δn: values[i] - values[i-n].  None for the first *n* bars."""
+    nv = [_to_float(v) for v in values]
+    m = len(nv)
+    out: list[float | None] = [None] * m
+    for i in range(n, m):
+        out[i] = nv[i] - nv[i - n]
     return out
 
 
@@ -873,6 +946,29 @@ from .volatility_stops import (  # noqa: E402
     SPEC_VOLATILITY_STOP,
 )
 
+from .volume_simple import (  # noqa: E402
+    SPEC_ADL,
+    SPEC_PVT,
+    SPEC_VOLUME,
+)
+
+from .volume_flow import (  # noqa: E402
+    SPEC_CHAIKIN_MONEY_FLOW,
+    SPEC_CHAIKIN_OSCILLATOR,
+    SPEC_EASE_OF_MOVEMENT,
+    SPEC_ELDER_FORCE_INDEX,
+    SPEC_ULCER_INDEX,
+)
+
+from .volume_indices import (  # noqa: E402
+    SPEC_KLINGER_OSCILLATOR,
+    SPEC_KNOW_SURE_THING,
+    SPEC_MASS_INDEX,
+    SPEC_NVI,
+    SPEC_PVI,
+    SPEC_PVO,
+)
+
 for _spec in (
     SPEC_ADX,
     SPEC_AROON,
@@ -906,5 +1002,19 @@ for _spec in (
     SPEC_VOLATILITY_STOP,
     SPEC_CHANDELIER_EXIT,
     SPEC_CHANDE_KROLL_STOP,
+    SPEC_ADL,
+    SPEC_VOLUME,
+    SPEC_PVT,
+    SPEC_CHAIKIN_MONEY_FLOW,
+    SPEC_CHAIKIN_OSCILLATOR,
+    SPEC_EASE_OF_MOVEMENT,
+    SPEC_ELDER_FORCE_INDEX,
+    SPEC_ULCER_INDEX,
+    SPEC_NVI,
+    SPEC_PVI,
+    SPEC_PVO,
+    SPEC_MASS_INDEX,
+    SPEC_KNOW_SURE_THING,
+    SPEC_KLINGER_OSCILLATOR,
 ):
     register_indicator(_spec)
