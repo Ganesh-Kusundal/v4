@@ -813,3 +813,59 @@ for _spec in (
     SPEC_MEDIAN,
 ):
     register_indicator(_spec)
+
+# Batch 2 ports — oscillators & trend / strength / range A/B
+from .oscillators_range_a import (  # noqa: E402
+    SPEC_COPPOCK_CURVE,
+    SPEC_DPO,
+    SPEC_STOCHASTIC_RSI,
+    SPEC_ULTIMATE_OSCILLATOR,
+    SPEC_WILLIAMS_PERCENT_R,
+)
+from .oscillators_range_b import (  # noqa: E402
+    SPEC_BALANCE_OF_POWER,
+    SPEC_CHANDE_MOMENTUM,
+    SPEC_CONNORS_RSI,
+    SPEC_FISHER_TRANSFORM,
+)
+from .oscillators_strength import (  # noqa: E402
+    SPEC_MFI,
+    SPEC_PPO,
+    SPEC_SMI,
+    SPEC_SMI_ERGODIC_INDICATOR,
+    SPEC_SMI_ERGODIC_OSCILLATOR,
+    SPEC_TRIX,
+    SPEC_TSI,
+)
+from .oscillators_trend import (  # noqa: E402
+    SPEC_ADX,
+    SPEC_AROON,
+    SPEC_AROON_OSCILLATOR,
+    SPEC_AWESOME_OSCILLATOR,
+    SPEC_CCI,
+)
+
+for _spec in (
+    SPEC_ADX,
+    SPEC_AROON,
+    SPEC_AROON_OSCILLATOR,
+    SPEC_AWESOME_OSCILLATOR,
+    SPEC_CCI,
+    SPEC_MFI,
+    SPEC_PPO,
+    SPEC_TRIX,
+    SPEC_TSI,
+    SPEC_SMI,
+    SPEC_SMI_ERGODIC_INDICATOR,
+    SPEC_SMI_ERGODIC_OSCILLATOR,
+    SPEC_STOCHASTIC_RSI,
+    SPEC_WILLIAMS_PERCENT_R,
+    SPEC_ULTIMATE_OSCILLATOR,
+    SPEC_COPPOCK_CURVE,
+    SPEC_DPO,
+    SPEC_FISHER_TRANSFORM,
+    SPEC_CHANDE_MOMENTUM,
+    SPEC_CONNORS_RSI,
+    SPEC_BALANCE_OF_POWER,
+):
+    register_indicator(_spec)
