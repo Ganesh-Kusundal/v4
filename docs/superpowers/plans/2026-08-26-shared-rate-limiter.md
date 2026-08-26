@@ -233,9 +233,13 @@ In `brokers/src/tradex_brokers/dhan/adapter.py`, at the end of `DhanBroker.__ini
 
 ```python
 self.rate_limiter = (
-    self._transport.rate_limiter if self._transport is not None else None
+    getattr(self._transport, "rate_limiter", None)
+    if self._transport is not None
+    else None
 )
 ```
+
+The `getattr` (not direct attribute access) is intentional: many existing tests construct the transport as `MagicMock(spec=DhanApiClient)` or `MagicMock(spec=UpstoxApiClient)`. Those specs reject attribute lookups for undeclared attributes. `getattr(..., None)` tolerates both the real client and a mock transport.
 
 - [ ] **Step 5: Add the attribute on UpstoxBroker**
 
@@ -243,7 +247,21 @@ In `brokers/src/tradex_brokers/upstox/adapter.py`, at the end of `UpstoxBroker._
 
 ```python
 self.rate_limiter = (
-    self._transport.rate_limiter if self._transport is not None else None
+    getattr(self._transport, "rate_limiter", None)
+    if self._transport is not None
+    else None
+)
+```
+
+- [ ] **Step 5: Add the attribute on UpstoxBroker**
+
+In `brokers/src/tradex_brokers/upstox/adapter.py`, at the end of `UpstoxBroker.__init__` (after `super().__init__(...)` at line 67-73), add the same code:
+
+```python
+self.rate_limiter = (
+    getattr(self._transport, "rate_limiter", None)
+    if self._transport is not None
+    else None
 )
 ```
 
