@@ -19,7 +19,7 @@ import { computeSeasonality, createSeasonalityRenderer } from "./seasonality";
 import { createTradexFeed, registerTradexIntervals } from "./feed";
 import { registerBackendIndicators, setIndicatorContext, setIndicatorInterval, type CatalogueEntry } from "./backend-indicators";
 import { TradexTradeFeed, fetchBook } from "./trade-feed";
-import { createTradingHost } from "./trade";
+import { createTradingHost, placeBracket } from "./trade";
 import { createStrategiesPanel, fetchStrategyCatalogue, type PanelHost } from "./panels/strategies";
 import { createWatchlist } from "./shell/watchlist";
 import { createDrawRail } from "./shell/draw-rail";
@@ -80,6 +80,13 @@ let transformSel: HTMLSelectElement;
 let profileSel: HTMLSelectElement;
 let activeProfile: { primitive: IPrimitive; setData(result: unknown): void } | null = null;
 
+/** Current price for the loaded chart: last bar close, if any. */
+function currentPrice(): number | undefined {
+  if (lastRawBars.length === 0) return undefined;
+  const last = lastRawBars[lastRawBars.length - 1] as unknown as { close?: number };
+  return typeof last.close === "number" ? last.close : undefined;
+}
+
 function ensureSeries(): void {
   if (priceSeries && volumeSeries) return;
   priceSeries?.remove();
@@ -98,9 +105,8 @@ const tradeHost = createTradingHost(
     // Other symbols degrade to entry price (flat PnL) until a live LTP source
     // lands — the trade-tier PositionMarker band / distance labels don't apply
     // to the base TradingController's pnlText anyway.
-    if (symbol !== state.symbol || lastRawBars.length === 0) return undefined;
-    const last = lastRawBars[lastRawBars.length - 1] as unknown as { close?: number };
-    return typeof last.close === "number" ? last.close : undefined;
+    if (symbol !== state.symbol) return undefined;
+    return currentPrice();
   },
 );
 
@@ -135,6 +141,7 @@ async function loadHistory(): Promise<void> {
   try {
     const bars = await chartFeed.getBars({ symbol: state.symbol, exchange: state.exchange, interval: state.interval });
     lastRawBars = bars;
+    prefillBracket();
     resetToRaw();
     const source = (rawFeed as unknown as { lastSource?: string }).lastSource;
     sourcePill.textContent = source ?? "datalake";
@@ -450,6 +457,70 @@ sellBtn.className = "tbtn tbtn--sell";
 sellBtn.innerHTML = "<b>Sell</b>";
 sellBtn.addEventListener("click", () => placeOrder("SELL"));
 
+// Bracket ticket: entry / stop / target + BUY/SELL super-orders through the
+// backend POST /orders/bracket. Entry prefills from the chart's last close.
+const brkLabel = document.createElement("span");
+brkLabel.className = "pill pill--brk";
+brkLabel.textContent = "BRK";
+brkLabel.title = "Bracket order — entry + stop-loss + target via POST /orders/bracket";
+const brkEntry = document.createElement("input");
+brkEntry.type = "number"; brkEntry.className = "field field--brk";
+brkEntry.min = "0"; brkEntry.step = "any";
+brkEntry.placeholder = "Entry"; brkEntry.title = "Entry price (prefilled from last close)";
+const brkStop = document.createElement("input");
+brkStop.type = "number"; brkStop.className = "field field--brk";
+brkStop.min = "0"; brkStop.step = "any";
+brkStop.placeholder = "Stop"; brkStop.title = "Stop-loss price";
+const brkTarget = document.createElement("input");
+brkTarget.type = "number"; brkTarget.className = "field field--brk";
+brkTarget.min = "0"; brkTarget.step = "any";
+brkTarget.placeholder = "Target"; brkTarget.title = "Target price";
+function prefillBracket(): void {
+  const p = currentPrice();
+  if (p !== undefined && Number.isFinite(p)) brkEntry.value = String(p);
+}
+prefillBracket();
+function submitBracket(side: "BUY" | "SELL"): void {
+  const qty = Math.max(1, Math.round(Number(qtyInput.value) || 1));
+  const price = Number(brkEntry.value);
+  const stopLoss = Number(brkStop.value);
+  const target = Number(brkTarget.value);
+  if (!Number.isFinite(price) || price <= 0) {
+    statusText.textContent = "bracket: entry price required";
+    logLine("bracket rejected: entry price required");
+    return;
+  }
+  if (!Number.isFinite(stopLoss) || stopLoss <= 0 || !Number.isFinite(target) || target <= 0) {
+    statusText.textContent = "bracket: stop-loss and target required";
+    logLine("bracket rejected: stop-loss and target required");
+    return;
+  }
+  statusText.textContent = "placing bracket…";
+  placeBracket({ exchange: state.exchange, symbol: state.symbol, side, quantity: qty, price, stopLoss, target })
+    .then((orderId) => {
+      statusText.textContent = `bracket ${side} ${qty} ${state.symbol} @ ${price} → ${orderId}`;
+      logLine(`bracket ${side} ${qty} ${state.symbol} placed ${orderId}`);
+      void fetchBook()
+        .then((book) => tradeHost.sync(book))
+        .catch(() => { /* transient: WS control message refetches next */ });
+    })
+    .catch((e) => {
+      const msg = e instanceof Error ? e.message : String(e);
+      statusText.textContent = `bracket rejected: ${msg}`;
+      logLine(`bracket rejected: ${msg}`);
+    });
+}
+const brkBuyBtn = document.createElement("button");
+brkBuyBtn.className = "tbtn tbtn--buy";
+brkBuyBtn.innerHTML = "<b>Brk&nbsp;Buy</b>";
+brkBuyBtn.title = "Place bracket BUY (entry + stop + target)";
+brkBuyBtn.addEventListener("click", () => submitBracket("BUY"));
+const brkSellBtn = document.createElement("button");
+brkSellBtn.className = "tbtn tbtn--sell";
+brkSellBtn.innerHTML = "<b>Brk&nbsp;Sell</b>";
+brkSellBtn.title = "Place bracket SELL (entry + stop + target)";
+brkSellBtn.addEventListener("click", () => submitBracket("SELL"));
+
 // Trade pill: shows/hides the on-chart order lines + position markers. The
 // static button lives in index.html#shellbar; we unhide + wire it here and let
 // shellbar.append() move it into place next to Buy/Sell (mirrors compare/settings).
@@ -539,6 +610,8 @@ shellbar.append(
   fitBtn, divider(),
   lsave, lload, divider(),
   qtyInput, buyBtn, sellBtn, tradeBtn,
+  divider(),
+  brkLabel, brkEntry, brkStop, brkTarget, brkBuyBtn, brkSellBtn,
   divider(),
   cmpBtn, setBtn,
 );

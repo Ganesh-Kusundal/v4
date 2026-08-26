@@ -122,6 +122,14 @@
       background: var(--ink); border: 1px solid var(--line); border-radius: 7px;
       color: var(--paper); font: 600 12px "Fragment Mono", monospace;
     }
+    .field--brk {
+      width: 74px; height: 28px; text-align: center;
+      background: var(--ink); border: 1px solid var(--line); border-radius: 7px;
+      color: var(--paper); font: 600 11px "Fragment Mono", monospace;
+    }
+    .field--brk::placeholder { color: var(--faint); }
+    .field--brk:focus { border-color: var(--brass); outline: none; }
+    .pill--brk { color: var(--brass); border-color: rgba(200,168,106,.3); background: rgba(200,168,106,.08); }
     .shellbar .field--tf {
       height: 28px; padding: 0 8px; flex: none;
       background: var(--ink); border: 1px solid var(--line); border-radius: 7px;

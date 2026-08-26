@@ -34,6 +34,25 @@ export interface BookPosition {
   avgPrice: number;
 }
 
+/** Place a bracket (super) order — entry + protective stop/target legs. */
+export async function placeBracket(opts: {
+  exchange: string; symbol: string; side: "BUY" | "SELL";
+  quantity: number; price: number; stopLoss: number; target: number;
+}): Promise<string> {
+  const resp = await fetch("/orders/bracket", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      exchange: opts.exchange, symbol: opts.symbol, side: opts.side,
+      order_type: "LIMIT", quantity: opts.quantity, price: opts.price,
+      stop_loss_price: opts.stopLoss, target_price: opts.target,
+    }),
+  });
+  if (!resp.ok) throw new Error(`bracket place failed (${resp.status}): ${await resp.text()}`);
+  const body = (await resp.json()) as { order_id: string };
+  return body.order_id;
+}
+
 /** Map /book orders into the reference TradingOrder shape, working only. */
 export function mapOrdersToTrading(
   orders: BookRow[],
