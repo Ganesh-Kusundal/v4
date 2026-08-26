@@ -398,6 +398,34 @@ def create_chart_router(session: Any | None) -> APIRouter:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"id": transform_id, "bars": result}
 
+    @router.post("/profiles/{profile_id}")
+    async def compute_profile_endpoint(profile_id: str, body: dict) -> dict:
+        """Compute one profile study (or the seasonality table) over the bar
+        window the chart holds (stateless).
+
+        Body: {id, params?, bars: [{time, open, high, low, close, volume}]}.
+        Seasonality dispatches to ``compute_seasonality`` (it returns a table,
+        not a profile); every other id routes to ``compute_profile``. No
+        datalake or session is touched — bars come from the request body.
+        """
+        from tradex_trading.analytics.profiles import compute_profile
+        from tradex_trading.analytics.seasonality import compute_seasonality
+
+        bars = body.get("bars") or []
+        if not isinstance(bars, list) or not bars:
+            raise HTTPException(
+                status_code=422, detail="profile requires a non-empty bars array"
+            )
+        params = body.get("params") or {}
+        try:
+            if profile_id == "seasonality":
+                result = compute_seasonality(bars, params)
+            else:
+                result = compute_profile(profile_id, bars, params)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"id": profile_id, "result": result}
+
     # ------------------------------------------------------------------ trading
 
     @router.get("/book")
