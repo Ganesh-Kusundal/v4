@@ -1,0 +1,363 @@
+{
+ "id": "seasonality",
+ "settings": {
+  "startYear": 2015,
+  "ignoredMonths": ""
+ },
+ "result": {
+  "rows": [
+   [
+    {
+     "text": "Year",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Jan",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Feb",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Mar",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Apr",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "May",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Jun",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Jul",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Aug",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Sep",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Oct",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Nov",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "Dec",
+     "bgColor": "#787b8633"
+    }
+   ],
+   [
+    {
+     "text": "2025",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": ""
+    },
+    {
+     "text": "3.00%",
+     "bgColor": "#08998138"
+    },
+    {
+     "text": "2.91%",
+     "bgColor": "#08998137"
+    },
+    {
+     "text": "2.83%",
+     "bgColor": "#08998136"
+    },
+    {
+     "text": "2.75%",
+     "bgColor": "#08998136"
+    },
+    {
+     "text": "2.68%",
+     "bgColor": "#08998135"
+    },
+    {
+     "text": "2.61%",
+     "bgColor": "#08998134"
+    },
+    {
+     "text": "2.54%",
+     "bgColor": "#08998133"
+    },
+    {
+     "text": "2.48%",
+     "bgColor": "#08998133"
+    },
+    {
+     "text": "2.42%",
+     "bgColor": "#08998132"
+    },
+    {
+     "text": "2.36%",
+     "bgColor": "#08998132"
+    },
+    {
+     "text": "2.31%",
+     "bgColor": "#08998131"
+    }
+   ],
+   [
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    }
+   ],
+   [
+    {
+     "text": "Avgs:",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": ""
+    },
+    {
+     "text": "3.00%",
+     "bgColor": "#08998138"
+    },
+    {
+     "text": "2.91%",
+     "bgColor": "#08998137"
+    },
+    {
+     "text": "2.83%",
+     "bgColor": "#08998136"
+    },
+    {
+     "text": "2.75%",
+     "bgColor": "#08998136"
+    },
+    {
+     "text": "2.68%",
+     "bgColor": "#08998135"
+    },
+    {
+     "text": "2.61%",
+     "bgColor": "#08998134"
+    },
+    {
+     "text": "2.54%",
+     "bgColor": "#08998133"
+    },
+    {
+     "text": "2.48%",
+     "bgColor": "#08998133"
+    },
+    {
+     "text": "2.42%",
+     "bgColor": "#08998132"
+    },
+    {
+     "text": "2.36%",
+     "bgColor": "#08998132"
+    },
+    {
+     "text": "2.31%",
+     "bgColor": "#08998131"
+    }
+   ],
+   [
+    {
+     "text": "StDev:",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": "",
+     "bgColor": "#787b8633"
+    }
+   ],
+   [
+    {
+     "text": "Pos%:",
+     "bgColor": "#787b8633"
+    },
+    {
+     "text": ""
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    },
+    {
+     "text": "100%",
+     "bgColor": "#08998180"
+    }
+   ]
+  ],
+  "options": {
+   "position": "bottom-center",
+   "cellWidth": [
+    52,
+    46,
+    46,
+    46,
+    46,
+    46,
+    46,
+    46,
+    46,
+    46,
+    46,
+    46,
+    46
+   ],
+   "cellHeight": 18,
+   "rowWeights": [
+    1,
+    1,
+    0.3,
+    1,
+    1,
+    1
+   ],
+   "widthPercent": 100,
+   "heightPercent": 95,
+   "fontSize": 10,
+   "margin": 8
+  }
+ }
+}

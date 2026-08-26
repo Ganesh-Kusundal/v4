@@ -1,0 +1,1016 @@
+{
+ "id": "tpo",
+ "settings": {
+  "periodBars": 30,
+  "tickSize": 0.1,
+  "valueAreaPercent": 0.7,
+  "ibPeriods": 2
+ },
+ "result": {
+  "buckets": [
+   {
+    "price": 118.7,
+    "count": 1
+   },
+   {
+    "price": 118.6,
+    "count": 1
+   },
+   {
+    "price": 118.5,
+    "count": 1
+   },
+   {
+    "price": 118.4,
+    "count": 1
+   },
+   {
+    "price": 118.3,
+    "count": 1
+   },
+   {
+    "price": 118.2,
+    "count": 1
+   },
+   {
+    "price": 118.1,
+    "count": 1
+   },
+   {
+    "price": 118,
+    "count": 1
+   },
+   {
+    "price": 117.9,
+    "count": 1
+   },
+   {
+    "price": 117.8,
+    "count": 1
+   },
+   {
+    "price": 117.7,
+    "count": 1
+   },
+   {
+    "price": 117.6,
+    "count": 1
+   },
+   {
+    "price": 117.5,
+    "count": 1
+   },
+   {
+    "price": 117.4,
+    "count": 1
+   },
+   {
+    "price": 117.3,
+    "count": 1
+   },
+   {
+    "price": 117.2,
+    "count": 2
+   },
+   {
+    "price": 117.1,
+    "count": 2
+   },
+   {
+    "price": 117,
+    "count": 2
+   },
+   {
+    "price": 116.9,
+    "count": 2
+   },
+   {
+    "price": 116.8,
+    "count": 2
+   },
+   {
+    "price": 116.7,
+    "count": 2
+   },
+   {
+    "price": 116.6,
+    "count": 2
+   },
+   {
+    "price": 116.5,
+    "count": 2
+   },
+   {
+    "price": 116.4,
+    "count": 2
+   },
+   {
+    "price": 116.3,
+    "count": 2
+   },
+   {
+    "price": 116.2,
+    "count": 2
+   },
+   {
+    "price": 116.1,
+    "count": 2
+   },
+   {
+    "price": 116,
+    "count": 2
+   },
+   {
+    "price": 115.9,
+    "count": 2
+   },
+   {
+    "price": 115.8,
+    "count": 2
+   },
+   {
+    "price": 115.7,
+    "count": 2
+   },
+   {
+    "price": 115.6,
+    "count": 2
+   },
+   {
+    "price": 115.5,
+    "count": 2
+   },
+   {
+    "price": 115.4,
+    "count": 2
+   },
+   {
+    "price": 115.3,
+    "count": 2
+   },
+   {
+    "price": 115.2,
+    "count": 2
+   },
+   {
+    "price": 115.1,
+    "count": 2
+   },
+   {
+    "price": 115,
+    "count": 2
+   },
+   {
+    "price": 114.9,
+    "count": 2
+   },
+   {
+    "price": 114.8,
+    "count": 2
+   },
+   {
+    "price": 114.7,
+    "count": 3
+   },
+   {
+    "price": 114.6,
+    "count": 4
+   },
+   {
+    "price": 114.5,
+    "count": 4
+   },
+   {
+    "price": 114.4,
+    "count": 4
+   },
+   {
+    "price": 114.3,
+    "count": 4
+   },
+   {
+    "price": 114.2,
+    "count": 4
+   },
+   {
+    "price": 114.1,
+    "count": 4
+   },
+   {
+    "price": 114,
+    "count": 4
+   },
+   {
+    "price": 113.9,
+    "count": 4
+   },
+   {
+    "price": 113.8,
+    "count": 4
+   },
+   {
+    "price": 113.7,
+    "count": 4
+   },
+   {
+    "price": 113.6,
+    "count": 4
+   },
+   {
+    "price": 113.5,
+    "count": 4
+   },
+   {
+    "price": 113.4,
+    "count": 4
+   },
+   {
+    "price": 113.3,
+    "count": 4
+   },
+   {
+    "price": 113.2,
+    "count": 4
+   },
+   {
+    "price": 113.1,
+    "count": 4
+   },
+   {
+    "price": 113,
+    "count": 4
+   },
+   {
+    "price": 112.9,
+    "count": 4
+   },
+   {
+    "price": 112.8,
+    "count": 4
+   },
+   {
+    "price": 112.7,
+    "count": 4
+   },
+   {
+    "price": 112.6,
+    "count": 4
+   },
+   {
+    "price": 112.5,
+    "count": 4
+   },
+   {
+    "price": 112.4,
+    "count": 4
+   },
+   {
+    "price": 112.3,
+    "count": 4
+   },
+   {
+    "price": 112.2,
+    "count": 4
+   },
+   {
+    "price": 112.1,
+    "count": 4
+   },
+   {
+    "price": 112,
+    "count": 5
+   },
+   {
+    "price": 111.9,
+    "count": 3
+   },
+   {
+    "price": 111.8,
+    "count": 3
+   },
+   {
+    "price": 111.7,
+    "count": 3
+   },
+   {
+    "price": 111.6,
+    "count": 3
+   },
+   {
+    "price": 111.5,
+    "count": 3
+   },
+   {
+    "price": 111.4,
+    "count": 3
+   },
+   {
+    "price": 111.3,
+    "count": 3
+   },
+   {
+    "price": 111.2,
+    "count": 3
+   },
+   {
+    "price": 111.1,
+    "count": 3
+   },
+   {
+    "price": 111,
+    "count": 3
+   },
+   {
+    "price": 110.9,
+    "count": 3
+   },
+   {
+    "price": 110.8,
+    "count": 3
+   },
+   {
+    "price": 110.7,
+    "count": 3
+   },
+   {
+    "price": 110.6,
+    "count": 3
+   },
+   {
+    "price": 110.5,
+    "count": 3
+   },
+   {
+    "price": 110.4,
+    "count": 3
+   },
+   {
+    "price": 110.3,
+    "count": 3
+   },
+   {
+    "price": 110.2,
+    "count": 3
+   },
+   {
+    "price": 110.1,
+    "count": 3
+   },
+   {
+    "price": 110,
+    "count": 3
+   },
+   {
+    "price": 109.9,
+    "count": 3
+   },
+   {
+    "price": 109.8,
+    "count": 3
+   },
+   {
+    "price": 109.7,
+    "count": 3
+   },
+   {
+    "price": 109.6,
+    "count": 3
+   },
+   {
+    "price": 109.5,
+    "count": 4
+   },
+   {
+    "price": 109.4,
+    "count": 3
+   },
+   {
+    "price": 109.3,
+    "count": 3
+   },
+   {
+    "price": 109.2,
+    "count": 3
+   },
+   {
+    "price": 109.1,
+    "count": 3
+   },
+   {
+    "price": 109,
+    "count": 3
+   },
+   {
+    "price": 108.9,
+    "count": 3
+   },
+   {
+    "price": 108.8,
+    "count": 3
+   },
+   {
+    "price": 108.7,
+    "count": 3
+   },
+   {
+    "price": 108.6,
+    "count": 3
+   },
+   {
+    "price": 108.5,
+    "count": 2
+   },
+   {
+    "price": 108.4,
+    "count": 2
+   },
+   {
+    "price": 108.3,
+    "count": 2
+   },
+   {
+    "price": 108.2,
+    "count": 2
+   },
+   {
+    "price": 108.1,
+    "count": 2
+   },
+   {
+    "price": 108,
+    "count": 2
+   },
+   {
+    "price": 107.9,
+    "count": 2
+   },
+   {
+    "price": 107.8,
+    "count": 2
+   },
+   {
+    "price": 107.7,
+    "count": 2
+   },
+   {
+    "price": 107.6,
+    "count": 2
+   },
+   {
+    "price": 107.5,
+    "count": 2
+   },
+   {
+    "price": 107.4,
+    "count": 2
+   },
+   {
+    "price": 107.3,
+    "count": 2
+   },
+   {
+    "price": 107.2,
+    "count": 2
+   },
+   {
+    "price": 107.1,
+    "count": 2
+   },
+   {
+    "price": 107,
+    "count": 2
+   },
+   {
+    "price": 106.9,
+    "count": 2
+   },
+   {
+    "price": 106.8,
+    "count": 2
+   },
+   {
+    "price": 106.7,
+    "count": 2
+   },
+   {
+    "price": 106.6,
+    "count": 2
+   },
+   {
+    "price": 106.5,
+    "count": 2
+   },
+   {
+    "price": 106.4,
+    "count": 2
+   },
+   {
+    "price": 106.3,
+    "count": 2
+   },
+   {
+    "price": 106.2,
+    "count": 2
+   },
+   {
+    "price": 106.1,
+    "count": 2
+   },
+   {
+    "price": 106,
+    "count": 2
+   },
+   {
+    "price": 105.9,
+    "count": 2
+   },
+   {
+    "price": 105.8,
+    "count": 2
+   },
+   {
+    "price": 105.7,
+    "count": 2
+   },
+   {
+    "price": 105.6,
+    "count": 2
+   },
+   {
+    "price": 105.5,
+    "count": 2
+   },
+   {
+    "price": 105.4,
+    "count": 3
+   },
+   {
+    "price": 105.3,
+    "count": 3
+   },
+   {
+    "price": 105.2,
+    "count": 3
+   },
+   {
+    "price": 105.1,
+    "count": 3
+   },
+   {
+    "price": 105,
+    "count": 3
+   },
+   {
+    "price": 104.9,
+    "count": 3
+   },
+   {
+    "price": 104.8,
+    "count": 3
+   },
+   {
+    "price": 104.7,
+    "count": 3
+   },
+   {
+    "price": 104.6,
+    "count": 3
+   },
+   {
+    "price": 104.5,
+    "count": 3
+   },
+   {
+    "price": 104.4,
+    "count": 3
+   },
+   {
+    "price": 104.3,
+    "count": 3
+   },
+   {
+    "price": 104.2,
+    "count": 3
+   },
+   {
+    "price": 104.1,
+    "count": 2
+   },
+   {
+    "price": 104,
+    "count": 2
+   },
+   {
+    "price": 103.9,
+    "count": 2
+   },
+   {
+    "price": 103.8,
+    "count": 2
+   },
+   {
+    "price": 103.7,
+    "count": 2
+   },
+   {
+    "price": 103.6,
+    "count": 2
+   },
+   {
+    "price": 103.5,
+    "count": 2
+   },
+   {
+    "price": 103.4,
+    "count": 2
+   },
+   {
+    "price": 103.3,
+    "count": 2
+   },
+   {
+    "price": 103.2,
+    "count": 2
+   },
+   {
+    "price": 103.1,
+    "count": 2
+   },
+   {
+    "price": 103,
+    "count": 2
+   },
+   {
+    "price": 102.9,
+    "count": 2
+   },
+   {
+    "price": 102.8,
+    "count": 2
+   },
+   {
+    "price": 102.7,
+    "count": 2
+   },
+   {
+    "price": 102.6,
+    "count": 2
+   },
+   {
+    "price": 102.5,
+    "count": 2
+   },
+   {
+    "price": 102.4,
+    "count": 2
+   },
+   {
+    "price": 102.3,
+    "count": 2
+   },
+   {
+    "price": 102.2,
+    "count": 2
+   },
+   {
+    "price": 102.1,
+    "count": 2
+   },
+   {
+    "price": 102,
+    "count": 2
+   },
+   {
+    "price": 101.9,
+    "count": 3
+   },
+   {
+    "price": 101.8,
+    "count": 3
+   },
+   {
+    "price": 101.7,
+    "count": 3
+   },
+   {
+    "price": 101.6,
+    "count": 3
+   },
+   {
+    "price": 101.5,
+    "count": 3
+   },
+   {
+    "price": 101.4,
+    "count": 3
+   },
+   {
+    "price": 101.3,
+    "count": 3
+   },
+   {
+    "price": 101.2,
+    "count": 2
+   },
+   {
+    "price": 101.1,
+    "count": 2
+   },
+   {
+    "price": 101,
+    "count": 2
+   },
+   {
+    "price": 100.9,
+    "count": 2
+   },
+   {
+    "price": 100.8,
+    "count": 2
+   },
+   {
+    "price": 100.7,
+    "count": 2
+   },
+   {
+    "price": 100.6,
+    "count": 2
+   },
+   {
+    "price": 100.5,
+    "count": 2
+   },
+   {
+    "price": 100.4,
+    "count": 2
+   },
+   {
+    "price": 100.3,
+    "count": 2
+   },
+   {
+    "price": 100.2,
+    "count": 2
+   },
+   {
+    "price": 100.1,
+    "count": 2
+   },
+   {
+    "price": 100,
+    "count": 2
+   },
+   {
+    "price": 99.9,
+    "count": 2
+   },
+   {
+    "price": 99.8,
+    "count": 1
+   },
+   {
+    "price": 99.7,
+    "count": 1
+   },
+   {
+    "price": 99.6,
+    "count": 1
+   },
+   {
+    "price": 99.5,
+    "count": 1
+   },
+   {
+    "price": 99.4,
+    "count": 1
+   },
+   {
+    "price": 99.3,
+    "count": 1
+   },
+   {
+    "price": 99.2,
+    "count": 1
+   },
+   {
+    "price": 99.1,
+    "count": 1
+   },
+   {
+    "price": 99,
+    "count": 1
+   },
+   {
+    "price": 98.9,
+    "count": 1
+   },
+   {
+    "price": 98.8,
+    "count": 1
+   },
+   {
+    "price": 98.7,
+    "count": 1
+   },
+   {
+    "price": 98.6,
+    "count": 1
+   },
+   {
+    "price": 98.5,
+    "count": 1
+   },
+   {
+    "price": 98.4,
+    "count": 1
+   },
+   {
+    "price": 98.3,
+    "count": 1
+   },
+   {
+    "price": 98.2,
+    "count": 1
+   },
+   {
+    "price": 98.1,
+    "count": 1
+   },
+   {
+    "price": 98,
+    "count": 1
+   },
+   {
+    "price": 97.9,
+    "count": 1
+   },
+   {
+    "price": 97.8,
+    "count": 1
+   },
+   {
+    "price": 97.7,
+    "count": 1
+   },
+   {
+    "price": 97.6,
+    "count": 1
+   },
+   {
+    "price": 97.5,
+    "count": 2
+   },
+   {
+    "price": 97.4,
+    "count": 2
+   },
+   {
+    "price": 97.3,
+    "count": 2
+   },
+   {
+    "price": 97.2,
+    "count": 2
+   },
+   {
+    "price": 97.1,
+    "count": 2
+   },
+   {
+    "price": 97,
+    "count": 2
+   },
+   {
+    "price": 96.9,
+    "count": 2
+   },
+   {
+    "price": 96.8,
+    "count": 1
+   },
+   {
+    "price": 96.7,
+    "count": 1
+   },
+   {
+    "price": 96.6,
+    "count": 1
+   },
+   {
+    "price": 96.5,
+    "count": 1
+   },
+   {
+    "price": 96.4,
+    "count": 1
+   },
+   {
+    "price": 96.3,
+    "count": 1
+   },
+   {
+    "price": 96.2,
+    "count": 1
+   },
+   {
+    "price": 96.1,
+    "count": 1
+   },
+   {
+    "price": 96,
+    "count": 1
+   },
+   {
+    "price": 95.9,
+    "count": 1
+   },
+   {
+    "price": 95.8,
+    "count": 1
+   },
+   {
+    "price": 95.7,
+    "count": 1
+   },
+   {
+    "price": 95.6,
+    "count": 1
+   },
+   {
+    "price": 95.5,
+    "count": 1
+   },
+   {
+    "price": 95.4,
+    "count": 1
+   },
+   {
+    "price": 95.3,
+    "count": 1
+   },
+   {
+    "price": 95.2,
+    "count": 1
+   },
+   {
+    "price": 95.1,
+    "count": 1
+   },
+   {
+    "price": 95,
+    "count": 1
+   },
+   {
+    "price": 94.9,
+    "count": 1
+   },
+   {
+    "price": 94.8,
+    "count": 1
+   },
+   {
+    "price": 94.7,
+    "count": 1
+   },
+   {
+    "price": 94.6,
+    "count": 1
+   },
+   {
+    "price": 94.5,
+    "count": 1
+   },
+   {
+    "price": 94.4,
+    "count": 1
+   },
+   {
+    "price": 94.3,
+    "count": 1
+   },
+   {
+    "price": 94.2,
+    "count": 1
+   },
+   {
+    "price": 94.1,
+    "count": 1
+   },
+   {
+    "price": 94,
+    "count": 1
+   },
+   {
+    "price": 93.9,
+    "count": 1
+   }
+  ],
+  "poc": 112,
+  "vah": 117.2,
+  "val": 103.5,
+  "ib": {
+   "high": 114.682,
+   "low": 99.8541
+  }
+ }
+}

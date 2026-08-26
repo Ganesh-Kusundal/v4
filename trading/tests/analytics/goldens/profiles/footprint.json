@@ -1,0 +1,1059 @@
+{
+ "id": "footprint",
+ "settings": {
+  "time": 1784087100,
+  "tickSize": 0.1,
+  "rowTicks": 1
+ },
+ "result": {
+  "time": 1784087100,
+  "cells": [
+   {
+    "price": 118.7,
+    "bidVol": 0,
+    "askVol": 3008
+   },
+   {
+    "price": 118.6,
+    "bidVol": 0,
+    "askVol": 1105.5
+   },
+   {
+    "price": 118.1,
+    "bidVol": 1865.5,
+    "askVol": 2443
+   },
+   {
+    "price": 118,
+    "bidVol": 0,
+    "askVol": 2032
+   },
+   {
+    "price": 117.9,
+    "bidVol": 0,
+    "askVol": 1116
+   },
+   {
+    "price": 117.8,
+    "bidVol": 1105.5,
+    "askVol": 0
+   },
+   {
+    "price": 117.7,
+    "bidVol": 1142.5,
+    "askVol": 0
+   },
+   {
+    "price": 117.4,
+    "bidVol": 2032,
+    "askVol": 2109
+   },
+   {
+    "price": 117.3,
+    "bidVol": 0,
+    "askVol": 1973
+   },
+   {
+    "price": 117.2,
+    "bidVol": 0,
+    "askVol": 948
+   },
+   {
+    "price": 117.1,
+    "bidVol": 0,
+    "askVol": 1560.5
+   },
+   {
+    "price": 116.9,
+    "bidVol": 2443,
+    "askVol": 3016.5
+   },
+   {
+    "price": 116.8,
+    "bidVol": 1116,
+    "askVol": 1288.5
+   },
+   {
+    "price": 116.7,
+    "bidVol": 1973,
+    "askVol": 3783.5
+   },
+   {
+    "price": 116.5,
+    "bidVol": 0,
+    "askVol": 511
+   },
+   {
+    "price": 116.2,
+    "bidVol": 1564.5,
+    "askVol": 773
+   },
+   {
+    "price": 116.1,
+    "bidVol": 2109,
+    "askVol": 0
+   },
+   {
+    "price": 116,
+    "bidVol": 0,
+    "askVol": 2449.5
+   },
+   {
+    "price": 115.9,
+    "bidVol": 1452,
+    "askVol": 1348.5
+   },
+   {
+    "price": 115.8,
+    "bidVol": 1318,
+    "askVol": 0
+   },
+   {
+    "price": 115.7,
+    "bidVol": 0,
+    "askVol": 3138.5
+   },
+   {
+    "price": 115.6,
+    "bidVol": 0,
+    "askVol": 5993
+   },
+   {
+    "price": 115.5,
+    "bidVol": 948,
+    "askVol": 3396
+   },
+   {
+    "price": 115.4,
+    "bidVol": 4033.5,
+    "askVol": 2811.5
+   },
+   {
+    "price": 115.3,
+    "bidVol": 3798,
+    "askVol": 0
+   },
+   {
+    "price": 115.2,
+    "bidVol": 773,
+    "askVol": 0
+   },
+   {
+    "price": 115.1,
+    "bidVol": 2465.5,
+    "askVol": 0
+   },
+   {
+    "price": 115,
+    "bidVol": 0,
+    "askVol": 4994
+   },
+   {
+    "price": 114.9,
+    "bidVol": 1851.5,
+    "askVol": 0
+   },
+   {
+    "price": 114.8,
+    "bidVol": 2604.5,
+    "askVol": 0
+   },
+   {
+    "price": 114.7,
+    "bidVol": 3200,
+    "askVol": 2238
+   },
+   {
+    "price": 114.6,
+    "bidVol": 1393.5,
+    "askVol": 2460.5
+   },
+   {
+    "price": 114.5,
+    "bidVol": 1043.5,
+    "askVol": 0
+   },
+   {
+    "price": 114.4,
+    "bidVol": 1751.5,
+    "askVol": 2416
+   },
+   {
+    "price": 114.3,
+    "bidVol": 0,
+    "askVol": 7357.5
+   },
+   {
+    "price": 114.2,
+    "bidVol": 0,
+    "askVol": 7992.5
+   },
+   {
+    "price": 114.1,
+    "bidVol": 2487,
+    "askVol": 8460
+   },
+   {
+    "price": 114,
+    "bidVol": 0,
+    "askVol": 5318.5
+   },
+   {
+    "price": 113.9,
+    "bidVol": 4333,
+    "askVol": 6392
+   },
+   {
+    "price": 113.8,
+    "bidVol": 8376.5,
+    "askVol": 2592.5
+   },
+   {
+    "price": 113.7,
+    "bidVol": 11203.5,
+    "askVol": 1030.5
+   },
+   {
+    "price": 113.6,
+    "bidVol": 889.5,
+    "askVol": 4909.5
+   },
+   {
+    "price": 113.5,
+    "bidVol": 6914,
+    "askVol": 3429
+   },
+   {
+    "price": 113.4,
+    "bidVol": 7567.5,
+    "askVol": 1633
+   },
+   {
+    "price": 113.3,
+    "bidVol": 6218.5,
+    "askVol": 604
+   },
+   {
+    "price": 113.2,
+    "bidVol": 3772.5,
+    "askVol": 2810
+   },
+   {
+    "price": 113.1,
+    "bidVol": 3864.5,
+    "askVol": 2563.5
+   },
+   {
+    "price": 113,
+    "bidVol": 0,
+    "askVol": 2404
+   },
+   {
+    "price": 112.9,
+    "bidVol": 3076.5,
+    "askVol": 1792
+   },
+   {
+    "price": 112.8,
+    "bidVol": 1720,
+    "askVol": 4590.5
+   },
+   {
+    "price": 112.7,
+    "bidVol": 1871.5,
+    "askVol": 5321.5
+   },
+   {
+    "price": 112.6,
+    "bidVol": 4933,
+    "askVol": 0
+   },
+   {
+    "price": 112.4,
+    "bidVol": 2138,
+    "askVol": 0
+   },
+   {
+    "price": 112.3,
+    "bidVol": 0,
+    "askVol": 1067.5
+   },
+   {
+    "price": 112.2,
+    "bidVol": 5547,
+    "askVol": 1994.5
+   },
+   {
+    "price": 112.1,
+    "bidVol": 5762,
+    "askVol": 0
+   },
+   {
+    "price": 112,
+    "bidVol": 2191,
+    "askVol": 1797
+   },
+   {
+    "price": 111.9,
+    "bidVol": 0,
+    "askVol": 3743.5
+   },
+   {
+    "price": 111.8,
+    "bidVol": 0,
+    "askVol": 2092.5
+   },
+   {
+    "price": 111.7,
+    "bidVol": 1264.5,
+    "askVol": 12848
+   },
+   {
+    "price": 111.6,
+    "bidVol": 0,
+    "askVol": 19300.5
+   },
+   {
+    "price": 111.5,
+    "bidVol": 1994.5,
+    "askVol": 8694.5
+   },
+   {
+    "price": 111.4,
+    "bidVol": 658.5,
+    "askVol": 15515.5
+   },
+   {
+    "price": 111.3,
+    "bidVol": 7006,
+    "askVol": 6582
+   },
+   {
+    "price": 111.2,
+    "bidVol": 17513,
+    "askVol": 1328
+   },
+   {
+    "price": 111.1,
+    "bidVol": 7980.5,
+    "askVol": 1637
+   },
+   {
+    "price": 111,
+    "bidVol": 13732,
+    "askVol": 2617
+   },
+   {
+    "price": 110.9,
+    "bidVol": 1784.5,
+    "askVol": 0
+   },
+   {
+    "price": 110.8,
+    "bidVol": 8199.5,
+    "askVol": 2126.5
+   },
+   {
+    "price": 110.7,
+    "bidVol": 5863,
+    "askVol": 1298.5
+   },
+   {
+    "price": 110.6,
+    "bidVol": 3767,
+    "askVol": 747
+   },
+   {
+    "price": 110.5,
+    "bidVol": 1872,
+    "askVol": 0
+   },
+   {
+    "price": 110.4,
+    "bidVol": 3112.5,
+    "askVol": 2381
+   },
+   {
+    "price": 110.2,
+    "bidVol": 2039,
+    "askVol": 813
+   },
+   {
+    "price": 110.1,
+    "bidVol": 1587,
+    "askVol": 0
+   },
+   {
+    "price": 110,
+    "bidVol": 990,
+    "askVol": 3715
+   },
+   {
+    "price": 109.9,
+    "bidVol": 0,
+    "askVol": 2021
+   },
+   {
+    "price": 109.8,
+    "bidVol": 2045.5,
+    "askVol": 0
+   },
+   {
+    "price": 109.6,
+    "bidVol": 2021,
+    "askVol": 0
+   },
+   {
+    "price": 109.5,
+    "bidVol": 1618,
+    "askVol": 4547
+   },
+   {
+    "price": 109.3,
+    "bidVol": 6312.5,
+    "askVol": 1950
+   },
+   {
+    "price": 109.2,
+    "bidVol": 0,
+    "askVol": 4020
+   },
+   {
+    "price": 109.1,
+    "bidVol": 0,
+    "askVol": 1928
+   },
+   {
+    "price": 109,
+    "bidVol": 4280,
+    "askVol": 0
+   },
+   {
+    "price": 108.9,
+    "bidVol": 2915.5,
+    "askVol": 1812.5
+   },
+   {
+    "price": 108.8,
+    "bidVol": 1525,
+    "askVol": 0
+   },
+   {
+    "price": 108.6,
+    "bidVol": 1978.5,
+    "askVol": 3714
+   },
+   {
+    "price": 108.5,
+    "bidVol": 2041.5,
+    "askVol": 1720.5
+   },
+   {
+    "price": 108.4,
+    "bidVol": 1928,
+    "askVol": 4864
+   },
+   {
+    "price": 108.3,
+    "bidVol": 1812.5,
+    "askVol": 4677
+   },
+   {
+    "price": 108,
+    "bidVol": 0,
+    "askVol": 2371.5
+   },
+   {
+    "price": 107.9,
+    "bidVol": 2312,
+    "askVol": 742.5
+   },
+   {
+    "price": 107.8,
+    "bidVol": 1406.5,
+    "askVol": 1041.5
+   },
+   {
+    "price": 107.7,
+    "bidVol": 1402,
+    "askVol": 2047.5
+   },
+   {
+    "price": 107.6,
+    "bidVol": 4518,
+    "askVol": 1462
+   },
+   {
+    "price": 107.5,
+    "bidVol": 1720.5,
+    "askVol": 505
+   },
+   {
+    "price": 107.4,
+    "bidVol": 2440.5,
+    "askVol": 3214.5
+   },
+   {
+    "price": 107.3,
+    "bidVol": 810.5,
+    "askVol": 0
+   },
+   {
+    "price": 107.2,
+    "bidVol": 742.5,
+    "askVol": 1041.5
+   },
+   {
+    "price": 107.1,
+    "bidVol": 1522,
+    "askVol": 1317.5
+   },
+   {
+    "price": 107,
+    "bidVol": 2761.5,
+    "askVol": 0
+   },
+   {
+    "price": 106.9,
+    "bidVol": 4676.5,
+    "askVol": 1370.5
+   },
+   {
+    "price": 106.6,
+    "bidVol": 0,
+    "askVol": 805
+   },
+   {
+    "price": 106.5,
+    "bidVol": 0,
+    "askVol": 1511
+   },
+   {
+    "price": 106.4,
+    "bidVol": 3089,
+    "askVol": 3469
+   },
+   {
+    "price": 106.3,
+    "bidVol": 0,
+    "askVol": 2989.5
+   },
+   {
+    "price": 106.2,
+    "bidVol": 0,
+    "askVol": 1736
+   },
+   {
+    "price": 106.1,
+    "bidVol": 1370.5,
+    "askVol": 0
+   },
+   {
+    "price": 106,
+    "bidVol": 1511,
+    "askVol": 0
+   },
+   {
+    "price": 105.9,
+    "bidVol": 3347,
+    "askVol": 0
+   },
+   {
+    "price": 105.8,
+    "bidVol": 1324,
+    "askVol": 2066
+   },
+   {
+    "price": 105.7,
+    "bidVol": 805,
+    "askVol": 3991.5
+   },
+   {
+    "price": 105.6,
+    "bidVol": 1665.5,
+    "askVol": 0
+   },
+   {
+    "price": 105.4,
+    "bidVol": 0,
+    "askVol": 1157.5
+   },
+   {
+    "price": 105.3,
+    "bidVol": 1736,
+    "askVol": 3080.5
+   },
+   {
+    "price": 105.2,
+    "bidVol": 3991.5,
+    "askVol": 0
+   },
+   {
+    "price": 105.1,
+    "bidVol": 1439.5,
+    "askVol": 582
+   },
+   {
+    "price": 105,
+    "bidVol": 0,
+    "askVol": 2244.5
+   },
+   {
+    "price": 104.9,
+    "bidVol": 2066,
+    "askVol": 1800
+   },
+   {
+    "price": 104.8,
+    "bidVol": 0,
+    "askVol": 3959.5
+   },
+   {
+    "price": 104.6,
+    "bidVol": 1514,
+    "askVol": 3539
+   },
+   {
+    "price": 104.4,
+    "bidVol": 1069.5,
+    "askVol": 0
+   },
+   {
+    "price": 104.3,
+    "bidVol": 1157.5,
+    "askVol": 0
+   },
+   {
+    "price": 104.2,
+    "bidVol": 1800,
+    "askVol": 1611
+   },
+   {
+    "price": 104.1,
+    "bidVol": 3232.5,
+    "askVol": 2189
+   },
+   {
+    "price": 104,
+    "bidVol": 2148.5,
+    "askVol": 0
+   },
+   {
+    "price": 103.9,
+    "bidVol": 1902,
+    "askVol": 4169.5
+   },
+   {
+    "price": 103.8,
+    "bidVol": 1144,
+    "askVol": 4828
+   },
+   {
+    "price": 103.7,
+    "bidVol": 4584,
+    "askVol": 1746.5
+   },
+   {
+    "price": 103.5,
+    "bidVol": 0,
+    "askVol": 3543.5
+   },
+   {
+    "price": 103.4,
+    "bidVol": 1800,
+    "askVol": 1976
+   },
+   {
+    "price": 103.3,
+    "bidVol": 0,
+    "askVol": 796
+   },
+   {
+    "price": 103.2,
+    "bidVol": 4029,
+    "askVol": 5307
+   },
+   {
+    "price": 103.1,
+    "bidVol": 1335.5,
+    "askVol": 0
+   },
+   {
+    "price": 103,
+    "bidVol": 0,
+    "askVol": 2685.5
+   },
+   {
+    "price": 102.9,
+    "bidVol": 2410,
+    "askVol": 0
+   },
+   {
+    "price": 102.8,
+    "bidVol": 0,
+    "askVol": 5284
+   },
+   {
+    "price": 102.7,
+    "bidVol": 3267.5,
+    "askVol": 1854
+   },
+   {
+    "price": 102.6,
+    "bidVol": 3013,
+    "askVol": 3784
+   },
+   {
+    "price": 102.5,
+    "bidVol": 3286,
+    "askVol": 3626
+   },
+   {
+    "price": 102.4,
+    "bidVol": 3190,
+    "askVol": 575.5
+   },
+   {
+    "price": 102.3,
+    "bidVol": 0,
+    "askVol": 653
+   },
+   {
+    "price": 102.2,
+    "bidVol": 6680.5,
+    "askVol": 3433
+   },
+   {
+    "price": 102.1,
+    "bidVol": 3685,
+    "askVol": 0
+   },
+   {
+    "price": 102,
+    "bidVol": 0,
+    "askVol": 2158.5
+   },
+   {
+    "price": 101.9,
+    "bidVol": 3610,
+    "askVol": 1881
+   },
+   {
+    "price": 101.8,
+    "bidVol": 0,
+    "askVol": 4340.5
+   },
+   {
+    "price": 101.7,
+    "bidVol": 2597,
+    "askVol": 0
+   },
+   {
+    "price": 101.6,
+    "bidVol": 1682,
+    "askVol": 1189
+   },
+   {
+    "price": 101.5,
+    "bidVol": 3028,
+    "askVol": 1148.5
+   },
+   {
+    "price": 101.4,
+    "bidVol": 2484,
+    "askVol": 826.5
+   },
+   {
+    "price": 101.3,
+    "bidVol": 3274.5,
+    "askVol": 3794.5
+   },
+   {
+    "price": 101.2,
+    "bidVol": 1235,
+    "askVol": 3926.5
+   },
+   {
+    "price": 101.1,
+    "bidVol": 3029.5,
+    "askVol": 1473
+   },
+   {
+    "price": 101,
+    "bidVol": 0,
+    "askVol": 4023
+   },
+   {
+    "price": 100.9,
+    "bidVol": 0,
+    "askVol": 1916.5
+   },
+   {
+    "price": 100.7,
+    "bidVol": 1189,
+    "askVol": 4957
+   },
+   {
+    "price": 100.6,
+    "bidVol": 6016.5,
+    "askVol": 0
+   },
+   {
+    "price": 100.5,
+    "bidVol": 3389,
+    "askVol": 1703
+   },
+   {
+    "price": 100.3,
+    "bidVol": 1966,
+    "askVol": 0
+   },
+   {
+    "price": 100.2,
+    "bidVol": 1408.5,
+    "askVol": 3178
+   },
+   {
+    "price": 100.1,
+    "bidVol": 3303.5,
+    "askVol": 0
+   },
+   {
+    "price": 100,
+    "bidVol": 3814,
+    "askVol": 1489.5
+   },
+   {
+    "price": 99.9,
+    "bidVol": 6027.5,
+    "askVol": 3365
+   },
+   {
+    "price": 99.8,
+    "bidVol": 1118.5,
+    "askVol": 4074
+   },
+   {
+    "price": 99.7,
+    "bidVol": 519,
+    "askVol": 2493.5
+   },
+   {
+    "price": 99.5,
+    "bidVol": 0,
+    "askVol": 1771.5
+   },
+   {
+    "price": 99.4,
+    "bidVol": 1932,
+    "askVol": 780
+   },
+   {
+    "price": 99.3,
+    "bidVol": 1489.5,
+    "askVol": 0
+   },
+   {
+    "price": 99.2,
+    "bidVol": 2493.5,
+    "askVol": 1823.5
+   },
+   {
+    "price": 99,
+    "bidVol": 2142,
+    "askVol": 0
+   },
+   {
+    "price": 98.9,
+    "bidVol": 1517,
+    "askVol": 2200.5
+   },
+   {
+    "price": 98.8,
+    "bidVol": 1848,
+    "askVol": 2030.5
+   },
+   {
+    "price": 98.7,
+    "bidVol": 780,
+    "askVol": 769
+   },
+   {
+    "price": 98.6,
+    "bidVol": 1771.5,
+    "askVol": 1249
+   },
+   {
+    "price": 98.4,
+    "bidVol": 2030.5,
+    "askVol": 1104
+   },
+   {
+    "price": 98.1,
+    "bidVol": 1249,
+    "askVol": 0
+   },
+   {
+    "price": 98,
+    "bidVol": 769,
+    "askVol": 0
+   },
+   {
+    "price": 97.8,
+    "bidVol": 1823.5,
+    "askVol": 735.5
+   },
+   {
+    "price": 97.5,
+    "bidVol": 2200.5,
+    "askVol": 3711
+   },
+   {
+    "price": 97.4,
+    "bidVol": 0,
+    "askVol": 5399.5
+   },
+   {
+    "price": 97.3,
+    "bidVol": 1885,
+    "askVol": 1260.5
+   },
+   {
+    "price": 97.2,
+    "bidVol": 735.5,
+    "askVol": 2913
+   },
+   {
+    "price": 97.1,
+    "bidVol": 0,
+    "askVol": 576
+   },
+   {
+    "price": 97,
+    "bidVol": 1877.5,
+    "askVol": 0
+   },
+   {
+    "price": 96.9,
+    "bidVol": 1104,
+    "askVol": 0
+   },
+   {
+    "price": 96.8,
+    "bidVol": 551,
+    "askVol": 0
+   },
+   {
+    "price": 96.7,
+    "bidVol": 1041.5,
+    "askVol": 2444
+   },
+   {
+    "price": 96.6,
+    "bidVol": 1260.5,
+    "askVol": 2906
+   },
+   {
+    "price": 96.4,
+    "bidVol": 576,
+    "askVol": 0
+   },
+   {
+    "price": 96.3,
+    "bidVol": 4188,
+    "askVol": 1358
+   },
+   {
+    "price": 96.2,
+    "bidVol": 2480.5,
+    "askVol": 2448.5
+   },
+   {
+    "price": 96.1,
+    "bidVol": 2444,
+    "askVol": 1067.5
+   },
+   {
+    "price": 96,
+    "bidVol": 699,
+    "askVol": 983.5
+   },
+   {
+    "price": 95.9,
+    "bidVol": 0,
+    "askVol": 1065
+   },
+   {
+    "price": 95.6,
+    "bidVol": 1358,
+    "askVol": 3047
+   },
+   {
+    "price": 95.5,
+    "bidVol": 4655.5,
+    "askVol": 2902.5
+   },
+   {
+    "price": 95.4,
+    "bidVol": 1067.5,
+    "askVol": 0
+   },
+   {
+    "price": 95.3,
+    "bidVol": 983.5,
+    "askVol": 1635
+   },
+   {
+    "price": 95.2,
+    "bidVol": 1904,
+    "askVol": 1756.5
+   },
+   {
+    "price": 95,
+    "bidVol": 2281,
+    "askVol": 3711.5
+   },
+   {
+    "price": 94.9,
+    "bidVol": 1831,
+    "askVol": 2488.5
+   },
+   {
+    "price": 94.8,
+    "bidVol": 1635,
+    "askVol": 0
+   },
+   {
+    "price": 94.7,
+    "bidVol": 3235,
+    "askVol": 1362
+   },
+   {
+    "price": 94.6,
+    "bidVol": 2488.5,
+    "askVol": 953.5
+   },
+   {
+    "price": 94.5,
+    "bidVol": 3824,
+    "askVol": 0
+   },
+   {
+    "price": 94.3,
+    "bidVol": 0,
+    "askVol": 2104
+   },
+   {
+    "price": 94,
+    "bidVol": 769.5,
+    "askVol": 0
+   },
+   {
+    "price": 93.9,
+    "bidVol": 3057.5,
+    "askVol": 0
+   }
+  ],
+  "delta": 0
+ }
+}

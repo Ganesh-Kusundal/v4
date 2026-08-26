@@ -1,0 +1,3060 @@
+{
+ "id": "market-profile",
+ "settings": {
+  "tickSize": 0.1,
+  "rowTicks": 1,
+  "session": "day",
+  "blockMinutes": 30,
+  "valueAreaPercent": 0.7,
+  "initialBalancePeriods": 2,
+  "compositeSessions": 1,
+  "tailEdges": 0
+ },
+ "result": {
+  "sessions": [
+   {
+    "startTime": 1784087100,
+    "endTime": 1784101440,
+    "levels": [
+     {
+      "price": 118.7,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 740.7272727272727,
+      "letters": "D"
+     },
+     {
+      "price": 118.6,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 986.3939393939394,
+      "letters": "D"
+     },
+     {
+      "price": 118.5,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 986.3939393939394,
+      "letters": "D"
+     },
+     {
+      "price": 118.4,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 986.3939393939394,
+      "letters": "D"
+     },
+     {
+      "price": 118.3,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 986.3939393939394,
+      "letters": "D"
+     },
+     {
+      "price": 118.2,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 986.3939393939394,
+      "letters": "D"
+     },
+     {
+      "price": 118.1,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 1362.2400932400933,
+      "letters": "D"
+     },
+     {
+      "price": 118,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 1409.8115218115217,
+      "letters": "D"
+     },
+     {
+      "price": 117.9,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 1595.8115218115217,
+      "letters": "D"
+     },
+     {
+      "price": 117.8,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 1595.8115218115217,
+      "letters": "D"
+     },
+     {
+      "price": 117.7,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 1350.1448551448552,
+      "letters": "D"
+     },
+     {
+      "price": 117.6,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 1142.4175824175825,
+      "letters": "D"
+     },
+     {
+      "price": 117.5,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 1142.4175824175825,
+      "letters": "D"
+     },
+     {
+      "price": 117.4,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 1443.7032967032967,
+      "letters": "D"
+     },
+     {
+      "price": 117.3,
+      "count": 1,
+      "periods": [
+       3
+      ],
+      "volume": 1426.8461538461538,
+      "letters": "D"
+     },
+     {
+      "price": 117.2,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 1532.179487179487,
+      "letters": "DE"
+     },
+     {
+      "price": 117.1,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 1705.568376068376,
+      "letters": "DE"
+     },
+     {
+      "price": 117,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 1705.568376068376,
+      "letters": "DE"
+     },
+     {
+      "price": 116.9,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2360.693376068376,
+      "letters": "DE"
+     },
+     {
+      "price": 116.8,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2156.647222222222,
+      "letters": "DE"
+     },
+     {
+      "price": 116.7,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2524.3060457516335,
+      "letters": "DE"
+     },
+     {
+      "price": 116.6,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 1960.5917600373482,
+      "letters": "DE"
+     },
+     {
+      "price": 116.5,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2045.758426704015,
+      "letters": "DE"
+     },
+     {
+      "price": 116.4,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2045.758426704015,
+      "letters": "DE"
+     },
+     {
+      "price": 116.3,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2045.758426704015,
+      "letters": "DE"
+     },
+     {
+      "price": 116.2,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2186.3038812494697,
+      "letters": "DE"
+     },
+     {
+      "price": 116.1,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 1795.1788812494694,
+      "letters": "DE"
+     },
+     {
+      "price": 116,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2106.2681669637554,
+      "letters": "DE"
+     },
+     {
+      "price": 115.9,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2491.553881249469,
+      "letters": "DE"
+     },
+     {
+      "price": 115.8,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2227.553881249469,
+      "letters": "DE"
+     },
+     {
+      "price": 115.7,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 2727.7720630676513,
+      "letters": "DE"
+     },
+     {
+      "price": 115.6,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 3560.9387297343173,
+      "letters": "DE"
+     },
+     {
+      "price": 115.5,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 4263.980396400983,
+      "letters": "DE"
+     },
+     {
+      "price": 115.4,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 5050.099444020032,
+      "letters": "DE"
+     },
+     {
+      "price": 115.3,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 4282.993888464476,
+      "letters": "DE"
+     },
+     {
+      "price": 115.2,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 3285.3331741787624,
+      "letters": "DE"
+     },
+     {
+      "price": 115.1,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 3144.787719633308,
+      "letters": "DE"
+     },
+     {
+      "price": 115,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 3925.1160755910755,
+      "letters": "DE"
+     },
+     {
+      "price": 114.9,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 3925.1160755910755,
+      "letters": "DE"
+     },
+     {
+      "price": 114.8,
+      "count": 2,
+      "periods": [
+       3,
+       4
+      ],
+      "volume": 3307.949408924409,
+      "letters": "DE"
+     },
+     {
+      "price": 114.7,
+      "count": 3,
+      "periods": [
+       1,
+       3,
+       4
+      ],
+      "volume": 3070.1386946386947,
+      "letters": "BDE"
+     },
+     {
+      "price": 114.6,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 2941.7205128205132,
+      "letters": "BCDE"
+     },
+     {
+      "price": 114.5,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 2709.4705128205132,
+      "letters": "BCDE"
+     },
+     {
+      "price": 114.4,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 2844.8371794871796,
+      "letters": "BCDE"
+     },
+     {
+      "price": 114.3,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 4649.576923076923,
+      "letters": "BCDE"
+     },
+     {
+      "price": 114.2,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 7111.876923076922,
+      "letters": "BCDE"
+     },
+     {
+      "price": 114.1,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 9128.14218281718,
+      "letters": "BCDE"
+     },
+     {
+      "price": 114,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 11027.899325674323,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113.9,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 14059.899325674325,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113.8,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 12935.432659007656,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113.7,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 10720.757979520477,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113.6,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 7933.564842265576,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113.5,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 8835.364842265575,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113.4,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 7853.688651789385,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113.3,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 6047.773175598911,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113.2,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 5312.349366075101,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113.1,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 4481.782699408435,
+      "letters": "BCDE"
+     },
+     {
+      "price": 113,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 3803.027299253035,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112.9,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 4699.0272992530345,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112.8,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 5389.298727824463,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112.7,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 6462.041152066887,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112.6,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 5838.207818733554,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112.5,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 4056.564961590697,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112.4,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 4056.564961590697,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112.3,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 3353.864961590697,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112.2,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 3852.489961590697,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112.1,
+      "count": 4,
+      "periods": [
+       1,
+       2,
+       3,
+       4
+      ],
+      "volume": 2773.750477463713,
+      "letters": "BCDE"
+     },
+     {
+      "price": 112,
+      "count": 5,
+      "periods": [
+       1,
+       2,
+       3,
+       4,
+       5
+      ],
+      "volume": 1629.5004774637127,
+      "letters": "BCDEF"
+     },
+     {
+      "price": 111.9,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 2194.626948051948,
+      "letters": "BEF"
+     },
+     {
+      "price": 111.8,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 2792.484090909091,
+      "letters": "BEF"
+     },
+     {
+      "price": 111.7,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 6639.765043290044,
+      "letters": "BEF"
+     },
+     {
+      "price": 111.6,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 12109.585714285717,
+      "letters": "BEF"
+     },
+     {
+      "price": 111.5,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 14234.461616161618,
+      "letters": "BEF"
+     },
+     {
+      "price": 111.4,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 21879.07947330447,
+      "letters": "BEF"
+     },
+     {
+      "price": 111.3,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 25004.436616161616,
+      "letters": "BEF"
+     },
+     {
+      "price": 111.2,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 20552.965187590187,
+      "letters": "BEF"
+     },
+     {
+      "price": 111.1,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 13696.791378066378,
+      "letters": "BEF"
+     },
+     {
+      "price": 111,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 10533.854870129868,
+      "letters": "BEF"
+     },
+     {
+      "price": 110.9,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 6638.683441558442,
+      "letters": "BEF"
+     },
+     {
+      "price": 110.8,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 6743.451298701299,
+      "letters": "BEF"
+     },
+     {
+      "price": 110.7,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 4830.175108225108,
+      "letters": "BEF"
+     },
+     {
+      "price": 110.6,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 3448.9862193362196,
+      "letters": "BEF"
+     },
+     {
+      "price": 110.5,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 2663.057647907648,
+      "letters": "BEF"
+     },
+     {
+      "price": 110.4,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 2710.218253968254,
+      "letters": "BEF"
+     },
+     {
+      "price": 110.3,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 2110.218253968254,
+      "letters": "BEF"
+     },
+     {
+      "price": 110.2,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 2272.818253968254,
+      "letters": "BEF"
+     },
+     {
+      "price": 110.1,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 1904.461111111111,
+      "letters": "BEF"
+     },
+     {
+      "price": 110,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 2284.8588383838387,
+      "letters": "BEF"
+     },
+     {
+      "price": 109.9,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 3115.3588383838387,
+      "letters": "BEF"
+     },
+     {
+      "price": 109.8,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 3115.3588383838387,
+      "letters": "BEF"
+     },
+     {
+      "price": 109.7,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 2689.6588383838384,
+      "letters": "BEF"
+     },
+     {
+      "price": 109.6,
+      "count": 3,
+      "periods": [
+       1,
+       4,
+       5
+      ],
+      "volume": 2689.6588383838384,
+      "letters": "BEF"
+     },
+     {
+      "price": 109.5,
+      "count": 4,
+      "periods": [
+       1,
+       4,
+       5,
+       6
+      ],
+      "volume": 3021.765981240981,
+      "letters": "BEFG"
+     },
+     {
+      "price": 109.4,
+      "count": 3,
+      "periods": [
+       1,
+       5,
+       6
+      ],
+      "volume": 2859.9659812409814,
+      "letters": "BFG"
+     },
+     {
+      "price": 109.3,
+      "count": 3,
+      "periods": [
+       1,
+       5,
+       6
+      ],
+      "volume": 3639.9659812409814,
+      "letters": "BFG"
+     },
+     {
+      "price": 109.2,
+      "count": 3,
+      "periods": [
+       1,
+       5,
+       6
+      ],
+      "volume": 3602.5405844155844,
+      "letters": "BFG"
+     },
+     {
+      "price": 109.1,
+      "count": 3,
+      "periods": [
+       1,
+       5,
+       6
+      ],
+      "volume": 4084.5405844155844,
+      "letters": "BFG"
+     },
+     {
+      "price": 109,
+      "count": 3,
+      "periods": [
+       1,
+       5,
+       6
+      ],
+      "volume": 4084.5405844155844,
+      "letters": "BFG"
+     },
+     {
+      "price": 108.9,
+      "count": 3,
+      "periods": [
+       0,
+       1,
+       6
+      ],
+      "volume": 3512.625,
+      "letters": "ABG"
+     },
+     {
+      "price": 108.8,
+      "count": 3,
+      "periods": [
+       0,
+       1,
+       6
+      ],
+      "volume": 2456.7678571428573,
+      "letters": "ABG"
+     },
+     {
+      "price": 108.7,
+      "count": 3,
+      "periods": [
+       0,
+       1,
+       6
+      ],
+      "volume": 2075.5178571428573,
+      "letters": "ABG"
+     },
+     {
+      "price": 108.6,
+      "count": 3,
+      "periods": [
+       0,
+       1,
+       6
+      ],
+      "volume": 2933.9178571428574,
+      "letters": "ABG"
+     },
+     {
+      "price": 108.5,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2681.450324675325,
+      "letters": "AG"
+     },
+     {
+      "price": 108.4,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3161.9454545454546,
+      "letters": "AG"
+     },
+     {
+      "price": 108.3,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3793.9340909090906,
+      "letters": "AG"
+     },
+     {
+      "price": 108.2,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3276.0769480519484,
+      "letters": "AG"
+     },
+     {
+      "price": 108.1,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3276.0769480519484,
+      "letters": "AG"
+     },
+     {
+      "price": 108,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3849.404220779221,
+      "letters": "AG"
+     },
+     {
+      "price": 107.9,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 4035.029220779221,
+      "letters": "AG"
+     },
+     {
+      "price": 107.8,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3688.473665223665,
+      "letters": "AG"
+     },
+     {
+      "price": 107.7,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3579.116522366522,
+      "letters": "AG"
+     },
+     {
+      "price": 107.6,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3664.2165223665224,
+      "letters": "AG"
+     },
+     {
+      "price": 107.5,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2638.991522366522,
+      "letters": "AG"
+     },
+     {
+      "price": 107.4,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3397.67334054834,
+      "letters": "AG"
+     },
+     {
+      "price": 107.3,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2953.9460678210676,
+      "letters": "AG"
+     },
+     {
+      "price": 107.2,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3038.026875901876,
+      "letters": "AG"
+     },
+     {
+      "price": 107.1,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3055.0941835941835,
+      "letters": "AG"
+     },
+     {
+      "price": 107,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2707.8084693084693,
+      "letters": "AG"
+     },
+     {
+      "price": 106.9,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2468.1923076923076,
+      "letters": "AG"
+     },
+     {
+      "price": 106.8,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 1031.1923076923076,
+      "letters": "AG"
+     },
+     {
+      "price": 106.7,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 1031.1923076923076,
+      "letters": "AG"
+     },
+     {
+      "price": 106.6,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 1192.1923076923076,
+      "letters": "AG"
+     },
+     {
+      "price": 106.5,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 1695.8589743589744,
+      "letters": "AG"
+     },
+     {
+      "price": 106.4,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2578.0018315018315,
+      "letters": "AG"
+     },
+     {
+      "price": 106.3,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2911.76572039072,
+      "letters": "AG"
+     },
+     {
+      "price": 106.2,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3258.96572039072,
+      "letters": "AG"
+     },
+     {
+      "price": 106.1,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 3258.96572039072,
+      "letters": "AG"
+     },
+     {
+      "price": 106,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2954.4101648351643,
+      "letters": "AG"
+     },
+     {
+      "price": 105.9,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2450.743498168498,
+      "letters": "AG"
+     },
+     {
+      "price": 105.8,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 1984.7511904761905,
+      "letters": "AG"
+     },
+     {
+      "price": 105.7,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2873.917857142857,
+      "letters": "AG"
+     },
+     {
+      "price": 105.6,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2712.917857142857,
+      "letters": "AG"
+     },
+     {
+      "price": 105.5,
+      "count": 2,
+      "periods": [
+       0,
+       6
+      ],
+      "volume": 2296.542857142857,
+      "letters": "AG"
+     },
+     {
+      "price": 105.4,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 2489.4595238095235,
+      "letters": "AGH"
+     },
+     {
+      "price": 105.3,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 3029.388095238095,
+      "letters": "AGH"
+     },
+     {
+      "price": 105.2,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 2682.188095238095,
+      "letters": "AGH"
+     },
+     {
+      "price": 105.1,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 1545.6880952380952,
+      "letters": "AGH"
+     },
+     {
+      "price": 105,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 1880.6166666666666,
+      "letters": "AGH"
+     },
+     {
+      "price": 104.9,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 2330.6166666666663,
+      "letters": "AGH"
+     },
+     {
+      "price": 104.8,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 2812.1916666666666,
+      "letters": "AGH"
+     },
+     {
+      "price": 104.7,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 2812.1916666666666,
+      "letters": "AGH"
+     },
+     {
+      "price": 104.6,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 3545.413888888889,
+      "letters": "AGH"
+     },
+     {
+      "price": 104.5,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 3118.413888888889,
+      "letters": "AGH"
+     },
+     {
+      "price": 104.4,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 3118.413888888889,
+      "letters": "AGH"
+     },
+     {
+      "price": 104.3,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 2812.8424603174603,
+      "letters": "AGH"
+     },
+     {
+      "price": 104.2,
+      "count": 3,
+      "periods": [
+       0,
+       6,
+       7
+      ],
+      "volume": 2912.8348845598844,
+      "letters": "AGH"
+     },
+     {
+      "price": 104.1,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3338.4348845598847,
+      "letters": "AH"
+     },
+     {
+      "price": 104,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 2589.0598845598847,
+      "letters": "AH"
+     },
+     {
+      "price": 103.9,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3198.0646464646466,
+      "letters": "AH"
+     },
+     {
+      "price": 103.8,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3990.5217893217896,
+      "letters": "AH"
+     },
+     {
+      "price": 103.7,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3954.6120670995674,
+      "letters": "AH"
+     },
+     {
+      "price": 103.6,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 2600.012067099567,
+      "letters": "AH"
+     },
+     {
+      "price": 103.5,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3624.8787337662343,
+      "letters": "AH"
+     },
+     {
+      "price": 103.4,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 4073.0537337662345,
+      "letters": "AH"
+     },
+     {
+      "price": 103.3,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3632.253733766234,
+      "letters": "AH"
+     },
+     {
+      "price": 103.2,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 4783.682305194806,
+      "letters": "AH"
+     },
+     {
+      "price": 103.1,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3799.9160714285713,
+      "letters": "AH"
+     },
+     {
+      "price": 103,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 4011.841071428571,
+      "letters": "AH"
+     },
+     {
+      "price": 102.9,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 4011.841071428571,
+      "letters": "AH"
+     },
+     {
+      "price": 102.8,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 4699.116071428572,
+      "letters": "AH"
+     },
+     {
+      "price": 102.7,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 5317.116071428572,
+      "letters": "AH"
+     },
+     {
+      "price": 102.6,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 6259.502976190476,
+      "letters": "AH"
+     },
+     {
+      "price": 102.5,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 5996.474404761905,
+      "letters": "AH"
+     },
+     {
+      "price": 102.4,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 5689.0744047619055,
+      "letters": "AH"
+     },
+     {
+      "price": 102.3,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 4434.445833333333,
+      "letters": "AH"
+     },
+     {
+      "price": 102.2,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 5248.3069444444445,
+      "letters": "AH"
+     },
+     {
+      "price": 102.1,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3851.9944444444445,
+      "letters": "AH"
+     },
+     {
+      "price": 102,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3382.3873015873014,
+      "letters": "AH"
+     },
+     {
+      "price": 101.9,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3382.3873015873014,
+      "letters": "AH"
+     },
+     {
+      "price": 101.8,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3383.511111111111,
+      "letters": "AH"
+     },
+     {
+      "price": 101.7,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3383.511111111111,
+      "letters": "AH"
+     },
+     {
+      "price": 101.6,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 3002.7396825396827,
+      "letters": "AH"
+     },
+     {
+      "price": 101.5,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 2666.339682539682,
+      "letters": "AH"
+     },
+     {
+      "price": 101.4,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 2223.7646825396823,
+      "letters": "AH"
+     },
+     {
+      "price": 101.3,
+      "count": 2,
+      "periods": [
+       0,
+       7
+      ],
+      "volume": 1615.5107142857141,
+      "letters": "AH"
+     },
+     {
+      "price": 101.2,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1372.3857142857144,
+      "letters": "A"
+     },
+     {
+      "price": 101.1,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1019.5285714285715,
+      "letters": "A"
+     },
+     {
+      "price": 101,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1511.0285714285715,
+      "letters": "A"
+     },
+     {
+      "price": 100.9,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1511.0285714285715,
+      "letters": "A"
+     },
+     {
+      "price": 100.8,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1511.0285714285715,
+      "letters": "A"
+     },
+     {
+      "price": 100.7,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2308.6793650793657,
+      "letters": "A"
+     },
+     {
+      "price": 100.6,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2070.8793650793655,
+      "letters": "A"
+     },
+     {
+      "price": 100.5,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1454.4507936507937,
+      "letters": "A"
+     },
+     {
+      "price": 100.4,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1289.1507936507937,
+      "letters": "A"
+     },
+     {
+      "price": 100.3,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1289.1507936507937,
+      "letters": "A"
+     },
+     {
+      "price": 100.2,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2136.3174603174602,
+      "letters": "A"
+     },
+     {
+      "price": 100.1,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2136.3174603174602,
+      "letters": "A"
+     },
+     {
+      "price": 100,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1697.888888888889,
+      "letters": "A"
+     },
+     {
+      "price": 99.9,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 359.22222222222223,
+      "letters": "A"
+     }
+    ],
+    "poc": 112,
+    "vah": 117.2,
+    "val": 105.9,
+    "high": 118.6626,
+    "low": 99.8541,
+    "open": 100,
+    "close": 101.6554,
+    "periods": 8,
+    "periodDetail": [
+     {
+      "index": 0,
+      "letter": "A",
+      "startTime": 1784087100,
+      "endTime": 1784088840,
+      "high": 108.886,
+      "low": 99.8541,
+      "volume": 102624
+     },
+     {
+      "index": 1,
+      "letter": "B",
+      "startTime": 1784088900,
+      "endTime": 1784090640,
+      "high": 114.682,
+      "low": 108.6427,
+      "volume": 88617
+     },
+     {
+      "index": 2,
+      "letter": "C",
+      "startTime": 1784090700,
+      "endTime": 1784092440,
+      "high": 114.5576,
+      "low": 112.0483,
+      "volume": 81454
+     },
+     {
+      "index": 3,
+      "letter": "D",
+      "startTime": 1784092500,
+      "endTime": 1784094240,
+      "high": 118.6626,
+      "low": 112.0444,
+      "volume": 98770
+     },
+     {
+      "index": 4,
+      "letter": "E",
+      "startTime": 1784094300,
+      "endTime": 1784096040,
+      "high": 117.1609,
+      "low": 109.4746,
+      "volume": 82590
+     },
+     {
+      "index": 5,
+      "letter": "F",
+      "startTime": 1784096100,
+      "endTime": 1784097840,
+      "high": 111.997,
+      "low": 108.9913,
+      "volume": 96555
+     },
+     {
+      "index": 6,
+      "letter": "G",
+      "startTime": 1784097900,
+      "endTime": 1784099640,
+      "high": 109.4577,
+      "low": 104.2017,
+      "volume": 80665
+     },
+     {
+      "index": 7,
+      "letter": "H",
+      "startTime": 1784099700,
+      "endTime": 1784101440,
+      "high": 105.4194,
+      "low": 101.2611,
+      "volume": 88335
+     }
+    ],
+    "initialBalance": {
+     "high": 114.682,
+     "low": 99.8541
+    },
+    "rangeExtension": {
+     "up": 3.9805999999999955,
+     "down": 0
+    },
+    "singlePrints": [
+     118.6,
+     118.5,
+     118.4,
+     118.3,
+     118.2,
+     118.1,
+     118,
+     117.9,
+     117.8,
+     117.7,
+     117.6,
+     117.5,
+     117.4,
+     117.3,
+     101.2,
+     101.1,
+     101,
+     100.9,
+     100.8,
+     100.7,
+     100.6,
+     100.5,
+     100.4,
+     100.3,
+     100.2,
+     100.1,
+     100
+    ],
+    "buyingTail": null,
+    "sellingTail": null,
+    "poorHigh": false,
+    "poorLow": false,
+    "developing": [
+     {
+      "periodIndex": 0,
+      "time": 1784088840,
+      "poc": 108.9,
+      "vah": 108.9,
+      "val": 102.6
+     },
+     {
+      "periodIndex": 1,
+      "time": 1784090640,
+      "poc": 108.9,
+      "vah": 114.7,
+      "val": 104.4
+     },
+     {
+      "periodIndex": 2,
+      "time": 1784092440,
+      "poc": 114.6,
+      "vah": 114.7,
+      "val": 105.3
+     },
+     {
+      "periodIndex": 3,
+      "time": 1784094240,
+      "poc": 114.6,
+      "vah": 118.7,
+      "val": 107.3
+     },
+     {
+      "periodIndex": 4,
+      "time": 1784096040,
+      "poc": 114.6,
+      "vah": 118.7,
+      "val": 109.2
+     },
+     {
+      "periodIndex": 5,
+      "time": 1784097840,
+      "poc": 112,
+      "vah": 117.2,
+      "val": 108.8
+     },
+     {
+      "periodIndex": 6,
+      "time": 1784099640,
+      "poc": 112,
+      "vah": 117.2,
+      "val": 107.4
+     },
+     {
+      "periodIndex": 7,
+      "time": 1784101440,
+      "poc": 112,
+      "vah": 117.2,
+      "val": 105.9
+     }
+    ],
+    "dayType": "normal",
+    "openType": "auction",
+    "volumePoc": 111.3,
+    "totalVolume": 719610
+   },
+   {
+    "startTime": 1784173500,
+    "endTime": 1784177040,
+    "levels": [
+     {
+      "price": 101.9,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 418,
+      "letters": "A"
+     },
+     {
+      "price": 101.8,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 670.0714285714286,
+      "letters": "A"
+     },
+     {
+      "price": 101.7,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 670.0714285714286,
+      "letters": "A"
+     },
+     {
+      "price": 101.6,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 670.0714285714286,
+      "letters": "A"
+     },
+     {
+      "price": 101.5,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1129.4714285714285,
+      "letters": "A"
+     },
+     {
+      "price": 101.4,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1129.4714285714285,
+      "letters": "A"
+     },
+     {
+      "price": 101.3,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1960.7214285714285,
+      "letters": "A"
+     },
+     {
+      "price": 101.2,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2255.554761904762,
+      "letters": "A"
+     },
+     {
+      "price": 101.1,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2746.554761904762,
+      "letters": "A"
+     },
+     {
+      "price": 101,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2211.9880952380954,
+      "letters": "A"
+     },
+     {
+      "price": 100.9,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2717.6047619047617,
+      "letters": "A"
+     },
+     {
+      "price": 100.8,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2717.6047619047617,
+      "letters": "A"
+     },
+     {
+      "price": 100.7,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 3169.1047619047617,
+      "letters": "A"
+     },
+     {
+      "price": 100.6,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 3169.1047619047617,
+      "letters": "A"
+     },
+     {
+      "price": 100.5,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2568.17619047619,
+      "letters": "A"
+     },
+     {
+      "price": 100.4,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1996.9047619047617,
+      "letters": "A"
+     },
+     {
+      "price": 100.3,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1996.9047619047617,
+      "letters": "A"
+     },
+     {
+      "price": 100.2,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2495.4047619047615,
+      "letters": "A"
+     },
+     {
+      "price": 100.1,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2260.6547619047615,
+      "letters": "A"
+     },
+     {
+      "price": 100,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2338.1964285714284,
+      "letters": "A"
+     },
+     {
+      "price": 99.9,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2470.5146103896104,
+      "letters": "A"
+     },
+     {
+      "price": 99.8,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2564.4098484848487,
+      "letters": "A"
+     },
+     {
+      "price": 99.7,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 3209.1598484848487,
+      "letters": "A"
+     },
+     {
+      "price": 99.6,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 3036.1598484848487,
+      "letters": "A"
+     },
+     {
+      "price": 99.5,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 3390.459848484849,
+      "letters": "A"
+     },
+     {
+      "price": 99.4,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 3585.459848484849,
+      "letters": "A"
+     },
+     {
+      "price": 99.3,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2812.659848484848,
+      "letters": "A"
+     },
+     {
+      "price": 99.2,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2683.4181818181814,
+      "letters": "A"
+     },
+     {
+      "price": 99.1,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1852.251515151515,
+      "letters": "A"
+     },
+     {
+      "price": 99,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1852.251515151515,
+      "letters": "A"
+     },
+     {
+      "price": 98.9,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1669.651515151515,
+      "letters": "A"
+     },
+     {
+      "price": 98.8,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2206.0333333333333,
+      "letters": "A"
+     },
+     {
+      "price": 98.7,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2090.2833333333333,
+      "letters": "A"
+     },
+     {
+      "price": 98.6,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2311.616666666667,
+      "letters": "A"
+     },
+     {
+      "price": 98.5,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1957.3166666666666,
+      "letters": "A"
+     },
+     {
+      "price": 98.4,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 2095.3166666666666,
+      "letters": "A"
+     },
+     {
+      "price": 98.3,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1283.1166666666668,
+      "letters": "A"
+     },
+     {
+      "price": 98.2,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1283.1166666666668,
+      "letters": "A"
+     },
+     {
+      "price": 98.1,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 1283.1166666666668,
+      "letters": "A"
+     },
+     {
+      "price": 98,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 866.7833333333333,
+      "letters": "A"
+     },
+     {
+      "price": 97.9,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 674.5333333333333,
+      "letters": "A"
+     },
+     {
+      "price": 97.8,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 884.6761904761904,
+      "letters": "A"
+     },
+     {
+      "price": 97.7,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 641.5428571428571,
+      "letters": "A"
+     },
+     {
+      "price": 97.6,
+      "count": 1,
+      "periods": [
+       0
+      ],
+      "volume": 641.5428571428571,
+      "letters": "A"
+     },
+     {
+      "price": 97.5,
+      "count": 2,
+      "periods": [
+       0,
+       1
+      ],
+      "volume": 2179.1326007326006,
+      "letters": "AB"
+     },
+     {
+      "price": 97.4,
+      "count": 2,
+      "periods": [
+       0,
+       1
+      ],
+      "volume": 3278.7229853479857,
+      "letters": "AB"
+     },
+     {
+      "price": 97.3,
+      "count": 2,
+      "periods": [
+       0,
+       1
+      ],
+      "volume": 3593.8479853479857,
+      "letters": "AB"
+     },
+     {
+      "price": 97.2,
+      "count": 2,
+      "periods": [
+       0,
+       1
+      ],
+      "volume": 3029.9813186813185,
+      "letters": "AB"
+     },
+     {
+      "price": 97.1,
+      "count": 2,
+      "periods": [
+       0,
+       1
+      ],
+      "volume": 2963.8384615384616,
+      "letters": "AB"
+     },
+     {
+      "price": 97,
+      "count": 2,
+      "periods": [
+       0,
+       1
+      ],
+      "volume": 2963.8384615384616,
+      "letters": "AB"
+     },
+     {
+      "price": 96.9,
+      "count": 2,
+      "periods": [
+       0,
+       1
+      ],
+      "volume": 2212.8384615384616,
+      "letters": "AB"
+     },
+     {
+      "price": 96.8,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2074.8384615384616,
+      "letters": "B"
+     },
+     {
+      "price": 96.7,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2552.7241758241757,
+      "letters": "B"
+     },
+     {
+      "price": 96.6,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2859.896794871795,
+      "letters": "B"
+     },
+     {
+      "price": 96.5,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2544.771794871795,
+      "letters": "B"
+     },
+     {
+      "price": 96.4,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2544.771794871795,
+      "letters": "B"
+     },
+     {
+      "price": 96.3,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2740.271794871795,
+      "letters": "B"
+     },
+     {
+      "price": 96.2,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2599.073717948718,
+      "letters": "B"
+     },
+     {
+      "price": 96.1,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2484.333333333333,
+      "letters": "B"
+     },
+     {
+      "price": 96,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2031.922619047619,
+      "letters": "B"
+     },
+     {
+      "price": 95.9,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2025.844696969697,
+      "letters": "B"
+     },
+     {
+      "price": 95.8,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2025.844696969697,
+      "letters": "B"
+     },
+     {
+      "price": 95.7,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2025.844696969697,
+      "letters": "B"
+     },
+     {
+      "price": 95.6,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2869.058982683983,
+      "letters": "B"
+     },
+     {
+      "price": 95.5,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 3703.447871572871,
+      "letters": "B"
+     },
+     {
+      "price": 95.4,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2723.489538239538,
+      "letters": "B"
+     },
+     {
+      "price": 95.3,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 3001.6145382395384,
+      "letters": "B"
+     },
+     {
+      "price": 95.2,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 3120.874153624153,
+      "letters": "B"
+     },
+     {
+      "price": 95.1,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2168.8741536241537,
+      "letters": "B"
+     },
+     {
+      "price": 95,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 3778.79082029082,
+      "letters": "B"
+     },
+     {
+      "price": 94.9,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 4371.326534576534,
+      "letters": "B"
+     },
+     {
+      "price": 94.8,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 3986.1901709401704,
+      "letters": "B"
+     },
+     {
+      "price": 94.7,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 4349.190170940171,
+      "letters": "B"
+     },
+     {
+      "price": 94.6,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 3247.4262820512818,
+      "letters": "B"
+     },
+     {
+      "price": 94.5,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 2003.176282051282,
+      "letters": "B"
+     },
+     {
+      "price": 94.4,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 356.75961538461536,
+      "letters": "B"
+     },
+     {
+      "price": 94.3,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 1198.3596153846154,
+      "letters": "B"
+     },
+     {
+      "price": 94.2,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 1198.3596153846154,
+      "letters": "B"
+     },
+     {
+      "price": 94.1,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 1198.3596153846154,
+      "letters": "B"
+     },
+     {
+      "price": 94,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 1198.3596153846154,
+      "letters": "B"
+     },
+     {
+      "price": 93.9,
+      "count": 1,
+      "periods": [
+       1
+      ],
+      "volume": 1079.975,
+      "letters": "B"
+     }
+    ],
+    "poc": 97.5,
+    "vah": 101.9,
+    "val": 96.5,
+    "high": 101.8666,
+    "low": 93.9123,
+    "open": 101.6554,
+    "close": 93.9423,
+    "periods": 2,
+    "periodDetail": [
+     {
+      "index": 0,
+      "letter": "A",
+      "startTime": 1784173500,
+      "endTime": 1784175240,
+      "high": 101.8666,
+      "low": 96.9332,
+      "volume": 88737
+     },
+     {
+      "index": 1,
+      "letter": "B",
+      "startTime": 1784175300,
+      "endTime": 1784177040,
+      "high": 97.5265,
+      "low": 93.9123,
+      "volume": 92186
+     }
+    ],
+    "initialBalance": {
+     "high": 101.8666,
+     "low": 93.9123
+    },
+    "rangeExtension": {
+     "up": 0,
+     "down": 0
+    },
+    "singlePrints": [
+     101.8,
+     101.7,
+     101.6,
+     101.5,
+     101.4,
+     101.3,
+     101.2,
+     101.1,
+     101,
+     100.9,
+     100.8,
+     100.7,
+     100.6,
+     100.5,
+     100.4,
+     100.3,
+     100.2,
+     100.1,
+     100,
+     99.9,
+     99.8,
+     99.7,
+     99.6,
+     99.5,
+     99.4,
+     99.3,
+     99.2,
+     99.1,
+     99,
+     98.9,
+     98.8,
+     98.7,
+     98.6,
+     98.5,
+     98.4,
+     98.3,
+     98.2,
+     98.1,
+     98,
+     97.9,
+     97.8,
+     97.7,
+     97.6,
+     96.8,
+     96.7,
+     96.6,
+     96.5,
+     96.4,
+     96.3,
+     96.2,
+     96.1,
+     96,
+     95.9,
+     95.8,
+     95.7,
+     95.6,
+     95.5,
+     95.4,
+     95.3,
+     95.2,
+     95.1,
+     95,
+     94.9,
+     94.8,
+     94.7,
+     94.6,
+     94.5,
+     94.4,
+     94.3,
+     94.2,
+     94.1,
+     94
+    ],
+    "buyingTail": null,
+    "sellingTail": null,
+    "poorHigh": false,
+    "poorLow": false,
+    "developing": [
+     {
+      "periodIndex": 0,
+      "time": 1784175240,
+      "poc": 101.9,
+      "vah": 101.9,
+      "val": 98.4
+     },
+     {
+      "periodIndex": 1,
+      "time": 1784177040,
+      "poc": 97.5,
+      "vah": 101.9,
+      "val": 96.5
+     }
+    ],
+    "dayType": "normal",
+    "openType": "auction",
+    "volumePoc": 94.9,
+    "totalVolume": 180923
+   }
+  ],
+  "options": {
+   "tickSize": 0.1,
+   "rowTicks": 1,
+   "session": "day",
+   "blockMinutes": 30,
+   "valueAreaPercent": 0.7,
+   "initialBalancePeriods": 2,
+   "compositeSessions": 1,
+   "tailEdges": 0,
+   "timezone": "Asia/Kolkata"
+  }
+ }
+}
