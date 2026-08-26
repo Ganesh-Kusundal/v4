@@ -28,6 +28,7 @@ import { createBottomDock } from "./shell/bottom-dock";
 import { wireCompare, toggleCompareUi } from "./shell/comparison";
 import { wireChartSettings, toggleChartSettingsUi } from "./shell/chart-settings";
 import { linkChart, unlinkAll } from "./linking";
+import { createShellShortcuts, type ShortcutActions } from "./shortcuts";
 
 registerTradexIntervals();
 
@@ -71,6 +72,10 @@ const chart = createChart(chartHost, {
   theme: darkTheme,
   timezone: "Asia/Kolkata",
   dataFeed: chartFeed,
+  // Keyboard control is the shell's job: the shell owns a global ShortcutManager
+  // (shortcuts.ts) and disabling the chart's built-in hover-gated handler keeps
+  // a single owner per key — otherwise the same arrow key fires twice.
+  shortcuts: false,
 } as unknown as Record<string, unknown>);
 
 // The primary chart joins the link group immediately; a future multi-chart
@@ -541,13 +546,15 @@ tradeBtn.addEventListener("click", () => {
 });
 
 // Fit + layout save/restore (chart.getState/restoreState)
+// `chart.fitContent()` is the no-arg convenience the Fit button and the
+// fitContent shortcut share: it sizes to the loaded bars (the raw TimeScale
+// variant needs an explicit bar count).
+function fitChart(): void { chart.fitContent(); }
 const fitBtn = document.createElement("button");
 fitBtn.className = "tbtn";
 fitBtn.textContent = "Fit";
 fitBtn.title = "Fit all bars";
-fitBtn.addEventListener("click", () => {
-  (chart.timeScale as unknown as { fitContent?: () => void } | undefined)?.fitContent?.();
-});
+fitBtn.addEventListener("click", fitChart);
 const lsave = document.createElement("button");
 lsave.className = "tbtn";
 lsave.textContent = "Layout ⤓";
@@ -579,6 +586,36 @@ lload.addEventListener("click", () => {
     statusText.textContent = "layout restored";
   } catch (e) { statusText.textContent = `restore failed: ${String(e)}`; }
 });
+
+// ---------- keyboard shortcuts ---------------------------------------------------
+// The chart was created with `shortcuts: false`, so this shell ShortcutManager is
+// the single key owner. Every DEFAULT_KEYMAP command routes to an existing chart
+// op (all are public API on Chart/TimeScale/Pane — nothing invented here).
+const timeScale = chart.timeScale;
+const panBars = (n: number): void => {
+  const r = chart.getVisibleLogicalRange();
+  chart.setVisibleLogicalRange({ from: r.from + n, to: r.to + n });
+};
+const zoomAtCenter = (factor: number): void => timeScale.zoomAtX(timeScale.width / 2, factor);
+const shortcutActions: ShortcutActions = {
+  panLeft: () => panBars(-10),
+  panRight: () => panBars(10),
+  panLeftFast: () => panBars(-50),
+  panRightFast: () => panBars(50),
+  panUp: () => chart.panes()[0]?.priceScale.panByPixels(20),
+  panDown: () => chart.panes()[0]?.priceScale.panByPixels(-20),
+  zoomIn: () => zoomAtCenter(1.1),
+  zoomOut: () => zoomAtCenter(1 / 1.1),
+  resetScale: () => chart.setVisibleLogicalRange({ from: 0, to: lastRawBars.length + 5 }),
+  fitContent: () => fitChart(),
+  screenshot: () => chart.downloadScreenshot(),
+  toggleGridVert: () => chart.setGridOptions({ vertLines: !chart.gridOptions().vertLines }),
+  toggleGridHorz: () => chart.setGridOptions({ horzLines: !chart.gridOptions().horzLines }),
+  toggleCrosshairMagnet: () =>
+    chart.applyOptions({ crosshairMode: chart.crosshairMode() === "magnet" ? "normal" : "magnet" }),
+};
+const stopShortcuts = createShellShortcuts(shortcutActions).start();
+window.addEventListener("beforeunload", stopShortcuts);
 
 // Replay toggle lives in shellbar too (transport detail in #replaybar).
 const rpBtn = document.createElement("button");
