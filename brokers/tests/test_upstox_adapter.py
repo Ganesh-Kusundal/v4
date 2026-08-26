@@ -40,6 +40,7 @@ from tradex_domain.value_objects import (
 )
 from tradex_domain.wire import InstrumentRegistry
 
+from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
 from tradex_brokers.upstox.adapter import UpstoxBroker
 from tradex_brokers.upstox.client import UpstoxApiClient
 
@@ -782,3 +783,15 @@ class TestDepthStreamWiring:
 
         broker = UpstoxBroker()
         assert broker.subscribe_depth_30([Equity.of("NSE", "RELIANCE")], lambda d: None) is None
+
+
+def test_upstox_broker_exposes_rate_limiter():
+    from unittest.mock import MagicMock
+    from tradex_brokers.upstox.adapter import UpstoxBroker
+
+    limiter = MultiBucketRateLimiter(default=RateLimitConfig())
+    transport = MagicMock()
+    transport.rate_limiter = limiter
+    broker = UpstoxBroker(transport=transport)
+
+    assert broker.rate_limiter is limiter

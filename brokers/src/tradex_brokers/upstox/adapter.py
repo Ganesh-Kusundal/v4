@@ -71,6 +71,11 @@ class UpstoxBroker(BaseBroker):
             allow_order_operations=allow_order_operations,
             instrument_loader=instrument_loader,
         )
+        self.rate_limiter = (
+            getattr(self._transport, "rate_limiter", None)
+            if self._transport is not None
+            else None
+        )
 
     @classmethod
     def from_fetch(

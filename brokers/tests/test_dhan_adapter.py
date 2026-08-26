@@ -40,6 +40,7 @@ from tradex_domain.value_objects import (
 )
 from tradex_domain.wire import InstrumentRegistry
 
+from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
 from tradex_brokers.dhan.adapter import DhanBroker
 from tradex_brokers.dhan.client import DhanApiClient
 
@@ -894,3 +895,16 @@ class TestDepthStreamWiring:
         broker.subscribe_depth([Equity.of("NSE", "RELIANCE")], lambda d: None)
         broker.close()
         depth_backend.close.assert_called_once()
+
+
+def test_dhan_broker_exposes_rate_limiter():
+    """DhanBroker.rate_limiter is the same instance its transport holds."""
+    from unittest.mock import MagicMock
+    from tradex_brokers.dhan.adapter import DhanBroker
+
+    limiter = MultiBucketRateLimiter(default=RateLimitConfig())
+    transport = MagicMock()
+    transport.rate_limiter = limiter
+    broker = DhanBroker(transport=transport)
+
+    assert broker.rate_limiter is limiter
