@@ -1018,3 +1018,60 @@ for _spec in (
     SPEC_KLINGER_OSCILLATOR,
 ):
     register_indicator(_spec)
+
+# Batch 5 ports — complex studies
+from .studies_simple import (  # noqa: E402
+    SPEC_MA_CROSS,
+    SPEC_MA_RIBBON,
+    SPEC_MOMENTUM,
+    SPEC_SPECIAL_K,
+    SPEC_WOODIES_CCI,
+)
+
+from .studies_trend import (  # noqa: E402
+    SPEC_ALLIGATOR,
+    SPEC_ALPHATREND,
+    SPEC_HALFTREND,
+    SPEC_ICHIMOKU,
+    SPEC_PARABOLIC_SAR,
+)
+
+from .studies_complex import (  # noqa: E402
+    SPEC_CPR,
+    SPEC_RANGE_ANALYSIS,
+    SPEC_RELATIVE_VIGOR_INDEX,
+    SPEC_RELATIVE_VOLATILITY_INDEX,
+    SPEC_VORTEX,
+)
+
+from .studies_signals import (  # noqa: E402
+    SPEC_RSI_DIVERGENCE,
+    SPEC_TREND_STRENGTH_INDEX,
+    SPEC_WAVETREND,
+    SPEC_WILLIAMS_FRACTALS,
+    SPEC_WILLIAMS_VIX_FIX,
+)
+
+for _spec in (
+    SPEC_MOMENTUM,
+    SPEC_MA_CROSS,
+    SPEC_MA_RIBBON,
+    SPEC_WOODIES_CCI,
+    SPEC_SPECIAL_K,
+    SPEC_ALLIGATOR,
+    SPEC_PARABOLIC_SAR,
+    SPEC_ICHIMOKU,
+    SPEC_HALFTREND,
+    SPEC_ALPHATREND,
+    SPEC_CPR,
+    SPEC_RANGE_ANALYSIS,
+    SPEC_VORTEX,
+    SPEC_RELATIVE_VIGOR_INDEX,
+    SPEC_RELATIVE_VOLATILITY_INDEX,
+    SPEC_RSI_DIVERGENCE,
+    SPEC_TREND_STRENGTH_INDEX,
+    SPEC_WILLIAMS_FRACTALS,
+    SPEC_WILLIAMS_VIX_FIX,
+    SPEC_WAVETREND,
+):
+    register_indicator(_spec)

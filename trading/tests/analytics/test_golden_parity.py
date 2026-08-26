@@ -108,6 +108,51 @@ PARAM_MAP = {
         "siglen": "siglen",
     },
     "klinger-oscillator": {},
+    "momentum": {"len": "len"},
+    "ma-cross": {"shortLength": "short_length", "longLength": "long_length"},
+    "ma-ribbon": {
+        "ma1Type": "ma1_type", "ma1Source": "ma1_source", "ma1Length": "ma1_length",
+        "ma2Type": "ma2_type", "ma2Source": "ma2_source", "ma2Length": "ma2_length",
+        "ma3Type": "ma3_type", "ma3Source": "ma3_source", "ma3Length": "ma3_length",
+        "ma4Type": "ma4_type", "ma4Source": "ma4_source", "ma4Length": "ma4_length",
+    },
+    "woodies-cci": {"cciTurboLength": "cci_turbo_length", "cci14Length": "cci14_length"},
+    "special-k": {"length1": "length1", "length2": "length2"},
+    "alligator": {
+        "jawLength": "jaw_length", "teethLength": "teeth_length", "lipsLength": "lips_length",
+        "jawOffset": "jaw_offset", "teethOffset": "teeth_offset", "lipsOffset": "lips_offset",
+    },
+    "parabolic-sar": {"start": "start", "increment": "increment", "maximum": "maximum"},
+    "ichimoku": {
+        "conversionPeriod": "conversion", "basePeriod": "base",
+        "laggingSpanPeriod": "lagging", "displacement": "displacement",
+    },
+    "halftrend": {
+        "amplitude": "amplitude", "channelDeviation": "channel_deviation",
+        "atrPeriod": "atr_period",
+    },
+    "alphatrend": {"coeff": "coeff", "AP": "ap"},
+    "cpr": {
+        "pivotMode": "pivot_mode",
+        "showDaily": "show_daily", "showWeekly": "show_weekly", "showMonthly": "show_monthly",
+        "displaypivots": "display_pivots", "displaysupport": "display_support",
+        "displayresistance": "display_resistance", "displaycpr": "display_cpr",
+        "displayS1R1": "display_s1r1",
+    },
+    "range-analysis": {"showAverage": "show_average", "avgLength": "avg_length"},
+    "vortex": {"length": "length"},
+    "relative-vigor-index": {"length": "length", "offset": "offset"},
+    "relative-volatility-index": {
+        "length": "length", "offset": "offset",
+        "maType": "ma_type", "maLength": "ma_length", "bbMult": "bb_mult",
+    },
+    "rsi-divergence": {"length": "length", "lbR": "lb_r", "lbL": "lb_l"},
+    "trend-strength-index": {"length": "length"},
+    "williams-fractals": {"periods": "periods"},
+    "williams-vix-fix": {
+        "pd": "pd", "bbl": "bbl", "mult": "mult", "lb": "lb", "ph": "ph", "pl": "pl",
+    },
+    "wavetrend": {"n1": "n1", "n2": "n2", "sigLen": "sig_len"},
 }
 
 # backend plot key -> TS golden plot key (identity when absent).
@@ -188,6 +233,44 @@ PLOT_MAP = {
     "mass-index": {"mi": "mi"},
     "know-sure-thing": {"kst": "kst", "signal": "signal"},
     "klinger-oscillator": {"kvo": "kvo", "signal": "signal"},
+    "momentum": {"mom": "mom"},
+    "ma-cross": {"short": "short", "long": "long", "cross": "cross"},
+    "ma-ribbon": {"ma1": "ma1", "ma2": "ma2", "ma3": "ma3", "ma4": "ma4"},
+    "woodies-cci": {"hist": "hist", "turbo": "turbo", "cci14": "cci14"},
+    "special-k": {"specialK": "specialK", "signal": "signal"},
+    "alligator": {"jaw": "jaw", "teeth": "teeth", "lips": "lips"},
+    "parabolic-sar": {"sar": "sar"},
+    "ichimoku": {
+        "conversion": "conversion", "base": "base", "spanA": "spanA",
+        "spanB": "spanB", "lagging": "lagging",
+    },
+    "halftrend": {
+        "up": "up", "down": "down", "atr_high": "atrHigh", "atr_low": "atrLow",
+        "buy_signal": "buySignal", "sell_signal": "sellSignal",
+    },
+    "alphatrend": {"alphatrend": "alphatrend", "lagged": "lagged"},
+    "cpr": {
+        "dPivot": "dPivot", "dS1": "dS1", "dS2": "dS2", "dS3": "dS3",
+        "dR1": "dR1", "dR2": "dR2", "dR3": "dR3", "dBc": "dBc", "dTc": "dTc",
+        "wPivot": "wPivot", "wS1": "wS1", "wS2": "wS2", "wS3": "wS3",
+        "wR1": "wR1", "wR2": "wR2", "wR3": "wR3", "wBc": "wBc", "wTc": "wTc",
+        "mPivot": "mPivot", "mS1": "mS1", "mS2": "mS2", "mS3": "mS3",
+        "mR1": "mR1", "mR2": "mR2", "mR3": "mR3", "mBc": "mBc", "mTc": "mTc",
+    },
+    "range-analysis": {"range": "range", "avg_range": "avgRange"},
+    "vortex": {"vip": "vip", "vim": "vim"},
+    "relative-vigor-index": {"rvgi": "rvgi", "signal": "signal"},
+    "relative-volatility-index": {
+        "rvi": "rvi", "ma": "ma", "bb_upper": "bbUpper", "bb_lower": "bbLower",
+    },
+    "rsi-divergence": {"rsi": "rsi"},
+    "trend-strength-index": {"tsi": "tsi"},
+    "williams-fractals": {"fractals": "fractals"},
+    "williams-vix-fix": {
+        "wvf": "wvf", "range_high": "rangeHigh",
+        "range_low": "rangeLow", "upper_band": "upperBand",
+    },
+    "wavetrend": {"mom": "mom", "wt1": "wt1", "wt2": "wt2"},
 }
 
 
