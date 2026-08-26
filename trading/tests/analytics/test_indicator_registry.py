@@ -463,3 +463,51 @@ class TestMedianStudy:
         assert [p[0] for p in SPEC_MEDIAN.plots] == [
             "median", "upper", "lower", "median_ema",
         ]
+
+
+# ---------------------------------------------------------------------------
+# B2-T4 parallel split (oscillators_range_b.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestOscillatorsRangeB:
+    def test_fisher_trigger_is_lag_one(self):
+        from tradex_trading.analytics.oscillators_range_b import fisher_transform
+
+        closes = [10.0 + i * 0.7 for i in range(20)]
+        candles = _candles_from_closes(closes)
+        result = fisher_transform(candles, length=9)
+        fisher = result["fisher"]
+        trigger = result["trigger"]
+        assert trigger[0] is None
+        for i in range(1, len(candles)):
+            assert trigger[i] == fisher[i - 1]
+
+    def test_connors_first_print_at_101(self):
+        from tradex_trading.analytics.oscillators_range_b import connors_rsi
+
+        closes = [100.0 + (i % 7) - 3 + i * 0.01 for i in range(120)]
+        candles = _candles_from_closes(closes)
+        result = connors_rsi(candles, lenrsi=3, lenupdown=2, lenroc=100)
+        crsi = result["crsi"]
+        # percentRank window is lenroc=100 over ROC1 slice, so first at 101
+        assert all(v is None for v in crsi[:101])
+        assert crsi[101] is not None
+        assert result["bandHigh"][0] == 70 and result["bandLow"][0] == 30
+
+    def test_chande_momentum_flat_window_is_none(self):
+        from tradex_trading.analytics.oscillators_range_b import chande_momentum
+
+        flat = [50.0] * 15
+        candles = _candles_from_closes(flat)
+        result = chande_momentum(candles, length=9)
+        # flat changes are all 0 -> total == 0 -> None at every printed slot
+        assert all(v is None for v in result["cmo"])
+
+    def test_balance_of_power_zero_range_is_none(self):
+        from tradex_trading.analytics.oscillators_range_b import balance_of_power
+
+        candles = [_candle(10, 10, 10, 10)] * 4 + [_candle(9, 11, 8, 10)]
+        result = balance_of_power(candles)
+        assert all(v is None for v in result["bop"][:4])
+        assert result["bop"][4] == pytest.approx((10 - 9) / (11 - 8))
