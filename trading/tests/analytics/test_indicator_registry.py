@@ -511,3 +511,123 @@ class TestOscillatorsRangeB:
         result = balance_of_power(candles)
         assert all(v is None for v in result["bop"][:4])
         assert result["bop"][4] == pytest.approx((10 - 9) / (11 - 8))
+
+
+# ---------------------------------------------------------------------------
+# B2-T1 parallel split (oscillators_trend.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestOscillatorsTrend:
+    def test_adx_flat_series_zero_di_and_adx(self):
+        from tradex_trading.analytics.oscillators_trend import adx
+
+        # Constant 3-point range, no directional movement -> +DI/-DI/DX/ADX are 0 after warmup
+        candles = [_candle(10, 12, 9, 11)] * 30
+        result = adx(candles, period=14, adx_period=14)
+        # ADX needs period-1 warmup for DM/TR plus adx_period-1 for DX smoothing
+        # After that the flat series is all zeros
+        assert all(v is None for v in result["plusDi"][:13])
+        assert all(v is None for v in result["minusDi"][:13])
+        # From period-1 onward DI is 0 (no DM, TR>0)
+        assert all(v == pytest.approx(0.0) for v in result["plusDi"][13:])
+        assert all(v == pytest.approx(0.0) for v in result["minusDi"][13:])
+        # DX is 0 as well, so ADX smooths zeros -> 0 after its own warmup
+        # start of DX is at period-1 (13), ADX first finite at 13 + 14 -1 = 26
+        assert all(v is None for v in result["adx"][:26])
+        assert all(v == pytest.approx(0.0) for v in result["adx"][26:])
+
+    def test_awesome_oscillator_is_sma5_minus_sma34(self):
+        from tradex_trading.analytics.indicators import _to_float, sma
+        from tradex_trading.analytics.oscillators_trend import awesome_oscillator
+
+        candles = _candles_from_closes([float(i) for i in range(1, 50)])
+        result = awesome_oscillator(candles)
+        hl2 = [(_to_float(c.ohlc.high.value) + _to_float(c.ohlc.low.value)) / 2.0 for c in candles]
+        fast = sma(hl2, 5)
+        slow = sma(hl2, 34)
+        expected = [None if f is None or s is None else f - s for f, s in zip(fast, slow)]
+        assert result["ao"] == pytest.approx(expected, nan_ok=False) if False else True
+        # Manual check to respect None slots
+        for i, (got, exp) in enumerate(zip(result["ao"], expected)):
+            if exp is None:
+                assert got is None, f"ao[{i}] expected None"
+            else:
+                assert got == pytest.approx(exp), f"ao[{i}]"
+
+    def test_cci_constant_tp_is_zero(self):
+        from tradex_trading.analytics.oscillators_trend import cci
+
+        candles = [_candle(10, 12, 9, 11)] * 25
+        result = cci(candles, period=20, constant=0.015)
+        assert all(v is None for v in result["cci"][:19])
+        assert all(v == pytest.approx(0.0) for v in result["cci"][19:])
+
+    def test_aroon_fresh_high_gives_100(self):
+        from tradex_trading.analytics.oscillators_trend import aroon
+
+        # Rising highs: last bar is the window high -> up should be 100
+        closes = [10.0 + i for i in range(15)]
+        candles = _candles_from_closes(closes)
+        result = aroon(candles, length=14)
+        # First value lands at index 14 (period 15 window)
+        assert result["up"][14] == pytest.approx(100.0)
+        assert result["down"][13] is None
+
+
+# ---------------------------------------------------------------------------
+# B2-T2 parallel split (oscillators_strength.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestOscillatorsStrength:
+    def test_mfi_constant_price_is_100(self):
+        from tradex_trading.analytics.oscillators_strength import mfi
+
+        candles = [_candle(10, 12, 9, 11)] * 20
+        result = mfi(candles, period=14)
+        assert all(v is None for v in result[:14])
+        # flat TP -> neg flow 0 -> MFI 100 by TS rule (q==0 -> 100)
+        assert all(v == pytest.approx(100.0) for v in result[14:])
+
+    def test_ppo_proportionality(self):
+        from tradex_trading.analytics.oscillators_strength import ppo
+
+        closes_a = [100.0 + i for i in range(40)]
+        closes_b = [c * 2.0 for c in closes_a]
+        ca = _candles_from_closes(closes_a)
+        cb = _candles_from_closes(closes_b)
+        ra = ppo(ca, fast_length=12, slow_length=26, signal_length=9)
+        rb = ppo(cb, fast_length=12, slow_length=26, signal_length=9)
+        # PPO is a percentage, so scaling price by constant leaves it unchanged
+        for a, b in zip(ra["ppo"], rb["ppo"]):
+            if a is None or b is None:
+                assert a is None and b is None
+            else:
+                assert a == pytest.approx(b, rel=1e-9)
+
+    def test_tsi_bounded(self):
+        from tradex_trading.analytics.oscillators_strength import tsi
+
+        closes = [10.0 + (i % 5) + i * 0.1 for i in range(50)]
+        candles = _candles_from_closes(closes)
+        result = tsi(candles, long_length=25, short_length=13, signal_length=13)
+        for v in result["tsi"]:
+            if v is not None:
+                assert -100.0 <= v <= 100.0
+        for v in result["signal"]:
+            if v is not None:
+                assert -100.0 <= v <= 100.0
+
+    def test_smi_bounded(self):
+        from tradex_trading.analytics.oscillators_strength import smi
+
+        closes = [10.0 + (i % 7) for i in range(40)]
+        candles = _candles_from_closes(closes)
+        result = smi(candles, length_k=10, length_d=3, length_ema=3)
+        for v in result["smi"]:
+            if v is not None:
+                assert -100.0 <= v <= 100.0
+        for v in result["ema"]:
+            if v is not None:
+                assert -100.0 <= v <= 100.0
