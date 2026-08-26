@@ -803,3 +803,47 @@ class TestVolatilityBands:
         result = bb_trend(flat, short_length=20, long_length=50, std_dev_mult=2.0)
         assert all(v is None for v in result[:49])
         assert all(v == pytest.approx(0.0) for v in result[49:])
+
+
+# ---------------------------------------------------------------------------
+# B3-T3 parallel split (volatility_stops.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestVolatilityStops:
+    def test_chandelier_flat_series_bands_flat_and_equal(self):
+        from tradex_trading.analytics.volatility_stops import chandelier_exit
+
+        candles = [_candle(10, 10, 10, 10)] * 30
+        result = chandelier_exit(candles, length=5, atr_length=5, atr_multiplier=3.0)
+        assert all(v is None for v in result["long"][:4])
+        assert all(v == pytest.approx(10.0) for v in result["long"][4:])
+        assert result["long"][4:] == result["short"][4:]
+
+    def test_chande_kroll_flat_series_bands_flat_and_equal(self):
+        from tradex_trading.analytics.volatility_stops import chande_kroll_stop
+
+        candles = [_candle(10, 10, 10, 10)] * 30
+        result = chande_kroll_stop(candles, p=5, x=1, q=5)
+        assert all(v is None for v in result["stopLong"][:8])
+        assert all(v == pytest.approx(10.0) for v in result["stopLong"][8:])
+        assert result["stopLong"][8:] == result["stopShort"][8:]
+
+    def test_volatility_stop_flat_series_single_side_flat(self):
+        from tradex_trading.analytics.volatility_stops import volatility_stop
+
+        candles = [_candle(10, 10, 10, 10)] * 30
+        result = volatility_stop(candles, length=5, factor=2.0)
+        combined = [u if u is not None else d for u, d in zip(result["up"], result["down"])]
+        assert all(v == pytest.approx(10.0) for v in combined)
+        for u, d in zip(result["up"], result["down"]):
+            assert not (u is not None and d is not None)
+
+    def test_chande_kroll_strict_warmup_propagates_none(self):
+        from tradex_trading.analytics.volatility_stops import chande_kroll_stop
+
+        closes = [10.0 + i for i in range(30)]
+        candles = _candles_from_closes(closes)
+        result = chande_kroll_stop(candles, p=10, x=1, q=9)
+        assert all(v is None for v in result["stopLong"][:17])
+        assert result["stopLong"][17] is not None
