@@ -515,6 +515,33 @@ def compute_market_profile(
     return {"sessions": sessions, "options": options}
 
 
+def naked_levels(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Prior-session levels no later session has traded back through — the
+    "naked" POC / VAH / VAL that so often act as magnets. Oldest first, each
+    tagged with the session it came from."""
+    out: list[dict[str, Any]] = []
+    sessions = result["sessions"]
+    for i in range(len(sessions)):
+        for kind in ("poc", "vah", "val"):
+            price = sessions[i][kind]
+            touched = False
+            for j in range(i + 1, len(sessions)):
+                if price <= sessions[j]["high"] and price >= sessions[j]["low"]:
+                    touched = True
+                    break
+            if not touched:
+                out.append({"time": sessions[i]["startTime"], "price": price, "kind": kind})
+    return out
+
+
+def row_of(price: float, options: dict[str, Any]) -> float:
+    """Round a price onto the profile's row grid — handy for hit-testing."""
+    return bucket_price(
+        price,
+        options["tickSize"] * max(1, math.floor(options["rowTicks"])),
+    )
+
+
 # --- footprint --------------------------------------------------------------
 
 def compute_footprint(
