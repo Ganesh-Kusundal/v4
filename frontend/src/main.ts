@@ -10,9 +10,12 @@ import {
   TimeNavigator,
   type Bar,
   type IndicatorApi,
+  type IPrimitive,
   type SeriesApi,
 } from "openalgo-charts";
 import { TRANSFORMS, computeTransform, transformById } from "./transforms";
+import { PROFILES, barsToTrades, computeProfile } from "./profiles";
+import { computeSeasonality, createSeasonalityRenderer } from "./seasonality";
 import { createTradexFeed, registerTradexIntervals } from "./feed";
 import { registerBackendIndicators, setIndicatorContext, setIndicatorInterval, type CatalogueEntry } from "./backend-indicators";
 import { TradexTradeFeed, fetchBook } from "./trade-feed";
@@ -73,6 +76,8 @@ let volumeSeries: SeriesApi | null = null;
 let transformSeries: SeriesApi | null = null;
 let lastRawBars: Bar[] = [];
 let transformSel: HTMLSelectElement;
+let profileSel: HTMLSelectElement;
+let activeProfile: { primitive: IPrimitive; setData(result: unknown): void } | null = null;
 
 function ensureSeries(): void {
   if (priceSeries && volumeSeries) return;
@@ -103,6 +108,7 @@ setInterval(() => setStatus(wsLive), 1000);
 
 // ---------- history load --------------------------------------------------------
 async function loadHistory(): Promise<void> {
+  clearProfile();
   setIndicatorContext(state.exchange, state.symbol);
   setIndicatorInterval(state.interval);
   statusText.textContent = "loading…";
@@ -177,6 +183,7 @@ for (const iv of INTERVALS) {
 
 // ---------- transforms (backend-computed chart-types) -------------------------
 function resetToRaw(): void {
+  clearProfile();
   ensureSeries();
   transformSeries?.remove();
   transformSeries = null;
@@ -195,6 +202,7 @@ async function applyTransform(id: string): Promise<void> {
   const t = transformById(id);
   if (!t) { resetToRaw(); return; }
   if (lastRawBars.length === 0) { transformSel.value = "none"; return; }
+  clearProfile();
   statusText.textContent = "transforming…";
   try {
     const params: Record<string, number> = {};
@@ -242,6 +250,78 @@ transformSel.title = "Price series transform — computed by tradex_trading, ren
   }
 }
 transformSel.addEventListener("change", () => void applyTransform(transformSel.value));
+
+// ---------- profiles + seasonality (backend-computed overlays) -----------------
+function clearProfile(): void {
+  if (activeProfile !== null) {
+    chart.removePrimitive(activeProfile.primitive);
+    activeProfile = null;
+  }
+  if (profileSel) profileSel.value = "none";
+}
+
+async function applyProfile(id: string): Promise<void> {
+  const spec = PROFILES.find((p) => p.id === id);
+  clearProfile();
+  if (id === "seasonality") {
+    if (lastRawBars.length === 0) return;
+    statusText.textContent = "computing seasonality…";
+    try {
+      const result = await computeSeasonality(lastRawBars);
+      const ren = createSeasonalityRenderer();
+      ren.setData(result);
+      chart.addPrimitive(ren.primitive, 0);
+      activeProfile = ren;
+      profileSel.value = id;
+      statusText.textContent = `seasonality · ${lastRawBars.length} bars`;
+    } catch (err) {
+      clearProfile();
+      statusText.textContent = err instanceof Error ? err.message : String(err);
+    }
+    return;
+  }
+  if (!spec || lastRawBars.length === 0) return;
+  statusText.textContent = `computing ${spec.name}…`;
+  try {
+    const bars = lastRawBars;
+    const params: Record<string, unknown> = {};
+    // The backend's compute_footprint consumes classified trades, not OHLCV
+    // bars (route contract: body.bars IS the trades list for footprint).
+    const payload: unknown = spec.id === "footprint" ? barsToTrades(bars) : bars;
+    if (spec.id === "footprint") params.time = bars[0].time;
+    const result = await computeProfile(spec.id, params, payload as never);
+    const ren = spec.create();
+    ren.setData(result);
+    chart.addPrimitive(ren.primitive, 0);
+    activeProfile = ren;
+    profileSel.value = spec.id;
+    statusText.textContent = `${spec.name} · ${bars.length} bars`;
+  } catch (err) {
+    clearProfile();
+    statusText.textContent = err instanceof Error ? err.message : String(err);
+  }
+}
+
+profileSel = document.createElement("select");
+profileSel.className = "field field--tf field--profile";
+profileSel.title = "Market profile / seasonality overlay — computed by tradex_trading, rendered here";
+{
+  const none = document.createElement("option");
+  none.value = "none";
+  none.textContent = "No Profile";
+  profileSel.append(none);
+  for (const p of PROFILES) {
+    const o = document.createElement("option");
+    o.value = p.id;
+    o.textContent = p.name;
+    profileSel.append(o);
+  }
+  const s = document.createElement("option");
+  s.value = "seasonality";
+  s.textContent = "Seasonality";
+  profileSel.append(s);
+}
+profileSel.addEventListener("change", () => void applyProfile(profileSel.value));
 
 // Indicators menu + chips
 const indWrap = document.createElement("span");
@@ -420,6 +500,7 @@ shellbar.append(
   symBtn, divider(),
   pills, divider(),
   transformSel, divider(),
+  profileSel, divider(),
   indWrap, divider(),
   rpBtn, divider(),
   fitBtn, divider(),
