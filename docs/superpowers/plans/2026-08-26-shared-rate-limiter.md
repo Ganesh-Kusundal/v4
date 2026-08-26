@@ -314,21 +314,24 @@ class TestSharedLimiter:
         assert fetcher._limiters["upstox"] is upstox.rate_limiter
 
     def test_fetcher_falls_back_when_broker_lacks_limiter(self):
-        """Mocks without .rate_limiter keep the old per-broker fallback."""
+        """Mocks without .rate_limiter keep the old per-broker fallback.
+
+        Note: a bare MagicMock auto-creates any attribute, so we delete
+        rate_limiter after construction to simulate a broker that genuinely
+        doesn't carry one (e.g. a custom user-supplied broker).
+        """
         from tradex_brokers.common.resilience import MultiBucketRateLimiter
 
         dhan = _make_broker("dhan")
-        # No .rate_limiter set on the mock — must not raise.
+        del dhan.rate_limiter  # simulate a broker that lacks the attribute
         fetcher = ParallelHistoryFetcher({"dhan": dhan})
-        # Result is a MultiBucketRateLimiter (whatever the fallback chose).
+        # The fetcher must have built a fresh MultiBucketRateLimiter (fallback path).
         assert isinstance(fetcher._limiters["dhan"], MultiBucketRateLimiter)
-        # And it's not the same object as any explicitly-set broker attr
-        # (proves the fetcher built a fresh one for this mock).
-        assert not hasattr(dhan, "rate_limiter") or \
-            fetcher._limiters["dhan"] is not dhan.rate_limiter
+        # And it's not the (deleted) broker attribute.
+        with pytest.raises(AttributeError):
+            dhan.rate_limiter
+        assert fetcher._limiters["dhan"] is not getattr(dhan, "rate_limiter", None)
 ```
-
-(The last assertion is best-effort: `_make_broker` returns a `MagicMock` so `hasattr` is always True on a Mock, but the `is not` check still proves the fetcher built fresh.)
 
 - [ ] **Step 2: Run new tests to verify they fail**
 
