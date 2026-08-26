@@ -21,30 +21,31 @@
 
 ---
 
-## Task 0: Expose `.rate_limiter` on `ProviderHttpClient`
+## Task 0: Expose `.rate_limiter` on `ProviderHttpClient` (and back-fill the test seam)
 
 **Files:**
 - Modify: `brokers/src/tradex_brokers/common/provider_client.py:104-122` (`ProviderHttpClient.__init__`)
-- Test: closest existing test file for `provider_client.py`, or new `brokers/tests/test_provider_client_smoke.py`
+- Modify: `brokers/tests/support/fetch_pipeline.py` (test-seam — add `_rate_limiter` to `FetchResiliencePipeline` so 19 existing tests that construct a `ProviderHttpClient` with the seam pipeline don't break)
+- Create: `brokers/tests/test_provider_client_smoke.py` (new — avoid conflating with the 19 existing tests in `brokers/tests/common/test_provider_client.py`)
 
-**Why:** This is the actual source of truth. Every HTTP client now exposes its limiter at one hop, so ApiClient and Broker become thin proxies.
+**Why:** This is the actual source of truth. Every HTTP client now exposes its limiter at one hop, so ApiClient and Broker become thin proxies. (Prior plan put this on the Broker directly with a 3-hop walk, but real `DhanApiClient._http._pipeline._rate_limiter` is the chain — exposing at the HTTP client is the correct layer.)
 
-- [ ] **Step 1: Find the test home**
+The test-seam back-fill is mandatory: the test-seam `FetchResiliencePipeline` in `brokers/tests/support/fetch_pipeline.py` is what the 19 existing `ProviderHttpClient` tests construct. Without a `_rate_limiter` attribute on the seam, those tests will `AttributeError` on the new `self.rate_limiter = pipeline._rate_limiter` line.
 
-Run: `ls /Users/apple/Downloads/v2-cleanup-remove-dead-temp-legacy-2026-07-31/v4/brokers/tests/`
-Pick the most appropriate test file (likely `brokers/tests/test_provider_client.py` if it exists, otherwise the closest common-module test). If nothing fits, create `brokers/tests/test_provider_client_smoke.py` (a new tiny file with only this test + needed imports). Fill `<chosen-file>` into the test commands below.
+- [ ] **Step 1: Create the new test file**
 
-- [ ] **Step 2: Write the failing test**
-
-In the chosen test file, add:
+Create `brokers/tests/test_provider_client_smoke.py` (new file) with:
 
 ```python
+"""Smoke test for ProviderHttpClient.rate_limiter exposure."""
+from unittest.mock import MagicMock
+
+from tradex_brokers.common.provider_client import ProviderHttpClient
+from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
+
+
 def test_provider_http_client_exposes_rate_limiter():
     """ProviderHttpClient.rate_limiter is the same instance the pipeline holds."""
-    from unittest.mock import MagicMock
-    from tradex_brokers.common.provider_client import ProviderHttpClient
-    from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
-
     limiter = MultiBucketRateLimiter(default=RateLimitConfig())
     pipeline = MagicMock()
     pipeline._rate_limiter = limiter
@@ -53,14 +54,12 @@ def test_provider_http_client_exposes_rate_limiter():
     assert client.rate_limiter is limiter
 ```
 
-Add `from unittest.mock import MagicMock` to imports if not present.
+- [ ] **Step 2: Run test to verify it fails**
 
-- [ ] **Step 3: Run test to verify it fails**
-
-Run: `cd brokers && uv run --no-sync pytest <chosen-file>::test_provider_http_client_exposes_rate_limiter -q`
+Run: `cd brokers && uv run --no-sync pytest tests/test_provider_client_smoke.py::test_provider_http_client_exposes_rate_limiter -q`
 Expected: FAIL with `AttributeError: 'ProviderHttpClient' object has no attribute 'rate_limiter'`.
 
-- [ ] **Step 4: Add the attribute**
+- [ ] **Step 3: Add the attribute on ProviderHttpClient**
 
 In `brokers/src/tradex_brokers/common/provider_client.py`, at the end of `ProviderHttpClient.__init__` (after the `self._cache` block at line 120-122), add one line:
 
@@ -68,21 +67,38 @@ In `brokers/src/tradex_brokers/common/provider_client.py`, at the end of `Provid
 self.rate_limiter = pipeline._rate_limiter
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [ ] **Step 4: Back-fill the test seam**
 
-Run: `cd brokers && uv run --no-sync pytest <chosen-file>::test_provider_http_client_exposes_rate_limiter -q`
+In `brokers/tests/support/fetch_pipeline.py`, in `FetchResiliencePipeline.__init__`, add a `rate_limiter` argument defaulting to `None` and stash it as `_rate_limiter`:
+
+```python
+def __init__(
+    self,
+    fetch: Callable[..., Any],
+    *,
+    rate_limiter: Any = None,
+) -> None:
+    self._fetch = fetch
+    self._rate_limiter = rate_limiter
+```
+
+This keeps existing callers working (the helper in `tests/common/test_provider_client.py` constructs `FetchResiliencePipeline(fetch=...)` with no rate_limiter) and lets the new attribute be `None` for the test seam. The `Any` type avoids a hard import of `MultiBucketRateLimiter` in the test support file.
+
+- [ ] **Step 5: Run the new test to verify it passes**
+
+Run: `cd brokers && uv run --no-sync pytest tests/test_provider_client_smoke.py::test_provider_http_client_exposes_rate_limiter -q`
 Expected: PASS.
 
-- [ ] **Step 6: Run full broker suite**
+- [ ] **Step 6: Run full broker suite to confirm no regression**
 
 Run: `cd brokers && uv run --no-sync pytest tests/ -q 2>&1 | tail -3`
-Expected: previous count + 1, all green.
+Expected: previous count + 1 (new test), all green. The 19 previously-failing tests should now pass because the test-seam `_rate_limiter = None` is acceptable for `ProviderHttpClient`'s `self.rate_limiter = pipeline._rate_limiter` line (it reads the attribute, doesn't dereference it).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add brokers/src/tradex_brokers/common/provider_client.py brokers/tests/<chosen-file>
-git commit -m "feat(brokers): expose .rate_limiter on ProviderHttpClient"
+git add brokers/src/tradex_brokers/common/provider_client.py brokers/tests/support/fetch_pipeline.py brokers/tests/test_provider_client_smoke.py
+git commit -m "feat(brokers): expose .rate_limiter on ProviderHttpClient + back-fill test seam"
 ```
 
 ---
