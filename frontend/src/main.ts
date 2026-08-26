@@ -8,9 +8,11 @@ import {
   darkTheme,
   ReplayController,
   TimeNavigator,
+  type Bar,
   type IndicatorApi,
   type SeriesApi,
 } from "openalgo-charts";
+import { TRANSFORMS, computeTransform, transformById } from "./transforms";
 import { createTradexFeed, registerTradexIntervals } from "./feed";
 import { registerBackendIndicators, setIndicatorContext, setIndicatorInterval, type CatalogueEntry } from "./backend-indicators";
 import { TradexTradeFeed, fetchBook } from "./trade-feed";
@@ -68,6 +70,8 @@ const chart = createChart(chartHost, {
 
 let priceSeries: SeriesApi | null = null;
 let volumeSeries: SeriesApi | null = null;
+let transformSeries: SeriesApi | null = null;
+let lastRawBars: Bar[] = [];
 
 function ensureSeries(): void {
   if (priceSeries && volumeSeries) return;
@@ -103,16 +107,10 @@ async function loadHistory(): Promise<void> {
   statusText.textContent = "loading…";
   try {
     const bars = await chartFeed.getBars({ symbol: state.symbol, exchange: state.exchange, interval: state.interval });
-    ensureSeries();
-    priceSeries!.setData(bars as never[]);
-    volumeSeries!.setData(
-      (bars as unknown as { time: number; volume?: number }[]).map((b) => ({ time: b.time, value: b.volume ?? 0 })) as never[],
-    );
+    lastRawBars = bars;
+    resetToRaw();
     const source = (rawFeed as unknown as { lastSource?: string }).lastSource;
     sourcePill.textContent = source ?? "datalake";
-    if (bars.length > 0) {
-      chart.setVisibleLogicalRange({ from: Math.max(0, bars.length - 150), to: bars.length + 5 });
-    }
     statusText.textContent = `${bars.length} bars · ${state.exchange}:${state.symbol} ${state.interval}`;
     symBtn.textContent = "";
     const b = document.createElement("b");
@@ -175,6 +173,74 @@ for (const iv of INTERVALS) {
   });
   pills.append(b);
 }
+
+// ---------- transforms (backend-computed chart-types) -------------------------
+function resetToRaw(): void {
+  ensureSeries();
+  transformSeries?.remove();
+  transformSeries = null;
+  transformSel.value = "none";
+  if (lastRawBars.length === 0) return;
+  priceSeries!.applyOptions({ visible: true });
+  volumeSeries!.applyOptions({ visible: true });
+  priceSeries!.setData(lastRawBars as never[]);
+  volumeSeries!.setData(
+    (lastRawBars as unknown as { time: number; volume?: number }[]).map((b) => ({ time: b.time, value: b.volume ?? 0 })) as never[],
+  );
+  chart.setVisibleLogicalRange({ from: Math.max(0, lastRawBars.length - 150), to: lastRawBars.length + 5 });
+}
+
+async function applyTransform(id: string): Promise<void> {
+  const t = transformById(id);
+  if (!t) { resetToRaw(); return; }
+  if (lastRawBars.length === 0) { transformSel.value = "none"; return; }
+  statusText.textContent = "transforming…";
+  try {
+    const params: Record<string, number> = {};
+    for (const p of t.params) params[p.key] = p.default;
+    const bars = await computeTransform(t.id, params, lastRawBars);
+    ensureSeries();
+    transformSeries?.remove();
+    transformSeries = null;
+    if (t.kind === "candlestick") {
+      priceSeries!.applyOptions({ visible: true });
+      volumeSeries!.applyOptions({ visible: true });
+      priceSeries!.setData(bars as never[]);
+      volumeSeries!.setData(
+        (bars as unknown as { time: number; volume?: number }[]).map((b) => ({ time: b.time, value: b.volume ?? 0 })) as never[],
+      );
+    } else {
+      priceSeries!.applyOptions({ visible: false });
+      volumeSeries!.applyOptions({ visible: false });
+      transformSeries = chart.addSeries(t.kind);
+      transformSeries.setData(bars as never[]);
+    }
+    if (bars.length > 0) {
+      chart.setVisibleLogicalRange({ from: Math.max(0, bars.length - 150), to: bars.length + 5 });
+    }
+    statusText.textContent = `${bars.length} bars · ${t.name}`;
+  } catch (err) {
+    transformSel.value = "none";
+    statusText.textContent = err instanceof Error ? err.message : String(err);
+  }
+}
+
+const transformSel = document.createElement("select");
+transformSel.className = "field field--tf";
+transformSel.title = "Price series transform — computed by tradex_trading, rendered here";
+{
+  const none = document.createElement("option");
+  none.value = "none";
+  none.textContent = "Candles";
+  transformSel.append(none);
+  for (const t of TRANSFORMS) {
+    const o = document.createElement("option");
+    o.value = t.id;
+    o.textContent = t.name;
+    transformSel.append(o);
+  }
+}
+transformSel.addEventListener("change", () => void applyTransform(transformSel.value));
 
 // Indicators menu + chips
 const indWrap = document.createElement("span");
@@ -352,6 +418,7 @@ shellbar.append(
   brand, divider(),
   symBtn, divider(),
   pills, divider(),
+  transformSel, divider(),
   indWrap, divider(),
   rpBtn, divider(),
   fitBtn, divider(),

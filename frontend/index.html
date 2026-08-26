@@ -122,6 +122,14 @@
       background: var(--ink); border: 1px solid var(--line); border-radius: 7px;
       color: var(--paper); font: 600 12px "Fragment Mono", monospace;
     }
+    .shellbar .field--tf {
+      height: 28px; padding: 0 8px; flex: none;
+      background: var(--ink); border: 1px solid var(--line); border-radius: 7px;
+      color: var(--paper-dim); font: 500 11px "Sora", sans-serif; cursor: pointer;
+      transition: all .15s;
+    }
+    .shellbar .field--tf:hover { border-color: var(--line-2); color: var(--paper); }
+    .shellbar .field--tf:focus { border-color: var(--brass); outline: none; }
     .status { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
     .pill { font: 500 10px "Fragment Mono", monospace; letter-spacing: .06em; text-transform: uppercase;
       padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: var(--ink); }
