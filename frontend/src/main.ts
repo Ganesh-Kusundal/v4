@@ -29,6 +29,7 @@ import { wireCompare, toggleCompareUi } from "./shell/comparison";
 import { wireChartSettings, toggleChartSettingsUi } from "./shell/chart-settings";
 import { linkChart, unlinkAll } from "./linking";
 import { createShellShortcuts, type ShortcutActions } from "./shortcuts";
+import { Chrome, type ChromeContext } from "./primitives";
 
 registerTradexIntervals();
 
@@ -140,6 +141,38 @@ let wsLive = false;
 setInterval(() => setStatus(wsLive), 1000);
 
 // ---------- history load --------------------------------------------------------
+// Chrome context from the loaded bars: prevClose is the first loaded bar's close
+// (approximate — the primitive draws from the bars in view), sessionHigh/Low are
+// the extremes of the loaded window. Chrome data-shaping, not backend math.
+let lastChromeCtx: ChromeContext = {
+  symbol: state.symbol,
+  exchange: state.exchange,
+  lastPrice: 0,
+  prevClose: 0,
+  sessionHigh: 0,
+  sessionLow: 0,
+};
+function chromeContext(): ChromeContext {
+  const finite = (v: number | undefined): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  const last = lastRawBars[lastRawBars.length - 1];
+  let hi = -Infinity;
+  let lo = Infinity;
+  for (const b of lastRawBars) {
+    const h = finite(b.high);
+    const l = finite(b.low);
+    if (h > hi) hi = h;
+    if (l < lo) lo = l;
+  }
+  return {
+    symbol: state.symbol,
+    exchange: state.exchange,
+    lastPrice: last ? finite(last.close) : 0,
+    prevClose: lastRawBars.length > 0 ? finite(lastRawBars[0].close) : 0,
+    sessionHigh: hi === -Infinity ? 0 : hi,
+    sessionLow: lo === Infinity ? 0 : lo,
+  };
+}
+
 async function loadHistory(): Promise<void> {
   clearProfile();
   // Drop stale order/position markers before re-syncing the current book on
@@ -152,6 +185,8 @@ async function loadHistory(): Promise<void> {
   try {
     const bars = await chartFeed.getBars({ symbol: state.symbol, exchange: state.exchange, interval: state.interval });
     lastRawBars = bars;
+    lastChromeCtx = chromeContext();
+    chrome.setContext(lastChromeCtx);
     prefillBracket();
     resetToRaw();
     const source = (rawFeed as unknown as { lastSource?: string }).lastSource;
@@ -656,6 +691,25 @@ linkBtn.addEventListener("click", () => {
 wireCompare(chart, chartFeed as never, () => ({ ...state }));
 wireChartSettings(chart);
 
+// Chrome primitives: watermark, series markers, price levels, pane legend,
+// event markers, buy-sell buttons. Mounted with sensible defaults and toggled
+// from the shellbar. BuySellButtons route through the same placeOrder() as the
+// shellbar BUY/SELL buttons (the on-chart panel is a duplicate control).
+const chrome = new Chrome(chart as never);
+chrome.setOrderAction((side) => placeOrder(side));
+let chromeOn = true;
+const chromeBtn = document.createElement("button");
+chromeBtn.className = "tbtn is-on";
+chromeBtn.textContent = "Chrome";
+chromeBtn.title = "Chrome primitives — watermark, price levels, legend, buy-sell, markers";
+chromeBtn.addEventListener("click", () => {
+  chromeOn = !chromeOn;
+  chromeBtn.classList.toggle("is-on", chromeOn);
+  if (chromeOn) chrome.enable(lastChromeCtx, priceSeries);
+  else chrome.disable();
+});
+chrome.enable(lastChromeCtx, priceSeries);
+
 shellbar.append(
   brand, divider(),
   symBtn, divider(),
@@ -670,7 +724,7 @@ shellbar.append(
   divider(),
   brkLabel, brkEntry, brkStop, brkTarget, brkBuyBtn, brkSellBtn,
   divider(),
-  cmpBtn, setBtn, linkBtn,
+  cmpBtn, setBtn, linkBtn, chromeBtn,
 );
 const statusWrap = document.createElement("div");
 statusWrap.className = "status";
