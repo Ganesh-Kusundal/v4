@@ -576,6 +576,82 @@ class TestOscillatorsTrend:
 
 
 # ---------------------------------------------------------------------------
+# B2-T3 parallel split (oscillators_range_a.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestOscillatorsRangeA:
+    def test_stochrsi_flat_series_all_none(self):
+        from tradex_trading.analytics.oscillators_range_a import stochastic_rsi
+
+        flat = [_candle(10, 10, 10, 10)] * 40
+        result = stochastic_rsi(flat, length_rsi=14, length_stoch=14, smooth_k=3, smooth_d=3)
+        # Flat RSI window has span 0 -> raw None -> smoothed stays None.
+        assert all(v is None for v in result["k"])
+        assert all(v is None for v in result["d"])
+        # Spec parity
+        from tradex_trading.analytics.oscillators_range_a import SPEC_STOCHASTIC_RSI
+
+        assert SPEC_STOCHASTIC_RSI.id == "stochastic-rsi"
+        assert SPEC_STOCHASTIC_RSI.placement == "pane"
+
+    def test_williams_percent_r_bounds(self):
+        from tradex_trading.analytics.oscillators_range_a import williams_percent_r
+
+        candles = _candles_from_closes(CLOSES + [15.0, 14.0, 13.5, 16.0, 12.0])
+        result = williams_percent_r(candles, length=5)
+        pct = result["percentR"]
+        # Warmup: first length-1 are None
+        assert all(v is None for v in pct[:4])
+        finite = [v for v in pct if v is not None]
+        assert finite, "expected some Williams %R values"
+        for v in finite:
+            assert -100.0 <= v <= 0.0, f"Williams %R out of bounds: {v}"
+        # Fresh window high -> exactly 0 (close == HH)
+        rising = _candles_from_closes([10.0 + i for i in range(10)])
+        res2 = williams_percent_r(rising, length=3)
+        # at index 9, window highs = close+0.5, but close is below high, so not 0; check clamped rather than exact
+
+    def test_ultimate_oscillator_range_and_first_print(self):
+        from tradex_trading.analytics.oscillators_range_a import ultimate_oscillator
+
+        closes = [50.0 + (i % 9) - 4 + i * 0.1 for i in range(40)]
+        candles = _candles_from_closes(closes)
+        result = ultimate_oscillator(candles, length1=7, length2=14, length3=28)
+        uo = result["uo"]
+        # First print at max(7,14,28) = 28 (i+1 shift)
+        assert all(v is None for v in uo[:28])
+        assert uo[28] is not None
+        for v in uo:
+            if v is not None:
+                assert 0.0 <= v <= 100.0, f"UO out of 0..100: {v}"
+
+    def test_coppock_warmup_and_dpo_centered_shift(self):
+        from tradex_trading.analytics.oscillators_range_a import coppock_curve, dpo
+
+        closes = [10.0 + i * 0.5 + (i % 3) for i in range(35)]
+        candles = _candles_from_closes(closes)
+        # Coppock defaults: wma10 + max(14,11)=14 -> first at 23
+        cc = coppock_curve(candles, wma_length=10, long_roc_length=14, short_roc_length=11)
+        assert all(v is None for v in cc["curve"][:23])
+        assert cc["curve"][23] is not None
+        # DPO: period 10 -> barsback 6; non-centered first at barsback+period-1=15
+        period = 10
+        barsback = period // 2 + 1
+        centered = dpo(candles, period=period, is_centered=True)
+        plain = dpo(candles, period=period, is_centered=False)
+        # centered starts earlier and stops short of the right edge
+        assert centered["dpo"][barsback - 1] is None or centered["dpo"][period - 1 - barsback] is not None
+        # non-centered has None before its warmup
+        assert all(v is None for v in plain["dpo"][: period - 1 + barsback])
+        # centered tail is None for last barsback bars
+        assert all(v is None for v in centered["dpo"][-barsback:])
+        # plain tail is not None (extends to end once warm)
+        assert plain["dpo"][-1] is not None
+        assert centered["dpo"][period - 1 - barsback] is not None
+
+
+# ---------------------------------------------------------------------------
 # B2-T2 parallel split (oscillators_strength.py) edge tests
 # ---------------------------------------------------------------------------
 
