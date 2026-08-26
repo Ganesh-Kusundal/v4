@@ -72,6 +72,7 @@ let priceSeries: SeriesApi | null = null;
 let volumeSeries: SeriesApi | null = null;
 let transformSeries: SeriesApi | null = null;
 let lastRawBars: Bar[] = [];
+let transformSel: HTMLSelectElement;
 
 function ensureSeries(): void {
   if (priceSeries && volumeSeries) return;
@@ -220,12 +221,12 @@ async function applyTransform(id: string): Promise<void> {
     }
     statusText.textContent = `${bars.length} bars · ${t.name}`;
   } catch (err) {
-    transformSel.value = "none";
+    resetToRaw();
     statusText.textContent = err instanceof Error ? err.message : String(err);
   }
 }
 
-const transformSel = document.createElement("select");
+transformSel = document.createElement("select");
 transformSel.className = "field field--tf";
 transformSel.title = "Price series transform — computed by tradex_trading, rendered here";
 {
