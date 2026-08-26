@@ -324,3 +324,55 @@ def test_failover_throttled_by_failover_broker_limiter(monkeypatch) -> None:
 
     assert len(results) == 2  # both symbols served via Upstox (failover)
     assert elapsed >= 0.5
+
+
+# --------------------------------------------------------------------------- #
+# Ranged incremental fetch
+# --------------------------------------------------------------------------- #
+
+class TestRangedFetch:
+    def test_ranged_instrument_fetched_only_for_given_windows(self):
+        """ranges= restricts polls to the given sub-windows, in order."""
+        dhan = _make_broker("dhan")
+        fetcher = ParallelHistoryFetcher({"dhan": dhan})
+        inst = INSTRUMENTS[0]
+        r1 = (datetime(2026, 8, 3), datetime(2026, 8, 4))
+        r2 = (datetime(2026, 8, 10), datetime(2026, 8, 11))
+        results = fetcher.fetch(
+            [inst], Timeframe.M1,
+            datetime(2026, 8, 1), datetime(2026, 8, 20),
+            ranges={str(inst.instrument_id): [r1, r2]},
+        )
+        assert len(results) == 1
+        assert dhan.history.call_count == 2
+        calls = dhan.history.call_args_list
+        assert (calls[0].args[2], calls[0].args[3]) == r1
+        assert (calls[1].args[2], calls[1].args[3]) == r2
+
+    def test_ranged_overlap_deduplicated(self):
+        """Duplicate bars across overlapping windows are stitched out."""
+        fetcher = ParallelHistoryFetcher({"dhan": _make_broker("dhan")})
+        inst = INSTRUMENTS[0]
+        win = (datetime(2026, 8, 3), datetime(2026, 8, 4))
+        results = fetcher.fetch(
+            [inst], Timeframe.M1,
+            datetime(2026, 8, 1), datetime(2026, 8, 20),
+            ranges={str(inst.instrument_id): [win, win]},
+        )
+        candles = next(iter(results.values())).candles
+        stamps = [c.timestamp for c in candles]
+        assert len(stamps) == len(set(stamps))
+
+    def test_unranged_instrument_ignores_ranges_map(self):
+        """Instruments absent from ranges keep the normal full-span path."""
+        dhan = _make_broker("dhan")
+        fetcher = ParallelHistoryFetcher({"dhan": dhan})
+        a, b = INSTRUMENTS[0], INSTRUMENTS[1]
+        results = fetcher.fetch(
+            [a, b], Timeframe.M1,
+            BASE, BASE + timedelta(days=7),
+            ranges={str(a.instrument_id): [(BASE, BASE + timedelta(days=1))]},
+        )
+        assert len(results) == 2
+        # a: 1 ranged call; b: 1 plain call
+        assert dhan.history.call_count == 2

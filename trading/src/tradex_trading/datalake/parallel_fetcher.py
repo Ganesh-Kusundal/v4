@@ -1,9 +1,10 @@
 """Parallel history fetcher — concurrent multi-instrument, multi-broker.
 
-Routes by date range:
-  < 30 days → split instruments across all brokers (both serve fast)
-  >= 30 days → Dhan only (90-day chunks = fewer API calls; Upstox caps
-  minute intervals at 1 month, so it cannot cover multi-month minute ranges)
+Routing: instruments are split across ALL configured brokers regardless of
+range length; per-broker poll caps are handled by auto-chunking below.
+(Live backfills showed Dhan enforcing burst walls well below its documented
+5/s after ~100 calls, so concentrating a long range on Dhan alone was the
+slowest possible routing — splitting halves each broker's quota pressure.)
 
 Long intraday minute ranges are auto-chunked into consecutive windows
 (Dhan caps one poll at 90 days, Upstox at 30) and stitched on return,
@@ -163,16 +164,21 @@ class ParallelHistoryFetcher:
         timeframe: Timeframe | str,
         start: datetime,
         end: datetime,
+        ranges: dict[str, list[tuple[datetime, datetime]]] | None = None,
     ) -> dict[str, HistoricalSeries]:
         """Fetch history for all instruments.  Returns ``{symbol: HistoricalSeries}``.
 
-        Routing:
-          - date range < 30 days → split instruments across all brokers
-          - date range >= 30 days → Dhan only (fewer API calls via 90-day chunks)
+        Routing: instruments split across all configured brokers; per-broker
+        poll caps handled by auto-chunking (see ``_pick_brokers``).
 
         Intraday minute ranges longer than the serving broker's per-poll cap
         (Dhan 90d, Upstox 30d) are auto-chunked into consecutive windows and
         stitched — no truncation, no raise (see ``_chunk_cap_for``).
+
+        ``ranges`` optionally maps ``str(instrument_id)`` to missing
+        sub-windows (from GapDetector); listed instruments are fetched ONLY
+        for those windows — incremental top-up instead of re-pulling the
+        whole trailing window.  Result envelopes still report start/end.
         """
         if not instruments:
             return {}
@@ -191,8 +197,25 @@ class ParallelHistoryFetcher:
                 "ParallelHistoryFetcher: auto-chunking %d-day %s into %d-day windows",
                 days, timeframe, cap,
             )
-        log.info("ParallelHistoryFetcher: %d instruments, %d days, brokers=%s",
-                 len(instruments), days, broker_names)
+        log.info("ParallelHistoryFetcher: %d instruments (%d ranged), %d days, brokers=%s",
+                 len(instruments), len(ranges or {}), days, broker_names)
+
+        # Per-instrument poll windows: explicit GapDetector ranges when given
+        # (each still chunked to the broker cap), else the full [start, end]
+        # span when it exceeds the cap, else None (single unwindowed call).
+        def _windows_for(
+            inst: Instrument, max_days: int | None,
+        ) -> list[tuple[datetime, datetime]] | None:
+            inst_ranges = (ranges or {}).get(str(inst.instrument_id))
+            if inst_ranges is not None:
+                md = max_days or 0  # <=0 -> one window per range, uncapped
+                return [
+                    w for r_start, r_end in inst_ranges
+                    for w in _date_windows(r_start, r_end, max_days=md)
+                ]
+            if max_days:
+                return _date_windows(start, end, max_days=max_days)
+            return None
 
         # Split instruments across selected brokers
         active_brokers = {n: self._brokers[n] for n in broker_names}
@@ -218,12 +241,11 @@ class ParallelHistoryFetcher:
             # Broker adapters accept (instrument, timeframe, start, end) positional
             return broker.history(inst, timeframe, s, e)
 
-        def _fetch_one_chunked(
+        def _fetch_windowed(
             broker_name: str, broker: Any, inst: Instrument,
+            windows: list[tuple[datetime, datetime]],
         ) -> HistoricalSeries | None:
-            """Fetch all windows for one instrument, stitch or fail over as a whole."""
-            assert cap is not None
-            windows = _date_windows(start, end, max_days=cap)
+            """Fetch all poll windows for one instrument, stitch into one series."""
             stitched: list = []
             for ws, we in windows:
                 # Rate-limit per window call (was per-instrument before)
@@ -256,8 +278,9 @@ class ParallelHistoryFetcher:
             limiter = self._limiters[broker_name]
             first_exc: Exception | None = None
             try:
-                if needs_chunk:
-                    series = _fetch_one_chunked(broker_name, broker, inst)
+                windows = _windows_for(inst, cap)
+                if windows is not None:
+                    series = _fetch_windowed(broker_name, broker, inst, windows)
                     if series is not None and len(series.candles) > 0:
                         with lock:
                             results[str(inst.instrument_id)] = series
@@ -290,15 +313,12 @@ class ParallelHistoryFetcher:
                     if other_name in failed_brokers:
                         continue
                 try:
-                    if needs_chunk:
-                        # Failover also chunked with the other broker's limiter
-                        other_cap = (
-                            _chunk_cap_for(timeframe, [other_name])
-                            or _UPSTOX_INTRADAY_MAX_DAYS
-                        )
-                        windows = _date_windows(start, end, max_days=other_cap)
+                    other_windows = _windows_for(
+                        inst, _chunk_cap_for(timeframe, [other_name]))
+                    if other_windows is not None:
+                        # Failover windowed with the other broker's cap/limiter
                         stitched2: list = []
-                        for ws, we in windows:
+                        for ws, we in other_windows:
                             if not self._limiters[other_name].acquire(
                                 "historical", timeout=ACQUIRE_TIMEOUT_S,
                             ):

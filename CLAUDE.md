@@ -99,7 +99,8 @@ CSV files are in `Dependencies/nifty{50,100,200,500}_list.csv`.
 ```python
 from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
 
-# Smart routing: < 30 days → both brokers, >= 30 days → Dhan only
+# Instruments split across ALL configured brokers; long intraday ranges are
+# auto-chunked (Dhan caps one poll at 90d intraday, Upstox at 30d minute)
 fetcher = ParallelHistoryFetcher({'dhan': dhan_broker, 'upstox': upstox_broker})
 results = fetcher.fetch(instruments, Timeframe.M1, start, end)
 # Returns dict[str, HistoricalSeries] keyed by instrument_id

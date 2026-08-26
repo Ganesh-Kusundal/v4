@@ -13,7 +13,10 @@ Adapted from nTrade's ParquetStorage.
 
 from __future__ import annotations
 
+import logging
+import os
 import shutil
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -23,6 +26,8 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
+
+log = logging.getLogger(__name__)
 
 _BASE_COLUMNS = [
     "symbol", "exchange", "kind", "timeframe", "timestamp",
@@ -81,7 +86,6 @@ class ParquetStorage:
                 if parquet_file.exists():
                     existing = pq.ParquetFile(parquet_file).read().to_pandas()
                     existing["timestamp"] = pd.to_datetime(existing["timestamp"])
-                    # ponytail: normalize tz to match incoming data
                     if getattr(existing["timestamp"].dt, "tz", None) is not None:
                         existing["timestamp"] = existing["timestamp"].dt.tz_localize(None)
                     key_cols = ["symbol", "timeframe", "timestamp"]
@@ -90,20 +94,37 @@ class ParquetStorage:
                             grp.set_index(key_cols).index
                         )
                     ]
-                    if not existing.empty:
-                        self._write_parquet(existing, parquet_file)
-                    else:
-                        parquet_file.unlink()
+                    combined = (
+                        pd.concat([existing, grp], ignore_index=True)
+                        if not existing.empty
+                        else grp
+                    )
+                else:
+                    combined = grp
 
-                to_write = grp
-                if not to_write.empty:
-                    self._write_parquet(to_write, parquet_file)
-                    written += len(to_write)
+                if not combined.empty:
+                    self._write_atomic(combined, parquet_file)
+                    written += len(grp)
 
         return written
 
+    def _write_atomic(self, df: pd.DataFrame, path: Path) -> None:
+        """Write *df* atomically via tmp+replace to avoid torn reads."""
+        # thread id in tmp name: two threads upserting the same partition
+        # must not collide on the tmp file (pid alone is not enough).
+        tmp = (
+            path.parent /
+            f".tmp-{path.name}.{os.getpid()}.{threading.get_ident()}"
+        )
+        table = pa.Table.from_pandas(df, preserve_index=False)
+        pq.write_table(table, str(tmp), use_dictionary=False)
+        tmp.replace(path)
+
     def _write_parquet(self, df: pd.DataFrame, path: Path) -> None:
-        """Write a DataFrame to parquet (append + dedupe if file exists)."""
+        """Write a DataFrame to parquet (append + dedupe if file exists).
+
+        External callers may use this directly; it remains atomic and dedupes.
+        """
         if path.exists():
             existing = pq.ParquetFile(path).read().to_pandas()
             existing["timestamp"] = pd.to_datetime(existing["timestamp"])
@@ -113,11 +134,9 @@ class ParquetStorage:
             combined = combined.drop_duplicates(
                 subset=["symbol", "timeframe", "timestamp"], keep="last"
             )
-            table = pa.Table.from_pandas(combined, preserve_index=False)
-            pq.write_table(table, str(path), use_dictionary=False)
+            self._write_atomic(combined, path)
         else:
-            table = pa.Table.from_pandas(df, preserve_index=False)
-            pq.write_table(table, str(path), use_dictionary=False)
+            self._write_atomic(df, path)
 
     def _prepare_frame(self, df: pd.DataFrame) -> pd.DataFrame:
         """Ensure required columns + types for parquet storage."""
@@ -133,6 +152,23 @@ class ParquetStorage:
         for col in ("open", "high", "low", "close", "volume"):
             df[col] = pd.to_numeric(df[col], errors="coerce")
         df["volume"] = df["volume"].fillna(0).astype("int64")
+        # --- OHLC invariant validation (drop corrupt bars) ---
+        # high must be >= open/close, low <= open/close, high >= low, prices >0
+        before = len(df)
+        mask_valid = (
+            (df["high"] >= df["open"]) & (df["high"] >= df["close"]) &
+            (df["low"] <= df["open"]) & (df["low"] <= df["close"]) &
+            (df["high"] >= df["low"]) &
+            (df["open"] > 0) & (df["high"] > 0) & (df["low"] > 0) & (df["close"] > 0) &
+            (df["volume"] >= 0)
+        )
+        # NaNs fail the mask and are dropped
+        if mask_valid.sum() != before:
+            log.warning(
+                "ParquetStorage: dropping %d invalid OHLC bars",
+                before - int(mask_valid.sum()),
+            )
+            df = df[mask_valid].copy()
         return df
 
     # ------------------------------------------------------------------ read

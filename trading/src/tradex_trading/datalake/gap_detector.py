@@ -35,7 +35,17 @@ def _session_grid(
     Each trading day contributes ``bar_freq``-spaced stamps from
     ``MARKET_OPEN`` to ``MARKET_CLOSE`` (both inclusive, matching
     ParquetStorage's session filter), intersected with the requested window.
+
+    Window edges are floored onto the ``bar_freq`` grid first: a caller-passed
+    ``start`` like ``now - 90d`` (fractional seconds, mid-session) would
+    otherwise generate off-grid stamps (e.g. ``12:17:14.706``) that never
+    match stored exact-minute bars — flagging ~200 phantom missing bars per
+    symbol on the window's first day, every run.
     """
+    step = pd.Timedelta(bar_freq)
+    start = pd.Timestamp(start).floor(step).to_pydatetime()
+    end = pd.Timestamp(end).floor(step).to_pydatetime()
+
     stamps: list[pd.Timestamp] = []
     day = start.date()
     while day <= end.date():
