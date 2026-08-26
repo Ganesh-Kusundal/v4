@@ -707,3 +707,99 @@ class TestOscillatorsStrength:
         for v in result["ema"]:
             if v is not None:
                 assert -100.0 <= v <= 100.0
+
+
+# ---------------------------------------------------------------------------
+# B3-T2 parallel split (volatility_chop.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestVolatilityChop:
+    def test_chop_trending_low_ranging_high(self):
+        from tradex_trading.analytics.volatility_chop import choppiness_index
+
+        # Trending: monotonic closes -> low CHOP (near 0)
+        trending = _candles_from_closes([10.0 + i * 0.8 for i in range(40)])
+        tr = choppiness_index(trending, length=14, offset=0)
+        finite_tr = [v for v in tr if v is not None]
+        assert finite_tr and max(finite_tr) < 45.0
+
+        # Ranging: wide oscillation -> high CHOP (near 100)
+        ranging = _candles_from_closes([10.0 + (5 if i % 2 == 0 else -5) + i * 0.01 for i in range(40)])
+        rg = choppiness_index(ranging, length=14, offset=0)
+        finite_rg = [v for v in rg if v is not None]
+        assert finite_rg and (min(finite_rg) > 55.0 or max(finite_rg) > 60.0)
+        # Ranging max must exceed trending max
+        assert max(finite_rg) > max(finite_tr)
+
+    def test_hv_constant_price_is_zero(self):
+        from tradex_trading.analytics.volatility_chop import historical_volatility
+
+        flat = _candles_from_closes([50.0] * 30)
+        result = historical_volatility(flat, length=10, per=1)
+        assert all(v is None for v in result[:10])
+        assert all(v == pytest.approx(0.0, abs=1e-9) for v in result[10:])
+
+    def test_adr_constant_range_equals_range(self):
+        from tradex_trading.analytics.volatility_chop import average_daily_range
+
+        # high-low = 4 flat -> ADR = 4 after warmup
+        candles = [_candle(10, 12, 8, 11)] * 20
+        result = average_daily_range(candles, length=5)
+        assert all(v is None for v in result[:4])
+        assert all(v == pytest.approx(4.0) for v in result[4:])
+
+    def test_chop_zone_constant_one_and_angle_warmup(self):
+        from tradex_trading.analytics.volatility_chop import chop_zone
+
+        candles = _candles_from_closes([10.0 + i * 0.5 for i in range(40)])
+        result = chop_zone(candles)
+        assert all(v == 1.0 for v in result["chopZone"])
+        # angle warmup: first 33 should be None (need 30-bar range + 34 EMA)
+        assert all(v is None for v in result["angle"][:33])
+        assert result["angle"][34] is not None
+        for v in result["angle"]:
+            if v is not None:
+                assert -90 <= v <= 90
+
+
+# ---------------------------------------------------------------------------
+# B3-T1 parallel split (volatility_bands.py) edge tests
+# ---------------------------------------------------------------------------
+
+
+class TestVolatilityBands:
+    def test_bollinger_percent_b_flat_is_half(self):
+        from tradex_trading.analytics.volatility_bands import bollinger_percent_b
+
+        flat = _candles_from_closes([50.0] * 25)
+        result = bollinger_percent_b(flat, length=20, mult=2.0)
+        assert all(v is None for v in result[:19])
+        assert all(v == pytest.approx(0.5) for v in result[19:])
+
+    def test_bollinger_bandwidth_flat_zero(self):
+        from tradex_trading.analytics.volatility_bands import bollinger_bandwidth
+
+        flat = _candles_from_closes([50.0] * 30)
+        result = bollinger_bandwidth(flat, length=20, mult=2.0)
+        # warmup before 20 bars
+        assert all(v is None for v in result["bandwidth"][:19])
+        assert all(v == pytest.approx(0.0) for v in result["bandwidth"][19:])
+        # expansion/contraction still track the zero line after their own periods
+        # but the primary bandwidth assertion is the edge contract
+
+    def test_kama_flat_constant_after_warmup(self):
+        from tradex_trading.analytics.volatility_bands import kama
+
+        flat = _candles_from_closes([42.0] * 30)
+        result = kama(flat, er_length=10, fast_length=2, slow_length=30)
+        assert all(v is None for v in result[:10])
+        assert all(v == pytest.approx(42.0) for v in result[10:])
+
+    def test_bb_trend_flat_zero(self):
+        from tradex_trading.analytics.volatility_bands import bb_trend
+
+        flat = _candles_from_closes([50.0] * 60)
+        result = bb_trend(flat, short_length=20, long_length=50, std_dev_mult=2.0)
+        assert all(v is None for v in result[:49])
+        assert all(v == pytest.approx(0.0) for v in result[49:])
