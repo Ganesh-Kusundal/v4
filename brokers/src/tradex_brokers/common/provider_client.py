@@ -120,7 +120,6 @@ class ProviderHttpClient:
         self._cache: ReadCache | None = (
             ReadCache(max_entries=cache_max_entries) if cache_ttl_seconds > 0 else None
         )
-        self.rate_limiter = pipeline._rate_limiter
 
     # -- helpers ------------------------------------------------------------
 
