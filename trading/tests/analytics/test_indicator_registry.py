@@ -372,11 +372,12 @@ class TestBandOverlays:
 
         candles = _candles_from_closes(CLOSES)
         result = donchian(candles, period=3)
-        # window [11.5+1, 13.5] highs / [10.5, 12.0] lows over i=2..4:
-        # upper=13.5, lower=10.5 -> mid 12.0
-        assert result["upper"][4] == pytest.approx(13.5)
+        # highs are close+0.5, lows are close-1.0; over i=2..4:
+        # highs [12.5, 12.0, 13.0] -> upper 13.0; lows [11.0, 10.5, 11.5]
+        # -> lower 10.5; mid = (13.0 + 10.5) / 2 = 11.75
+        assert result["upper"][4] == pytest.approx(13.0)
         assert result["lower"][4] == pytest.approx(10.5)
-        assert result["middle"][4] == pytest.approx(12.0)
+        assert result["middle"][4] == pytest.approx(11.75)
         assert result["upper"][1] is None
 
     def test_keltner_rails_are_basis_plus_mult_atr(self):
