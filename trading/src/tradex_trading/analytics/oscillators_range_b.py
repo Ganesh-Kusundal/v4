@@ -10,7 +10,16 @@ from __future__ import annotations
 
 import math
 
-from tradex_trading.analytics.indicators import IndicatorSpec, _to_float, roc, rsi
+from tradex_trading.analytics.indicators import (
+    IndicatorSpec,
+    _change,
+    _highest,
+    _lowest,
+    _rolling_sum,
+    _to_float,
+    roc,
+    rsi,
+)
 
 __all__ = [
     "SPEC_BALANCE_OF_POWER",
@@ -28,49 +37,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Local calc helpers (mirrors src/indicators/calc.ts)
 # ---------------------------------------------------------------------------
-
-
-def _highest(values: list[float], period: int) -> list[float | None]:
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    for i in range(period - 1, n):
-        out[i] = max(values[i - period + 1 : i + 1])
-    return out
-
-
-def _lowest(values: list[float], period: int) -> list[float | None]:
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    for i in range(period - 1, n):
-        out[i] = min(values[i - period + 1 : i + 1])
-    return out
-
-
-def _change(values: list[float]) -> list[float | None]:
-    """Reference ``change(src, 1)``: src - src[1], None at bar 0."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    for i in range(1, n):
-        out[i] = values[i] - values[i - 1]
-    return out
-
-
-def _rolling_sum(values: list[float], period: int) -> list[float | None]:
-    """Reference ``rollingSum`` — NaN/None before index period-1."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    acc = sum(values[:period])
-    out[period - 1] = acc
-    for i in range(period, n):
-        acc += values[i] - values[i - period]
-        out[i] = acc
-    return out
 
 
 def _percent_rank(values: list[float | None], period: int) -> list[float | None]:

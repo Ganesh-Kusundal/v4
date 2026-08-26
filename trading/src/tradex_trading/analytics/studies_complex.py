@@ -52,12 +52,13 @@ from typing import Any
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
     _change,
+    _rma,
     _rolling_sum,
     _to_float,
     sma,
     wma,
 )
-from tradex_trading.analytics.studies_simple import _rma, _src_val, _vwma
+from tradex_trading.analytics.studies_simple import _src_val, _vwma
 from tradex_trading.analytics.volume_flow import _sma_skip_none
 
 # ---------------------------------------------------------------------------

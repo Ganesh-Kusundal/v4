@@ -14,6 +14,8 @@ from typing import Any
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
     _ema_of_gapped,
+    _highest,
+    _lowest,
 )
 
 __all__ = [
@@ -50,27 +52,10 @@ def _lows(candles: list) -> list[float]:
     return [_f(c.ohlc.low.value) for c in candles]
 
 
-def _highest(values: list[float], period: int) -> list[float | None]:
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    for i in range(period - 1, n):
-        out[i] = max(values[i - period + 1 : i + 1])
-    return out
-
-
-def _lowest(values: list[float], period: int) -> list[float | None]:
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    for i in range(period - 1, n):
-        out[i] = min(values[i - period + 1 : i + 1])
-    return out
-
-
 def _change(values: list[float | None]) -> list[float | None]:
+    """None-safe change (skips None windows); canonical ``indicators._change``
+    would crash on the warmup Nones that ``trix`` feeds in, so this distinct
+    local is deliberately kept."""
     n = len(values)
     out: list[float | None] = [None] * n
     for i in range(1, n):

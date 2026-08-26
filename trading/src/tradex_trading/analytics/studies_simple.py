@@ -31,6 +31,7 @@ from typing import Any
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
     _change,
+    _rma,
     _sma_seeded_ema,
     _to_float,
     sma,
@@ -117,21 +118,6 @@ def _roc_ts(values: list[float], n: int) -> list[float | None]:
     for i in range(n, m):
         base = values[i - n]
         out[i] = None if base == 0 else (100.0 * (values[i] - base)) / base
-    return out
-
-
-def _rma(values: list[float], period: int) -> list[float | None]:
-    """calc.ts ``rma`` — Wilder smoothing, seeded with an SMA."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    acc = sum(values[:period])
-    prev = acc / period
-    out[period - 1] = prev
-    for i in range(period, n):
-        prev = (prev * (period - 1) + values[i]) / period
-        out[i] = prev
     return out
 
 

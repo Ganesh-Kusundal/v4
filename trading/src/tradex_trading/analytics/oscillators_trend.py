@@ -8,8 +8,9 @@ entries.
 
 Helpers are imported from ``indicators.py`` — never redefined here.
 Wilder's RMA is implemented locally to match ``calc.ts::rma`` exactly
-(seed = SMA of first ``period`` values, then ``(prev*(p-1)+v)/p``);
-``indicators.py`` does not export an ``rma``.
+(seed = SMA of first ``period`` values, then ``(prev*(p-1)+v)/p``) with
+explicit NaN propagation; it is deliberately kept distinct from the
+canonical ``indicators._rma`` (which does not propagate NaN).
 
 Parity notes (openalgo-charts ``src/indicators/momentum.ts`` / ``oscillators.ts`` / ``calc.ts``):
 - ADX: TR/+DM/-DM smoothed by RMA(period); +DI/-DI = 100*RMADM/RMATR;

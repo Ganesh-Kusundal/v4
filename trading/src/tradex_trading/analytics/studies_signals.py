@@ -38,7 +38,10 @@ import math
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    _bars_since,
     _ema_of_gapped,
+    _shift,
+    _sma_skip_none,
     _to_float,
     rsi,
 )
@@ -46,37 +49,6 @@ from tradex_trading.analytics.indicators import (
 # ---------------------------------------------------------------------------
 # Reference calc.ts primitives (never exported; module-private by convention)
 # ---------------------------------------------------------------------------
-
-
-def _sma_skip_none(values: list, period: int) -> list[float | None]:
-    """SMA that returns ``None`` for any window containing a non-finite value.
-
-    Mirrors the TS ``sma`` in calc.ts exactly: a running sum that only ever
-    absorbs finite values (a ``None``/NaN would otherwise poison it
-    permanently) plus a ``bad`` counter.  The first value lands at index
-    ``period - 1``.
-    """
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    s = 0.0
-    bad = 0
-    for i in range(n):
-        v = values[i]
-        if v is not None and math.isfinite(v):
-            s += v
-        else:
-            bad += 1
-        if i >= period:
-            gone = values[i - period]
-            if gone is not None and math.isfinite(gone):
-                s -= gone
-            else:
-                bad -= 1
-        if i >= period - 1:
-            out[i] = s / period if bad == 0 else None
-    return out
 
 
 def _sma_of_gapped(values: list[float | None], period: int) -> list[float | None]:
@@ -154,15 +126,6 @@ def _lowest_skip(values: list[float | None], period: int) -> list[float | None]:
     return out
 
 
-def _shift(values: list[float | None], k: int) -> list[float | None]:
-    """The reading ``k`` bars back; None before the series starts."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    for i in range(k, n):
-        out[i] = values[i - k]
-    return out
-
-
 def _shift_flags(flags: list[bool], k: int) -> list[bool]:
     """``shift`` for a condition series; out-of-range flags read as False."""
     n = len(flags)
@@ -211,19 +174,6 @@ def _pivot(
                 ok = False
         if ok:
             out[i] = v
-    return out
-
-
-def _bars_since(cond: list[bool]) -> list[float | None]:
-    """Bars elapsed since ``cond`` was last true; None before the first."""
-    n = len(cond)
-    out: list[float | None] = [None] * n
-    last = -1
-    for i in range(n):
-        if cond[i]:
-            last = i
-        if last >= 0:
-            out[i] = float(i - last)
     return out
 
 

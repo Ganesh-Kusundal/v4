@@ -54,7 +54,12 @@ __all__ = [
 
 
 def _rolling_sum(values: list[float], period: int) -> list[float | None]:
-    """Reference ``rollingSum`` — None before index period-1, None if any None in window."""
+    """Reference ``rollingSum`` — None before index period-1, None if any None in window.
+
+    Deliberately kept local (not merged into ``indicators._rolling_sum``): this
+    uses the one-step ``acc += v[i] - v[i-period]`` accumulation, which differs
+    from the canonical two-step add/subtract form in the low FP bits.
+    """
     n = len(values)
     out: list[float | None] = [None] * n
     if period <= 0 or n < period:

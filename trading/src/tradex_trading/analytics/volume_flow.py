@@ -36,6 +36,7 @@ from tradex_trading.analytics.indicators import (
     _highest,
     _isfinite,
     _rolling_sum,
+    _sma_skip_none,
     _to_float,
 )
 
@@ -69,37 +70,6 @@ def _money_flow(candles: list) -> list[float]:
         degenerate = (cl == h and cl == lo) or h == lo
         if not degenerate:
             out[i] = ((2.0 * cl - lo - h) / (h - lo)) * _vol(c)
-    return out
-
-
-def _sma_skip_none(values: list, period: int) -> list[float | None]:
-    """SMA that returns ``None`` for any window containing ``None``.
-
-    Mirrors the TS ``sma`` in calc.ts which counts NaN values and blanks any
-    window that holds one.  The imported ``sma`` from ``indicators.py`` does
-    not handle ``None`` and would crash, so this module uses this helper for
-    Ease of Movement and Ulcer Index where intermediate ``None`` values occur.
-    """
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    s = 0.0
-    bad = 0
-    for i in range(n):
-        v = values[i]
-        if _isfinite(v):
-            s += v
-        else:
-            bad += 1
-        if i >= period:
-            gone = values[i - period]
-            if _isfinite(gone):
-                s -= gone
-            else:
-                bad -= 1
-        if i >= period - 1:
-            out[i] = s / period if bad == 0 else None
     return out
 
 

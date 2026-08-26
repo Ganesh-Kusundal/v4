@@ -26,15 +26,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from tradex_trading.analytics.indicators import IndicatorSpec, _sma_seeded_ema, atr, sma
-
-
-def _to_float(value: Any) -> float:
-    return float(value)
+from tradex_trading.analytics.indicators import (
+    IndicatorSpec,
+    _sma_seeded_ema,
+    _to_float,
+    atr,
+    sma,
+)
 
 
 def _closes(candles: list) -> list[float]:
     return [_to_float(c.ohlc.close.value) for c in candles]
+
+
+# NOTE: ``_highest``/``_lowest``/``_shift`` below stay local (out of the Task-2
+# rewire set) — the canonical ``indicators`` versions are None-safe equivalents,
+# but this Batch-1 module is deliberately left untouched apart from ``_to_float``.
 
 
 def _highest(values: list[float | None], period: int) -> list[float | None]:

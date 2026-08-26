@@ -42,13 +42,14 @@ Bollinger readings, matching the TS descriptors.
 from __future__ import annotations
 
 import math
-from typing import Any
 
-from tradex_trading.analytics.indicators import IndicatorSpec, sma
-
-
-def _to_float(value: Any) -> float:
-    return float(value)
+from tradex_trading.analytics.indicators import (
+    IndicatorSpec,
+    _change,
+    _rolling_sum,
+    _to_float,
+    sma,
+)
 
 
 def _extract(candles_or_values: list) -> list[float]:
@@ -242,26 +243,6 @@ def bb_trend(
 # ---------------------------------------------------------------------------
 # KAMA — Kaufman's Adaptive Moving Average
 # ---------------------------------------------------------------------------
-
-
-def _change(values: list[float], n: int) -> list[float | None]:
-    out: list[float | None] = [None] * len(values)
-    for i in range(n, len(values)):
-        out[i] = values[i] - values[i - n]
-    return out
-
-
-def _rolling_sum(values: list[float], period: int) -> list[float | None]:
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    s = sum(values[:period])
-    out[period - 1] = s
-    for i in range(period, n):
-        s += values[i] - values[i - period]
-        out[i] = s
-    return out
 
 
 def kama(

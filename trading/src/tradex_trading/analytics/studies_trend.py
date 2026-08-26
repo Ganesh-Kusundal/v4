@@ -29,9 +29,13 @@ from typing import Any
 
 from .indicators import (
     IndicatorSpec,
+    _bars_since,
     _highest,
     _isfinite,
+    _lowest,
+    _rma,
     _rolling_sum,
+    _shift,
     _to_float,
     sma,
 )
@@ -77,42 +81,6 @@ def _extract(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-
-def _rma(values: list[float], period: int) -> list[float | None]:
-    """Wilder's RMA. First value (SMA of the first ``period``) at ``period-1``."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    prev = sum(values[:period]) / period
-    out[period - 1] = prev
-    for i in range(period, n):
-        prev = (prev * (period - 1) + values[i]) / period
-        out[i] = prev
-    return out
-
-
-def _lowest(values: list[float | None], period: int) -> list[float | None]:
-    """Rolling minimum over ``period`` bars; None before index ``period-1``."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0:
-        return out
-    for i in range(period - 1, n):
-        out[i] = min(values[i - period + 1 : i + 1])  # type: ignore[type-var]
-    return out
-
-
-def _shift(values: list[float | None], k: int) -> list[float | None]:
-    """Displace by ``k`` bars: a positive offset draws each value ``k`` bars later."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    for i in range(n):
-        j = i - k
-        if 0 <= j < n:
-            out[i] = values[j]
-    return out
 
 
 def _true_ranges(highs: list[float], lows: list[float], closes: list[float]) -> list[float]:
@@ -172,19 +140,6 @@ def _money_flow_index(typical: list[float], vols: list[float], period: int) -> l
         if d is None or u is None:
             continue
         out[i] = 100.0 if d == 0 else 100.0 - 100.0 / (1.0 + u / d)
-    return out
-
-
-def _bars_since(conds: list[bool]) -> list[float | None]:
-    """Bars elapsed since ``cond`` last true; 0 on the true bar (calc.ts)."""
-    n = len(conds)
-    out: list[float | None] = [None] * n
-    last = -1
-    for i in range(n):
-        if conds[i]:
-            last = i
-        if last >= 0:
-            out[i] = float(i - last)
     return out
 
 

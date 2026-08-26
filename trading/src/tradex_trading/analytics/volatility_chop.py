@@ -16,19 +16,19 @@ Helpers are imported from ``indicators.py`` — never redefined here.
 from __future__ import annotations
 
 import math
-from typing import Any
 
 from tradex_trading.analytics.indicators import (  # noqa: F401
     IndicatorSpec,
+    _highest,
+    _lowest,
+    _rolling_sum,
+    _shift,
     _sma_seeded_ema,
+    _to_float,
     atr,
     sma,
     true_ranges,
 )
-
-
-def _to_float(value: Any) -> float:
-    return float(value)
 
 
 def _closes(candles: list) -> list[float]:
@@ -41,52 +41,6 @@ def _highs(candles: list) -> list[float]:
 
 def _lows(candles: list) -> list[float]:
     return [_to_float(c.ohlc.low.value) for c in candles]
-
-
-def _highest(values: list[float], period: int) -> list[float | None]:
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    for i in range(period - 1, n):
-        out[i] = max(values[i - period + 1 : i + 1])
-    return out
-
-
-def _lowest(values: list[float], period: int) -> list[float | None]:
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    for i in range(period - 1, n):
-        out[i] = min(values[i - period + 1 : i + 1])
-    return out
-
-
-def _rolling_sum(values: list[float], period: int) -> list[float | None]:
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    s = sum(values[:period])
-    out[period - 1] = s
-    for i in range(period, n):
-        s += values[i] - values[i - period]
-        out[i] = s
-    return out
-
-
-def _shift(values: list[float | None], k: int) -> list[float | None]:
-    """Displace by k bars: positive draws later (TS ``shift`` parity)."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if k == 0:
-        return values[:]
-    for i in range(n):
-        j = i + k
-        if 0 <= j < n:
-            out[j] = values[i]
-    return out
 
 
 def _stdev_gapped(values: list[float | None], period: int) -> list[float | None]:
