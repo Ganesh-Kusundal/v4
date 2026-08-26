@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -80,6 +80,72 @@ def _build_order_request(body: dict, session: Any) -> Any:
     )
 
 
+def _build_bracket_request(body: dict) -> Any:
+    """Parse an HTTP body into a bracket (super) OrderRequest.
+
+    Mirrors ``_build_order_request`` for instrument/entry fields, plus the
+    protective legs ``stop_loss_price``/``target_price`` (required) and
+    ``trailing_jump`` (optional, defaults 0). Raises ``KeyError`` on missing
+    required fields and ``ValueError`` on malformed ones; the broker facade
+    validates protective-price ordering.
+    """
+    from tradex_domain.enums import OrderSide, OrderType, TimeInForce
+    from tradex_domain.execution import OrderRequest
+    from tradex_domain.instruments import Equity
+    from tradex_domain.value_objects import Price, Quantity
+
+    def _price(value: Any, name: str) -> Price:
+        try:
+            return Price(Decimal(str(value)))
+        except (ValueError, InvalidOperation) as exc:
+            raise ValueError(f"invalid {name}: {value!r}") from exc
+
+    instrument_id = body.get("instrument_id")
+    if instrument_id:
+        parts = instrument_id.split(":", 1)
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=422,
+                detail="instrument_id must be in 'EXCHANGE:SYMBOL' format",
+            )
+        instrument = Equity.of(parts[0], parts[1])
+    else:
+        exchange = body.get("exchange")
+        symbol = body.get("symbol")
+        if not exchange or not symbol:
+            raise HTTPException(
+                status_code=422,
+                detail="provide either 'instrument_id' or both 'exchange' and 'symbol'",
+            )
+        instrument = Equity.of(exchange, symbol)
+
+    side = OrderSide(body["side"])
+    order_type = OrderType(body.get("order_type", "MARKET"))
+    quantity = Quantity(Decimal(str(body["quantity"])))
+    price = _price(body["price"], "price")
+    time_in_force = (
+        TimeInForce(body["time_in_force"])
+        if body.get("time_in_force")
+        else TimeInForce.DAY
+    )
+    trailing_jump = body.get("trailing_jump")
+    return OrderRequest(
+        instrument=instrument,
+        side=side,
+        order_type=order_type,
+        quantity=quantity,
+        price=price,
+        time_in_force=time_in_force,
+        stop_loss_price=_price(body["stop_loss_price"], "stop_loss_price"),
+        target_price=_price(body["target_price"], "target_price"),
+        trailing_jump=(
+            _price(trailing_jump, "trailing_jump")
+            if trailing_jump is not None
+            else Price(Decimal("0"))
+        ),
+    )
+
+
 @router.get("/orders", response_model=list[OrderResponse])
 async def list_orders(
     status: str | None = None,
@@ -137,6 +203,35 @@ async def place_order(
     except Exception as exc:
         log.exception("order submission failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post("/orders/bracket", dependencies=[Depends(verify_api_key)])
+async def place_bracket_order(
+    body: dict, session: Any | None = Depends(get_session)
+) -> dict:
+    """Place a bracket (super) order — entry + protective stop/target legs.
+
+    Delegates to ``session.broker.submit_super_order``. Capability-gated;
+    a missing session returns 503 (matching ``/orders``), an unsupported
+    broker 422. Non-bracket orders keep using ``/orders``.
+    """
+    if session is None:
+        raise HTTPException(status_code=503, detail="no session bound")
+    broker = getattr(session, "_broker", None) or getattr(session, "broker", None)
+    if broker is None:
+        raise HTTPException(status_code=503, detail="broker unavailable")
+    caps = getattr(broker, "capabilities", None)
+    if caps is None or not getattr(caps, "supports_super_order", False):
+        raise HTTPException(status_code=422, detail="broker does not support super orders")
+    try:
+        request = _build_bracket_request(body)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    try:
+        order_id = broker.submit_super_order(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"order_id": str(order_id)}
 
 
 @router.put("/orders/{order_id}", response_model=OrderResponse, dependencies=[Depends(verify_api_key)])
