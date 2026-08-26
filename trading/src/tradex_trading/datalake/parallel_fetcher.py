@@ -44,6 +44,10 @@ log = logging.getLogger(__name__)
 #: Rate-limiter acquire timeout (seconds) — single-sourced [REF-10a].
 ACQUIRE_TIMEOUT_S = 30.0
 
+# ponytail: cap kept small — log already truncates to 5; 100 is enough for
+# postmortem context. Grow only if ops asks for full failure lists.
+ERROR_LOG_CAP = 100
+
 # ponytail: poll caps + auto-chunking — Dhan 90d on intraday, Upstox 30d on
 # minute.  Timeframe sets are single-sourced (domain/timeframe.py) to close
 # SMELL-02.  Long minute ranges are now auto-chunked (sequential windows per
@@ -352,7 +356,8 @@ class ParallelHistoryFetcher:
                     with lock:
                         broker_health.record_failure(other_name, str(inst.instrument_id))
             with lock:
-                errors.append(f"{inst.instrument_id}: all brokers failed ({first_exc})")
+                if len(errors) < ERROR_LOG_CAP:
+                    errors.append(f"{inst.instrument_id}: all brokers failed ({first_exc})")
 
         with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
             futures = []
