@@ -24,7 +24,15 @@ Parity notes:
 
 from __future__ import annotations
 
-from tradex_trading.analytics.indicators import IndicatorSpec, _rolling_sma, _to_float, roc, rsi, sma, wma
+from tradex_trading.analytics.indicators import (
+    IndicatorSpec,
+    _rolling_sma,
+    _to_float,
+    roc,
+    rsi,
+    sma,
+    wma,
+)
 
 __all__ = [
     "SPEC_COPPOCK_CURVE",

@@ -18,8 +18,13 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from tradex_trading.analytics.indicators import IndicatorSpec, atr, sma, true_ranges  # noqa: F401
-from tradex_trading.analytics.indicators import _sma_seeded_ema
+from tradex_trading.analytics.indicators import (  # noqa: F401
+    IndicatorSpec,
+    _sma_seeded_ema,
+    atr,
+    sma,
+    true_ranges,
+)
 
 
 def _to_float(value: Any) -> float:

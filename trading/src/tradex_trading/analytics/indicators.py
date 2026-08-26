@@ -925,33 +925,23 @@ from .oscillators_trend import (  # noqa: E402
     SPEC_AWESOME_OSCILLATOR,
     SPEC_CCI,
 )
-
 from .volatility_bands import (  # noqa: E402
+    SPEC_BB_TREND,
     SPEC_BOLLINGER_BANDWIDTH,
     SPEC_BOLLINGER_PERCENT_B,
-    SPEC_BB_TREND,
     SPEC_KAMA,
 )
-
 from .volatility_chop import (  # noqa: E402
     SPEC_AVERAGE_DAILY_RANGE,
     SPEC_CHOP_ZONE,
     SPEC_CHOPPINESS_INDEX,
     SPEC_HISTORICAL_VOLATILITY,
 )
-
 from .volatility_stops import (  # noqa: E402
     SPEC_CHANDE_KROLL_STOP,
     SPEC_CHANDELIER_EXIT,
     SPEC_VOLATILITY_STOP,
 )
-
-from .volume_simple import (  # noqa: E402
-    SPEC_ADL,
-    SPEC_PVT,
-    SPEC_VOLUME,
-)
-
 from .volume_flow import (  # noqa: E402
     SPEC_CHAIKIN_MONEY_FLOW,
     SPEC_CHAIKIN_OSCILLATOR,
@@ -959,7 +949,6 @@ from .volume_flow import (  # noqa: E402
     SPEC_ELDER_FORCE_INDEX,
     SPEC_ULCER_INDEX,
 )
-
 from .volume_indices import (  # noqa: E402
     SPEC_KLINGER_OSCILLATOR,
     SPEC_KNOW_SURE_THING,
@@ -967,6 +956,11 @@ from .volume_indices import (  # noqa: E402
     SPEC_NVI,
     SPEC_PVI,
     SPEC_PVO,
+)
+from .volume_simple import (  # noqa: E402
+    SPEC_ADL,
+    SPEC_PVT,
+    SPEC_VOLUME,
 )
 
 for _spec in (
@@ -1020,22 +1014,6 @@ for _spec in (
     register_indicator(_spec)
 
 # Batch 5 ports — complex studies
-from .studies_simple import (  # noqa: E402
-    SPEC_MA_CROSS,
-    SPEC_MA_RIBBON,
-    SPEC_MOMENTUM,
-    SPEC_SPECIAL_K,
-    SPEC_WOODIES_CCI,
-)
-
-from .studies_trend import (  # noqa: E402
-    SPEC_ALLIGATOR,
-    SPEC_ALPHATREND,
-    SPEC_HALFTREND,
-    SPEC_ICHIMOKU,
-    SPEC_PARABOLIC_SAR,
-)
-
 from .studies_complex import (  # noqa: E402
     SPEC_CPR,
     SPEC_RANGE_ANALYSIS,
@@ -1043,13 +1021,26 @@ from .studies_complex import (  # noqa: E402
     SPEC_RELATIVE_VOLATILITY_INDEX,
     SPEC_VORTEX,
 )
-
 from .studies_signals import (  # noqa: E402
     SPEC_RSI_DIVERGENCE,
     SPEC_TREND_STRENGTH_INDEX,
     SPEC_WAVETREND,
     SPEC_WILLIAMS_FRACTALS,
     SPEC_WILLIAMS_VIX_FIX,
+)
+from .studies_simple import (  # noqa: E402
+    SPEC_MA_CROSS,
+    SPEC_MA_RIBBON,
+    SPEC_MOMENTUM,
+    SPEC_SPECIAL_K,
+    SPEC_WOODIES_CCI,
+)
+from .studies_trend import (  # noqa: E402
+    SPEC_ALLIGATOR,
+    SPEC_ALPHATREND,
+    SPEC_HALFTREND,
+    SPEC_ICHIMOKU,
+    SPEC_PARABOLIC_SAR,
 )
 
 for _spec in (

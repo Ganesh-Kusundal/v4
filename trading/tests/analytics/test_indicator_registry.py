@@ -547,7 +547,6 @@ class TestOscillatorsTrend:
         fast = sma(hl2, 5)
         slow = sma(hl2, 34)
         expected = [None if f is None or s is None else f - s for f, s in zip(fast, slow)]
-        assert result["ao"] == pytest.approx(expected, nan_ok=False) if False else True
         # Manual check to respect None slots
         for i, (got, exp) in enumerate(zip(result["ao"], expected)):
             if exp is None:

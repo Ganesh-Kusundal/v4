@@ -26,11 +26,8 @@ Parity notes
 from __future__ import annotations
 
 import math
-import pathlib
-import sys
 from typing import Any
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "src"))
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
     _change,
@@ -39,11 +36,8 @@ from tradex_trading.analytics.indicators import (
     _highest,
     _isfinite,
     _rolling_sum,
-    _sma_seeded_ema,
     _to_float,
-    sma,
 )
-
 
 # ---------------------------------------------------------------------------
 # Internal helpers

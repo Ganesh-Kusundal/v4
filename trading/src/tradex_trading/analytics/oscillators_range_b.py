@@ -9,9 +9,8 @@ concurrently without touching ``indicators.py``.  Helpers are imported from
 from __future__ import annotations
 
 import math
-from typing import Any
 
-from tradex_trading.analytics.indicators import IndicatorSpec, _to_float, rsi, roc
+from tradex_trading.analytics.indicators import IndicatorSpec, _to_float, roc, rsi
 
 __all__ = [
     "SPEC_BALANCE_OF_POWER",

@@ -21,7 +21,6 @@ Parity notes:
 from __future__ import annotations
 
 import math
-from typing import Any
 
 from tradex_trading.analytics.indicators import IndicatorSpec, _to_float, atr, true_ranges
 
@@ -139,8 +138,6 @@ def volatility_stop(
     if n == 0:
         return {"up": up, "down": down}
     values = _source_values(candles, str(source))
-    highs = [_to_float(c.ohlc.high.value) for c in candles]
-    lows = [_to_float(c.ohlc.low.value) for c in candles]
     # atr uses candles directly; true_ranges for fallback
     band = atr(candles, int(length))
     tr = true_ranges(candles)

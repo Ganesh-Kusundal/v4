@@ -10,7 +10,6 @@ ready for registry registration by the merge task.
 from __future__ import annotations
 
 import math
-from typing import Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,

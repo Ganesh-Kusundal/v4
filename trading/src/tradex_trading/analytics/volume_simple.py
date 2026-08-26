@@ -14,11 +14,6 @@ Parity notes
 
 from __future__ import annotations
 
-import math
-import pathlib
-import sys
-
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "src"))
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
     _cumulative,
