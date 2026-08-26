@@ -19,6 +19,7 @@ import { computeSeasonality, createSeasonalityRenderer } from "./seasonality";
 import { createTradexFeed, registerTradexIntervals } from "./feed";
 import { registerBackendIndicators, setIndicatorContext, setIndicatorInterval, type CatalogueEntry } from "./backend-indicators";
 import { TradexTradeFeed, fetchBook } from "./trade-feed";
+import { createTradingHost } from "./trade";
 import { createStrategiesPanel, fetchStrategyCatalogue, type PanelHost } from "./panels/strategies";
 import { createWatchlist } from "./shell/watchlist";
 import { createDrawRail } from "./shell/draw-rail";
@@ -88,6 +89,21 @@ function ensureSeries(): void {
 }
 ensureSeries();
 
+// ---------- trade tier host (on-chart orders + positions from /book) ---------
+const tradeHost = createTradingHost(
+  chart as never,
+  tradeFeed,
+  (symbol: string): number | undefined => {
+    // Synchronous LTP: last close of the loaded bars for the chart's symbol.
+    // Other symbols degrade to entry price (flat PnL) until a live LTP source
+    // lands — the trade-tier PositionMarker band / distance labels don't apply
+    // to the base TradingController's pnlText anyway.
+    if (symbol !== state.symbol || lastRawBars.length === 0) return undefined;
+    const last = lastRawBars[lastRawBars.length - 1] as unknown as { close?: number };
+    return typeof last.close === "number" ? last.close : undefined;
+  },
+);
+
 // ---------- status -------------------------------------------------------------
 const statusDot = document.createElement("span");
 statusDot.className = "status-dot";
@@ -109,6 +125,10 @@ setInterval(() => setStatus(wsLive), 1000);
 // ---------- history load --------------------------------------------------------
 async function loadHistory(): Promise<void> {
   clearProfile();
+  // Drop stale order/position markers before re-syncing the current book on
+  // symbol/interval change (clear() removes prior price-lines, start refetches).
+  tradeHost.stop();
+  void tradeHost.start();
   setIndicatorContext(state.exchange, state.symbol);
   setIndicatorInterval(state.interval);
   statusText.textContent = "loading…";
@@ -430,6 +450,19 @@ sellBtn.className = "tbtn tbtn--sell";
 sellBtn.innerHTML = "<b>Sell</b>";
 sellBtn.addEventListener("click", () => placeOrder("SELL"));
 
+// Trade pill: shows/hides the on-chart order lines + position markers. The
+// static button lives in index.html#shellbar; we unhide + wire it here and let
+// shellbar.append() move it into place next to Buy/Sell (mirrors compare/settings).
+const tradeBtn = $<HTMLButtonElement>("tradetoggle");
+tradeBtn.hidden = false;
+tradeBtn.classList.add("is-on");
+let tradeVisible = true;
+tradeBtn.addEventListener("click", () => {
+  tradeVisible = !tradeVisible;
+  tradeBtn.classList.toggle("is-on", tradeVisible);
+  if (tradeVisible) void tradeHost.start(); else tradeHost.stop();
+});
+
 // Fit + layout save/restore (chart.getState/restoreState)
 const fitBtn = document.createElement("button");
 fitBtn.className = "tbtn";
@@ -505,7 +538,7 @@ shellbar.append(
   rpBtn, divider(),
   fitBtn, divider(),
   lsave, lload, divider(),
-  qtyInput, buyBtn, sellBtn,
+  qtyInput, buyBtn, sellBtn, tradeBtn,
   divider(),
   cmpBtn, setBtn,
 );

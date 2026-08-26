@@ -321,7 +321,9 @@
 </head>
 <body>
   <input type="text" id="symbol" class="field field--sym" value="RELIANCE" title="Symbol" spellcheck="false" autocomplete="off" hidden />
-  <header class="shellbar" id="shellbar"></header>
+  <header class="shellbar" id="shellbar">
+    <button id="tradetoggle" class="tbtn" title="Show/hide on-chart orders + positions from /api/charts/book" hidden>Trade</button>
+  </header>
   <div class="legacy" hidden aria-hidden="true">
     <select id="interval"><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="30m">30m</option><option value="1h">1h</option><option value="1d" selected>1D</option></select>
     <select id="indpick"></select><button id="indadd">Add</button><span id="indlist" class="indlist"></span>
