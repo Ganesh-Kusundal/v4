@@ -24,6 +24,8 @@ PARAM_MAP = {
     "vwap": {},
     "stochastic": {"kPeriod": "k_period", "kSmoothing": "smooth_k", "dPeriod": "d_period"},
     "supertrend": {},
+    "wma": {"length": "period"},
+    "hma": {"length": "period"},
 }
 
 # backend plot key -> TS golden plot key (identity when absent).
@@ -40,6 +42,8 @@ PLOT_MAP = {
     "atr": {"value": "atr"},
     "obv": {"value": "obv"},
     "vwap": {"value": "vwap"},
+    "wma": {"value": "ma"},
+    "hma": {"value": "hma"},
 }
 
 

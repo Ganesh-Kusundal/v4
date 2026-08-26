@@ -13,6 +13,7 @@ from tradex_trading.analytics.indicators import (
     bollinger,
     compute_indicator,
     ema,
+    hma,
     indicator_catalogue,
     obv,
     register_indicator,
@@ -22,6 +23,7 @@ from tradex_trading.analytics.indicators import (
     supertrend,
     true_ranges,
     vwap_session,
+    wma,
 )
 
 
@@ -98,6 +100,26 @@ class TestGoldenValues:
         assert result[0] == CLOSES[0]
         k = 2.0 / 4.0
         assert result[1] == pytest.approx(CLOSES[1] * k + CLOSES[0] * (1 - k))
+
+    def test_wma_weights_and_padding(self):
+        result = wma([10, 11, 12, 13], 2)
+        # weights: oldest x1, newest x2; denom = 2*3/2 = 3
+        assert result[2] == pytest.approx((11 * 1 + 12 * 2) / 3)
+        assert result[3] == pytest.approx((12 * 1 + 13 * 2) / 3)
+        assert result[:1] == [None]
+
+    def test_wma_rejects_nonpositive_period(self):
+        with pytest.raises(ValueError, match="positive"):
+            wma([1.0, 2.0], 0)
+
+    def test_hma_floors_half_period_for_odd_length(self):
+        # TS source: half = floor(9/2) = 4 (never 4.5), root = floor(sqrt(9)) = 3.
+        values = [float(i) for i in range(1, 21)]
+        fast = wma(values, 4)
+        slow = wma(values, 9)
+        raw = [None if f is None or s is None else 2 * f - s for f, s in zip(fast, slow)]
+        expected = wma(raw, 3)
+        assert hma(values, 9) == expected
 
     def test_rsi_all_gains_is_100(self):
         rising = [float(i) for i in range(1, 20)]

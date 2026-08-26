@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -140,6 +141,51 @@ def roc(values: list, period: int = 10) -> list:
     return result
 
 
+def wma(values: list, period: int) -> list[float | None]:
+    """Linearly Weighted Moving Average (openalgo-charts parity).
+
+    Matches openalgo-charts ``wma`` (src/indicators/calc.ts): the most
+    recent bar carries weight ``period`` and the denominator is
+    ``period * (period + 1) / 2``. None before index ``period - 1``; a
+    None anywhere in a window nulls that slot (TS NaN carry-through).
+    """
+    if period <= 0:
+        raise ValueError("period must be positive")
+    n = len(values)
+    out: list[float | None] = [None] * n
+    floats = [_to_float(v) if v is not None else None for v in values]
+    denom = period * (period + 1) / 2
+    for i in range(period - 1, n):
+        window = floats[i - period + 1 : i + 1]
+        if any(v is None for v in window):
+            continue
+        acc = sum(v * (j + 1) for j, v in enumerate(window))
+        out[i] = acc / denom
+    return out
+
+
+def hma(values: list, period: int) -> list[float | None]:
+    """Hull Moving Average (openalgo-charts parity).
+
+    ``wma(2*wma(half) - wma(period), root)`` where both sub-periods are
+    FLOORED per the TS source (integer division truncates, never rounds):
+    half = max(1, floor(period/2)) — so 9 smooths over 4 bars — and
+    root = max(1, floor(sqrt(period))). Warmup Nones propagate through
+    each pass exactly as TS NaN does.
+    """
+    if period <= 0:
+        raise ValueError("period must be positive")
+    half = max(1, period // 2)
+    root = max(1, math.isqrt(period))
+    fast = wma(values, half)
+    slow = wma(values, period)
+    raw = [
+        None if f is None or s is None else 2.0 * f - s
+        for f, s in zip(fast, slow, strict=True)
+    ]
+    return wma(raw, root)
+
+
 def macd(values: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, list]:
     """MACD: EMA(fast) − EMA(slow), plus signal EMA and histogram (parity with
     openalgo-charts). Full-length lists, no warmup padding."""
@@ -157,6 +203,7 @@ __all__ = [
     "atr",
     "bollinger",
     "ema",
+    "hma",
     "macd",
     "obv",
     "roc",
@@ -165,6 +212,7 @@ __all__ = [
     "stochastic",
     "supertrend",
     "vwap_session",
+    "wma",
 ]
 
 
@@ -487,6 +535,12 @@ def _builtin_specs() -> list[IndicatorSpec]:
     def _fn_ema(candles, period):
         return ema(closes_only(candles), int(period))
 
+    def _fn_wma(candles, period):
+        return wma(closes_only(candles), int(period))
+
+    def _fn_hma(candles, period):
+        return hma(closes_only(candles), int(period))
+
     def _fn_rsi(candles, period):
         return rsi(closes_only(candles), int(period))
 
@@ -508,6 +562,18 @@ def _builtin_specs() -> list[IndicatorSpec]:
             params=(("period", "int", 20),),
             plots=(("value", "line", "EMA"),),
             fn=_fn_ema,
+        ),
+        IndicatorSpec(
+            id="wma", name="WMA", category="Trend", placement="overlay",
+            params=(("period", "int", 20),),
+            plots=(("value", "line", "WMA"),),
+            fn=_fn_wma,
+        ),
+        IndicatorSpec(
+            id="hma", name="HMA", category="Trend", placement="overlay",
+            params=(("period", "int", 9),),
+            plots=(("value", "line", "HMA"),),
+            fn=_fn_hma,
         ),
         IndicatorSpec(
             id="rsi", name="RSI", category="Momentum", placement="pane",
