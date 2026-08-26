@@ -18,8 +18,14 @@ __all__ = ["FetchResiliencePipeline"]
 class FetchResiliencePipeline:
     """Pipeline adapter that routes through an injected *fetch* callable."""
 
-    def __init__(self, fetch: Callable[..., Any]) -> None:
+    def __init__(
+        self,
+        fetch: Callable[..., Any],
+        *,
+        rate_limiter: Any = None,
+    ) -> None:
         self._fetch = fetch
+        self._rate_limiter = rate_limiter
 
     def send(self, method: str, url: str, **kwargs: Any) -> Any:
         result = self._fetch(method, url, **kwargs)
