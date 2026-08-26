@@ -15,13 +15,11 @@ The fetcher throttles through a per-broker historical rate-limit bucket
 documented historical-data quota — including when a symbol fails over to a
 different broker; broker failures still trigger bounded failover.
 
-Failover fan-out is bounded: once a broker fails for any symbol in a batch
-it is skipped as a failover target for the rest of the batch, so a
-broker-wide outage costs ~M + N calls instead of N × M.  Trade-off: a
-per-symbol failure (e.g. an instrument missing from one broker's registry)
-also blacklists that broker for the batch — later symbols lose that
-failover path.  Accepted for a backfill tool, where GapDetector re-checks
-missed symbols on the next run.
+Failover fan-out is bounded: a broker is blacklisted for the batch only
+after K distinct symbols fail on it (default K=3), so a broker-wide
+outage still costs ~M + N calls instead of N x M, while a per-instrument
+miss (e.g. one symbol missing from a broker's registry) no longer kills
+failover for the rest of the batch.
 """
 
 from __future__ import annotations
@@ -114,6 +112,36 @@ def _provider_for(name: str) -> str:
         name,
     )
     return "paper"
+
+
+# ponytail: threshold=3 — one per-instrument miss shouldn't kill the broker
+# for the rest of a 500-symbol batch, but 3 distinct misses is a strong
+# signal the broker is down. Tune up if flakes appear, down if real outages
+# drag the batch.
+BROKER_HEALTH_THRESHOLD = 3
+
+
+class _BrokerHealth:
+    """Per-batch broker health: blacklist a broker only after K distinct
+    instrument failures on it.  Per-instrument misses (e.g. instrument
+    missing from one broker's registry) no longer kill failover for the
+    rest of the batch.
+    """
+
+    def __init__(self, threshold: int = BROKER_HEALTH_THRESHOLD) -> None:
+        self._threshold = threshold
+        self._failed_symbols: dict[str, set[str]] = {}
+        self._blacklisted: set[str] = set()
+
+    def record_failure(self, broker_name: str, symbol: str) -> None:
+        if broker_name in self._blacklisted:
+            return
+        self._failed_symbols.setdefault(broker_name, set()).add(symbol)
+        if len(self._failed_symbols[broker_name]) >= self._threshold:
+            self._blacklisted.add(broker_name)
+
+    def is_blacklisted(self, broker_name: str) -> bool:
+        return broker_name in self._blacklisted
 
 
 class ParallelHistoryFetcher:
@@ -233,10 +261,11 @@ class ParallelHistoryFetcher:
         results: dict[str, HistoricalSeries] = {}
         lock = threading.Lock()
         errors: list[str] = []
-        #: Brokers that raised for at least one symbol this batch. Once a
-        #: broker proves broken we stop routing failover work to it, so a
-        #: broker-wide outage costs ~M + N calls instead of N x M.
-        failed_brokers: set[str] = set()
+        #: Per-batch broker health: blacklist a broker only after K distinct
+        #: instrument failures on it, so a per-instrument miss (e.g. one
+        #: symbol missing from a broker's registry) no longer kills
+        #: failover for the rest of the batch.
+        broker_health = _BrokerHealth()
 
         def _call_history(
             broker: Any, inst: Instrument, *, s: datetime, e: datetime,
@@ -248,7 +277,15 @@ class ParallelHistoryFetcher:
         def _fetch_one(broker_name: str, broker: Any, inst: Instrument) -> None:
             limiter = self._limiters[broker_name]
             first_exc: Exception | None = None
+            skip_primary = False
+            with lock:
+                if broker_health.is_blacklisted(broker_name):
+                    skip_primary = True
             try:
+                if skip_primary:
+                    raise RuntimeError(
+                        f"{broker_name}: blacklisted for batch after K distinct failures"
+                    )
                 windows = _windows_for(inst, cap)
                 if windows is not None:
                     series = self._stitch_windows(broker_name, broker, inst, windows)
@@ -273,13 +310,13 @@ class ParallelHistoryFetcher:
             except Exception as exc:
                 first_exc = exc
                 with lock:
-                    failed_brokers.add(broker_name)
+                    broker_health.record_failure(broker_name, str(inst.instrument_id))
             # Failover: try remaining brokers, skipping any already known-failed
             for other_name, other_broker in active_brokers.items():
                 if other_name == broker_name:
                     continue
                 with lock:
-                    if other_name in failed_brokers:
+                    if broker_health.is_blacklisted(other_name):
                         continue
                 try:
                     other_windows = _windows_for(
@@ -313,7 +350,7 @@ class ParallelHistoryFetcher:
                 except Exception as exc:
                     first_exc = first_exc or exc
                     with lock:
-                        failed_brokers.add(other_name)
+                        broker_health.record_failure(other_name, str(inst.instrument_id))
             with lock:
                 errors.append(f"{inst.instrument_id}: all brokers failed ({first_exc})")
 

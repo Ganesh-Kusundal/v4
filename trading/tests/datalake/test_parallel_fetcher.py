@@ -385,3 +385,41 @@ class TestEmptyBrokers:
         fetcher = ParallelHistoryFetcher({})
         with pytest.raises(ValueError, match="at least one broker"):
             fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, BASE + timedelta(days=7))
+
+
+# --------------------------------------------------------------------------- #
+# Per-batch broker health (K distinct failures before blacklist)
+# --------------------------------------------------------------------------- #
+
+class TestBrokerHealth:
+    def test_per_instrument_failure_does_not_blacklist_broker(self):
+        """One instrument missing from dhan → dhan still serves other symbols."""
+        dhan_fails = {str(INSTRUMENTS[0].instrument_id)}  # 1 symbol
+        dhan = _make_broker("dhan", fail_symbols=dhan_fails)
+        upstox = _make_broker("upstox")
+        brokers = {"dhan": dhan, "upstox": upstox}
+        fetcher = ParallelHistoryFetcher(brokers, max_workers=1)
+        end = BASE + timedelta(days=7)
+        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        # All symbols served (1 via upstox failover, the rest via dhan).
+        assert len(results) == len(INSTRUMENTS)
+        # dhan is the primary for half the batch (8/2 = 4) and was NOT
+        # blacklisted after the single per-instrument miss, so all 4
+        # primary calls landed on dhan (one raising, three succeeding).
+        assert dhan.history.call_count == 4
+        # upstox served its 4 primaries plus 1 failover.
+        assert upstox.history.call_count == 5
+
+    def test_broker_wide_outage_still_blacklists(self):
+        """N distinct symbols failing on dhan → dhan blacklisted for the batch."""
+        dhan = _make_broker("dhan", fail_symbols={str(i.instrument_id) for i in INSTRUMENTS})
+        upstox = _make_broker("upstox")
+        brokers = {"dhan": dhan, "upstox": upstox}
+        fetcher = ParallelHistoryFetcher(brokers, max_workers=1)
+        end = BASE + timedelta(days=7)
+        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        # All served via upstox failover.
+        assert len(results) == len(INSTRUMENTS)
+        # dhan was blacklisted after K distinct misses (default 3), so the
+        # remaining primary slots were NOT re-attempted on dhan.
+        assert dhan.history.call_count <= 3
