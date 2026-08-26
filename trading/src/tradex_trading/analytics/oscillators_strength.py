@@ -13,6 +13,7 @@ from typing import Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    _change,
     _ema_of_gapped,
     _highest,
     _lowest,
@@ -50,21 +51,6 @@ def _highs(candles: list) -> list[float]:
 
 def _lows(candles: list) -> list[float]:
     return [_f(c.ohlc.low.value) for c in candles]
-
-
-def _change(values: list[float | None]) -> list[float | None]:
-    """None-safe change (skips None windows); canonical ``indicators._change``
-    would crash on the warmup Nones that ``trix`` feeds in, so this distinct
-    local is deliberately kept."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    for i in range(1, n):
-        a = values[i]
-        b = values[i - 1]
-        if a is None or b is None:
-            continue
-        out[i] = a - b
-    return out
 
 
 def _sma_gapped(values: list[float | None], period: int) -> list[float | None]:

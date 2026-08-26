@@ -583,12 +583,17 @@ def _cumulative(values: list[float | None]) -> list[float]:
 
 
 def _change(values: list, n: int = 1) -> list[float | None]:
-    """Δn: values[i] - values[i-n].  None for the first *n* bars."""
+    """Δn: values[i] - values[i-n].  None for the first *n* bars or when
+    either side of the pair is None (TS NaN propagation)."""
     nv = [_to_float(v) for v in values]
     m = len(nv)
     out: list[float | None] = [None] * m
     for i in range(n, m):
-        out[i] = nv[i] - nv[i - n]
+        a = nv[i]
+        b = nv[i - n]
+        if a is None or b is None:
+            continue
+        out[i] = a - b
     return out
 
 
