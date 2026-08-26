@@ -182,6 +182,8 @@ class ParallelHistoryFetcher:
         """
         if not instruments:
             return {}
+        if not self._brokers:
+            raise ValueError("ParallelHistoryFetcher requires at least one broker")
         if isinstance(timeframe, str):
             timeframe = Timeframe(timeframe)
 

@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import pytest
+
 from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
@@ -376,3 +378,10 @@ class TestRangedFetch:
         assert len(results) == 2
         # a: 1 ranged call; b: 1 plain call
         assert dhan.history.call_count == 2
+
+
+class TestEmptyBrokers:
+    def test_empty_brokers_raises(self):
+        fetcher = ParallelHistoryFetcher({})
+        with pytest.raises(ValueError, match="at least one broker"):
+            fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, BASE + timedelta(days=7))
