@@ -39,13 +39,17 @@ known-broken broker.
 ## Architecture
 
 ```
-DhanApiClient / UpstoxApiClient
+ProviderHttpClient (HTTP client held by Dhan/Upstox ApiClient)
 └── self._pipeline : ResiliencePipeline
     └── self._rate_limiter : MultiBucketRateLimiter   ← single source of truth
+└── .rate_limiter                                     ← NEW: proxy to self._pipeline._rate_limiter
+
+DhanApiClient / UpstoxApiClient
+└── .rate_limiter : MultiBucketRateLimiter            ← NEW: reads self._http.rate_limiter
 
 DhanBroker / UpstoxBroker
 ├── super().__init__(..., transport=client, ...)
-└── .rate_limiter : MultiBucketRateLimiter            ← NEW: proxy to transport
+└── .rate_limiter : MultiBucketRateLimiter            ← NEW: reads self._transport.rate_limiter
 
 ParallelHistoryFetcher
 ├── brokers : dict[str, Broker]
@@ -55,7 +59,34 @@ ParallelHistoryFetcher
 
 ## Components
 
-### 1. Broker exposes `.rate_limiter`
+### 1. `ProviderHttpClient` exposes `.rate_limiter`
+
+In `ProviderHttpClient.__init__`
+(`brokers/src/tradex_brokers/common/provider_client.py:104-122`), after
+`self._pipeline = pipeline`, add one line:
+
+```python
+self.rate_limiter = pipeline._rate_limiter
+```
+
+This is the *actual* source of truth. Every HTTP client (production
+`ProviderHttpClient`, test doubles) now exposes its limiter without
+walking through private attributes.
+
+### 2. ApiClient exposes `.rate_limiter`
+
+In `DhanApiClient.__init__`
+(`brokers/src/tradex_brokers/dhan/client.py:157-169`), after `self._http = http`,
+add:
+
+```python
+self.rate_limiter = self._http.rate_limiter
+```
+
+Same in `UpstoxApiClient.__init__`
+(`brokers/src/tradex_brokers/upstox/client.py`).
+
+### 3. Broker exposes `.rate_limiter`
 
 In `DhanBroker.__init__` and `UpstoxBroker.__init__`
 (`brokers/src/tradex_brokers/dhan/adapter.py:58-71`,
@@ -63,33 +94,23 @@ In `DhanBroker.__init__` and `UpstoxBroker.__init__`
 add:
 
 ```python
-self.rate_limiter = self._transport._pipeline._rate_limiter
-```
-
-(One line. Reads from the transport the broker already holds. No new
-construction logic.)
-
-For the `transport=None` case (the broker exists without an HTTP client,
-e.g. unit tests of broker-only logic), `self._transport` is `None` and the
-attribute read would fail. Guard:
-
-```python
 self.rate_limiter = (
-    self._transport._pipeline._rate_limiter if self._transport is not None else None
+    self._transport.rate_limiter if self._transport is not None else None
 )
 ```
 
-A `None` rate limiter is the existing "no rate limiting" path; the fetcher
-already handles this (see fallback in §3).
+Three layers, each one hop. `ProviderHttpClient.rate_limiter` is the
+source; ApiClient and Broker are thin proxies. The `transport=None` guard
+preserves the existing "no HTTP client" path (broker-only unit tests).
 
-### 2. No change to the HTTP client
+### 4. No change to the HTTP client
 
 `client_shared.py:106-110` already builds the pipeline with
 `limiter_for_provider(provider)`. The fetcher now reads the *same* limiter
 through the broker. The `trigger_cooldown(bucket)` call at
 `resilience.py:1187-1188` already mutates the correct instance.
 
-### 3. Fetcher reads from broker
+### 5. Fetcher reads from broker
 
 In `ParallelHistoryFetcher.__init__`
 (`trading/src/tradex_trading/datalake/parallel_fetcher.py:138-157`), replace
