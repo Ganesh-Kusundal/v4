@@ -1,10 +1,13 @@
-// Bottom dock: tabbed host for scanner/backtest/logs. Render-only host
-// chrome; panels are injected by callers so bottom-dock stays generic.
+// Bottom dock: tabbed host for scanner/backtest/orders/logs. Render-only host
+// chrome; panels are injected by callers so bottom-dock stays generic. The
+// dock starts collapsed (a single tab row); clicking a tab opens it, and the
+// chevron collapses it again.
 export type DockTab = "scanner" | "backtest" | "orders" | "logs";
 
 export function createBottomDock(container: HTMLElement): {
   select(tab: DockTab): void;
   setContent(tab: DockTab, el: HTMLElement): void;
+  toggle(open: boolean): void;
 } {
   container.innerHTML = "";
   const tabs = document.createElement("div");
@@ -33,7 +36,15 @@ export function createBottomDock(container: HTMLElement): {
     btn.addEventListener("click", () => select(t.id));
   }
 
+  // Chevron toggle sits after the tabs, far enough right to not crowd them.
+  const toggleBtn = document.createElement("button");
+  toggleBtn.className = "dock-toggle";
+  toggleBtn.textContent = "▾";
+  toggleBtn.title = "Collapse / expand panels";
+  tabs.append(toggleBtn);
+
   function select(tab: DockTab): void {
+    toggle(true);
     for (const b of Array.from(tabs.querySelectorAll<HTMLButtonElement>("[data-tab]"))) {
       b.classList.toggle("active", b.dataset.tab === tab);
     }
@@ -42,8 +53,19 @@ export function createBottomDock(container: HTMLElement): {
     }
   }
 
+  function toggle(open: boolean): void {
+    panels.classList.toggle("dock-hidden", !open);
+    container.classList.toggle("dock-collapsed", !open);
+    toggleBtn.textContent = open ? "▾" : "▸";
+    toggleBtn.title = open ? "Collapse panels" : "Expand panels";
+  }
+
   container.append(tabs, panels);
-  select("scanner");
+  toggleBtn.addEventListener("click", () => {
+    const closed = panels.classList.contains("dock-hidden");
+    toggle(closed); // closed -> open, open -> closed
+  });
+  toggle(false); // collapsible by default: only the tab row shows.
 
   return {
     select,
@@ -53,5 +75,6 @@ export function createBottomDock(container: HTMLElement): {
       host.innerHTML = "";
       host.append(el);
     },
+    toggle,
   };
 }

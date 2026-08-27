@@ -287,8 +287,13 @@
     }
     #bottom-tabs button.active { color: var(--brass); border-bottom-color: var(--brass); }
     #bottom-tabs button:hover { color: var(--paper); }
+    #bottom-tabs button.dock-toggle { margin-left: auto; }
     #bottom-panels { flex: 1; overflow: auto; padding: 12px; background: var(--panel); }
     .dock-panel { display: none; } .dock-panel.active { display: block; }
+    /* Collapsed: the dock shrinks to its tab row only; panels hidden. */
+    #bottom-panels.dock-hidden { display: none; }
+    #bottom-dock.dock-collapsed { flex: 0 0 auto; }
+    #bottom-dock.dock-collapsed #bottom-tabs { border-bottom: none; }
     #bottom-panels h3 { font: 600 10px "Sora", sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--brass); margin: 0 0 8px; }
     #bottom-panels select, #bottom-panels input { background: var(--ink) !important; border: 1px solid var(--line) !important; color: var(--paper) !important; }
     #bottom-panels input { width: 120px !important; }
