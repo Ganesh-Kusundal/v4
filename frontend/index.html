@@ -53,7 +53,7 @@
       font-size: 13px; line-height: 1.45;
       display: grid;
       grid-template-columns: minmax(0,1fr) 320px;
-      grid-template-rows: auto minmax(0,1fr) 220px;
+      grid-template-rows: auto minmax(0,1fr) auto;
       gap: 8px; padding: 10px;
       height: 100vh; overflow: hidden;
     }
@@ -277,6 +277,7 @@
       display: flex; flex-direction: column;
       background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
       overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,.2);
+      min-height: 0;
     }
     #bottom-tabs { display: flex; gap: 0; padding: 0 10px; border-bottom: 1px solid var(--line); background: var(--ink); }
     #bottom-tabs button {
@@ -288,9 +289,9 @@
     #bottom-tabs button.active { color: var(--brass); border-bottom-color: var(--brass); }
     #bottom-tabs button:hover { color: var(--paper); }
     #bottom-tabs button.dock-toggle { margin-left: auto; }
-    #bottom-panels { flex: 1; overflow: auto; padding: 12px; background: var(--panel); }
+    #bottom-panels { flex: 1; overflow: auto; padding: 12px; background: var(--panel); min-height: 140px; }
     .dock-panel { display: none; } .dock-panel.active { display: block; }
-    /* Collapsed: the dock shrinks to its tab row only; panels hidden. */
+    /* Collapsed: panels hidden, dock shrinks to its tab row. */
     #bottom-panels.dock-hidden { display: none; }
     #bottom-dock.dock-collapsed { flex: 0 0 auto; }
     #bottom-dock.dock-collapsed #bottom-tabs { border-bottom: none; }
