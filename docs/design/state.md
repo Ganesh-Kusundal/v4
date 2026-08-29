@@ -59,8 +59,8 @@ Every item below has a test pin and a commit. Suite at completion: **2808 passed
 
 ## Pending — what remains
 
-### Sprint 0 — pre-flight (highest leverage)
-- 🟢 **G17** `pyproject.toml` files mostly empty; `uv.lock` is a 4-line stub. CI runs `uv sync --frozen` and gets nothing. *The prerequisite for every other CI-gated fix; without it, no other change is verifiable end-to-end.* **Status:** unstarted.
+### Sprint 0 — pre-flight (CLOSED)
+- ✅ **G17** `ec6c288` + `fd57963` — root `pyproject.toml` is a uv workspace manifest with `[tool.uv.workspace]` + `[tool.uv.sources]` for the three members and a `[dependency-groups].dev` listing ruff, mypy, pytest, pytest-cov, pytest-timeout, and the three workspace members. `uv lock` regenerates the lockfile (1393 lines). `uv sync --frozen` is now idempotent. `tradex-trading[datalake,api,full]` is requested so the parity and replay tests can collect. mypy on the domain kernel is clean.
 
 ### Sprint 3 — correctness at scale
 - 🟠 **G4** `BaseBroker` has ~30 pass-throughs. Refactor to a generated wall. **Status:** unstarted.
@@ -107,4 +107,5 @@ From `tradexv2-org`: architecture first, then contracts, then tests, then implem
 - 2026-08-29 — C1 GREEN (`d6f65ea`); C1 follow-up (`df61073`); C2 (`29e527e`); C3 (`e766fb1`); C4 (`91ab3dd`); C5 (`0254054`). All 5 Sprint-1 criticals closed.
 - 2026-08-29 — H1+H5+H7+H8 batch (`ab0808b`); H2 (`dc5e0aa`); G3 (`0c9678e`); G2 (`aeb7c7b`).
 - 2026-08-29 — Sprint 2 closed via parallel agent team: R1 (`bb62e39`), M1 (`d00a3ea`), H4 (`fb6395f`), H6 (`75aed48`), H3+M2 (`9f95c2e`), G5 (`69c5aa9`). 7/7 items done. Suite 2808 passed, 0 failed.
+- 2026-08-29 — G17 CI pre-flight closed (`ec6c288` + `fd57963`): root `pyproject.toml` now a uv workspace manifest with `[tool.uv.workspace]`, `[tool.uv.sources]`, and `[dependency-groups].dev` listing the CI tooling. `uv lock` regenerates a 1393-line `uv.lock`; `uv sync --frozen` is idempotent. Mypy on the domain kernel is clean. CI is now verifiable end-to-end.
 - 2026-08-29 — state file consolidated: every closed item moved to a single "Done" section with commit hashes; per-item RED/GREEN test plan sections removed (they were stale). Sprint 3 / 4 / 5 / Backlog pending items preserved.
