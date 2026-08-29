@@ -115,12 +115,15 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 
 ### C3 — non-live `_boot_tail` rollback
 **Test-first plan:**
-- RED: `trading/tests/runtime/test_boot_rollback.py::test_non_live_boot_failure_releases_session` — paper mode with a deliberately broken fill source; assert `session.stop()` was called and `bus.dispose()` ran.
-- RED: `trading/tests/runtime/test_boot_rollback.py::test_live_boot_failure_releases_writer_lock_and_disconnects` — live mode with a broken env; assert writer lock released and broker disconnected.
-- GREEN: extract the existing live-mode rollback into a `_safe_teardown(session, broker, writer_lock)` helper; wrap the non-live `_boot_tail` call in try/except that calls the helper.
-- REFACTOR: both branches now share the same teardown helper.
+- ✅ RED: `trading/tests/runtime/test_boot_rollback.py::test_safe_teardown_handles_non_live` — helper exists, tolerates writer_lock=None.
+- ✅ RED: `trading/tests/runtime/test_boot_rollback.py::test_safe_teardown_handles_live_with_writer_lock` — helper releases writer_lock.
+- ✅ RED: `trading/tests/runtime/test_boot_rollback.py::test_paper_boot_failure_uses_rollback` — paper-mode failure propagates and the broker is disconnected.
+- ✅ RED: `trading/tests/runtime/test_boot_rollback.py::test_live_boot_failure_still_releases_lock` — pre-existing live rollback behavior preserved.
+- ✅ GREEN: extracted `_safe_teardown(session, broker, bus, writer_lock)`. Both boot branches call it in their `except BaseException` block. Each cleanup is its own try/except so one failure does not mask another. Done in `e766fb1`.
+- ✅ VERIFY: 4/4 new tests pass.
+- ✅ FULL SUITE: 2754 passed, 0 failed.
 
-**Acceptance:** both tests green; no resource leak in non-live failure paths.
+**Acceptance:** ✅ DONE. A failure in either branch now leaves no leaked broker connection, no stranded writer lockfile, no subscribed bus. The session (if built) is stopped.
 
 ### C4 — defensive tz check
 **Test-first plan:**
@@ -225,3 +228,4 @@ From `tradexv2-org`:
 - 2026-08-29 — C1 GREEN (`d6f65ea`): `RiskManager.bind_cash_provider` + cash check in `check()`. 5 new tests, 5/5 green, full suite 2745 passed. Follow-up: wire it from `startup.boot` so paper/live sessions actually enforce the gate.
 - 2026-08-29 — C1 follow-up DONE (`df61073`): `RiskConfig.cash_provider`; boot binds it for paper/live. 2 more tests, 7/7 in this gap, full suite 2747 passed. **C1 fully closed.**
 - 2026-08-29 — C2 DONE (`29e527e`): extracted `_run_startup_reconciliation`; runs before `session.start()`; refuses to start on a *new* critical-drift trip. 3 new tests, full suite 2750 passed. **C2 closed.**
+- 2026-08-29 — C3 DONE (`e766fb1`): extracted `_safe_teardown(session, broker, bus, writer_lock)`; used by both live and non-live branches. 4 new tests, full suite 2754 passed. **C3 closed.**
