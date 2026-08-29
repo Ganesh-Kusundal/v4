@@ -6,6 +6,7 @@ Frozen dataclass tree with strict shape validation.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -21,6 +22,15 @@ class RiskConfig:
     max_position_value: Decimal | None = None
     max_orders_per_minute: int | None = None
     kill_switch_default: bool = False
+    reject_unknown_market_value: bool = False
+    max_daily_loss_amt: Decimal | None = None
+    max_drawdown_pct: Decimal | None = None
+    #: Optional zero-arg callable returning available cash (Decimal).
+    #: When set, ``boot()`` binds it to the engine's ``RiskManager`` so
+    #: every BUY in :meth:`RiskManager.check` is rejected if its incoming
+    #: notional exceeds the returned cash. When None, the cash gate is
+    #: skipped (backward-compat with risk configs that do not track cash).
+    cash_provider: Callable[[], Decimal | None] | None = None
 
     def __post_init__(self) -> None:
         if self.max_order_value is not None and not isinstance(self.max_order_value, Decimal):
@@ -34,6 +44,18 @@ class RiskConfig:
                 self,
                 "max_position_value",
                 Decimal(str(self.max_position_value)),
+            )
+        if self.max_daily_loss_amt is not None and not isinstance(self.max_daily_loss_amt, Decimal):
+            object.__setattr__(
+                self,
+                "max_daily_loss_amt",
+                Decimal(str(self.max_daily_loss_amt)),
+            )
+        if self.max_drawdown_pct is not None and not isinstance(self.max_drawdown_pct, Decimal):
+            object.__setattr__(
+                self,
+                "max_drawdown_pct",
+                Decimal(str(self.max_drawdown_pct)),
             )
 
 

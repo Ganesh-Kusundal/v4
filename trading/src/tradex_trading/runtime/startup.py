@@ -284,6 +284,9 @@ def _boot_tail(
         max_order_value=cfg.risk.max_order_value,
         max_position_value=cfg.risk.max_position_value,
         max_orders_per_minute=cfg.risk.max_orders_per_minute,
+        reject_unknown_market_value=cfg.risk.reject_unknown_market_value,
+        max_daily_loss_amt=cfg.risk.max_daily_loss_amt,
+        max_drawdown_pct=cfg.risk.max_drawdown_pct,
     )
 
     # 6. Create execution engine
@@ -294,6 +297,11 @@ def _boot_tail(
     # Bind the OMS cache as the position source so ``max_position_value`` is
     # enforced against live cumulative exposure (qty * avg_price + incoming).
     risk_manager.set_positions_provider(engine.cache.all_positions)
+    # C1 follow-up: bind the cash provider from config when set. Paper/live
+    # sessions without a cash_provider see the gate off (backward-compat);
+    # backtest/replay own their own CashLedger and bypass the engine gate.
+    if cfg.risk.cash_provider is not None and cfg.mode in ("paper", "live"):
+        risk_manager.bind_cash_provider(cfg.risk.cash_provider)
     engine.kill_switch = cfg.kill_switch_default
 
     # 6a. Order durability (R1) — restore persisted orders into the OMS cache
