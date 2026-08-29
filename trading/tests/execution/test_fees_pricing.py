@@ -91,7 +91,13 @@ def test_pricing_service_total_cost_sell() -> None:
 
 
 def test_custom_fee_calculator() -> None:
-    # Zero-fee calculator
+    # M1 (2026-08-29): legacy percentage-of-value path was removed in favor of
+    # the canonical equity-intraday breakdown.  Custom-rate constructor
+    # parameters are no longer consulted by ``calculate`` — only the static
+    # canonical rates are used, so a "zero-rate" calculator still returns the
+    # canonical fee for the default model.  This test now pins the
+    # post-unification contract: the canonical model is the only model, and
+    # the per-call total is exactly ``equity_intraday(price, qty).total``.
     calc = FeeCalculator(
         brokerage_pct=Decimal("0"),
         stt_pct=Decimal("0"),
@@ -100,13 +106,22 @@ def test_custom_fee_calculator() -> None:
         stamp_duty_pct=Decimal("0"),
         gst_pct=Decimal("0"),
     )
-    fee = calc.calculate(_fill(OrderSide.BUY, 100, 10))
-    assert fee.amount == Decimal("0")
+    fill = _fill(OrderSide.BUY, 100, 10)
+    fee = calc.calculate(fill)
+    from tradex_domain.utils import q2
+    expected = q2(
+        FeeCalculator.equity_intraday(
+            side=OrderSide.BUY, price=Decimal("100"), quantity=Decimal("10"),
+        ).total
+    )
+    assert fee.amount == expected
 
 
 def test_custom_rate_legacy_path_is_side_aware() -> None:
-    """Custom-rate calculators still charge STT on sells only — the legacy
-    path stays structurally identical to the canonical model (parity HIGH-6)."""
+    """M1 (2026-08-29): the legacy percentage-of-value path was removed.
+    The canonical equity-intraday model is the only path; the STT-on-sell
+    rule still holds (a SELL fill costs strictly more than an identical
+    BUY fill), and the constructor rate parameters are no longer consulted."""
     calc = FeeCalculator(brokerage_pct=Decimal("0.05"))
     buy_fee = calc.calculate(_fill(OrderSide.BUY, 100, 10))
     sell_fee = calc.calculate(_fill(OrderSide.SELL, 100, 10))

@@ -5,6 +5,13 @@ Pure Decimal math, no I/O.  STT/brokerage/exchange/GST rates for the
 equity cash segment; all values quantized to 2 dp (paisa) with
 ROUND_HALF_UP.
 
+One fee model: the canonical equity-intraday breakdown in
+:meth:`FeeCalculator.equity_intraday` is the only path used by
+:meth:`FeeCalculator.calculate` (M1 unification, 2026-08-29).  The
+pre-unification legacy path used a different GST base (tax-bug: GST
+on brokerage+exchange only, not brokerage+exchange+sebi) and was
+removed.
+
 SEBI statutory ₹20/crore (0.0002%) — _SEBI_RATE canonical; constructor sebi_charge_pct is percent (0.0001 → 0.0001% = ₹10/crore, not statutory — clarified).
 
 Delivery STT pre-Oct-2024 sell-only; post-Oct-2024 both sides — current equity_delivery models conservative pre-reform.
@@ -74,18 +81,11 @@ class FeeCalculator:
         stamp_duty_pct: Decimal = Decimal("0.003"),
         gst_pct: Decimal = Decimal("18"),
     ) -> None:
-        # NOTE: the instance defaults mirror the canonical static model rates
-        # (sebi 0.0001% and stamp 0.003% as *rates*, not percent-of-percent),
-        # so the default path delegates to equity_intraday and the two fee
-        # paths agree exactly.
-        #
-        # SEBI charge: the static _SEBI_RATE (₹20/crore = 0.0002%) is the
-        # *flat* rate used in the canonical path.  The constructor default
-        # sebi_charge_pct=0.0001% is deliberately different because the
-        # legacy percentage-of-value path divides by 100, yielding 0.000001%
-        # effective — the canonical path computes 0.000002 directly.  Both
-        # defaults route through the canonical path (they match the sentinel
-        # dict), so the two fee models agree exactly for default rates.
+        # The instance defaults mirror the canonical static model rates and
+        # are accepted on the constructor for forward compatibility (frozen
+        # dataclasses, downstream imports); the canonical ``equity_intraday``
+        # path uses the static constants directly, so the constructor
+        # parameters are accepted but not consulted.
         self._brokerage_pct = brokerage_pct
         self._stt_pct = stt_pct
         self._exchange_charge_pct = exchange_charge_pct
@@ -96,66 +96,27 @@ class FeeCalculator:
     def calculate(self, fill: Fill) -> Money:
         """Calculate total fees for a fill. Returns Money in INR.
 
-        Delegates to the canonical equity-intraday model
-        (:meth:`equity_intraday`) so the instance API and the v3-ported static
-        helpers agree exactly — one fee model, not two. Custom-rate
-        constructor overrides (tests, exotic configs) are honored when any
-        deviate from the standard defaults.
+        One fee model, one path: the canonical equity-intraday breakdown
+        (brokerage + exchange + sebi + stamp + STT-on-sell + 18% GST on
+        brokerage+exchange+sebi).  The pre-unification legacy path used
+        a different GST base (tax-bug: GST on brokerage+exchange only,
+        not brokerage+exchange+sebi) and was removed in M1.
+
+        Constructor rate parameters are kept for forward compatibility
+        (frozen dataclasses, downstream imports) but are not consulted
+        by ``calculate`` — the canonical static-rate path is the only
+        path, so instance API and the v3-ported static helpers agree
+        exactly.
         """
         if fill.price.value <= 0 or fill.quantity.value <= 0:
             raise ValueError("fill price and quantity must be positive")
 
-        # Non-default rates -> legacy percentage-of-value path (kept for
-        # custom calculators; the default path is the canonical flat model).
-        defaults = {
-            "_brokerage_pct": Decimal("0.03"),
-            "_stt_pct": Decimal("0.025"),
-            "_exchange_charge_pct": Decimal("0.00345"),
-            "_sebi_charge_pct": Decimal("0.0001"),
-            "_stamp_duty_pct": Decimal("0.003"),
-            "_gst_pct": Decimal("18"),
-        }
-        if any(
-            getattr(self, name) != default
-            for name, default in defaults.items()
-        ):
-            return self._calculate_legacy(fill)
-
-        # Canonical path (default rates) — same components as legacy path.
         breakdown = self.equity_intraday(
             side=fill.side,
             price=fill.price.value,
             quantity=fill.quantity.value,
         )
         return Money(amount=breakdown.total.quantize(Decimal("0.01")))
-
-    def _calculate_legacy(self, fill: Fill) -> Money:
-        """Percentage-of-value fee path (custom rate overrides).
-
-        GST base differs: canonical (brokerage+exchange+sebi)*0.18, legacy (brokerage+exchange)*0.18 — flagged for removal. STT on sells only in both paths.
-        """
-        trade_value = fill.price.value * fill.quantity.value
-
-        brokerage = min(
-            trade_value * self._brokerage_pct / Decimal("100"),
-            _BROKERAGE_CAP,
-        )
-        stt = (
-            Decimal(0)
-            if fill.side is OrderSide.BUY
-            else trade_value * self._stt_pct / Decimal("100")
-        )
-        exchange_charge = trade_value * self._exchange_charge_pct / Decimal("100")
-        sebi_charge = trade_value * self._sebi_charge_pct / Decimal("100")
-        stamp_duty = trade_value * self._stamp_duty_pct / Decimal("100")
-
-        subtotal = brokerage + exchange_charge
-        gst = subtotal * self._gst_pct / Decimal("100")
-
-        total = (
-            brokerage + stt + exchange_charge + sebi_charge + stamp_duty + gst
-        )
-        return Money(amount=total.quantize(Decimal("0.01")))
 
     # -- v3-ported static helpers ------------------------------------------
 
