@@ -30,14 +30,15 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import MappingProxyType
 
 from tradex_domain.enums import OrderStatus
-from tradex_domain.events import OrderFilled
+from tradex_domain.events import OrderCancelled, OrderFilled, OrderPlaced
 from tradex_domain.execution import Fill, Order
-from tradex_domain.value_objects import OrderId, Quantity
+from tradex_domain.value_objects import CorrelationId, OrderId, Quantity
 
 log = logging.getLogger(__name__)
 
@@ -136,7 +137,52 @@ class LiveFillBridge:
         self._engine = engine
         self._resolver = trade_id_resolver
         self._unsubscribe = unsubscribe
+        # O(1) correlation-id -> engine order id index (H6).  Populated from
+        # ``OrderPlaced`` and pruned by ``OrderCancelled`` so a stream update
+        # resolves its engine order id without scanning ``engine.cache``.
+        # The mapping is internal: callers see a read-only view via
+        # :attr:`order_index`; the dict itself is never exposed.
+        self._engine_order_index: dict[CorrelationId, str] = {}
+        self._index_lock = threading.Lock()
+        # The bus must expose ``of_type`` to wire the index subscriptions;
+        # a few narrow unit tests pass a stub bus that only records
+        # publishes — fall back to an empty index for those (the bridge
+        # still works, just with a cache scan path disabled).
+        self._index_subscriptions: tuple[object, ...] = ()
+        of_type = getattr(bus, "of_type", None)
+        if of_type is not None:
+            self._index_subscriptions = (
+                of_type(OrderPlaced).subscribe(self._on_order_placed),
+                of_type(OrderCancelled).subscribe(self._on_order_cancelled),
+            )
         self._subscription = subscribe_orders(self._on_order)
+
+    @property
+    def order_index(self) -> Mapping[CorrelationId, str]:
+        """Read-only view of the engine-order index (H6 — O(1) lookup).
+
+        Keyed by the correlation id the broker echoes on the order stream;
+        the value is the engine's own order id (the one the OMS holds).
+        Backed by a ``MappingProxyType`` so callers cannot mutate the
+        bridge's internal state.
+        """
+        return MappingProxyType(self._engine_order_index)
+
+    def _on_order_placed(self, event: OrderPlaced) -> None:
+        """Populate the index when the engine publishes a new order."""
+        cid = getattr(event.order, "correlation_id", None)
+        if cid is None:
+            return
+        with self._index_lock:
+            self._engine_order_index[cid] = event.order.order_id.value
+
+    def _on_order_cancelled(self, event: OrderCancelled) -> None:
+        """Drop the index entry when an order is cancelled (post-state)."""
+        cid = getattr(event.order, "correlation_id", None)
+        if cid is None:
+            return
+        with self._index_lock:
+            self._engine_order_index.pop(cid, None)
 
     def _on_order(self, order: Order) -> None:
         """Emit an OrderFilled for the newly-filled delta of *order*."""
@@ -180,15 +226,16 @@ class LiveFillBridge:
 
     def _engine_order_id(self, order: Order) -> str | None:
         """The engine's own order id for a broker row, matched by correlation
-        id (the broker echoes the request's correlation id)."""
+        id (the broker echoes the request's correlation id).
+
+        O(1) lookup via the index populated from ``OrderPlaced`` events (H6).
+        The pre-fix O(n) ``engine.cache.all_orders()`` scan was removed.
+        """
         oid = getattr(order, "correlation_id", None)
         if oid is None:
             return None
-        for cached in self._engine.cache.all_orders():
-            cid = getattr(cached, "correlation_id", None)
-            if cid is not None and cid.value == oid.value:
-                return cached.order_id.value
-        return None
+        with self._index_lock:
+            return self._engine_order_index.get(oid)
 
     def _applied(self, order_id: str) -> Decimal:
         """Quantity already applied for this order in the OMS cache."""
@@ -206,6 +253,13 @@ class LiveFillBridge:
                 self._subscription.dispose()
         except Exception as exc:  # pragma: no cover
             log.error("error disposing live fill bridge: %s", exc)
+        # Tear down the bus subscriptions wired in __init__ so the bridge
+        # can be safely reconstructed (tests, hot-reload).
+        for sub in getattr(self, "_index_subscriptions", ()):  # pragma: no cover
+            try:
+                sub.dispose()
+            except Exception:
+                pass
 
 
 __all__ = ["LiveFillBridge", "TradeBookFillIdResolver"]
