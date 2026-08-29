@@ -7,14 +7,19 @@ API client.  Per-broker adapters subclass this and implement only what is
 genuinely specific (native option-chain fallbacks, super/forever/slice/edis,
 streaming backends, instrument loading).
 
-Design note — the explicit pass-through wall
--------------------------------------------
-The ~30 one-line delegations to ``self._transport`` are deliberate. Each one
-is the single place its operation applies lifecycle gating
-(``_require``), the mutation gate (``_require_mutation``), and/or a capability
-check — replacing them with dynamic ``__getattr__`` delegation would bypass
-that per-method policy (or require a fragile whitelist), lose per-method stack
-traces and IDE navigation, and save only boilerplate. Explicit wins here.
+Design note — the pass-through wall (G4)
+-----------------------------------------
+The mechanical one-line delegations to ``self._transport`` are generated
+from a single declarative spec (:attr:`_PASSTHROUGH_WALL` + the
+``_install_passthrough_wall`` installer). Each generated method keeps the
+same body shape the hand-written version had — lifecycle gate
+(``_require``), the mutation gate (``_require_mutation``), and/or a
+capability check (``require_capability``) — so the per-method policy stays
+visible in one place, every method has a normal entry in the class body
+(per-method stack traces, IDE navigation), and adding a new standard
+broker operation is a one-line edit to the spec rather than a new method
+definition. A broker-specific override (custom risk policy, etc.) stays a
+regular method and is preserved by the installer.
 
 Design note — two order gates, on purpose
 -----------------------------------------
@@ -60,6 +65,65 @@ from tradex_brokers.common.provider_common import (
 from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 
 log = logging.getLogger(__name__)
+
+
+def _install_passthrough_wall(cls: type[BaseBroker]) -> None:
+    """Generate the standard pass-through methods from :attr:`_PASSTHROUGH_WALL`.
+
+    See :class:`BaseBroker` for the spec format and the equivalent hand-written
+    bodies. Existing attributes on ``cls`` are not overwritten — adapters that
+    override a method (e.g. with broker-specific policy) keep their override.
+    """
+    for name, gate, arg_names, wraps_list, defaults in cls._PASSTHROUGH_WALL:
+        if name in cls.__dict__:
+            # An explicit override on the class (e.g. custom risk policy).
+            continue
+        # Split args into required + defaulted, since Python requires every
+        # positional after the first default to also have a default.
+        defaulted = {n: defaults[n] for n in arg_names if n in defaults}
+        required = [n for n in arg_names if n not in defaults]
+        param_parts: list[str] = []
+        param_parts.extend(required)
+        param_parts.extend(f"{n}={defaulted[n]}" for n in defaulted)
+        params = ", ".join(param_parts)
+        call_args = ", ".join(arg_names)
+        body_lines: list[str] = []
+        if gate == "read":
+            pass
+        elif gate == "mutation":
+            body_lines.append("    self._require_mutation()")
+        elif gate.startswith("mutation+cap:"):
+            body_lines.append("    self._require_mutation()")
+            cap = gate.split(":", 1)[1]
+            body_lines.append(
+                f'    require_capability(self._capabilities, "{cap}")'
+            )
+        elif gate.startswith("cap:"):
+            cap = gate.split(":", 1)[1]
+            body_lines.append(
+                f'    require_capability(self._capabilities, "{cap}")'
+            )
+        else:  # pragma: no cover — guarded by the literal declaration
+            raise AssertionError(f"unknown gate policy: {gate!r}")
+        if wraps_list:
+            body_lines.append(
+                f"    return list(self._require().{name}({call_args}))"
+            )
+        else:
+            body_lines.append(
+                f"    return self._require().{name}({call_args})"
+            )
+        method_src = (
+            f"def {name}(self{', ' + params if params else ''}):\n"
+            + "\n".join(body_lines)
+            + "\n"
+        )
+        # ``exec`` the method body with the module globals so that
+        # ``require_capability`` (imported at the top of this module) is
+        # resolvable. The local ``ns`` collects the freshly defined function.
+        ns: dict[str, Any] = {}
+        exec(method_src, globals(), ns)  # noqa: S102 — trusted local source
+        setattr(cls, name, ns[name])
 
 
 class BaseBroker:
@@ -319,55 +383,139 @@ class BaseBroker:
             self._registry.add_alias(symbol, iid)
 
     # ------------------------------------------------------------------
-    # orders — common pass-throughs
+    # pass-through wall [G4] — generated from a single declarative spec
     # ------------------------------------------------------------------
 
-    def submit_order(self, request: OrderRequest) -> OrderId:
-        self._require_mutation()
-        return self._require().submit_order(request)
+    #: Declarative spec for every one-line ``self._transport`` delegation
+    #: below. Adding a new broker operation that fits one of the three
+    #: standard gate policies (read / mutation / mutation+capability) is a
+    #: one-line edit here; non-standard policies (depth, history, search,
+    #: capability-only batch list-wraps, etc.) stay as regular methods.
+    #:
+    #: Each entry is ``(name, gate, arg_names, wraps_list, defaults)``:
+    #:   * ``gate`` ∈ ``"read"``, ``"mutation"``, ``"mutation+cap:<name>"``,
+    #:     or ``"cap:<name>"``.
+    #:   * ``arg_names`` are the parameter names to declare on the generated
+    #:     method. The same names are forwarded positionally to the
+    #:     transport.
+    #:   * ``wraps_list`` is True when the transport returns an iterable and
+    #:     the public method must materialise it as a list (preserves the
+    #:     pre-refactor ``return list(...)`` semantics).
+    #:   * ``defaults`` is a dict of ``name -> repr(default)`` for any
+    #:     parameter that must keep a default value (e.g. ``interval=None``).
+    _PASSTHROUGH_WALL: tuple[
+        tuple[str, str, tuple[str, ...], bool, dict[str, str]], ...
+    ] = (
+        # orders — read-only
+        ("get_order", "read", ("order_id",), False, {}),
+        ("get_orderbook", "read", (), True, {}),
+        ("get_order_by_correlation_id", "read", ("tag",), False, {}),
+        # portfolio — read-only
+        ("get_positions", "read", (), True, {}),
+        ("get_holdings", "read", (), True, {}),
+        ("get_account", "read", (), False, {}),
+        ("get_portfolio", "read", (), False, {}),
+        # market data — read-only
+        ("get_quote", "read", ("instrument",), False, {}),
+        ("ltp", "read", ("instrument",), False, {}),
+        # orders — mutation-gated
+        ("submit_order", "mutation", ("request",), False, {}),
+        ("cancel_order", "mutation", ("order_id",), False, {}),
+        ("modify_order", "mutation", ("order_id", "request"), False, {}),
+        # orders — mutation + capability (super / forever / slice / eDIS)
+        (
+            "submit_super_order",
+            "mutation+cap:supports_super_order",
+            ("request",),
+            False,
+            {},
+        ),
+        (
+            "modify_super_order",
+            "mutation+cap:supports_super_order",
+            ("order_id", "request"),
+            False,
+            {},
+        ),
+        (
+            "cancel_super_order",
+            "mutation+cap:supports_super_order",
+            ("order_id", "leg"),
+            False,
+            {"leg": "'ENTRY'"},
+        ),
+        (
+            "list_super_orders",
+            "cap:supports_super_order",
+            (),
+            True,
+            {},
+        ),
+        (
+            "submit_forever_order",
+            "mutation+cap:supports_forever_order",
+            ("request",),
+            False,
+            {},
+        ),
+        (
+            "modify_forever_order",
+            "mutation+cap:supports_forever_order",
+            ("order_id", "request"),
+            False,
+            {},
+        ),
+        (
+            "cancel_forever_order",
+            "mutation+cap:supports_forever_order",
+            ("order_id",),
+            False,
+            {},
+        ),
+        (
+            "list_forever_orders",
+            "cap:supports_forever_order",
+            (),
+            True,
+            {},
+        ),
+        (
+            "submit_slice_order",
+            "mutation+cap:supports_slice_order",
+            ("request", "slices", "interval"),
+            True,
+            {"interval": "None"},
+        ),
+        (
+            "submit_edis",
+            "mutation+cap:supports_edis",
+            ("request",),
+            False,
+            {},
+        ),
+        # kill switch
+        (
+            "kill_switch",
+            "mutation+cap:supports_kill_switch",
+            ("enable",),
+            False,
+            {"enable": "True"},
+        ),
+        ("status_kill_switch", "cap:supports_kill_switch", (), False, {}),
+        # auxiliary account surface
+        ("exit_all", "mutation", (), False, {}),
+        ("profile", "read", (), False, {}),
+        ("ledger", "read", ("from_date", "to_date"), True, {}),
+        ("fund_limits", "read", (), False, {}),
+        ("token_status", "read", (), False, {}),
+    )
 
-    def cancel_order(self, order_id: OrderId) -> Order:
-        self._require_mutation()
-        return self._require().cancel_order(order_id)
-
-    def modify_order(self, order_id: OrderId, request: OrderRequest) -> Order:
-        self._require_mutation()
-        return self._require().modify_order(order_id, request)
-
-    def get_order(self, order_id: OrderId) -> Order:
-        return self._require().get_order(order_id)
-
-    def get_orderbook(self) -> list[Order]:
-        return list(self._require().get_orderbook())
-
-    def get_order_by_correlation_id(self, tag: str) -> dict[str, object]:
-        return self._require().get_order_by_correlation_id(tag)
-
-    # ------------------------------------------------------------------
-    # portfolio — common pass-throughs
-    # ------------------------------------------------------------------
-
-    def get_positions(self) -> list[Position]:
-        return list(self._require().get_positions())
-
-    def get_holdings(self) -> list[Position]:
-        return list(self._require().get_holdings())
-
-    def get_account(self) -> Account:
-        return self._require().get_account()
-
-    def get_portfolio(self) -> PortfolioSnapshot:
-        return self._require().get_portfolio()
-
-    # ------------------------------------------------------------------
-    # market data — common pass-throughs
-    # ------------------------------------------------------------------
-
-    def get_quote(self, instrument: Instrument) -> Quote:
-        return self._require().get_quote(instrument)
-
-    def ltp(self, instrument: Instrument) -> Price:
-        return self._require().ltp(instrument)
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        # The standard pass-through wall is installed for every subclass too:
+        # adapters that don't override a method get the same body. Methods
+        # defined on the subclass take precedence and are not overwritten.
+        _install_passthrough_wall(cls)
 
     def depth(self, instrument: Instrument) -> Depth:
         require_depth_supported(instrument)
@@ -444,93 +592,24 @@ class BaseBroker:
     # kill switch, auxiliary account surface).
     # ------------------------------------------------------------------
 
-    def submit_super_order(self, request: OrderRequest) -> OrderId:
-        self._require_mutation()
-        require_capability(self._capabilities, "supports_super_order")
-        return self._require().submit_super_order(request)
-
-    def modify_super_order(
-        self, order_id: OrderId, request: OrderRequest
-    ) -> OrderResult:
-        self._require_mutation()
-        require_capability(self._capabilities, "supports_super_order")
-        return self._require().modify_super_order(order_id, request)
-
-    def cancel_super_order(
-        self, order_id: OrderId, leg: str = "ENTRY"
-    ) -> OrderResult:
-        self._require_mutation()
-        require_capability(self._capabilities, "supports_super_order")
-        return self._require().cancel_super_order(order_id, leg)
-
-    def list_super_orders(self) -> list[OrderResult]:
-        require_capability(self._capabilities, "supports_super_order")
-        return list(self._require().list_super_orders())
-
-    def submit_forever_order(self, request: OrderRequest) -> OrderId:
-        self._require_mutation()
-        require_capability(self._capabilities, "supports_forever_order")
-        return self._require().submit_forever_order(request)
-
-    def submit_slice_order(
-        self,
-        request: OrderRequest,
-        slices: int,
-        interval: timedelta | None = None,
-    ) -> list[OrderId]:
-        self._require_mutation()
-        require_capability(self._capabilities, "supports_slice_order")
-        return list(self._require().submit_slice_order(request, slices, interval))
-
-    def submit_edis(self, request: OrderRequest) -> OrderId:
-        self._require_mutation()
-        require_capability(self._capabilities, "supports_edis")
-        return self._require().submit_edis(request)
-
-    def modify_forever_order(
-        self, order_id: OrderId, request: OrderRequest
-    ) -> OrderResult:
-        self._require_mutation()
-        require_capability(self._capabilities, "supports_forever_order")
-        return self._require().modify_forever_order(order_id, request)
-
-    def cancel_forever_order(self, order_id: OrderId) -> OrderResult:
-        self._require_mutation()
-        require_capability(self._capabilities, "supports_forever_order")
-        return self._require().cancel_forever_order(order_id)
-
-    def list_forever_orders(self) -> list[OrderResult]:
-        require_capability(self._capabilities, "supports_forever_order")
-        return list(self._require().list_forever_orders())
-
-    def kill_switch(self, enable: bool = True) -> dict[str, object]:
-        self._require_mutation()
-        require_capability(self._capabilities, "supports_kill_switch")
-        return self._require().kill_switch(enable)
-
-    def status_kill_switch(self) -> dict[str, object]:
-        require_capability(self._capabilities, "supports_kill_switch")
-        return self._require().status_kill_switch()
-
-    def exit_all(self) -> dict[str, object]:
-        self._require_mutation()
-        return self._require().exit_all()
-
-    def profile(self) -> dict[str, object]:
-        return self._require().profile()
-
-    def ledger(self, from_date: str, to_date: str) -> list[dict[str, object]]:
-        return list(self._require().ledger(from_date, to_date))
-
-    def fund_limits(self) -> dict[str, object]:
-        return self._require().fund_limits()
-
-    def token_status(self) -> dict[str, object]:
-        return self._require().token_status()
+    # All one-line delegations below (super / forever / slice / eDIS,
+    # kill switch, auxiliary account surface) are generated by
+    # :func:`_install_passthrough_wall` from :attr:`_PASSTHROUGH_WALL`.
+    # Custom-policy methods (depth, history, search, ltp/quote_batch,
+    # future_chain) keep their hand-written bodies below.
+    # ------------------------------------------------------------------
 
     @property
     def registry(self) -> Any:
         return self._registry
+
+
+# Install the standard pass-through wall on BaseBroker itself.
+# Subclasses get it automatically via ``__init_subclass__``; explicit
+# overrides on the class (custom risk policy, broker-specific pass-throughs)
+# are preserved because ``_install_passthrough_wall`` skips any name that
+# is already in ``cls.__dict__``.
+_install_passthrough_wall(BaseBroker)
 
 
 __all__ = ["BaseBroker"]
