@@ -17,7 +17,12 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
+from tradex_domain.enums import (
+    OrderSide,
+    OrderStatus,
+    OrderType,
+    TimeInForce,
+)
 from tradex_domain.errors import OrderRejectedError
 from tradex_domain.events import (
     ErrorOccurred,
@@ -164,6 +169,9 @@ class RiskManager:
         live_orders_enabled: bool = True,
         positions_provider: Any | None = None,
         price_provider: Any | None = None,
+        reject_unknown_market_value: bool = False,
+        max_daily_loss_amt: Decimal | None = None,
+        max_drawdown_pct: Decimal | None = None,
     ) -> None:
         self._max_order_value = max_order_value
         self._max_position_value = max_position_value
@@ -171,6 +179,17 @@ class RiskManager:
         self._recent_orders: deque[datetime] = deque()
         self._lock = threading.Lock()
         self._live_orders_enabled = live_orders_enabled
+        #: When True, a MARKET order whose price/mark cannot be resolved is
+        #: denied (fail-closed for live); when False it preserves the legacy
+        #: behaviour of skipping the order-value gate (dev/paper).
+        self._reject_unknown_market_value = reject_unknown_market_value
+        #: Daily-loss and drawdown limits. Guards only get tighter as the day
+        #: progresses; they always allow reductions/flattening.
+        self._max_daily_loss_amt = max_daily_loss_amt
+        self._max_drawdown_pct = max_drawdown_pct
+        self._session_date: Any = None
+        self._base_pnl = Decimal("0")
+        self._peak_pnl = Decimal("0")
         #: Callable returning current positions (e.g. an OMS cache) so
         #: ``max_position_value`` can be enforced against live exposure. When
         #: None (backtest boot, unit tests), the position check is skipped.
@@ -220,12 +239,24 @@ class RiskManager:
             return None
         return value if value > 0 else None
 
+    def _mark_for_trade(self, request: OrderRequest) -> Decimal | None:
+        """Effective price for notional checks: the request price, else the
+        current market mark. ``None`` when neither is resolvable.
+
+        MARKET orders often carry no price; without this, their notional
+        collapses to zero and the order-value gate is silently bypassed.
+        """
+        price = request.price
+        if price is not None and price.value > 0:
+            return price.value
+        return self._mark_price(request.instrument)
+
     def _incoming_exposure(self, request: OrderRequest) -> Decimal:
         """Notional of the incoming order (price * quantity)."""
-        price = request.price
-        if price is None or price.value <= 0:
+        mark = self._mark_for_trade(request)
+        if mark is None:
             return Decimal("0")
-        return price.value * request.quantity.value
+        return mark * request.quantity.value
 
     @property
     def live_orders_enabled(self) -> bool:
@@ -253,6 +284,22 @@ class RiskManager:
         returns nothing usable — exposure falls back to avg_price.
         """
         self._price_provider = provider
+
+    def bind_cash_provider(self, provider: Any) -> None:
+        """Bind a zero-arg callable returning available cash (Decimal).
+
+        When bound, every BUY in :meth:`check` is rejected if its
+        incoming notional exceeds the returned cash. SELLs are never
+        cash-gated (a sell is a credit, not a debit). When unset, the
+        cash gate is skipped — backward-compatible with risk configs that
+        do not track cash.
+        """
+        self._cash_provider = provider
+
+    @property
+    def cash_provider_bound(self) -> bool:
+        """True when a cash provider is bound (C1 cash gate live)."""
+        return getattr(self, "_cash_provider", None) is not None
 
     @property
     def positions_provider_bound(self) -> bool:
@@ -285,16 +332,55 @@ class RiskManager:
                 return self._deny()
 
             # Order value check
-            if self._max_order_value is not None and request.price is not None:
-                order_value = request.price.value * request.quantity.value
-                if order_value > self._max_order_value:
+            if self._max_order_value is not None:
+                mark = self._mark_for_trade(request)
+                if mark is None:
+                    if self._reject_unknown_market_value:
+                        # Fail-closed live: don't let an unpriced MARKET order
+                        # slip past the notional gate with no mark to bind it.
+                        return self._deny()
+                elif mark * request.quantity.value > self._max_order_value:
                     return self._deny()
+
+            # Cash check (C1) — only BUY is cash-gated; a SELL is a credit.
+            # Skipped when no cash provider is bound (backward-compat with
+            # risk configs that do not track cash). Incoming notional is
+            # the notional the order would add to existing exposure.
+            if (
+                request.side is OrderSide.BUY
+                and getattr(self, "_cash_provider", None) is not None
+            ):
+                try:
+                    cash = self._cash_provider()
+                except Exception:
+                    cash = None
+                if cash is not None:
+                    incoming = self._incoming_exposure(request)
+                    if incoming > Decimal(str(cash)):
+                        return self._deny()
 
             # Position value check (cumulative exposure + incoming order)
             if self._max_position_value is not None:
                 exposure = self._position_exposure() + self._incoming_exposure(request)
                 if exposure > self._max_position_value:
                     return self._deny()
+
+            # Daily-loss / drawdown guards (only deny new exposure, never
+            # a reduction). Skipped when no position provider is bound.
+            if (
+                self._max_daily_loss_amt is not None
+                or self._max_drawdown_pct is not None
+            ) and self._positions_provider is not None:
+                net = self._session_net(now)
+                if self._max_daily_loss_amt is not None and (
+                    net <= -self._max_daily_loss_amt
+                ) and self._increases_exposure(request):
+                    return self._deny()
+                if self._max_drawdown_pct is not None:
+                    dd = self._drawdown(net)
+                    if dd is not None and dd >= self._max_drawdown_pct \
+                            and self._increases_exposure(request):
+                        return self._deny()
 
             # Rate limit check
             if self._max_orders_per_minute is not None:
@@ -312,6 +398,63 @@ class RiskManager:
         """Record a rejection and return ``False`` (caller returns it)."""
         self._rejected_count += 1
         return False
+
+    # -- session PnL for daily-loss / drawdown guards ---------------------
+
+    def _equity_pnl(self) -> Decimal:
+        """Portfolio realized + unrealized PnL from the position book.
+
+        ``0`` when no position provider is bound (guards are then inert).
+        """
+        if self._positions_provider is None:
+            return Decimal("0")
+        total = Decimal("0")
+        for pos in self._positions_provider():
+            total += pos.realized_pnl.amount + pos.unrealized_pnl.amount
+        return total
+
+    def _session_net(self, now: datetime | None) -> Decimal:
+        """Today's PnL relative to the day-start baseline, maintaining the
+        day's running peak. Rolls the baseline forward on a date change so
+        yesterday's losses never leak into today's limit.
+        """
+        today = (now if now is not None else datetime.now(UTC)).date()
+        if self._session_date != today:
+            self._session_date = today
+            self._base_pnl = self._equity_pnl()
+            self._peak_pnl = Decimal("0")
+        net = self._equity_pnl() - self._base_pnl
+        if net > self._peak_pnl:
+            self._peak_pnl = net
+        return net
+
+    def _drawdown(self, net: Decimal) -> Decimal | None:
+        """Fractional drawdown from the session peak, or ``None`` at/below 0."""
+        if self._peak_pnl <= 0:
+            return None
+        return (self._peak_pnl - net) / self._peak_pnl
+
+    def _increases_exposure(self, request: OrderRequest) -> bool:
+        """True when the order grows the existing position (or opens a new one),
+        as opposed to reducing/flattening it.
+
+        Reduction is always allowed so a breached daily limit never *locks* a
+        position onto the book — exits stay free.
+        """
+        signed = (
+            request.quantity.value
+            if request.side is OrderSide.BUY
+            else -request.quantity.value
+        )
+        if self._positions_provider is None:
+            return False
+        for pos in self._positions_provider():
+            if pos.instrument == request.instrument:
+                existing = pos.quantity.value
+                new_signed = existing + signed
+                return new_signed * new_signed > existing * existing
+        # No existing position -> the order is a fresh open / increase.
+        return True
 
     @property
     def rejected_count(self) -> int:
