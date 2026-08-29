@@ -100,7 +100,7 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 
 **Acceptance (core):** all 5 tests green; existing risk tests still pass; an unpriced MARKET order in live mode with `reject_unknown_market_value=True` rejects with `insufficient_cash` (no price to compare).
 
-**Acceptance (full):** when `boot()` constructs a paper/live session, the engine enforces the cash gate at order-submit time.
+**Acceptance (full):** ✅ DONE (`df61073`). `RiskConfig.cash_provider` added; `boot()` binds it for paper/live sessions. 2 new tests, 7/7 total in this gap, full suite 2747 passed.
 
 ### C2 — reconcile before session.start()
 **Test-first plan:**
@@ -221,3 +221,4 @@ From `tradexv2-org`:
 - 2026-08-29 — created; baseline = `docs/reviews/architecture-design-review-2026-08-29.md`.
 - 2026-08-29 — Sprint 1 revised: principal-architect review surfaced 5 new 🔴 (C1–C5) and 8 🟠 (H1–H8) findings. Reordered by leverage; C1 is now the highest-priority fix.
 - 2026-08-29 — C1 GREEN (`d6f65ea`): `RiskManager.bind_cash_provider` + cash check in `check()`. 5 new tests, 5/5 green, full suite 2745 passed. Follow-up: wire it from `startup.boot` so paper/live sessions actually enforce the gate.
+- 2026-08-29 — C1 follow-up DONE (`df61073`): `RiskConfig.cash_provider`; boot binds it for paper/live. 2 more tests, 7/7 in this gap, full suite 2747 passed. **C1 fully closed.**
