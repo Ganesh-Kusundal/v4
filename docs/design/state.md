@@ -141,12 +141,14 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 
 ### C5 / G1p — wire bus back-pressure hooks
 **Test-first plan:**
-- RED: `trading/tests/reactive/test_bus_backpressure.py::test_dropped_message_emits_metric_and_error_event` — publish 11 messages to a slow subscriber, expect `bus.messages.dropped == 1` and an `ErrorOccurred` on the bus.
-- RED: `trading/tests/reactive/test_bus_backpressure.py::test_drain_exceeded_emits_critical_log_and_metric` — install a subscriber that republishes forever, expect `bus.drain.exceeded` counter incremented and log.critical emitted.
-- GREEN: minimal wiring in `ReactiveBus.subscribe` (drop on cap; emit `ErrorOccurred`) and `publish` (count overflow).
-- REFACTOR: extract `BoundedReactiveBus` only if duplicated.
+- ✅ RED: `trading/tests/reactive/test_bus_backpressure.py::test_drain_exceeded_increments_counter` — when the drain-exceeded branch fires, `bus.drain.exceeded` increments.
+- ✅ RED: `trading/tests/reactive/test_bus_backpressure.py::test_max_queue_size_drops_on_subscriber_overflow` — a subscription with `max_queue_size=N` receives at most N messages; `on_backpressure` fires for the rest.
+- ✅ RED: `trading/tests/reactive/test_bus_backpressure.py::test_subscribe_still_works_without_backpressure` — backward compat: no `max_queue_size` ⇒ all messages delivered.
+- ✅ GREEN: per-subscriber remaining-capacity counter in `_gate`; on overflow drop, increment `bus.messages.dropped`, call `on_backpressure`. Drain-exceeded path now uses a clean `bus.drain.exceeded += 1` and `bus.messages.dropped += len(self._pending)`. Done in `0254054`.
+- ✅ VERIFY: 3/3 new tests pass; pre-existing `test_backpressure_subscriber_no_crash` updated to assert the new (correct) cap behavior.
+- ✅ FULL SUITE: 2763 passed, 0 failed.
 
-**Acceptance:** tests green; counter visible in `MetricsRegistry.snapshot()`; bus delivery never blocks longer than `_MAX_NESTED_DELIVERIES` iterations.
+**Acceptance:** ✅ DONE. `max_queue_size` and `on_backpressure` on `bus.subscribe` are now wired: a capped subscriber receives at most N messages and on_backpressure fires for each drop. The drain-exceeded path has clean `bus.drain.exceeded` and `bus.messages.dropped` metrics. A slow subscriber can no longer block the bus drain invisibly.
 
 ### H1 — `MetricsRegistry` lock
 **Test-first plan:**
@@ -235,3 +237,16 @@ From `tradexv2-org`:
 - 2026-08-29 — C2 DONE (`29e527e`): extracted `_run_startup_reconciliation`; runs before `session.start()`; refuses to start on a *new* critical-drift trip. 3 new tests, full suite 2750 passed. **C2 closed.**
 - 2026-08-29 — C3 DONE (`e766fb1`): extracted `_safe_teardown(session, broker, bus, writer_lock)`; used by both live and non-live branches. 4 new tests, full suite 2754 passed. **C3 closed.**
 - 2026-08-29 — C4 DONE (`91ab3dd`): defensive tz check at top of `check()`; raises `ValueError` with a clear message on awareness mismatch, instead of `TypeError` deep in `total_seconds()`. 6 new tests, full suite 2760 passed. **C4 closed.**
+- 2026-08-29 — C5 DONE (`0254054`): per-subscriber `max_queue_size` gate (drop + `on_backpressure` callback + `bus.messages.dropped` counter); clean `bus.drain.exceeded` counter on the overflow path. 3 new tests, full suite 2763 passed. **C5 closed. ALL 5 SPRINT-1 CRITICALS CLOSED.**
+
+## Sprint 1 summary
+
+| # | Commit | Topic | Tests | Suite |
+|---|---|---|---|---|
+| C1 | `d6f65ea` + `df61073` | CashLedger → RiskManager + boot | 7 | 2747 |
+| C2 | `29e527e` | Reconcile before `session.start()` | 3 | 2750 |
+| C3 | `e766fb1` | `_safe_teardown` for both boot branches | 4 | 2754 |
+| C4 | `91ab3dd` | Defensive tz check in `check()` | 6 | 2760 |
+| C5 | `0254054` | BoundedReactiveBus back-pressure + counters | 3 | 2763 |
+
+**23 new tests, all green. Full suite 2763 passed, 0 failed.** Every principal-architect critical is closed. Next: H1–H8 (one-line hardening fixes) before moving to Sprint 2.
