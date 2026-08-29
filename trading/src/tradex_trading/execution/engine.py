@@ -575,12 +575,18 @@ class ExecutionEngine:
         cache: TradingCache | None = None,
         metrics: MetricsRegistry | None = None,
         fee_calculator: FeeCalculator | None = None,
+        applied_fills_max: int = 50_000,
     ) -> None:
         """
         fee_calculator:
             When provided, every applied fill's fees are deducted from the
             position's realized P&L — making reactive paper/live net P&L
             consistent with BacktestEngine's net cash accounting (HIGH-6b).
+        applied_fills_max:
+            H3: hard cap on the size of the applied-fills LRU dedup set.
+            Defaults to 50_000 (sufficient for a full trading day at the
+            design rate). Tight-memory deployments and tests can lower it.
+            Each LRU eviction increments ``bus.applied_fills.evicted``.
         """
         self._bus = bus
         self._fill = fill_source
@@ -598,13 +604,22 @@ class ExecutionEngine:
         #: Fingerprints of OrderFilled events already applied to the OMS
         #: (order_id + side + qty + price) — re-published broker fills are
         #: skipped, distinct partial fills are each applied in full.
-        #: LRU-bounded OrderedDict so old entries are evicted (not the whole set)
-        #: when the capacity is exceeded — recent entries (most likely to be
-        #: re-published) are preserved.
-        # ponytail: 50k cap, LRU eviction — add latency histograms when dashboard needs them.
+        #:
+        #: **Capacity:** bounded at ``applied_fills_max`` (default 50_000) as
+        #: an LRU; oldest fingerprint is evicted when the cap is exceeded.
+        #: Eviction is observable via the ``bus.applied_fills.evicted`` counter
+        #: so operators can detect under-provisioned dedup windows.
         self._applied_fills: OrderedDict[tuple, None] = OrderedDict()
-        self._applied_fills_max = 50_000
+        self._applied_fills_max = applied_fills_max
         self._applied_fills_lock = threading.Lock()
+        #: M2: side-table mapping each order_id to the CorrelationId reserved
+        #: for it in the pipeline. Populated when ``check_and_reserve`` returns
+        #: ``None`` (cid is fresh); consulted by ``cancel()`` so the cid is
+        #: released when the order is cancelled (the pipeline normally records
+        #: the result for FILLED orders, but a cancellation never reaches that
+        #: path). Cleared from the table once the cid is released so the
+        #: mapping never leaks between orders.
+        self._cid_for_order: dict[OrderId, CorrelationId] = {}
         self._setup_pipeline()
 
     def _setup_pipeline(self) -> None:
@@ -725,6 +740,10 @@ class ExecutionEngine:
                 if self._metrics is not None:
                     self._metrics.counter("orders.idempotency_replay").inc()
                 return dup.result if sync else None
+            # M2: reservation succeeded — record the cid in the side-table
+            # so a later cancel() can release it. The order_id is unknown
+            # yet (it comes from the fill source below); record after the
+            # fill step where the order is created.
 
         # 2. Risk check
         if self._risk is not None and not self._risk.check(request):
@@ -735,6 +754,12 @@ class ExecutionEngine:
             if self._metrics is not None:
                 self._metrics.counter("orders.rejected").inc()
                 self._metrics.counter("risk.rejected").inc()
+            # M2: release the reservation on risk-reject so the cid is
+            # immediately reusable. Risk rejection is a terminal state for
+            # the request — the order never reaches the cancel path and
+            # would otherwise leak the cid forever.
+            if self._guard is not None and cid is not None:
+                self._guard.release(cid)
             return (
                 OrderReceipt(
                     order_id=order.order_id,
@@ -776,6 +801,13 @@ class ExecutionEngine:
 
         # 4. OMS update
         self._order_manager.on_order_created(order)
+        # M2: stamp the order_id → cid mapping so cancel() can release
+        # the reservation. The order has just been created; from here
+        # forward the cid is owned by this order. record_result() below
+        # removes the entry from the reserved set but does not clear the
+        # side-table — cancel() needs the cid even after record_result.
+        if self._guard is not None and cid is not None:
+            self._cid_for_order[order.order_id] = cid
         self._bus.publish(OrderPlaced(order=order))
 
         if fill is not None:
@@ -890,13 +922,22 @@ class ExecutionEngine:
         )
 
     def _record_applied_fill(self, fill: Any) -> bool:
-        """Insert the fill's fingerprint into the applied-fills set.
+        """Insert the fill's fingerprint into the applied-fills LRU.
 
-        Returns True if the key was already present (i.e. this is a
-        re-publish — caller must skip apply). Returns False if the
-        key is new and was inserted (caller proceeds to apply). LRU
-        eviction caps the set at ``_applied_fills_max`` to bound
-        memory under heavy fill rates.
+        H3 contract:
+
+        - The set is bounded at ``self._applied_fills_max`` (default
+          ``50_000``, configurable via the ``applied_fills_max`` ctor arg).
+        - On overflow, the **oldest** key is evicted (LRU end) and the
+          ``bus.applied_fills.evicted`` counter increments by 1. Operators
+          watch this counter to detect an under-provisioned dedup window.
+        - A re-publish (key already present) moves the key to the MRU end
+          and reports a duplicate (returns ``True``); the caller must skip
+          the apply. A fresh key is inserted at the MRU end and the caller
+          proceeds (returns ``False``).
+
+        Returns True if the key was already present (re-publish — skip apply).
+        Returns False if the key is new and was inserted (proceed to apply).
         """
         if fill.fill_id is not None:
             key: tuple = (fill.fill_id,)
@@ -905,6 +946,7 @@ class ExecutionEngine:
                 fill.order_id.value, fill.side.value, str(fill.quantity.value),
                 str(fill.price.value),
             )
+        evicted = False
         with self._applied_fills_lock:
             if key in self._applied_fills:
                 self._applied_fills.move_to_end(key)
@@ -912,6 +954,11 @@ class ExecutionEngine:
             self._applied_fills[key] = None
             if len(self._applied_fills) > self._applied_fills_max:
                 self._applied_fills.popitem(last=False)
+                evicted = True
+        if evicted and self._metrics is not None:
+            # H3: each LRU eviction is counted so a chronically under-sized
+            # dedup window is visible in the metrics without parsing logs.
+            self._metrics.counter("bus.applied_fills.evicted").inc()
         return False
 
     def _apply_fill(self, event: OrderFilled) -> None:
@@ -1051,7 +1098,16 @@ class ExecutionEngine:
         return drifts
 
     def cancel(self, order_id: OrderId) -> Order:
-        """Cancel an order and publish ``OrderCancelled`` on the bus."""
+        """Cancel an order and publish ``OrderCancelled`` on the bus.
+
+        M2: also release the idempotency reservation that was made for
+        this order in ``_run_pipeline``. Without this, every cancelled
+        order whose cid was reserved leaked a slot in the guard's
+        ``_reserved`` set. The reservation is looked up via the
+        ``_cid_for_order`` side-table populated by the pipeline; an
+        order that never had a cid reserved (e.g. risk-rejected) is
+        not in the table and the lookup is a no-op.
+        """
         log.info("Cancelling order %s", order_id)
         order = self._cache.get_order(order_id.value)
         if order is None:
@@ -1059,6 +1115,15 @@ class ExecutionEngine:
         cancelled = order.transition_to(OrderStatus.CANCELLED)
         self._cache.update_order(cancelled)
         self._bus.publish(OrderCancelled(order=cancelled))
+        # M2: release the idempotency reservation that was made for
+        # this order. release() is idempotent (discard on a missing
+        # key), so this is safe even if the pipeline already released
+        # the cid (e.g. on risk rejection before the side-table was
+        # populated, or on a non-boundary fill-source error). Pop the
+        # side-table so the mapping doesn't outlive the order.
+        cid = self._cid_for_order.pop(order_id, None)
+        if self._guard is not None and cid is not None:
+            self._guard.release(cid)
         return cancelled
 
     def modify(self, order_id: OrderId, request: OrderRequest) -> Order:
