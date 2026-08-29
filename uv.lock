@@ -29,7 +29,7 @@ dev = [
     { name = "ruff", specifier = ">=0.5,<1" },
     { name = "tradex-brokers", editable = "brokers" },
     { name = "tradex-domain", editable = "domain" },
-    { name = "tradex-trading", editable = "trading" },
+    { name = "tradex-trading", extras = ["datalake", "api", "full"], editable = "trading" },
 ]
 
 [[package]]

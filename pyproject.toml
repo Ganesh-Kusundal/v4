@@ -34,7 +34,9 @@ tradex-trading = { workspace = true }
 # Each sibling package (`domain/`, `brokers/`, `trading/`) declares its
 # own runtime dependencies in its own pyproject.toml; this list is the
 # minimum the quality-gate workflow needs (ruff lint, mypy on the domain
-# kernel, pytest + coverage + timeout across all three packages).
+# kernel, pytest + coverage + timeout across all three packages). The
+# trading extras are pinned so the parity and datalake tests (which
+# require pandas and duckdb) can collect without import errors.
 dev = [
     "ruff>=0.5,<1",
     "mypy>=1.10,<2",
@@ -43,5 +45,5 @@ dev = [
     "pytest-timeout>=2.3,<3",
     "tradex-domain",
     "tradex-brokers",
-    "tradex-trading",
+    "tradex-trading[datalake,api,full]",
 ]
