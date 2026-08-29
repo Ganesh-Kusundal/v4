@@ -72,6 +72,11 @@ class RuntimeContext:
 
     Holds the config, session, engine, strategy engine, bus, and broker so
     callers can manage the full lifecycle (including ``close()``).
+
+    M7: ``writer_lock`` is the local lock this context acquired in the
+    live boot path. ``close()`` releases it directly instead of going
+    through a module global, so two RuntimeContexts don't trample
+    each other's writer lock.
     """
 
     config: AppConfig
@@ -80,13 +85,27 @@ class RuntimeContext:
     strategy_engine: object | None
     bus: ReactiveBus | ThreadSafeReactiveBus
     broker: Any
+    writer_lock: Any = None
 
     def close(self) -> None:
-        """Stop the session and release runtime resources."""
+        """Stop the session and release runtime resources.
+
+        M4: ``broker.close()`` is invoked exactly once — by
+        ``session.stop()`` below. The previous second call here
+        relied on broker idempotency, which is not part of the
+        ``BaseBroker`` contract. Removing the duplicate makes the
+        teardown order explicit and lets a non-idempotent broker
+        surface a real error.
+
+        M7: releases the *local* ``self.writer_lock`` (not the
+        module global) so a second RuntimeContext that overwrote
+        the global cannot accidentally release the first context's
+        lock.
+        """
         self.session.stop()
-        if _ACTIVE_WRITER_LOCK is not None:
+        if self.writer_lock is not None:
             try:
-                _ACTIVE_WRITER_LOCK.release()
+                self.writer_lock.release()
             except Exception:  # pragma: no cover
                 log.warning("writer lock release failed", exc_info=True)
         if hasattr(self, "engine") and self.engine is not None:
@@ -99,9 +118,6 @@ class RuntimeContext:
                 self.strategy_engine.dispose_all()  # type: ignore[attr-defined]
             except Exception as exc:  # pragma: no cover
                 log.error("Error disposing strategy engine: %s", exc)
-        close_fn = getattr(self.broker, "close", None)
-        if close_fn is not None:
-            close_fn()
 
 
 def boot(
@@ -613,9 +629,20 @@ def boot_context(
     Like ``boot`` but returns a ``RuntimeContext`` that bundles all components
     and provides a ``close()`` method for clean shutdown. Extra keyword
     arguments (e.g. ``bus=`` or ``broker=``) are forwarded to :func:`boot`.
+
+    M7: the returned ``RuntimeContext`` carries the writer_lock the
+    live boot acquired (or None for non-live modes), so its ``close()``
+    can release the right one without consulting the module global.
     """
     cfg = config or AppConfig()
     session = boot(cfg, **boot_kwargs)
+    # Resolve the writer_lock this boot acquired: the live path stores
+    # it in the module global; the non-live path returns None. The
+    # snapshot is taken here so subsequent boots don't clobber it
+    # between this assignment and RuntimeContext construction.
+    writer_lock: Any = None
+    if cfg.mode == "live" and _ACTIVE_WRITER_LOCK is not None:
+        writer_lock = _ACTIVE_WRITER_LOCK
     return RuntimeContext(
         config=cfg,
         session=session,
@@ -623,6 +650,7 @@ def boot_context(
         strategy_engine=session.strategy_engine,
         bus=session.bus,
         broker=session.broker,
+        writer_lock=writer_lock,
     )
 
 

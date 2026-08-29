@@ -63,6 +63,10 @@ class ReactiveBus:
         self._subscriber_remaining: dict[int, int] = {}
         self._subscriber_backpressure: dict[int, Callable[[str], None]] = {}
         self._subscriber_type: dict[int, str] = {}
+        #: M3: guard flag — ``publish()`` after ``dispose()`` raises
+        #: ``RuntimeError`` instead of silently enqueuing to a completed
+        #: Subject. Default False; flipped to True by ``dispose()``.
+        self._disposed = False
 
     def set_message_log(self, log: Any) -> None:
         """Install an alternative message log (e.g. a bounded deque).
@@ -88,7 +92,15 @@ class ReactiveBus:
         Single-threaded only: the drain state (``_pending``/``_draining``) is
         not locked. Publish from one thread, or wrap the bus in
         ``ThreadSafeReactiveBus`` for concurrent publishers.
+
+        M3: a ``publish()`` after ``dispose()`` raises ``RuntimeError``
+        instead of silently dropping the message. Subscribers on a
+        disposed bus are torn down; new messages have nowhere to go.
         """
+        if self._disposed:
+            raise RuntimeError(
+                "ReactiveBus.publish: cannot publish on a disposed bus"
+            )
         if self._log is not None:
             self._log.append(message)
         self._pending.append(message)
@@ -258,7 +270,16 @@ class ReactiveBus:
     # ------------------------------------------------------------------
 
     def dispose(self) -> None:
-        """Clean teardown — dispose all subscriptions."""
+        """Clean teardown — dispose all subscriptions.
+
+        M3: ``dispose()`` is idempotent. The ``_disposed`` guard is set
+        before teardown so a concurrent ``publish()`` from another
+        thread surfaces ``RuntimeError`` rather than silently enqueuing
+        into a torn-down bus.
+        """
+        if self._disposed:
+            return
+        self._disposed = True
         self._disposables.dispose()
         try:
             self._subject.on_completed()

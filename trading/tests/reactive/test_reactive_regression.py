@@ -9,6 +9,8 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
+import pytest
+
 from tradex_domain.events import OrderFilled, OrderPlaced
 
 from tradex_trading.reactive.bus import ReactiveBus
@@ -216,7 +218,8 @@ class TestReactiveBusOrdering:
         """A subscriber disposing the bus mid-drain neither hangs nor crashes.
 
         The drain keeps popping the queue; the disposed subject no-ops the
-        remaining deliveries.
+        remaining deliveries. M3: a subsequent ``publish()`` after
+        dispose now raises ``RuntimeError`` (it used to silently drop).
         """
         bus = ReactiveBus()
 
@@ -225,7 +228,9 @@ class TestReactiveBusOrdering:
 
         bus.stream().subscribe(handler)
         bus.publish("x")  # must return
-        bus.publish("y")  # drain is fresh; delivery no-ops on disposed subject
+        # M3: post-dispose publish raises; callers must guard explicitly.
+        with pytest.raises(RuntimeError, match="disposed"):
+            bus.publish("y")
 
     def test_runaway_cascade_is_capped(self) -> None:
         """A subscriber that republishes forever fails visibly, not hangs.

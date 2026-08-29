@@ -13,7 +13,7 @@ import time
 import uuid
 from collections import OrderedDict, deque
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -205,7 +205,10 @@ class RiskManager:
         #: progresses; they always allow reductions/flattening.
         self._max_daily_loss_amt = max_daily_loss_amt
         self._max_drawdown_pct = max_drawdown_pct
-        self._session_date: Any = None
+        # M5: real type (was ``Any``, defeating mypy). The field stores
+        # the calendar date of the day the position baselines were taken,
+        # used to roll the day-start P&L forward on a date change.
+        self._session_date: date | None = None
         self._base_pnl = Decimal("0")
         self._peak_pnl = Decimal("0")
         #: Callable returning current positions (e.g. an OMS cache) so

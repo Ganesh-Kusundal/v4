@@ -46,7 +46,16 @@ def _make_order(
     are wrapped in ``OrderId`` so the OMS always sees a value object.
     """
     if order_id is not None and not isinstance(order_id, OrderId):
-        order_id = OrderId(value=str(order_id))
+        raw = str(order_id)
+        # M6: reject empty / whitespace-only ids that would otherwise
+        # propagate to the OMS cache and break every later lookup
+        # that joins on order_id.
+        if not raw.strip():
+            raise ValueError(
+                "BrokerFillSource: broker returned an empty order_id; "
+                "cannot build an Order with a blank id"
+            )
+        order_id = OrderId(value=raw)
     if order_id is None:
         order_id = OrderId(value=str(uuid.uuid4()))
     return Order(
