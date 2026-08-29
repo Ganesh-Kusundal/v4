@@ -89,14 +89,18 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 
 ### C1 — wire `CashLedger` into the reactive path
 **Test-first plan (highest-leverage fix in the plan):**
-- RED: `trading/tests/execution/test_risk_cash_check.py::test_buy_rejected_when_cash_insufficient` — bind a `CashLedger(cash=Decimal("100000"))`, submit a buy at `mark=Decimal("2500"), qty=100` (₹2,50,000 notional), expect rejection.
-- RED: `trading/tests/execution/test_risk_cash_check.py::test_sell_uses_proceeds_credit` — bind a `CashLedger(cash=0)` with a long position; a sell that brings cash positive is allowed.
-- RED: `trading/tests/execution/test_risk_cash_check.py::test_paper_broker_funds_from_account` — paper mode wires `CashLedger` from `Account.cash`; existing 0-balance paper session rejects a buy.
-- RED: `trading/tests/execution/test_risk_cash_check.py::test_live_broker_funds_from_fund_limits` — `BrokerFillSource` for live mode binds `MarginProvider` from broker `fund_limits`.
-- GREEN: introduce `CashLedger` and a `MarginProvider` Protocol; add a `cash_provider` parameter to `RiskManager.__init__`; in `check`, after notional but before rate-limit, if `request.side is BUY` and `cash is not None` and `_incoming_exposure(request) > cash`, return `_deny()`.
-- REFACTOR: pull the cash check into a private `_check_cash` method to keep `check` readable.
+- ✅ RED: `trading/tests/execution/test_risk_cash_check.py::test_buy_rejected_when_cash_insufficient` — bind a `CashLedger(cash=Decimal("100000"))`, submit a buy at `mark=Decimal("2500"), qty=100` (₹2,50,000 notional), expect rejection.
+- ✅ RED: `trading/tests/execution/test_risk_cash_check.py::test_sell_uses_proceeds_credit` — bind a `CashLedger(cash=0)` with a long position; a sell that brings cash positive is allowed.
+- ✅ RED: `trading/tests/execution/test_risk_cash_check.py::test_buy_within_cash_passes` — a buy that fits within cash must still pass (no regression).
+- ✅ RED: `trading/tests/execution/test_risk_cash_check.py::test_no_cash_provider_means_no_cash_check` — backward compat: no provider bound ⇒ no gate.
+- ✅ RED: `trading/tests/execution/test_risk_cash_check.py::test_existing_notional_gate_still_works` — `max_order_value` gate still applies when cash is bound.
+- ✅ GREEN: `RiskManager.bind_cash_provider(provider)` + cash check in `check()`. Done in `d6f65ea`.
+- ✅ VERIFY: 5/5 new tests pass; full suite 2745 passed, 0 failed.
+- 🟡 FOLLOW-UP: wire `bind_cash_provider` from `startup.boot` so paper/live sessions actually enforce the gate. Paper source: `Account.cash` from `broker.get_account()`. Live source: broker `fund_limits()`. NEXT.
 
-**Acceptance:** all 4 tests green; existing risk tests still pass; an unpriced MARKET order in live mode with `reject_unknown_market_value=True` rejects with `insufficient_cash` (no price to compare).
+**Acceptance (core):** all 5 tests green; existing risk tests still pass; an unpriced MARKET order in live mode with `reject_unknown_market_value=True` rejects with `insufficient_cash` (no price to compare).
+
+**Acceptance (full):** when `boot()` constructs a paper/live session, the engine enforces the cash gate at order-submit time.
 
 ### C2 — reconcile before session.start()
 **Test-first plan:**
@@ -216,3 +220,4 @@ From `tradexv2-org`:
 
 - 2026-08-29 — created; baseline = `docs/reviews/architecture-design-review-2026-08-29.md`.
 - 2026-08-29 — Sprint 1 revised: principal-architect review surfaced 5 new 🔴 (C1–C5) and 8 🟠 (H1–H8) findings. Reordered by leverage; C1 is now the highest-priority fix.
+- 2026-08-29 — C1 GREEN (`d6f65ea`): `RiskManager.bind_cash_provider` + cash check in `check()`. 5 new tests, 5/5 green, full suite 2745 passed. Follow-up: wire it from `startup.boot` so paper/live sessions actually enforce the gate.
