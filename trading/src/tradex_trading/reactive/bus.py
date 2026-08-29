@@ -38,9 +38,17 @@ _backpressure_triggered: dict[int, bool] = {}  # noqa: F401
 class ReactiveBus:
     """RxPY Subject-backed message bus."""
 
-    def __init__(self, message_log: list[Any] | None = None, metrics: Any | None = None) -> None:
+    def __init__(
+        self,
+        message_log: list[Any] | None = None,
+        metrics: Any | None = None,
+        event_log: Any | None = None,
+    ) -> None:
+        # event_log wins over message_log when both are provided: callers that
+        # want durability pass an SQLEventLog; the deque/list path is the
+        # legacy default and stays in place for backward compatibility.
         self._subject: Subject = Subject()
-        self._log: list[Any] | None = message_log
+        self._log: list[Any] | None = event_log if event_log is not None else message_log
         self._disposables: CompositeDisposable = CompositeDisposable()
         self._metrics = metrics
         self._pending: deque[Any] = deque()
@@ -228,6 +236,22 @@ class ReactiveBus:
                 ),
             )
         )
+
+    def replay_log(self) -> Any:
+        """Boot-replay seam: drain ``_pending`` first, then yield from the log.
+
+        Returns a plain iterator (not an Observable) so the caller can consume
+        it synchronously on startup. Used by the future boot-replay path that
+        asks "what did we think happened 5 minutes ago?" after a crash.
+        """
+        for msg in list(self._pending):
+            yield msg
+        log = self._log
+        # SQLEventLog exposes .replay(after_id); list/deque expose __iter__.
+        if hasattr(log, "replay"):
+            yield from log.replay()
+        elif log is not None:
+            yield from log
 
     # ------------------------------------------------------------------
     # Lifecycle

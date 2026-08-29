@@ -17,7 +17,9 @@ class ThreadSafeReactiveBus:
     * ``publish()`` is serialised with a ``Lock`` so that ``on_next()``
       calls to the RxPY Subject are never interleaved.
     * The internal message log uses a bounded ``deque(maxlen=10_000)``
-      instead of an unbounded list.
+      instead of an unbounded list. R1: pass ``event_log=`` to swap in a
+      durable :class:`SQLEventLog` (instance or path); the deque is still
+      the default for backward compatibility.
     """
 
     _DEFAULT_MAX_LOG = 10_000
@@ -26,15 +28,24 @@ class ThreadSafeReactiveBus:
         self,
         bus: ReactiveBus | None = None,
         max_log: int = _DEFAULT_MAX_LOG,
+        event_log: Any = None,
     ) -> None:
         # RLock: a subscriber publishing through the wrapper during delivery
         # re-enters the same thread's lock (the core bus enqueues it into the
         # active drain) instead of deadlocking.
         self._lock = threading.RLock()
+        if event_log is not None:
+            # Lazy import to avoid a hard dep from legacy call sites.
+            from tradex_trading.reactive.event_log import SQLEventLog
+            log: Any = (
+                event_log if isinstance(event_log, SQLEventLog)
+                else SQLEventLog(event_log)
+            )
+        else:
+            log = deque(maxlen=max_log)
         self._bus = bus if bus is not None else ReactiveBus()
-        # Replace the bus's unbounded log with a bounded deque via the
-        # declared seam (no private-attribute write across objects).
-        self._log: deque[Any] = deque(maxlen=max_log)
+        self._log: Any = log
+        # Wire the bus's log via the declared seam.
         self._bus.set_message_log(self._log)
 
     # ------------------------------------------------------------------
