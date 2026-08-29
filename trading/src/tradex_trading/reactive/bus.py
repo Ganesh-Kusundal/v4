@@ -45,6 +45,16 @@ class ReactiveBus:
         self._metrics = metrics
         self._pending: deque[Any] = deque()
         self._draining = False
+        #: ponytail: per-subscriber max_queue_size / on_backpressure are
+        #: now wired (C5). Each subscription that opts in via
+        #: max_queue_size gets a per-subscriber remaining-capacity
+        #: counter; the wrapped on_next decrements it, drops with a
+        #: counter + on_backpressure call when it reaches zero. No
+        #: separate queue — the bus is synchronous, so the gate is
+        #: a delivery guard, not a buffer.
+        self._subscriber_remaining: dict[int, int] = {}
+        self._subscriber_backpressure: dict[int, Callable[[str], None]] = {}
+        self._subscriber_type: dict[int, str] = {}
 
     def set_message_log(self, log: Any) -> None:
         """Install an alternative message log (e.g. a bounded deque).
@@ -82,11 +92,16 @@ class ReactiveBus:
             while self._pending:
                 delivered += 1
                 if delivered > _MAX_NESTED_DELIVERIES:
-                    log.error(
+                    log.critical(
                         "Bus drain exceeded %d nested deliveries; dropping backlog",
                         _MAX_NESTED_DELIVERIES,
                     )
-                    self._pending.clear()
+                    if self._metrics is not None:
+                        # C5: one clean increment per overflow, not the
+                        # opaque formula from the previous implementation.
+                        self._metrics.counter("bus.drain.exceeded").inc()
+                        dropped = len(self._pending)
+                        self._metrics.counter("bus.messages.dropped").inc(dropped)
                     break
                 msg = self._pending.popleft()
                 try:
@@ -124,17 +139,58 @@ class ReactiveBus:
     ) -> Any:
         """Subscribe and track the disposable for cleanup on dispose().
 
-        ``max_queue_size`` / ``on_backpressure`` are accepted for backward
-        compatibility but are currently no-ops — the bus is synchronous and
-        unbounded (see module ponytail note).
+        ``max_queue_size`` and ``on_backpressure`` are now wired (C5).
+        When ``max_queue_size`` is set, the subscription receives at
+        most that many messages cumulatively; on overflow,
+        ``on_backpressure`` is called and the dropped message is
+        counted under ``bus.messages.dropped``. A subscription
+        without ``max_queue_size`` is unchanged.
         """
         if on_next is not None:
             on_next = self._isolate(on_next)
+            if max_queue_size is not None:
+                on_next = self._gate(on_next, max_queue_size, on_backpressure, subscriber_type)
         d = self._subject.subscribe(
             on_next=on_next, on_error=on_error, on_completed=on_completed,
         )
         self._disposables.add(d)
         return d
+
+    def _gate(
+        self,
+        on_next: Callable[[object], None],
+        max_queue_size: int,
+        on_backpressure: Callable[[SubscriberType], None] | None,
+        subscriber_type: SubscriberType | None,
+    ) -> Callable[[object], None]:
+        """Wrap ``on_next`` with a remaining-capacity guard (C5).
+
+        Maintains a counter on ``self._subscriber_remaining`` keyed by
+        id(on_next). When the counter reaches 0, the message is
+        dropped, the dropped-message counter is incremented, and
+        ``on_backpressure`` is called (once per drop).
+        """
+        key = id(on_next)
+        self._subscriber_remaining[key] = int(max_queue_size)
+        self._subscriber_backpressure[key] = on_backpressure
+        self._subscriber_type[key] = subscriber_type or ""
+
+        def gated(value: object) -> None:
+            remaining = self._subscriber_remaining.get(key, 0)
+            if remaining <= 0:
+                if self._metrics is not None:
+                    self._metrics.counter("bus.messages.dropped").inc()
+                cb = self._subscriber_backpressure.get(key)
+                if cb is not None:
+                    try:
+                        cb(self._subscriber_type.get(key, ""))
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("on_backpressure callback failed: %s", exc)
+                return
+            self._subscriber_remaining[key] = remaining - 1
+            on_next(value)
+
+        return gated
 
     def _isolate(self, on_next: Any) -> Any:
         """Wrap ``on_next`` so errors don't propagate to other subscribers."""

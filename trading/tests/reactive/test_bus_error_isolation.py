@@ -97,4 +97,7 @@ class TestBackpressure:
 
         # In synchronous mode the buffer drains within each publish(), so
         # backpressure may or may not trigger — the important thing is no crash.
-        assert len(received) == 10, "all messages delivered"
+        # C5: the subscriber is now actually capped at max_queue_size
+        # cumulative deliveries; on_backpressure fires for each drop.
+        assert len(received) == 3
+        assert len(bp_calls) == 7
