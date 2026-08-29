@@ -47,12 +47,16 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 - 🟠 **H8** `CandleReceived` defined in `events.py` but never published or subscribed — dead code in the public surface.
 - 🔴 **G3** (carry from baseline) No test for the live-fill race between `_run_pipeline` and `_apply_fill`. Load-bearing comment at `engine.py:812` documents the invariant; no test pins it.
 
-### Sprint 2 — durability
-- 🔴 **R1** Replace in-memory `deque(maxlen=10_000)` in `ThreadSafeReactiveBus` with SQLite append-only event log. Replay on boot.
-- 🟠 **G5** `ReactiveStrategyEngine._pending` linear scan. `dict[InstrumentId, list]` + `pending_max_age` + last-bar-of-dataset test.
-- 🟠 **H3** Document or raise ceiling on `_applied_fills` LRU eviction (50k). Comment at `engine.py:495` says "add latency histograms when dashboard needs them."
-- 🟠 **H4** SQLite store is mirror-only; never read during active trading. Mid-session crash loses recent fills.
-- 🟠 **H6** `LiveFillBridge._engine_order_id` O(n) scan of `cache.all_orders()` per order-stream event. With 500 open orders + busy fill stream, this is the bottleneck.
+### Sprint 2 — durability (CLOSED)
+- ✅ **R1** `bb62e39` — `SQLEventLog`: durable SQLite append-only event log. Replaces the in-memory `deque(maxlen=10_000)`. `ReactiveBus.set_message_log` accepts the new log; `bus.replay()` re-emits logged events.
+- ✅ **G5** `69c5aa9` — `ReactiveStrategyEngine._pending` indexed by `InstrumentId`; `pending_max_age_bars` cancels stale orders; `dispose_all` clears the dict.
+- ✅ **H3** `9f95c2e` — `applied_fills_max` is an `__init__` parameter; docstring on `_record_applied_fill` spells out the LRU cap.
+- ✅ **H4** `fb6395f` — `SQLiteOrderStore.upsert_from_event(OrderFilled)`; live fill path now writes to SQLite; new `get_recent(limit)` for post-crash recovery.
+- ✅ **H6** `75aed48` — `LiveFillBridge._engine_order_index: dict[OrderId, str]` for O(1) order lookup; populated from `OrderPlaced` events.
+- ✅ **M1** `d00a3ea` — `FeeCalculator._calculate_legacy` deleted; canonical formula is the only path.
+- ✅ **M2** `9f95c2e` — `cancel()` releases the idempotency reservation via a `self._cid_for_order` side-table; risk-rejection path also releases.
+
+**Sprint 2 summary:** 7 items, 7 commits, full suite 2808 passed, 0 failed.
 
 ### Sprint 3 — correctness at scale
 - 🟠 **G4** `BaseBroker` has ~30 pass-throughs. Refactor to a generated wall.
@@ -244,7 +248,7 @@ From `tradexv2-org`:
 - 2026-08-29 — H2 (`dc5e0aa`): `MarketFeed._stream_lock` (RLock) on `_instruments` + `_depth_instruments`; subscribe/unsubscribe writes under the lock; new `snapshot_instruments()` accessor. 2 new tests, full suite 2770 passed.
 - 2026-08-29 — G3 (`0c9678e`): extracted `_record_applied_fill()`; sync path records fingerprint pre-publish; removed the FILLED-status band-aid; distinct partials with different fill_ids now both apply. 3 new tests, full suite 2773 passed. **G3 closed.**
 - 2026-08-29 — G2 (`aeb7c7b`): per-strategy `RiskBudget` envelope. 4 new tests, full suite 2777 passed. **G2 closed.**
-- 2026-08-29 — H4 (TBD): live fill path into the SQLite order store. Added `SQLiteOrderStore.upsert_from_event(OrderFilled)` (no-prior-row stub + idempotent partial-fill accumulator clamped at the order's quantity) and `SQLiteOrderStore.get_recent(limit=1000)` (id-desc). `attach_order_persistence` now owns `OrderFilled` via a dedicated fill-aware subscription so the cache-mirror does not double-count partials. 7 new tests, full suite 2644 passed. **H4 closed.**
+- 2026-08-29 — R1 (`bb62e39`): durable SQLite event log. M1 (`d00a3ea`): fee path unification. H4 (`fb6395f`): live fill path to SQLite. H6 (`75aed48`): O(1) fill-bridge order lookup. H3 + M2 (`9f95c2e`): LRU cap + cancel() releases idempotency. G5 (`69c5aa9`): per-instrument _pending dict + max-age. **All 7 Sprint 2 items closed** (parallel agent team + 1 manual completion after otter's API failure on the H3+M2 batch — I picked up the partial work and finished it). Full suite 2808 passed, 0 failed.
 
 ## Sprint 1 summary
 
