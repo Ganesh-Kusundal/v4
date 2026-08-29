@@ -41,11 +41,6 @@ class OrderRejected(DomainEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class CandleReceived(DomainEvent):
-    candle: Candle
-
-
-@dataclass(frozen=True, slots=True)
 class ErrorOccurred(DomainEvent):
     error: Exception
 
@@ -79,7 +74,6 @@ class StaleFeed:
 
 
 __all__ = [
-    "CandleReceived",
     "DomainEvent",
     "ErrorOccurred",
     "OrderCancelled",

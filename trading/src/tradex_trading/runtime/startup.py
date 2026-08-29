@@ -336,6 +336,20 @@ def _boot_tail(
         risk_manager.bind_cash_provider(cfg.risk.cash_provider)
     engine.kill_switch = cfg.kill_switch_default
 
+    # H7: pipeline errors must not be silent. The engine publishes
+    # ``ErrorOccurred`` on the bus (engine.py:517, 524, 533); without a
+    # subscriber those events are dropped. Wire a logger + counter so
+    # operators see pipeline failures and the runtime exposes a metric.
+    if metrics is not None:
+        errors_total = metrics.counter("engine.errors.total")
+        from tradex_domain.events import ErrorOccurred
+        def _on_error(event):  # noqa: ANN001
+            log.error("pipeline error: %s", event.error)
+            errors_total.inc()
+        # of_type() filters the bus stream to ErrorOccurred only;
+        # the bus.subscribe() raw form would receive every event.
+        bus.of_type(ErrorOccurred).subscribe(on_next=_on_error)
+
     # 6a. Order durability (R1) — restore persisted orders into the OMS cache
     # BEFORE the session starts, then mirror every lifecycle event into the
     # store. Subscriptions die with bus.dispose() on session.stop().

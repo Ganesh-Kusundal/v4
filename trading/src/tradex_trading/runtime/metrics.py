@@ -6,6 +6,8 @@ Stdlib-only — no external Prometheus dependency.
 
 from __future__ import annotations
 
+import threading
+
 
 class _Counter:
     """Monotonically increasing counter."""
@@ -14,13 +16,17 @@ class _Counter:
         self._name = name
         self._help = help_text
         self._value = 0.0
+        # H1: lock makes the read-modify-write atomic across threads.
+        self._lock = threading.Lock()
 
     def inc(self, amount: float = 1, **labels: object) -> None:
         del labels
-        self._value += amount
+        with self._lock:
+            self._value += amount
 
     def value(self) -> float:
-        return self._value
+        with self._lock:
+            return self._value
 
 
 class _Gauge(_Counter):
@@ -28,7 +34,8 @@ class _Gauge(_Counter):
 
     def set(self, value: float, **labels: object) -> None:
         del labels
-        self._value = value
+        with self._lock:
+            self._value = value
 
 
 class _Histogram:
@@ -41,30 +48,37 @@ class _Histogram:
         self._count = 0
         self._min = float("inf")
         self._max = float("-inf")
+        # H1: lock for the same reason as _Counter.
+        self._lock = threading.Lock()
 
     def observe(self, amount: float, **labels: object) -> None:
         del labels
-        self._sum += amount
-        self._count += 1
-        if amount < self._min:
-            self._min = amount
-        if amount > self._max:
-            self._max = amount
+        with self._lock:
+            self._sum += amount
+            self._count += 1
+            if amount < self._min:
+                self._min = amount
+            if amount > self._max:
+                self._max = amount
 
     def value(self) -> float:
-        return self._sum
+        with self._lock:
+            return self._sum
 
     @property
     def count(self) -> int:
-        return self._count
+        with self._lock:
+            return self._count
 
     @property
     def min(self) -> float:
-        return self._min if self._count > 0 else 0.0
+        with self._lock:
+            return self._min if self._count > 0 else 0.0
 
     @property
     def max(self) -> float:
-        return self._max if self._count > 0 else 0.0
+        with self._lock:
+            return self._max if self._count > 0 else 0.0
 
 
 class MetricsRegistry:

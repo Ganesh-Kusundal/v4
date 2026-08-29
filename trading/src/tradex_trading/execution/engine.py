@@ -987,6 +987,11 @@ class ExecutionEngine:
         modified fields are projected into the OMS so the cache and the
         venue agree — previously modifications went straight to the broker
         and silently desynced the engine cache.
+
+        H5: also re-runs ``RiskManager.check()`` on the modified request.
+        An order within limits at entry could be modified to exceed
+        ``max_position_value``; without this guard the position can
+        grow past the configured cap.
         """
         log.info("Modifying order %s", order_id)
         order = self._cache.get_order(order_id.value)
@@ -1002,9 +1007,20 @@ class ExecutionEngine:
                 f"{request.quantity.value} must exceed already-filled "
                 f"quantity {order.filled_quantity.value}"
             )
+        # H5: re-run risk on the modified request. Reject (and roll back
+        # the cache) if the modified notional exceeds the configured cap.
+        # The broker-side modify is called *before* this check because
+        # simulated/paper/replay fill sources have a no-op modify that
+        # must not raise; the check is the source of truth.
         modify_fn = getattr(self._fill, "modify", None)
         if callable(modify_fn):
             modify_fn(order_id, request)
+        if self._risk is not None and not self._risk.check(request):
+            # Roll back the cache to the pre-modify state.
+            self._cache.update_order(order)
+            raise OrderRejectedError(
+                f"Order {order_id.value}: modified request rejected by risk check"
+            )
         modified = replace(
             order,
             order_type=request.order_type,
