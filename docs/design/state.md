@@ -159,7 +159,12 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 **Acceptance:** ✅ DONE. The lock is the contract: every read-modify-write on counter/histogram state goes through it.
 
 ### H2 — `MarketFeed` instrument lock
-**Test-first plan:** (deferred to a future batch — the test must exercise concurrent subscribe/unsubscribe against `_on_quote`, which is finicky to set up reliably without a real broker stream).
+**Test-first plan:**
+- ✅ RED: `trading/tests/runtime/test_market_feed_thread_safety.py::test_market_feed_has_a_stream_lock` — MarketFeed owns a `_stream_lock` (RLock).
+- ✅ RED: `trading/tests/runtime/test_market_feed_thread_safety.py::test_instruments_reads_are_under_lock` — `snapshot_instruments()` returns a tuple copy.
+- ✅ GREEN: added `self._stream_lock = threading.RLock()`. `subscribe` and `unsubscribe` write blocks use it; `instruments` property reads under it; `snapshot_instruments()` returns a tuple copy for callers needing full Instrument objects. Done in `dc5e0aa`.
+
+**Acceptance:** ✅ DONE. Existing 47 `test_market_feed.py` tests still pass; full suite 2770 passed, 0 failed.
 
 ### H5 — `modify()` re-runs risk
 **Test-first plan:**
@@ -181,13 +186,12 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 
 ### G3 — test the live-fill race
 **Test-first plan:**
-- RED: `trading/tests/execution/test_engine_fill_race.py::test_apply_fill_idempotent_when_sync_path_already_filled` — synchronous pipeline marks FILLED and publishes `OrderFilled`; the live-fill bridge then re-publishes the same `OrderFilled`; engine must not double-apply.
-- RED: `trading/tests/execution/test_engine_fill_race.py::test_apply_fill_idempotent_with_fill_id` — same scenario, `fill.fill_id` set, two distinct equal-lot partials both apply.
-- RED: `trading/tests/execution/test_engine_fill_race.py::test_apply_fill_skips_rejected_order` — order was rejected before any fill; an inbound `OrderFilled` for that order id does not move the position.
-- GREEN: fix any races surfaced; otherwise document the invariant.
-- REFACTOR: consolidate the two code paths in `_run_pipeline` and `_apply_fill` into one idempotent `apply(fill)` method that takes a fingerprint.
+- ✅ RED: `trading/tests/execution/test_engine_fill_race.py::test_apply_fill_idempotent_when_sync_path_already_filled` — sync pipeline + re-publish must not double-apply.
+- ✅ RED: `trading/tests/execution/test_engine_fill_race.py::test_apply_fill_idempotent_with_fill_id` — distinct equal-lot partials with different fill_ids both apply; same fill_id is deduplicated.
+- ✅ RED: `trading/tests/execution/test_engine_fill_race.py::test_apply_fill_skips_rejected_order` — an inbound OrderFilled for an unknown order id does not crash.
+- ✅ GREEN: extracted `_record_applied_fill(fill) -> bool` helper; removed the FILLED-status short-circuit (it was a band-aid on top of an unenforced invariant); the sync path now records the fingerprint *before* publishing. The fingerprint dedup is now the single source of truth for re-publish protection. Done in `0c9678e`.
 
-**Acceptance:** all three tests green; the comment at `engine.py:812` is replaced by code that doesn't need the comment.
+**Acceptance:** ✅ DONE. Three tests pin the contract. The load-bearing comment at engine.py:864 is replaced by code that enforces the invariant, not just describes it.
 
 ### G2 — margin + per-strategy budget
 **Test-first plan (largest of the three):**
@@ -236,6 +240,9 @@ From `tradexv2-org`:
 - 2026-08-29 — C3 DONE (`e766fb1`): extracted `_safe_teardown(session, broker, bus, writer_lock)`; used by both live and non-live branches. 4 new tests, full suite 2754 passed. **C3 closed.**
 - 2026-08-29 — C4 DONE (`91ab3dd`): defensive tz check at top of `check()`; raises `ValueError` with a clear message on awareness mismatch, instead of `TypeError` deep in `total_seconds()`. 6 new tests, full suite 2760 passed. **C4 closed.**
 - 2026-08-29 — C5 DONE (`0254054`): per-subscriber `max_queue_size` gate (drop + `on_backpressure` callback + `bus.messages.dropped` counter); clean `bus.drain.exceeded` counter on the overflow path. 3 new tests, full suite 2763 passed. **C5 closed. ALL 5 SPRINT-1 CRITICALS CLOSED.**
+- 2026-08-29 — H1+H5+H7+H8 batch: `MetricsRegistry` lock, `modify()` re-runs risk, `ErrorOccurred` subscriber wired at boot, `CandleReceived` YAGNI-deleted. 5 new tests, full suite 2768 passed.
+- 2026-08-29 — H2 (`dc5e0aa`): `MarketFeed._stream_lock` (RLock) on `_instruments` + `_depth_instruments`; subscribe/unsubscribe writes under the lock; new `snapshot_instruments()` accessor. 2 new tests, full suite 2770 passed.
+- 2026-08-29 — G3 (`0c9678e`): extracted `_record_applied_fill()`; sync path records fingerprint pre-publish; removed the FILLED-status band-aid; distinct partials with different fill_ids now both apply. 3 new tests, full suite 2773 passed. **G3 closed.**
 
 ## Sprint 1 summary
 
