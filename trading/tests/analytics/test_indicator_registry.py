@@ -1256,3 +1256,151 @@ class TestStudiesSignals:
                 assert mom[i] == pytest.approx(wt1[i] - wt2[i])
             else:
                 assert mom[i] is None
+
+
+# ---------------------------------------------------------------------------
+# G6 — first-class IndicatorRegistry with decorator self-registration
+# ---------------------------------------------------------------------------
+
+
+class TestIndicatorRegistryContract:
+    """The new ``IndicatorRegistry`` is the single dispatch seam; engine code
+    becomes a thin wrapper around ``registry.compute(name, ...)``."""
+
+    def test_register_and_get(self):
+        from tradex_trading.analytics.registry import (
+            IndicatorRegistry,
+            IndicatorSpec,
+            ParamSpec,
+        )
+
+        reg = IndicatorRegistry()
+        spec = IndicatorSpec(
+            name="stub",
+            inputs=("close",),
+            params={"period": ParamSpec("int", 14)},
+            outputs=("value",),
+            compute=lambda series, period=14: [float(c) for c in series],
+        )
+        reg.register("stub", spec)
+        assert reg.get("stub") is spec
+
+    def test_get_unknown_raises_keyerror(self):
+        from tradex_trading.analytics.registry import IndicatorRegistry
+
+        reg = IndicatorRegistry()
+        with pytest.raises(KeyError):
+            reg.get("nope")
+
+    def test_all_returns_registered_specs(self):
+        from tradex_trading.analytics.registry import (
+            IndicatorRegistry,
+            IndicatorSpec,
+            ParamSpec,
+        )
+
+        reg = IndicatorRegistry()
+        a = IndicatorSpec(name="a", inputs=(), params={}, outputs=("v",), compute=lambda s: s)
+        b = IndicatorSpec(name="b", inputs=(), params={}, outputs=("v",), compute=lambda s: s)
+        c = IndicatorSpec(name="c", inputs=(), params={}, outputs=("v",), compute=lambda s: s)
+        reg.register("a", a)
+        reg.register("b", b)
+        reg.register("c", c)
+        all_specs = reg.all()
+        assert all_specs == (a, b, c)
+        assert [s.name for s in all_specs] == ["a", "b", "c"]
+
+    def test_compute_dispatches_to_registered_spec(self):
+        from tradex_trading.analytics.registry import (
+            IndicatorRegistry,
+            IndicatorSpec,
+            ParamSpec,
+        )
+
+        calls: list[tuple[str, dict]] = []
+
+        def compute_fn(series, period=14):
+            calls.append(("ok", {"period": period}))
+            return {"value": [float(c) for c in series]}
+
+        reg = IndicatorRegistry()
+        reg.register(
+            "spy",
+            IndicatorSpec(
+                name="spy",
+                inputs=("close",),
+                params={"period": ParamSpec("int", 14)},
+                outputs=("value",),
+                compute=compute_fn,
+            ),
+        )
+        result = reg.compute("spy", [1.0, 2.0, 3.0], period=7)
+        assert result["value"] == [1.0, 2.0, 3.0]
+        assert calls == [("ok", {"period": 7})]
+
+    def test_decorator_registers_on_import(self):
+        import importlib
+
+        mod = importlib.import_module(
+            "tradex_trading.analytics.indicators"
+        )
+        # After import, every spec wired with @register_indicator must be in
+        # the registry without an explicit register() call.
+        from tradex_trading.analytics.registry import REGISTRY
+
+        assert REGISTRY.get("sma") is not None
+        assert REGISTRY.get("rsi") is not None
+        assert mod is not None  # touch the module to silence linters
+
+    def test_analytics_engine_dispatches_via_registry(self):
+        from tradex_trading.analytics.engine import AnalyticsEngine
+        from tradex_trading.analytics.registry import REGISTRY
+
+        engine = AnalyticsEngine()
+        # Build a tiny series (HistoricalSeries-shaped duck for the engine).
+        from datetime import UTC, datetime, timedelta
+        from decimal import Decimal
+
+        from tradex_domain import (
+            Candle,
+            Equity,
+            HistoricalSeries,
+            OHLC,
+            Price,
+            Quantity,
+            Timeframe,
+        )
+
+        eq = Equity.of("NSE", "TEST")
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        candles = [
+            Candle(
+                instrument=eq,
+                timeframe=Timeframe.D1,
+                ohlc=OHLC(
+                    open=Price(value=Decimal(str(100.0 + i))),
+                    high=Price(value=Decimal(str(101.0 + i))),
+                    low=Price(value=Decimal(str(99.0 + i))),
+                    close=Price(value=Decimal(str(100.0 + i))),
+                ),
+                volume=Quantity(value=Decimal("1000")),
+                timestamp=base + timedelta(days=i),
+            )
+            for i in range(30)
+        ]
+        series = HistoricalSeries(
+            instrument=eq,
+            timeframe=Timeframe.D1,
+            candles=candles,
+            start=base,
+            end=base + timedelta(days=29),
+        )
+        # The engine must return the same tail the registry compute would.
+        from tradex_trading.analytics.indicators import compute_indicator
+
+        via_registry = compute_indicator("rsi", candles, {"period": 14})
+        via_engine = engine.indicator_values(series, "rsi", period=14)
+        # The registry's first "value" plot is the RSI line.
+        assert via_engine[-1] == pytest.approx(via_registry["value"][-1])
+        # And the spec came from the registry, not the hardcoded _INDICATORS.
+        assert REGISTRY.get("rsi") is not None

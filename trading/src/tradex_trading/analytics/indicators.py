@@ -773,6 +773,38 @@ def indicator_catalogue() -> list[dict[str, Any]]:
     ]
 
 
+def _resolve_indicator_params(
+    indicator_id: str, params: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Validate ``params`` against the legacy spec's schema and return a
+    fully-merged dict (defaults filled, explicit ``None`` falling back to the
+    declared default, unknown names rejected).
+
+    Exposed for the new :class:`IndicatorRegistry` so the engine can keep its
+    param-validation contract (frontend typos fail loudly) when it dispatches
+    through the new registry's ``compute``.
+    """
+    spec = _REGISTRY.get(indicator_id)
+    if spec is None:
+        raise ValueError(f"unknown indicator: {indicator_id!r}")
+    supplied = dict(params or {})
+    known = {p[0] for p in spec.params}
+    unknown = set(supplied) - known
+    if unknown:
+        raise ValueError(f"unknown params for {indicator_id}: {sorted(unknown)}")
+    merged = {}
+    for name, _kind, default in spec.params:
+        value = supplied.get(name, default)
+        # An explicit JSON ``null`` means "not supplied": the browser serialises
+        # NaN defaults (a text/select param read through a numeric input) as
+        # null, and computing with e.g. ma_type=None crashes downstream.
+        # Fall back to the declared default instead of trusting the null.
+        if value is None:
+            value = default
+        merged[name] = value
+    return merged
+
+
 def compute_indicator(
     indicator_id: str,
     candles: list,
@@ -787,12 +819,7 @@ def compute_indicator(
     spec = _REGISTRY.get(indicator_id)
     if spec is None or spec.fn is None:
         raise ValueError(f"unknown indicator: {indicator_id!r}")
-    supplied = dict(params or {})
-    known = {p[0] for p in spec.params}
-    unknown = set(supplied) - known
-    if unknown:
-        raise ValueError(f"unknown params for {indicator_id}: {sorted(unknown)}")
-    merged = {p[0]: supplied.get(p[0], p[2]) for p in spec.params}
+    merged = _resolve_indicator_params(indicator_id, params)
     result = spec.fn(candles, **merged)
     if isinstance(result, dict):
         return result
@@ -1148,3 +1175,23 @@ for _spec in (
     SPEC_WAVETREND,
 ):
     register_indicator(_spec)
+
+# ---------------------------------------------------------------------------
+# G6 — bridge the legacy catalogue registry into the new IndicatorRegistry.
+#
+# Every spec already registered through ``register_indicator(_spec)`` above
+# is also mirrored into the first-class :data:`REGISTRY` so
+# ``AnalyticsEngine.indicator_values`` can dispatch through a single
+# ``REGISTRY.compute(name, ...)`` seam rather than a hardcoded if/elif
+# selector. The new REGISTRY.compute expects a (candles-list, **params)
+# callable; we adapt the legacy spec's ``fn`` signature to match what
+# ``compute_indicator`` already passes (candles, **resolved_params).
+# ---------------------------------------------------------------------------
+
+from tradex_trading.analytics.registry import (  # noqa: E402
+    REGISTRY as _NEW_REGISTRY,
+    register_legacy_spec as _register_legacy_spec,
+)
+
+for _entry in _REGISTRY.items():
+    _register_legacy_spec(_entry[0], _entry[1])
