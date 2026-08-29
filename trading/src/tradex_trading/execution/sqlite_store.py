@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
+from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
@@ -105,6 +106,11 @@ class SQLiteOrderStore:
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
         self._conn = sqlite3.connect(str(db_path) if db_path != ":memory:" else ":memory:")
+        # WAL = concurrent readers don't block the writer (live tick ingestion
+        # vs. API queries) and survives unclean shutdown on persistent stores.
+        if db_path != ":memory:":
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute(self._CREATE_TABLE)
         self._conn.commit()
 
@@ -155,6 +161,92 @@ class SQLiteOrderStore:
         )
         return [_row_to_order(row) for row in cursor.fetchall()]
 
+    def get_recent(self, limit: int = 1000) -> list[Order]:
+        """Return the most-recent *limit* orders, ordered by ``order_id`` desc.
+
+        Used by the future post-crash recovery path: when the OMS restarts
+        with persisted state, the recovery code asks the store "what is
+        the freshest snapshot you have?" and replays from there.
+
+        Ordering is by ``order_id`` (a TEXT PRIMARY KEY); today's order ids
+        are monotonically increasing strings ("o-1", "o-2", …) so this
+        approximates insertion order. The contract is "latest first" by
+        id-desc — not a wall-clock sort.
+        """
+        cursor = self._conn.execute(
+            "SELECT order_id, symbol, exchange, asset_class, side, order_type, "
+            "quantity, price, time_in_force, status, filled_quantity, "
+            "product_type, tag, correlation_id FROM orders "
+            "ORDER BY order_id DESC LIMIT ?",
+            (int(limit),),
+        )
+        return [_row_to_order(row) for row in cursor.fetchall()]
+
+    def upsert_from_event(self, event: OrderFilled) -> None:
+        """Persist the order referenced by an ``OrderFilled`` event.
+
+        Thin wrapper that knows how to read from the event payload. The
+        contract is:
+
+        * If the order already exists in the store, **increment**
+          ``filled_quantity`` by ``event.fill.quantity`` and clamp it at
+          the order's ``quantity`` (so a re-published fill does not
+          double-count). Status becomes ``FILLED`` when the clamped total
+          equals the order quantity, else ``PARTIALLY_FILLED``.
+        * If the order is not in the store yet (e.g. a fill arrived
+          before the order was mirrored), construct a minimal ``Order``
+          from the fill data with ``status=FILLED`` and
+          ``filled_quantity == fill.quantity``; the broker-reconcile
+          path will refresh the rest of the fields post-boot.
+
+        Idempotent: re-publishing the same fill does not duplicate the
+        row (PRIMARY KEY) and does not inflate ``filled_quantity``
+        (clamp at the order's quantity).
+        """
+        fill = event.fill
+        existing = self.get_order(fill.order_id.value)
+        if existing is None:
+            # ponytail: minimum stub. We only have the fill data, so build
+            # the smallest Order that satisfies the schema. Tag and
+            # correlation_id are unknown — leave them None.
+            order = Order(
+                order_id=fill.order_id,
+                instrument=fill.instrument,
+                side=fill.side,
+                order_type=OrderType.MARKET,
+                quantity=Quantity(value=fill.quantity.value),
+                price=Price(value=fill.price.value),
+                time_in_force=TimeInForce.DAY,
+                status=OrderStatus.FILLED,
+                filled_quantity=Quantity(value=fill.quantity.value),
+                product_type=ProductType.INTRADAY,
+            )
+        else:
+            new_filled = min(
+                existing.filled_quantity.value + fill.quantity.value,
+                existing.quantity.value,
+            )
+            new_status = (
+                OrderStatus.FILLED
+                if new_filled >= existing.quantity.value
+                else OrderStatus.PARTIALLY_FILLED
+            )
+            order = Order(
+                order_id=existing.order_id,
+                instrument=existing.instrument,
+                side=existing.side,
+                order_type=existing.order_type,
+                quantity=existing.quantity,
+                price=existing.price,
+                time_in_force=existing.time_in_force,
+                status=new_status,
+                filled_quantity=Quantity(value=new_filled),
+                product_type=existing.product_type,
+                tag=existing.tag,
+                correlation_id=existing.correlation_id,
+            )
+        self.upsert(order)
+
     def load_into(self, cache: Any) -> int:
         """Restore every stored order into a TradingCache-like target.
 
@@ -191,9 +283,9 @@ class SQLiteIdempotencyGuard:
             str(db_path) if db_path != ":memory:" else ":memory:",
             check_same_thread=False,
         )
-        # One writer lock: SQLite connections are not thread-safe for
-        # concurrent writes even with check_same_thread=False — the guard
-        # is called from both the reactive pipeline and API threads.
+        if db_path != ":memory:":
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
         self._write_lock = threading.Lock()
         self._conn.execute(self._CREATE_TABLE)
         self._conn.commit()

@@ -244,6 +244,7 @@ From `tradexv2-org`:
 - 2026-08-29 — H2 (`dc5e0aa`): `MarketFeed._stream_lock` (RLock) on `_instruments` + `_depth_instruments`; subscribe/unsubscribe writes under the lock; new `snapshot_instruments()` accessor. 2 new tests, full suite 2770 passed.
 - 2026-08-29 — G3 (`0c9678e`): extracted `_record_applied_fill()`; sync path records fingerprint pre-publish; removed the FILLED-status band-aid; distinct partials with different fill_ids now both apply. 3 new tests, full suite 2773 passed. **G3 closed.**
 - 2026-08-29 — G2 (`aeb7c7b`): per-strategy `RiskBudget` envelope. 4 new tests, full suite 2777 passed. **G2 closed.**
+- 2026-08-29 — H4 (TBD): live fill path into the SQLite order store. Added `SQLiteOrderStore.upsert_from_event(OrderFilled)` (no-prior-row stub + idempotent partial-fill accumulator clamped at the order's quantity) and `SQLiteOrderStore.get_recent(limit=1000)` (id-desc). `attach_order_persistence` now owns `OrderFilled` via a dedicated fill-aware subscription so the cache-mirror does not double-count partials. 7 new tests, full suite 2644 passed. **H4 closed.**
 
 ## Sprint 1 summary
 
