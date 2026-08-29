@@ -91,6 +91,10 @@ class MarketFeed:
         self._bus = bus
         self._instruments: dict[InstrumentId, Instrument] = {}
         self._depth_instruments: set[InstrumentId] = set()
+        # H2: single RLock protecting _instruments and _depth_instruments.
+        # RLock (re-entrant) so _on_quote can read while a dispatcher
+        # is iterating the same dict under the lock.
+        self._stream_lock = threading.RLock()
         self._quote_sub: object | None = None
         self._depth_sub: object | None = None
         self._depth_fn: Any | None = None
@@ -155,8 +159,18 @@ class MarketFeed:
 
     @property
     def instruments(self) -> frozenset[InstrumentId]:
-        """Instrument ids currently wanted by this feed."""
-        return frozenset(self._instruments)
+        """Instrument ids currently wanted by this feed.
+
+        H2: read is guarded by ``_stream_lock`` so concurrent
+        subscribe/unsubscribe cannot corrupt the iteration.
+        """
+        with self._stream_lock:
+            return frozenset(self._instruments)
+
+    def snapshot_instruments(self) -> tuple[Instrument, ...]:
+        """Snapshot of wanted instruments under the stream lock (H2)."""
+        with self._stream_lock:
+            return tuple(self._instruments.values())
 
     @property
     def depth_enabled(self) -> bool:
@@ -192,27 +206,32 @@ class MarketFeed:
             for inst in instruments:
                 require_depth_supported(inst)
         self._check_cap(instruments)
-        added = [inst for inst in instruments if inst.instrument_id not in self._instruments]
-        if added:
-            try:
-                sub = self._broker.subscribe_quotes(added, self._quote_cb)
-            except Exception:
-                raise
-            else:
-                for inst in added:
-                    self._instruments[inst.instrument_id] = inst
-                self._quote_sub = sub
-        if want_depth:
-            missing = [
-                inst
-                for inst in instruments
-                if inst.instrument_id not in self._depth_instruments
+        with self._stream_lock:  # H2
+            added = [
+                inst for inst in instruments
+                if inst.instrument_id not in self._instruments
             ]
-            if missing:
+            if added:
                 try:
-                    self._ensure_depth(missing)
+                    sub = self._broker.subscribe_quotes(added, self._quote_cb)
                 except Exception:
                     raise
+                else:
+                    for inst in added:
+                        self._instruments[inst.instrument_id] = inst
+                    self._quote_sub = sub
+        if want_depth:
+            with self._stream_lock:  # H2
+                missing = [
+                    inst
+                    for inst in instruments
+                    if inst.instrument_id not in self._depth_instruments
+                ]
+                if missing:
+                    try:
+                        self._ensure_depth(missing)
+                    except Exception:
+                        raise
 
     def unsubscribe(self, instruments: Sequence[Instrument]) -> None:
         """Remove *instruments* from the wanted set.
@@ -223,15 +242,16 @@ class MarketFeed:
         cap. Handlers stay registered and filter out removed instruments; when
         the wanted set empties, the feed stops.
         """
-        removed = False
-        removed_instruments: list[Instrument] = []
-        for inst in instruments:
-            iid = inst.instrument_id
-            if iid in self._instruments:
-                del self._instruments[iid]
-                removed = True
-                removed_instruments.append(inst)
-            self._depth_instruments.discard(iid)
+        with self._stream_lock:  # H2
+            removed = False
+            removed_instruments: list[Instrument] = []
+            for inst in instruments:
+                iid = inst.instrument_id
+                if iid in self._instruments:
+                    del self._instruments[iid]
+                    removed = True
+                    removed_instruments.append(inst)
+                self._depth_instruments.discard(iid)
         if removed_instruments:
             drop = getattr(self._broker, "unsubscribe_instruments", None)
             if callable(drop):
@@ -241,8 +261,12 @@ class MarketFeed:
                     log.warning(
                         "market feed unsubscribe_instruments failed", exc_info=True
                     )
-        if removed and not self._instruments:
-            self.stop()
+        # Re-check the wanted set under the lock for the empty-feed stop
+        # decision; the earlier read might have raced with a concurrent
+        # subscribe.
+        with self._stream_lock:  # H2
+            if removed and not self._instruments:
+                self.stop()
 
     def stop(self) -> None:
         """Unsubscribe every broker stream and clear the wanted set."""
