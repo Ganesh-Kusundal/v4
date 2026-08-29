@@ -68,6 +68,23 @@ class RiskCheckResult:
     reason: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class RiskBudget:
+    """Per-strategy slice of the broker-level risk envelope (G2).
+
+    Each strategy on the same account draws from its own budget so a
+    buggy strategy on instrument A can never exhaust the limit for
+    strategy B on instrument C. Strategies with no budget (legacy /
+    ad-hoc orders) fall back to the global caps on ``RiskManager``.
+    """
+
+    strategy_id: str
+    max_order_value: Decimal | None = None
+    max_position_value: Decimal | None = None
+    max_daily_loss_amt: Decimal | None = None
+    max_drawdown_pct: Decimal | None = None
+
+
 # ---------------------------------------------------------------------------
 # Order store
 # ---------------------------------------------------------------------------
@@ -172,6 +189,7 @@ class RiskManager:
         reject_unknown_market_value: bool = False,
         max_daily_loss_amt: Decimal | None = None,
         max_drawdown_pct: Decimal | None = None,
+        budgets: dict[str, "RiskBudget"] | None = None,
     ) -> None:
         self._max_order_value = max_order_value
         self._max_position_value = max_position_value
@@ -198,10 +216,38 @@ class RiskManager:
         #: or Decimal). When None (or when it yields no usable price),
         #: exposure falls back to the position's avg_price.
         self._price_provider = price_provider
+        #: G2: per-strategy risk budgets. ``check()`` resolves the active
+        #: budget from ``request.tag`` (the strategy_id; the strategy engine
+        #: already stamps ``strategy_id@version`` into tag). A request with
+        #: no matching budget falls back to the global caps above.
+        self._budgets: dict[str, RiskBudget] = dict(budgets or {})
         #: Count of orders denied by ``check()`` (any gate). Read by
         #: BacktestEngine to populate ``BacktestResult.num_rejected`` without
         #: re-implementing rejection bookkeeping in its own loop.
         self._rejected_count = 0
+
+    def _active_budget(self, request: Any) -> tuple[Decimal | None, ...]:
+        """Resolve the active cap values for ``request``.
+
+        Returns ``(max_order_value, max_position_value,
+        max_daily_loss_amt, max_drawdown_pct)`` for the strategy, or
+        the global caps if the strategy has no budget. G2.
+        """
+        sid = (request.tag or "").strip() if request is not None else ""
+        budget = self._budgets.get(sid) if sid else None
+        if budget is not None:
+            return (
+                budget.max_order_value,
+                budget.max_position_value,
+                budget.max_daily_loss_amt,
+                budget.max_drawdown_pct,
+            )
+        return (
+            self._max_order_value,
+            self._max_position_value,
+            self._max_daily_loss_amt,
+            self._max_drawdown_pct,
+        )
 
     def _position_exposure(self) -> Decimal:
         """Absolute notional of all open positions (qty * market or avg price).
@@ -327,6 +373,17 @@ class RiskManager:
         timestamps with aware wall-clock live timestamps.
         """
         with self._lock:
+            # G2: resolve the per-strategy (or global) cap values once
+            # at the top. Every gate below reads from this tuple, so a
+            # request with a matching budget sees its slice, and a
+            # request with no budget falls back to the global caps.
+            (
+                max_order_value,
+                max_position_value,
+                max_daily_loss_amt,
+                max_drawdown_pct,
+            ) = self._active_budget(request)
+
             # C4: defensive tz check. Mixing tz-aware and tz-naive datetimes
             # in the rate-limit window subtraction raises TypeError deep
             # in (now - self._recent_orders[0]).total_seconds(). Validate
@@ -350,15 +407,15 @@ class RiskManager:
             if not self._live_orders_enabled:
                 return self._deny()
 
-            # Order value check
-            if self._max_order_value is not None:
+            # Order value check (per-strategy or global)
+            if max_order_value is not None:
                 mark = self._mark_for_trade(request)
                 if mark is None:
                     if self._reject_unknown_market_value:
                         # Fail-closed live: don't let an unpriced MARKET order
                         # slip past the notional gate with no mark to bind it.
                         return self._deny()
-                elif mark * request.quantity.value > self._max_order_value:
+                elif mark * request.quantity.value > max_order_value:
                     return self._deny()
 
             # Cash check (C1) — only BUY is cash-gated; a SELL is a credit.
@@ -378,26 +435,26 @@ class RiskManager:
                     if incoming > Decimal(str(cash)):
                         return self._deny()
 
-            # Position value check (cumulative exposure + incoming order)
-            if self._max_position_value is not None:
+            # Position value check (per-strategy or global)
+            if max_position_value is not None:
                 exposure = self._position_exposure() + self._incoming_exposure(request)
-                if exposure > self._max_position_value:
+                if exposure > max_position_value:
                     return self._deny()
 
-            # Daily-loss / drawdown guards (only deny new exposure, never
-            # a reduction). Skipped when no position provider is bound.
+            # Daily-loss / drawdown guards (per-strategy or global).
+            # Only deny new exposure, never a reduction.
             if (
-                self._max_daily_loss_amt is not None
-                or self._max_drawdown_pct is not None
+                max_daily_loss_amt is not None
+                or max_drawdown_pct is not None
             ) and self._positions_provider is not None:
                 net = self._session_net(now)
-                if self._max_daily_loss_amt is not None and (
-                    net <= -self._max_daily_loss_amt
+                if max_daily_loss_amt is not None and (
+                    net <= -max_daily_loss_amt
                 ) and self._increases_exposure(request):
                     return self._deny()
-                if self._max_drawdown_pct is not None:
+                if max_drawdown_pct is not None:
                     dd = self._drawdown(net)
-                    if dd is not None and dd >= self._max_drawdown_pct \
+                    if dd is not None and dd >= max_drawdown_pct \
                             and self._increases_exposure(request):
                         return self._deny()
 
