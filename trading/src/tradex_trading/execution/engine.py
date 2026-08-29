@@ -327,6 +327,25 @@ class RiskManager:
         timestamps with aware wall-clock live timestamps.
         """
         with self._lock:
+            # C4: defensive tz check. Mixing tz-aware and tz-naive datetimes
+            # in the rate-limit window subtraction raises TypeError deep
+            # in (now - self._recent_orders[0]).total_seconds(). Validate
+            # the awareness of `now` against the window's existing
+            # awareness (the first entry in self._recent_orders). When
+            # the window is empty, accept whatever awareness the caller
+            # passes; a fresh manager has no history to mismatch.
+            if now is not None and self._recent_orders:
+                if (now.tzinfo is None) != (self._recent_orders[0].tzinfo is None):
+                    raise ValueError(
+                        "RiskManager.check: tz-awareness mismatch in rate-limit "
+                        f"window. now.tzinfo={now.tzinfo!r} but existing entries "
+                        f"are "
+                        f"{'aware' if self._recent_orders[0].tzinfo else 'naive'}. "
+                        "All calls in one session must share tz-awareness "
+                        "(see docstring). BacktestEngine passes naive datetimes; "
+                        "live wall-clock is aware."
+                    )
+
             # Master gate
             if not self._live_orders_enabled:
                 return self._deny()
