@@ -456,62 +456,106 @@ def _boot_tail(
 
         session.stop = _stop_and_release  # type: ignore[method-assign]
 
-    # 9. Start session, then the refresh daemon (started last so nothing
-    # after it can strand it).
-    session.start()
-
-    # 9b. Live restart reconciliation (R1): persisted local state was restored
-    # pre-start; now refresh it against broker truth so fills/cancels that
-    # happened while the process was down are picked up, and log any drift.
+    # 9. Live restart reconciliation (R1) — run BEFORE session.start() so
+    # a *new* critical drift never leaves the session in READY (C2).
+    # The strategy engine is already subscribed at this point, but the
+    # session services are gated on _check_ready(), so the strategy
+    # cannot place an order until session.start() transitions to READY.
+    # A pre-configured ``kill_switch_default=True`` is NOT a "new" trip;
+    # the session still goes READY so the user can observe rejection.
+    reconcile_tripped = False
     if cfg.mode == "live":
-        try:
-            book = broker.get_orderbook()
-        except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
-            log.warning("startup order-book reconcile unavailable: %s", exc)
-            book = None
-        try:
-            broker_positions = broker.get_positions()
-        except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
-            log.warning("startup position reconcile unavailable: %s", exc)
-            broker_positions = None
-        if book is not None or broker_positions is not None:
-            drifts = engine.reconcile(
-                broker_orders=book, broker_positions=broker_positions,
+        reconcile_tripped = _run_startup_reconciliation(broker, engine)
+        if reconcile_tripped:
+            log.critical(
+                "Refusing to start session: kill switch tripped during "
+                "startup reconciliation. Inspect drift before clearing."
             )
-            if book is not None:
-                for row in book:
-                    current = engine.cache.get_order(row.order_id.value)
-                    if current is not None and current.status != row.status:
-                        engine.cache.update_order(row)
-            if drifts:
-                for item in drifts:
-                    log.warning("startup drift: %s", item)
-                critical = [
-                    d for d in drifts
-                    if str(getattr(d, "severity", "")).upper()
-                    in ("HIGH", "CRITICAL")
-                ]
-                if critical:
-                    log.critical(
-                        "Trading HALTED: %d unreconciled HIGH/CRITICAL drift "
-                        "item(s) between local book and broker at startup "
-                        "(e.g. %s). Trip kill switch to prevent trading on a "
-                        "diverged book.",
-                        len(critical),
-                        ", ".join(
-                            getattr(d, "key", "") or getattr(d, "symbol", "")
-                            for d in critical[:5]
-                        ),
-                    )
-                    engine.trip_kill_switch(
-                        reason="startup_reconciliation_drift"
-                    )
+
+    # 10. Start session, then the refresh daemon (started last so nothing
+    # after it can strand it).
+    if not reconcile_tripped:
+        session.start()
+    else:
+        # Leave session in NEW; caller can stop() to release resources.
+        # Mark the master scheduler's expected-state so it is not started.
+        master_scheduler = None
 
     if master_scheduler is not None:
         master_scheduler.start()
 
     log.info("Runtime context ready")
     return session
+
+
+def _run_startup_reconciliation(broker: Any, engine: Any) -> bool:
+    """Live-mode startup reconciliation. Extracted so tests can call it directly.
+
+    - Pulls the broker orderbook + positions.
+    - Calls ``engine.reconcile`` (side-effect free).
+    - Updates the OMS cache from the broker book (status refresh only).
+    - Logs every drift; trips the kill switch on HIGH/CRITICAL drift so
+      a diverged book never reaches the trading surface.
+
+    Returns True iff reconciliation tripped the kill switch that wasn't
+    already set by config (i.e. a *new* critical-drift trip). The
+    caller uses this to decide whether to refuse ``session.start()`` —
+    a pre-configured ``kill_switch_default=True`` is intentional and
+    the session must still reach READY (so the user can observe that
+    orders are rejected); a reconcile-discovered drift is an
+    emergency stop and the session must NOT go live.
+
+    Best-effort: every broker call is wrapped in try/except and degrades
+    to a warning. The kill switch is the only hard failure.
+    """
+    # Snapshot the prior state so we can detect a *new* trip below.
+    kill_switch_was_set = bool(engine.kill_switch)
+    try:
+        book = broker.get_orderbook()
+    except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
+        log.warning("startup order-book reconcile unavailable: %s", exc)
+        book = None
+    try:
+        broker_positions = broker.get_positions()
+    except Exception as exc:  # noqa: BLE001 — reconcile is best-effort
+        log.warning("startup position reconcile unavailable: %s", exc)
+        broker_positions = None
+    if book is None and broker_positions is None:
+        return False
+    drifts = engine.reconcile(
+        broker_orders=book, broker_positions=broker_positions,
+    )
+    if book is not None:
+        for row in book:
+            current = engine.cache.get_order(row.order_id.value)
+            if current is not None and current.status != row.status:
+                engine.cache.update_order(row)
+    if drifts:
+        for item in drifts:
+            log.warning("startup drift: %s", item)
+        critical = [
+            d for d in drifts
+            if str(getattr(d, "severity", "")).upper()
+            in ("HIGH", "CRITICAL")
+        ]
+        if critical:
+            log.critical(
+                "Trading HALTED: %d unreconciled HIGH/CRITICAL drift "
+                "item(s) between local book and broker at startup "
+                "(e.g. %s). Trip kill switch to prevent trading on a "
+                "diverged book.",
+                len(critical),
+                ", ".join(
+                    getattr(d, "key", "") or getattr(d, "symbol", "")
+                    for d in critical[:5]
+                ),
+            )
+            engine.trip_kill_switch(
+                reason="startup_reconciliation_drift"
+            )
+    # Only return True if reconciliation *newly* tripped the switch.
+    return (not kill_switch_was_set) and bool(engine.kill_switch)
+
 
 
 def boot_context(
