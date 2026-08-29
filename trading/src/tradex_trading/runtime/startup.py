@@ -235,32 +235,64 @@ def boot(
                 fee_calculator=fee_calculator, order_store=order_store,
             )
         except BaseException:
-            # Rollback: best-effort teardown so a failed live boot never
-            # leaves a connected transport or a stranded writer lockfile.
-            disconnect = getattr(broker, "disconnect", None)
-            if callable(disconnect):
-                try:
-                    disconnect()
-                except Exception:  # noqa: BLE001 — best-effort rollback
-                    log.warning(
-                        "broker disconnect during boot rollback failed",
-                        exc_info=True,
-                    )
-            try:
-                writer_lock.release()
-            except Exception:  # noqa: BLE001 — best-effort rollback
-                log.warning(
-                    "writer lock release during boot rollback failed",
-                    exc_info=True,
-                )
+            # C3: best-effort rollback so a failed live boot never
+            # leaves a connected transport, a stranded writer lockfile,
+            # or a subscribed bus.
+            _safe_teardown(session=None, broker=broker, bus=bus, writer_lock=writer_lock)
             raise
 
-    # Non-live modes have no writer lock to protect — run the tail directly.
-    return _boot_tail(
-        cfg, bus, broker, wire_strategies, None,
-        fill_source=fill_source, metrics=metrics, guard=guard,
-        fee_calculator=fee_calculator, order_store=order_store,
-    )
+    # C3: non-live branch also rolls back. The session is built inside
+    # _boot_tail, so we pass session=None — the helper tolerates that
+    # and only disconnects the broker and disposes the bus. (There is
+    # no writer lock to release in non-live mode.)
+    try:
+        return _boot_tail(
+            cfg, bus, broker, wire_strategies, None,
+            fill_source=fill_source, metrics=metrics, guard=guard,
+            fee_calculator=fee_calculator, order_store=order_store,
+        )
+    except BaseException:
+        _safe_teardown(session=None, broker=broker, bus=bus, writer_lock=None)
+        raise
+
+
+def _safe_teardown(
+    session: Any | None,
+    broker: Any,
+    bus: Any,
+    writer_lock: Any | None,
+) -> None:
+    """Best-effort rollback used by every boot failure path (C3).
+
+    Disconnects the broker, disposes the bus, stops the session (if
+    built), and releases the writer lock (if any). Every call is
+    wrapped in its own try/except so one failure does not mask another.
+    Used by both the live and non-live branches of :func:`boot`.
+    """
+    disconnect = getattr(broker, "disconnect", None)
+    if callable(disconnect):
+        try:
+            disconnect()
+        except Exception:  # noqa: BLE001 — best-effort rollback
+            log.warning("broker disconnect during boot rollback failed", exc_info=True)
+    bus_dispose = getattr(bus, "dispose", None)
+    if callable(bus_dispose):
+        try:
+            bus_dispose()
+        except Exception:  # noqa: BLE001 — best-effort rollback
+            log.warning("bus dispose during boot rollback failed", exc_info=True)
+    if session is not None:
+        stop = getattr(session, "stop", None)
+        if callable(stop):
+            try:
+                stop()
+            except Exception:  # noqa: BLE001 — best-effort rollback
+                log.warning("session stop during boot rollback failed", exc_info=True)
+    if writer_lock is not None:
+        try:
+            writer_lock.release()
+        except Exception:  # noqa: BLE001 — best-effort rollback
+            log.warning("writer lock release during boot rollback failed", exc_info=True)
 
 
 def _boot_tail(
