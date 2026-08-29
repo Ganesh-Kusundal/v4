@@ -127,12 +127,17 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 
 ### C4 — defensive tz check
 **Test-first plan:**
-- RED: `trading/tests/execution/test_risk_tz.py::test_mixed_tz_in_rate_window_raises_clearly` — first call with aware datetime, second call with naive; expect `ValueError` with the documented message, not `TypeError` deep in `total_seconds()`.
-- RED: `trading/tests/execution/test_risk_tz.py::test_naive_then_aware_consistent` — first call naive, all subsequent naive; no error.
-- GREEN: at the top of `check`, when `now` is provided, assert `now.tzinfo is None` matches the awareness of `self._recent_orders[0]` (if any); raise `ValueError` with a clear message.
-- REFACTOR: extract `_validate_tz(now)` private method.
+- ✅ RED: `trading/tests/execution/test_risk_tz.py::test_aware_then_naive_raises_clearly` — first call aware, second call naive; expect `ValueError`, not `TypeError`.
+- ✅ RED: `trading/tests/execution/test_risk_tz.py::test_naive_then_aware_raises_clearly` — symmetric.
+- ✅ RED: `trading/tests/execution/test_risk_tz.py::test_consistent_aware_passes`.
+- ✅ RED: `trading/tests/execution/test_risk_tz.py::test_consistent_naive_passes` (matches BacktestEngine).
+- ✅ RED: `trading/tests/execution/test_risk_tz.py::test_default_now_is_aware` — default path unchanged.
+- ✅ RED: `trading/tests/execution/test_risk_tz.py::test_window_does_not_carry_across_managers` — fresh manager with no window accepts either awareness.
+- ✅ GREEN: at top of `check()`, when `now is not None and self._recent_orders`, validate that `now.tzinfo is None` matches the first entry's. Raise `ValueError` with a clear message otherwise. Done in `91ab3dd`.
+- ✅ VERIFY: 6/6 new tests pass.
+- ✅ FULL SUITE: 2760 passed, 0 failed.
 
-**Acceptance:** both tests green; existing backtest reproducibility tests still pass.
+**Acceptance:** ✅ DONE. A tz-mismatch now raises `ValueError` with a clear message at the top of `check()`, instead of `TypeError` deep inside `total_seconds()`. BacktestEngine (all naive) and live (all aware) each work on their own; a hybrid session fails closed.
 
 ### C5 / G1p — wire bus back-pressure hooks
 **Test-first plan:**
@@ -229,3 +234,4 @@ From `tradexv2-org`:
 - 2026-08-29 — C1 follow-up DONE (`df61073`): `RiskConfig.cash_provider`; boot binds it for paper/live. 2 more tests, 7/7 in this gap, full suite 2747 passed. **C1 fully closed.**
 - 2026-08-29 — C2 DONE (`29e527e`): extracted `_run_startup_reconciliation`; runs before `session.start()`; refuses to start on a *new* critical-drift trip. 3 new tests, full suite 2750 passed. **C2 closed.**
 - 2026-08-29 — C3 DONE (`e766fb1`): extracted `_safe_teardown(session, broker, bus, writer_lock)`; used by both live and non-live branches. 4 new tests, full suite 2754 passed. **C3 closed.**
+- 2026-08-29 — C4 DONE (`91ab3dd`): defensive tz check at top of `check()`; raises `ValueError` with a clear message on awareness mismatch, instead of `TypeError` deep in `total_seconds()`. 6 new tests, full suite 2760 passed. **C4 closed.**
