@@ -66,7 +66,7 @@ Every item below has a test pin and a commit. Suite at completion: **2808 passed
 - 🟠 **G4** `BaseBroker` has ~30 pass-throughs. Refactor to a generated wall. **Status:** unstarted.
 - 🟠 **G6** Promote `AnalyticsEngine` to a first-class `IndicatorRegistry`. Co-locate goldens with specs. **Status:** unstarted.
 - 🟠 **G8** SDK service layer is a thin pass-through. Remove it or give it a real job. **Status:** unstarted.
-- 🟡 **M7** Global `_ACTIVE_WRITER_LOCK` (`startup.py:43`); two live sessions overwrite each other. **Status:** unstarted.
+- ✅ **M3–M7** (`6634851`) — bus dispose guard, broker close dedup, `_session_date` type, `_make_order` id validation, writer lock scoped to `RuntimeContext`. Five fixes; full suite 2806 passed.
 - 🟢 **G15** Update `docs/ARCHITECTURE.md` after G10 lands. **Status:** unstarted (depends on G10).
 - 🟢 **G16** `tests/test_import_boundaries.py` — keep, update when G10 lands. **Status:** unstarted (depends on G10).
 
@@ -74,10 +74,10 @@ Every item below has a test pin and a commit. Suite at completion: **2808 passed
 - 🟡 **G10** `trading/` is 25.6k LOC across 10 modules. Split into `trading_core / _datalake / _strategy / _runtime / _interface / _sdk`. **Status:** unstarted; *only when team size justifies.*
 - 🟡 **G11** `analytics/` flat dir of 30 modules. Sub-folders by family. **Status:** unstarted.
 - 🟡 **G12** `replay/` mixes driver, walk-forward, optimization, synthetic ticks. **Status:** unstarted.
-- 🟡 **M3** Post-dispose publish silently enqueues to a completed Subject. **Status:** unstarted.
-- 🟡 **M4** `broker.close()` called twice (`RuntimeContext.close` and `TradingSession.stop`); relies on broker `close()` being idempotent, not enforced. **Status:** unstarted.
-- 🟡 **M5** `RiskManager._session_date: Any` — mypy can't catch tz-mismatches. **Status:** unstarted.
-- 🟡 **M6** `BrokerFillSource.submit` wraps raw string to `OrderId` without validation. **Status:** unstarted.
+- ✅ **M3** (cross-listed under Sprint 3) — done.
+- ✅ **M4** (cross-listed under Sprint 3) — done.
+- ✅ **M5** (cross-listed under Sprint 3) — done.
+- ✅ **M6** (cross-listed under Sprint 3) — done.
 
 ### Sprint 5 — observability
 - 🟠 **R2** Partition the bus: `OrderPipeline` / `MarketData` / `Diagnostics`. **Status:** unstarted.
@@ -108,4 +108,5 @@ From `tradexv2-org`: architecture first, then contracts, then tests, then implem
 - 2026-08-29 — H1+H5+H7+H8 batch (`ab0808b`); H2 (`dc5e0aa`); G3 (`0c9678e`); G2 (`aeb7c7b`).
 - 2026-08-29 — Sprint 2 closed via parallel agent team: R1 (`bb62e39`), M1 (`d00a3ea`), H4 (`fb6395f`), H6 (`75aed48`), H3+M2 (`9f95c2e`), G5 (`69c5aa9`). 7/7 items done. Suite 2808 passed, 0 failed.
 - 2026-08-29 — G17 CI pre-flight closed (`ec6c288` + `fd57963`): root `pyproject.toml` now a uv workspace manifest with `[tool.uv.workspace]`, `[tool.uv.sources]`, and `[dependency-groups].dev` listing the CI tooling. `uv lock` regenerates a 1393-line `uv.lock`; `uv sync --frozen` is idempotent. Mypy on the domain kernel is clean. CI is now verifiable end-to-end.
+- 2026-08-29 — M3-M7 hardening batch (`6634851`): bus dispose guard, broker close dedup, `_session_date` type, `_make_order` id validation, writer lock scoped to `RuntimeContext`. Trading `[datalake]` extras now declare pandas + pyarrow. Per-package suite: domain 299, brokers 765, trading 1738, meta 4 — total 2806 passed (vs. prior 2808). **M3, M4, M5, M6, M7 all closed.**
 - 2026-08-29 — state file consolidated: every closed item moved to a single "Done" section with commit hashes; per-item RED/GREEN test plan sections removed (they were stale). Sprint 3 / 4 / 5 / Backlog pending items preserved.
