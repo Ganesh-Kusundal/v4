@@ -729,6 +729,11 @@ class ExecutionEngine:
                 self._position_manager.on_fill(fill)
                 self._apply_fee(fill)
             self._order_manager.on_order_filled(order, fill)
+            # G3: record the fingerprint in the applied-fills set BEFORE
+            # publishing so that any re-publish from the live-fill bridge
+            # (which subscribes to OrderFilled) is short-circuited by
+            # the dedup check in _apply_fill.
+            self._record_applied_fill(fill)
             self._bus.publish(OrderFilled(fill=fill))
             # Record idempotency result for replay
             if self._guard is not None and cid is not None:
@@ -827,6 +832,31 @@ class ExecutionEngine:
             tag=request.tag,
         )
 
+    def _record_applied_fill(self, fill: Any) -> bool:
+        """Insert the fill's fingerprint into the applied-fills set.
+
+        Returns True if the key was already present (i.e. this is a
+        re-publish — caller must skip apply). Returns False if the
+        key is new and was inserted (caller proceeds to apply). LRU
+        eviction caps the set at ``_applied_fills_max`` to bound
+        memory under heavy fill rates.
+        """
+        if fill.fill_id is not None:
+            key: tuple = (fill.fill_id,)
+        else:
+            key = (
+                fill.order_id.value, fill.side.value, str(fill.quantity.value),
+                str(fill.price.value),
+            )
+        with self._applied_fills_lock:
+            if key in self._applied_fills:
+                self._applied_fills.move_to_end(key)
+                return True
+            self._applied_fills[key] = None
+            if len(self._applied_fills) > self._applied_fills_max:
+                self._applied_fills.popitem(last=False)
+        return False
+
     def _apply_fill(self, event: OrderFilled) -> None:
         """Apply an inbound OrderFilled to the OMS (live-fill bridge).
 
@@ -845,26 +875,17 @@ class ExecutionEngine:
         a re-publish.
         """
         fill = event.fill
-        if fill.fill_id is not None:
-            key: tuple = (fill.fill_id,)
-        else:
-            key = (
-                fill.order_id.value, fill.side.value, str(fill.quantity.value),
-                str(fill.price.value),
-            )
-        with self._applied_fills_lock:
-            if key in self._applied_fills:
-                self._applied_fills.move_to_end(key)
-                return
-            self._applied_fills[key] = None
-            if len(self._applied_fills) > self._applied_fills_max:
-                self._applied_fills.popitem(last=False)
+        if self._record_applied_fill(fill):
+            # Re-published fingerprint (same fill_id, or same
+            # (order, side, qty, price) when no fill_id). Skip
+            # silently — this is the contract that protects the
+            # synchronous pipeline path from double-apply via
+            # the live-fill bridge, and protects the bridge from
+            # its own re-publishes.
+            return
+        # _record_applied_fill inserted a new key above. Now safe to apply.
 
         existing = self._cache.get_order(fill.order_id.value)
-        if existing is not None and existing.status == OrderStatus.FILLED:
-            # FILLED already = the synchronous pipeline path applied this fill
-            # before publishing its own OrderFilled event — never double-apply.
-            return
         if existing is not None and existing.status == OrderStatus.REJECTED:
             # REJECTED stays rejected — do not position-update.
             return
@@ -872,6 +893,10 @@ class ExecutionEngine:
             self._position_manager.on_fill(fill)
             self._apply_fee(fill)
         if existing is not None:
+            # Existing order (any non-rejected status). G3: a
+            # *distinct* fill (different fingerprint) is a real
+            # partial — apply it. A re-published same-fingerprint
+            # fill was already short-circuited above.
             self._order_manager.on_order_filled(existing, fill)
         else:
             # Unknown order — record a minimal FILLED order so reconciliation
