@@ -104,12 +104,14 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 
 ### C2 — reconcile before session.start()
 **Test-first plan:**
-- RED: `trading/tests/runtime/test_startup_ordering.py::test_reconciliation_runs_before_session_ready` — boot a live session; assert that if reconciliation produces a HIGH drift, the session never reaches READY.
-- RED: `trading/tests/runtime/test_startup_ordering.py::test_no_race_window_between_start_and_reconcile` — assert no event is published between `session.start()` and reconciliation completion (strategy engine cannot fire in the gap).
-- GREEN: move reconciliation block above `session.start()`; trip kill switch and refuse to start if critical drift; `session.start()` happens after.
-- REFACTOR: extract reconciliation into a helper `run_startup_reconciliation(broker, engine)` so the call site is one line.
+- ✅ RED: `trading/tests/runtime/test_boot_reconcile_before_start.py::test_critical_drift_prevents_session_from_reaching_ready` — boot a live session; assert that if reconciliation produces a CRITICAL drift, the session never reaches READY.
+- ✅ RED: `trading/tests/runtime/test_boot_reconcile_before_start.py::test_no_drift_lets_session_reach_ready` — assert no drift ⇒ session reaches READY (regression guard).
+- ✅ RED: `trading/tests/runtime/test_boot_reconcile_before_start.py::test_low_drift_does_not_block_ready` — only HIGH/CRITICAL drift blocks; LOW/MEDIUM may proceed.
+- ✅ GREEN: extracted `_run_startup_reconciliation(broker, engine) -> bool` (True iff reconciliation *newly* tripped the kill switch). The boot calls it before `session.start()`; if it returns True, skip `session.start()` and skip the master scheduler. Done in `29e527e`.
+- ✅ VERIFY: 3/3 new tests pass; pre-existing `test_kill_switch_default_from_config` regression test still passes (config-set kill switch still goes READY).
+- ✅ FULL SUITE: 2750 passed, 0 failed.
 
-**Acceptance:** both tests green; manual probe of `boot()` shows READY only after reconciliation.
+**Acceptance:** ✅ DONE. A critical drift at startup now leaves the session in NEW state with the kill switch tripped; a caller can inspect `session.state`, `engine.kill_switch`, and the drift list before deciding to stop or reset.
 
 ### C3 — non-live `_boot_tail` rollback
 **Test-first plan:**
@@ -222,3 +224,4 @@ From `tradexv2-org`:
 - 2026-08-29 — Sprint 1 revised: principal-architect review surfaced 5 new 🔴 (C1–C5) and 8 🟠 (H1–H8) findings. Reordered by leverage; C1 is now the highest-priority fix.
 - 2026-08-29 — C1 GREEN (`d6f65ea`): `RiskManager.bind_cash_provider` + cash check in `check()`. 5 new tests, 5/5 green, full suite 2745 passed. Follow-up: wire it from `startup.boot` so paper/live sessions actually enforce the gate.
 - 2026-08-29 — C1 follow-up DONE (`df61073`): `RiskConfig.cash_provider`; boot binds it for paper/live. 2 more tests, 7/7 in this gap, full suite 2747 passed. **C1 fully closed.**
+- 2026-08-29 — C2 DONE (`29e527e`): extracted `_run_startup_reconciliation`; runs before `session.start()`; refuses to start on a *new* critical-drift trip. 3 new tests, full suite 2750 passed. **C2 closed.**
