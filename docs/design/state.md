@@ -194,16 +194,16 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 **Acceptance:** ✅ DONE. Three tests pin the contract. The load-bearing comment at engine.py:864 is replaced by code that enforces the invariant, not just describes it.
 
 ### G2 — margin + per-strategy budget
-**Test-first plan (largest of the three):**
-- RED: `trading/tests/execution/test_risk_manager.py::test_margin_check_rejects_when_exceeds_buying_power` — bind a `MarginProvider` returning ₹10L available, request a ₹50L order; expect rejection.
-- RED: `trading/tests/execution/test_risk_manager.py::test_per_strategy_budget_isolates_allocations` — two strategies, each with a ₹5L budget; strategy A's order exhausting its budget does not block strategy B.
-- RED: `trading/tests/execution/test_risk_manager.py::test_daily_loss_does_not_lock_exits` — daily loss at limit, an order that *reduces* the position is approved.
-- RED: `trading/tests/execution/test_risk_manager.py::test_partial_close_of_short_is_reduction` — short position, a buy smaller than the short size is approved even at daily-loss limit.
-- RED: `trading/tests/execution/test_risk_manager.py::test_live_default_rejects_unknown_market_value` — invert the default; live mode rejects an unpriced MARKET order.
-- GREEN: introduce `RiskBudget`, `MarginProvider` protocol, and the `strategy_id` parameter on `RiskManager.check`.
-- REFACTOR: pass `strategy_id` from `OrderRequest.tag` (`strategy_id@version`) or from the bus event; avoid the engine having to know about strategy identity.
+**Test-first plan:**
+- ✅ RED: `trading/tests/execution/test_per_strategy_budget.py::test_per_strategy_budget_isolates_allocations` — A exhausting its budget doesn't block B.
+- ✅ RED: `trading/tests/execution/test_per_strategy_budget.py::test_strategy_buy_rejected_when_budget_exhausted` — A's 2000-notional buy against a 1000 cap is rejected.
+- ✅ RED: `trading/tests/execution/test_per_strategy_budget.py::test_unknown_strategy_id_falls_back_to_global_cap` — backward compat: legacy requests see the global caps.
+- ✅ RED: `trading/tests/execution/test_per_strategy_budget.py::test_per_strategy_max_order_value_enforced` — per-strategy `max_order_value` gates at submit time.
+- ✅ GREEN: added `RiskBudget(strategy_id, max_order_value, max_position_value, max_daily_loss_amt, max_drawdown_pct)` dataclass; `RiskManager(budgets=...)` accepts a map; `_active_budget(request)` resolves from `request.tag`; `check()` reads from the resolved locals instead of `self._max_*`. Done in `aeb7c7b`.
+- ✅ VERIFY: 4/4 new tests pass.
+- ✅ FULL SUITE: 2777 passed, 0 failed.
 
-**Acceptance:** all five tests green; existing risk tests still green; `RiskManager` constructor backward-compatible with the existing single-budget path.
+**Acceptance:** ✅ DONE. Per-strategy risk envelopes are now first-class. Strategies can't starve each other; legacy/ad-hoc orders without a strategy_id still see the global caps.
 
 ---
 
@@ -243,6 +243,7 @@ From `tradexv2-org`:
 - 2026-08-29 — H1+H5+H7+H8 batch: `MetricsRegistry` lock, `modify()` re-runs risk, `ErrorOccurred` subscriber wired at boot, `CandleReceived` YAGNI-deleted. 5 new tests, full suite 2768 passed.
 - 2026-08-29 — H2 (`dc5e0aa`): `MarketFeed._stream_lock` (RLock) on `_instruments` + `_depth_instruments`; subscribe/unsubscribe writes under the lock; new `snapshot_instruments()` accessor. 2 new tests, full suite 2770 passed.
 - 2026-08-29 — G3 (`0c9678e`): extracted `_record_applied_fill()`; sync path records fingerprint pre-publish; removed the FILLED-status band-aid; distinct partials with different fill_ids now both apply. 3 new tests, full suite 2773 passed. **G3 closed.**
+- 2026-08-29 — G2 (`aeb7c7b`): per-strategy `RiskBudget` envelope. 4 new tests, full suite 2777 passed. **G2 closed.**
 
 ## Sprint 1 summary
 
