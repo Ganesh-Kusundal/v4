@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from decimal import Decimal
 from typing import Any
 
-from tradex_domain.enums import OrderType
-from tradex_domain.events import PlaceOrderCommand
-from tradex_domain.execution import OrderRequest
+from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
+from tradex_domain.events import OrderCancelled, PlaceOrderCommand
+from tradex_domain.execution import Order, OrderRequest
+from tradex_domain.instruments import InstrumentId
 from tradex_domain.strategy import Signal, StrategyContext
-from tradex_domain.value_objects import CorrelationId, Price, Quantity
+from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
+
+log = logging.getLogger(__name__)
 
 _FILL_REFERENCES = frozenset({"next_open", "signal_close"})
 
@@ -30,16 +34,33 @@ class ReactiveStrategyEngine:
       quote-driven strategies that must act without waiting for a candle.
     """
 
-    def __init__(self, bus, *, fill_reference: str = "next_open") -> None:
+    def __init__(
+        self,
+        bus,
+        *,
+        fill_reference: str = "next_open",
+        pending_max_age_bars: int = 0,
+    ) -> None:
         """Initialize with a ReactiveBus.
 
         Args:
             bus: ReactiveBus instance for event streaming
             fill_reference: ``"next_open"`` (default) or ``"signal_close"`` —
                 see the class docstring.
+            pending_max_age_bars: maximum number of bars a deferred
+                ``next_open`` order may sit in the queue before the engine
+                cancels it with ``OrderCancelled`` (parity review G5). ``0``
+                disables expiry (backward-compatible). Tracking counts the
+                number of bars processed since the order was deferred, so a
+                value of ``N`` cancels the order on the ``N+1``-th bar that
+                does not match its instrument.
         """
         if fill_reference not in _FILL_REFERENCES:
             raise ValueError(f"unknown fill_reference: {fill_reference!r}")
+        if pending_max_age_bars < 0:
+            raise ValueError(
+                f"pending_max_age_bars must be >= 0, got {pending_max_age_bars!r}"
+            )
         self._fill_reference = fill_reference
         self._bus = bus
         self._strategies: dict[str, Any] = {}
@@ -49,9 +70,16 @@ class ReactiveStrategyEngine:
         # engine instance, so ids are stable within a replay run).
         self._signal_seq = 0
         # Deferred signal orders awaiting the next candle of their instrument
-        # (next_open model): {strategy_id, instrument_id, signal, quantity,
-        # correlation_id}.
-        self._pending: list[dict] = []
+        # (next_open model). Indexed by ``InstrumentId`` so per-bar flushes
+        # and age sweeps run in O(k) for *k* pending on that instrument
+        # rather than O(n) over the whole queue (G5). Each entry carries
+        # ``{strategy_id, strategy_version, instrument_id, signal, quantity,
+        # correlation_id, deferred_at_bar}`` where ``deferred_at_bar`` is
+        # the engine ``_bar_count`` at the time the signal was deferred
+        # (used by the max-age sweep).
+        self._pending: dict[InstrumentId, list[dict]] = {}
+        # 0 == no expiry (backward-compat). > 0 == cancel after N bars.
+        self._pending_max_age_bars = pending_max_age_bars
 
     def _make_context(self, **overrides: Any) -> StrategyContext:
         """Create a StrategyContext with current engine state."""
@@ -91,11 +119,16 @@ class ReactiveStrategyEngine:
     def _wrap_on_bar(self, strategy: Any) -> Any:
         """Wrap strategy.on_bar to inject context and bridge Signal→Order."""
         def handler(candle: Any) -> Any:
+            # Increment first so ``deferred_at_bar`` (set when a signal is
+            # deferred) and the max-age sweep (which computes
+            # ``_bar_count - deferred_at_bar``) share a consistent index
+            # of the bar being processed. A deferred signal from bar N
+            # thus ages 1 on bar N+1, 2 on bar N+2, ...
+            self._bar_count += 1
             if self._fill_reference == "next_open":
                 # Fill prior deferred orders at THIS bar's open, then let the
                 # strategy evaluate the bar (its own signal waits for the next).
                 self._flush_pending(candle)
-            self._bar_count += 1
             ctx = self._make_context(
                 bar_count=self._bar_count,
                 timestamp=getattr(candle, "timestamp", None),
@@ -109,9 +142,16 @@ class ReactiveStrategyEngine:
         """Read-only view of deferred next_open orders (backtest bridge) [REF-5].
 
         Public seam replacing the former ``strategy_engine._pending`` reach-in
-        from ``replay/backtest.py``.
+        from ``replay/backtest.py``. Returns a tuple of the per-instrument
+        lists flattened into a single sequence so existing callers
+        (``for pending in engine.pending_snapshot()``) are unaffected by
+        the G5 dict-by-instrument refactor.
         """
-        return tuple(self._pending)
+        return tuple(
+            entry
+            for entries in self._pending.values()
+            for entry in entries
+        )
 
     def flush_pending(self, candle: Any) -> None:
         """Public flush of deferred orders for *candle* (replay drivers) [REF-5]."""
@@ -121,30 +161,102 @@ class ReactiveStrategyEngine:
         """Fill deferred orders for *candle*'s instrument at the candle's OPEN.
 
         Mirrors BacktestEngine: a signal on bar N is filled at bar N+1's open.
-        Pending orders for other instruments stay queued.
+        Pending orders for other instruments stay queued, and each remaining
+        order has its ``bar_age`` incremented (the max-age sweep runs on the
+        next bar regardless of which instrument it is for).
         """
         if not self._pending:
             return
         inst_id = candle.instrument.instrument_id
-        open_price = Price(value=Decimal(str(candle.ohlc.open.value)))
-        remaining: list[dict] = []
-        for pending in self._pending:
-            if pending["instrument_id"] != inst_id:
-                remaining.append(pending)
-                continue
-            version = pending.get("strategy_version", "1.0.0")
-            request = OrderRequest(
-                instrument=pending["signal"].instrument,
-                side=pending["signal"].direction,
-                order_type=OrderType.MARKET,
-                quantity=pending["quantity"],
-                price=open_price,
-                correlation_id=pending["correlation_id"],
-                tag=f"{pending['strategy_id']}@{version}",
-                reference_timestamp=getattr(candle, "timestamp", None),
+        # O(k) lookup: only this instrument's deferred orders.
+        pending_for_inst = self._pending.pop(inst_id, None)
+        if pending_for_inst:
+            open_price = Price(value=Decimal(str(candle.ohlc.open.value)))
+            for pending in pending_for_inst:
+                version = pending.get("strategy_version", "1.0.0")
+                request = OrderRequest(
+                    instrument=pending["signal"].instrument,
+                    side=pending["signal"].direction,
+                    order_type=OrderType.MARKET,
+                    quantity=pending["quantity"],
+                    price=open_price,
+                    correlation_id=pending["correlation_id"],
+                    tag=f"{pending['strategy_id']}@{version}",
+                    reference_timestamp=getattr(candle, "timestamp", None),
+                )
+                self._bus.publish(PlaceOrderCommand(request=request))
+        # Sweep stale orders from every other instrument's queue (O(n_bars)
+        # instruments × O(k) per-instrument pending).
+        self._sweep_stale_pending()
+
+    def _sweep_stale_pending(self) -> None:
+        """Cancel deferred orders older than ``pending_max_age_bars``.
+
+        No-op when ``pending_max_age_bars == 0`` (backward-compat).
+        Builds a synthetic ``Order`` (status CANCELLED) from the deferred
+        signal because the order never reached the broker — the engine
+        owns its lifecycle from deferral to fill/cancel.
+        """
+        if self._pending_max_age_bars <= 0 or not self._pending:
+            return
+        max_age = self._pending_max_age_bars
+        # Iterate over a snapshot of keys to allow mutation of self._pending.
+        # ``pending_max_age_bars=N`` means the order survives N bars and is
+        # cancelled on bar N+1, so the test fires when ``age > N``.
+        for inst_id in list(self._pending.keys()):
+            entries = self._pending[inst_id]
+            survivors: list[dict] = []
+            for pending in entries:
+                age = self._bar_count - pending["deferred_at_bar"]
+                if age > max_age:
+                    self._cancel_stale(pending)
+                else:
+                    survivors.append(pending)
+            if survivors:
+                self._pending[inst_id] = survivors
+            else:
+                del self._pending[inst_id]
+
+    def _cancel_stale(self, pending: dict) -> None:
+        """Publish ``OrderCancelled`` for a deferred order past its max age.
+
+        The order never reached the broker (it was deferred in the
+        ``next_open`` queue), so we synthesize a CANCELLED ``Order`` from
+        the signal metadata. ``OrderId`` is derived from the correlation
+        id so audit trails can still match it to the strategy signal.
+        """
+        version = pending.get("strategy_version", "1.0.0")
+        signal: Signal = pending["signal"]
+        correlation_id: CorrelationId | None = pending.get("correlation_id")
+        order_id = OrderId(
+            value=(
+                f"pending-{correlation_id.value}"
+                if correlation_id is not None
+                else "pending-stale"
             )
-            self._bus.publish(PlaceOrderCommand(request=request))
-        self._pending = remaining
+        )
+        order = Order(
+            order_id=order_id,
+            instrument=signal.instrument,
+            side=signal.direction,
+            order_type=OrderType.MARKET,
+            quantity=pending["quantity"],
+            price=None,
+            time_in_force=TimeInForce.DAY,
+            status=OrderStatus.CANCELLED,
+            correlation_id=correlation_id,
+            tag=f"{pending['strategy_id']}@{version}",
+        )
+        log.warning(
+            "strategy %s deferred order on %s cancelled after %d bars "
+            "(pending_max_age_bars=%d); strategy may be signalling on a "
+            "delisted or halted instrument",
+            pending["strategy_id"],
+            signal.instrument.instrument_id.underlying,
+            self._bar_count - pending["deferred_at_bar"],
+            self._pending_max_age_bars,
+        )
+        self._bus.publish(OrderCancelled(order=order))
 
     def _wrap_on_quote(self, strategy: Any) -> Any:
         """Wrap strategy.on_quote to inject context and bridge Signal→Order."""
@@ -200,13 +312,19 @@ class ReactiveStrategyEngine:
             # Defer: fill at the next Candle of this instrument (its open),
             # mirroring BacktestEngine. Never fires without a following bar —
             # the same skip BacktestEngine applies to unmatched signals.
-            self._pending.append({
+            # The pending queue is keyed by ``InstrumentId`` (G5) so per-bar
+            # flushes and max-age sweeps stay O(k) per instrument. The
+            # ``deferred_at_bar`` field is the engine ``_bar_count`` at the
+            # moment of deferral, used by the max-age sweep.
+            inst_id = result.instrument.instrument_id
+            self._pending.setdefault(inst_id, []).append({
                 "strategy_id": strategy_id,
                 "strategy_version": version,
-                "instrument_id": result.instrument.instrument_id,
+                "instrument_id": inst_id,
                 "signal": result,
                 "quantity": Quantity(Decimal(str(qty_value))),
                 "correlation_id": correlation_id,
+                "deferred_at_bar": self._bar_count,
             })
             return
         price = self._reference_price(event)
