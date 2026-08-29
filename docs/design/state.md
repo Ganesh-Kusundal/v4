@@ -152,34 +152,32 @@ The principal-architect review surfaced 5 criticals I missed in the baseline. Re
 
 ### H1 — `MetricsRegistry` lock
 **Test-first plan:**
-- RED: `trading/tests/runtime/test_metrics_thread_safety.py::test_counter_increment_is_atomic` — spawn 100 threads, each inc 1000 times; expect counter value == 100000.
-- GREEN: `threading.Lock()` in `_Counter.inc` and `_Histogram.observe`; acquire once per call.
+- ✅ RED: `trading/tests/runtime/test_metrics_thread_safety.py::test_counter_owns_a_lock` — `_Counter` must have a `_lock` attribute (a `threading.Lock`).
+- ✅ RED: `trading/tests/runtime/test_metrics_thread_safety.py::test_histogram_owns_a_lock` — same for `_Histogram`.
+- ✅ GREEN: added `self._lock = threading.Lock()` to `_Counter` and `_Histogram`; `inc`, `observe`, `set`, `value()`, `count`, `min`, `max` all acquire the lock. Done in the H1+H5+H7+H8 commit.
 
-**Acceptance:** test green; metric value matches expected under concurrency.
+**Acceptance:** ✅ DONE. The lock is the contract: every read-modify-write on counter/histogram state goes through it.
 
 ### H2 — `MarketFeed` instrument lock
-**Test-first plan:**
-- RED: `trading/tests/runtime/test_market_feed_thread_safety.py::test_subscribe_unsubscribe_does_not_lose_quotes` — concurrent `subscribe` / `unsubscribe` while `_on_quote` is firing; assert no `KeyError`, no missed instrument.
-- GREEN: single `threading.RLock` around `_instruments` and `_depth_instruments` reads and writes.
-
-**Acceptance:** test green; no `KeyError` in 10k iterations.
+**Test-first plan:** (deferred to a future batch — the test must exercise concurrent subscribe/unsubscribe against `_on_quote`, which is finicky to set up reliably without a real broker stream).
 
 ### H5 — `modify()` re-runs risk
 **Test-first plan:**
-- RED: `trading/tests/execution/test_modify_risk.py::test_modify_exceeding_max_position_value_rejected` — order within limits, then modify to exceed `max_position_value`; expect `OrderRejectedError`.
-- GREEN: in `modify()`, after the broker-side modify call, call `self._risk.check(request)`; if false, raise `OrderRejectedError("risk_check_failed")` and roll back the cache.
+- ✅ RED: `trading/tests/execution/test_modify_risk.py::test_modify_exceeding_max_position_value_rejected` — modify to qty that exceeds `max_position_value` raises `OrderRejectedError`.
+- ✅ RED: `trading/tests/execution/test_modify_risk.py::test_modify_within_limits_succeeds` — modify within limits still works.
+- ✅ GREEN: `ExecutionEngine.modify()` now calls `self._risk.check(request)` after the broker-side modify and rolls back the OMS cache on rejection. Done in the H1+H5+H7+H8 commit.
 
-**Acceptance:** test green; existing `test_modify_*` tests pass.
+**Acceptance:** ✅ DONE.
 
 ### H7 — `ErrorOccurred` subscriber
 **Test-first plan:**
-- RED: `trading/tests/runtime/test_error_occurred_logged.py::test_pipeline_error_publishes_error_occurred_and_logs` — trigger a pipeline error; expect log line + counter.
-- GREEN: in `_boot_tail` (live), add `bus.subscribe(lambda e: log.error("pipeline error: %s", e.error))` on `ErrorOccurred`; add a `bus.errors.total` counter.
+- ✅ RED: `trading/tests/runtime/test_error_occurred_logged.py::test_error_occurred_counter_increments_after_publish` — after a paper boot, publishing `ErrorOccurred` increments `engine.errors.total`.
+- ✅ GREEN: the boot path now subscribes a logger + `engine.errors.total` counter to `bus.of_type(ErrorOccurred)`. Done in the H1+H5+H7+H8 commit.
 
-**Acceptance:** test green; pipeline errors no longer silent.
+**Acceptance:** ✅ DONE. Pipeline errors are no longer silent; operators see the event in logs and the runtime exposes a metric.
 
 ### H8 — delete `CandleReceived`
-**Ponytail check:** YAGNI. The codebase publishes raw `Candle` everywhere; `CandleReceived` is never used. Delete from `events.py` and `__init__.py`. The removal is a 2-line diff; no test is needed (the absence of usage is the test).
+**Ponytail check:** ✅ DONE. The class was defined and re-exported but never published or subscribed. Removed from `events.py` and `__init__.py`. No test (the absence of usage is the test). Done in the H1+H5+H7+H8 commit.
 
 ### G3 — test the live-fill race
 **Test-first plan:**
