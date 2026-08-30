@@ -69,7 +69,7 @@ export function mapOrdersToTrading(
       // "market" member. A working MARKET order still reads as a resting price
       // line; the controller only uses `type` as the pill label, so map it
       // through and cast.
-      type: (o.type === "LIMIT" ? "limit" : "market") as TradingOrder["type"],
+      type: (o.type === "SL" ? "stop" : o.type === "SL-M" ? "stop_limit" : "limit") as TradingOrder["type"],
       side: (o.side === "BUY" ? "buy" : "sell") as TradingOrder["side"],
       price: o.price,
       size: Math.max(o.qty - o.filledQty, 0),
