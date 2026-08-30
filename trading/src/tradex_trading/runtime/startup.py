@@ -259,7 +259,7 @@ def boot(
 
     # C3: non-live branch also rolls back. The session is built inside
     # _boot_tail, so we pass session=None — the helper tolerates that
-    # and only disconnects the broker and disposes the bus. (There is
+    # and only closes the broker and disposes the bus. (There is
     # no writer lock to release in non-live mode.)
     try:
         return _boot_tail(
@@ -280,17 +280,19 @@ def _safe_teardown(
 ) -> None:
     """Best-effort rollback used by every boot failure path (C3).
 
-    Disconnects the broker, disposes the bus, stops the session (if
+    Closes the broker, disposes the bus, stops the session (if
     built), and releases the writer lock (if any). Every call is
     wrapped in its own try/except so one failure does not mask another.
     Used by both the live and non-live branches of :func:`boot`.
     """
-    disconnect = getattr(broker, "disconnect", None)
-    if callable(disconnect):
+    # Brokers define close() (the same surface session.stop() uses);
+    # there is no disconnect() on any adapter.
+    close = getattr(broker, "close", None)
+    if callable(close):
         try:
-            disconnect()
+            close()
         except Exception:  # noqa: BLE001 — best-effort rollback
-            log.warning("broker disconnect during boot rollback failed", exc_info=True)
+            log.warning("broker close during boot rollback failed", exc_info=True)
     bus_dispose = getattr(bus, "dispose", None)
     if callable(bus_dispose):
         try:

@@ -15,11 +15,11 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
+from tradex_trading.datalake.parquet_storage import market_session_mask
 
 
 def clean_parquet_file(path: Path) -> tuple[int, int]:
-    """Filter a single parquet file to market hours. Returns (before, after) row counts."""
+    """Filter a single parquet file to NSE weekday-session bars. Returns (before, after)."""
     df = pd.read_parquet(path)
     before = len(df)
     if df.empty or "timestamp" not in df.columns:
@@ -27,12 +27,9 @@ def clean_parquet_file(path: Path) -> tuple[int, int]:
 
     df["timestamp"] = pd.to_datetime(df["timestamp"])
 
-    # NSE market hours, single-sourced from domain/market_calendar.py.
-    # ponytail: boundary seconds differ from the old hour/minute mask only for
-    # sub-minute timestamps; 1-min bars sit on :00 so this is equivalent.
-    t = df["timestamp"].dt.time
-    mask = (t >= MARKET_OPEN) & (t <= MARKET_CLOSE)
-    cleaned = df[mask]
+    # NSE weekday-session mask, single-sourced (weekday + 09:15-15:30 IST).
+    # Removes phantom weekend sessions too, not just post-market bars.
+    cleaned = df[market_session_mask(df["timestamp"])]
     after = len(cleaned)
 
     if after < before:

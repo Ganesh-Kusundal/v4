@@ -472,7 +472,7 @@ class TestMedianStudy:
 
 class TestOscillatorsRangeB:
     def test_fisher_trigger_is_lag_one(self):
-        from tradex_trading.analytics.oscillators_range_b import fisher_transform
+        from tradex_trading.analytics.oscillators.oscillators_range_b import fisher_transform
 
         closes = [10.0 + i * 0.7 for i in range(20)]
         candles = _candles_from_closes(closes)
@@ -484,7 +484,7 @@ class TestOscillatorsRangeB:
             assert trigger[i] == fisher[i - 1]
 
     def test_connors_first_print_at_101(self):
-        from tradex_trading.analytics.oscillators_range_b import connors_rsi
+        from tradex_trading.analytics.oscillators.oscillators_range_b import connors_rsi
 
         closes = [100.0 + (i % 7) - 3 + i * 0.01 for i in range(120)]
         candles = _candles_from_closes(closes)
@@ -496,7 +496,7 @@ class TestOscillatorsRangeB:
         assert result["bandHigh"][0] == 70 and result["bandLow"][0] == 30
 
     def test_chande_momentum_flat_window_is_none(self):
-        from tradex_trading.analytics.oscillators_range_b import chande_momentum
+        from tradex_trading.analytics.oscillators.oscillators_range_b import chande_momentum
 
         flat = [50.0] * 15
         candles = _candles_from_closes(flat)
@@ -505,7 +505,7 @@ class TestOscillatorsRangeB:
         assert all(v is None for v in result["cmo"])
 
     def test_balance_of_power_zero_range_is_none(self):
-        from tradex_trading.analytics.oscillators_range_b import balance_of_power
+        from tradex_trading.analytics.oscillators.oscillators_range_b import balance_of_power
 
         candles = [_candle(10, 10, 10, 10)] * 4 + [_candle(9, 11, 8, 10)]
         result = balance_of_power(candles)
@@ -520,7 +520,7 @@ class TestOscillatorsRangeB:
 
 class TestOscillatorsTrend:
     def test_adx_flat_series_zero_di_and_adx(self):
-        from tradex_trading.analytics.oscillators_trend import adx
+        from tradex_trading.analytics.oscillators.oscillators_trend import adx
 
         # Constant 3-point range, no directional movement -> +DI/-DI/DX/ADX are 0 after warmup
         candles = [_candle(10, 12, 9, 11)] * 30
@@ -539,7 +539,7 @@ class TestOscillatorsTrend:
 
     def test_awesome_oscillator_is_sma5_minus_sma34(self):
         from tradex_trading.analytics.indicators import _to_float, sma
-        from tradex_trading.analytics.oscillators_trend import awesome_oscillator
+        from tradex_trading.analytics.oscillators.oscillators_trend import awesome_oscillator
 
         candles = _candles_from_closes([float(i) for i in range(1, 50)])
         result = awesome_oscillator(candles)
@@ -555,7 +555,7 @@ class TestOscillatorsTrend:
                 assert got == pytest.approx(exp), f"ao[{i}]"
 
     def test_cci_constant_tp_is_zero(self):
-        from tradex_trading.analytics.oscillators_trend import cci
+        from tradex_trading.analytics.oscillators.oscillators_trend import cci
 
         candles = [_candle(10, 12, 9, 11)] * 25
         result = cci(candles, period=20, constant=0.015)
@@ -563,7 +563,7 @@ class TestOscillatorsTrend:
         assert all(v == pytest.approx(0.0) for v in result["cci"][19:])
 
     def test_aroon_fresh_high_gives_100(self):
-        from tradex_trading.analytics.oscillators_trend import aroon
+        from tradex_trading.analytics.oscillators.oscillators_trend import aroon
 
         # Rising highs: last bar is the window high -> up should be 100
         closes = [10.0 + i for i in range(15)]
@@ -581,7 +581,7 @@ class TestOscillatorsTrend:
 
 class TestOscillatorsRangeA:
     def test_stochrsi_flat_series_all_none(self):
-        from tradex_trading.analytics.oscillators_range_a import stochastic_rsi
+        from tradex_trading.analytics.oscillators.oscillators_range_a import stochastic_rsi
 
         flat = [_candle(10, 10, 10, 10)] * 40
         result = stochastic_rsi(flat, length_rsi=14, length_stoch=14, smooth_k=3, smooth_d=3)
@@ -589,13 +589,13 @@ class TestOscillatorsRangeA:
         assert all(v is None for v in result["k"])
         assert all(v is None for v in result["d"])
         # Spec parity
-        from tradex_trading.analytics.oscillators_range_a import SPEC_STOCHASTIC_RSI
+        from tradex_trading.analytics.oscillators.oscillators_range_a import SPEC_STOCHASTIC_RSI
 
         assert SPEC_STOCHASTIC_RSI.id == "stochastic-rsi"
         assert SPEC_STOCHASTIC_RSI.placement == "pane"
 
     def test_williams_percent_r_bounds(self):
-        from tradex_trading.analytics.oscillators_range_a import williams_percent_r
+        from tradex_trading.analytics.oscillators.oscillators_range_a import williams_percent_r
 
         candles = _candles_from_closes(CLOSES + [15.0, 14.0, 13.5, 16.0, 12.0])
         result = williams_percent_r(candles, length=5)
@@ -612,7 +612,7 @@ class TestOscillatorsRangeA:
         # at index 9, window highs = close+0.5, but close is below high, so not 0; check clamped rather than exact
 
     def test_ultimate_oscillator_range_and_first_print(self):
-        from tradex_trading.analytics.oscillators_range_a import ultimate_oscillator
+        from tradex_trading.analytics.oscillators.oscillators_range_a import ultimate_oscillator
 
         closes = [50.0 + (i % 9) - 4 + i * 0.1 for i in range(40)]
         candles = _candles_from_closes(closes)
@@ -626,7 +626,7 @@ class TestOscillatorsRangeA:
                 assert 0.0 <= v <= 100.0, f"UO out of 0..100: {v}"
 
     def test_coppock_warmup_and_dpo_centered_shift(self):
-        from tradex_trading.analytics.oscillators_range_a import coppock_curve, dpo
+        from tradex_trading.analytics.oscillators.oscillators_range_a import coppock_curve, dpo
 
         closes = [10.0 + i * 0.5 + (i % 3) for i in range(35)]
         candles = _candles_from_closes(closes)
@@ -657,7 +657,7 @@ class TestOscillatorsRangeA:
 
 class TestOscillatorsStrength:
     def test_mfi_constant_price_is_100(self):
-        from tradex_trading.analytics.oscillators_strength import mfi
+        from tradex_trading.analytics.oscillators.oscillators_strength import mfi
 
         candles = [_candle(10, 12, 9, 11)] * 20
         result = mfi(candles, period=14)
@@ -666,7 +666,7 @@ class TestOscillatorsStrength:
         assert all(v == pytest.approx(100.0) for v in result[14:])
 
     def test_ppo_proportionality(self):
-        from tradex_trading.analytics.oscillators_strength import ppo
+        from tradex_trading.analytics.oscillators.oscillators_strength import ppo
 
         closes_a = [100.0 + i for i in range(40)]
         closes_b = [c * 2.0 for c in closes_a]
@@ -682,7 +682,7 @@ class TestOscillatorsStrength:
                 assert a == pytest.approx(b, rel=1e-9)
 
     def test_tsi_bounded(self):
-        from tradex_trading.analytics.oscillators_strength import tsi
+        from tradex_trading.analytics.oscillators.oscillators_strength import tsi
 
         closes = [10.0 + (i % 5) + i * 0.1 for i in range(50)]
         candles = _candles_from_closes(closes)
@@ -695,7 +695,7 @@ class TestOscillatorsStrength:
                 assert -100.0 <= v <= 100.0
 
     def test_smi_bounded(self):
-        from tradex_trading.analytics.oscillators_strength import smi
+        from tradex_trading.analytics.oscillators.oscillators_strength import smi
 
         closes = [10.0 + (i % 7) for i in range(40)]
         candles = _candles_from_closes(closes)
@@ -715,7 +715,7 @@ class TestOscillatorsStrength:
 
 class TestVolatilityChop:
     def test_chop_trending_low_ranging_high(self):
-        from tradex_trading.analytics.volatility_chop import choppiness_index
+        from tradex_trading.analytics.volatility.volatility_chop import choppiness_index
 
         # Trending: monotonic closes -> low CHOP (near 0)
         trending = _candles_from_closes([10.0 + i * 0.8 for i in range(40)])
@@ -732,7 +732,7 @@ class TestVolatilityChop:
         assert max(finite_rg) > max(finite_tr)
 
     def test_hv_constant_price_is_zero(self):
-        from tradex_trading.analytics.volatility_chop import historical_volatility
+        from tradex_trading.analytics.volatility.volatility_chop import historical_volatility
 
         flat = _candles_from_closes([50.0] * 30)
         result = historical_volatility(flat, length=10, per=1)
@@ -740,7 +740,7 @@ class TestVolatilityChop:
         assert all(v == pytest.approx(0.0, abs=1e-9) for v in result[10:])
 
     def test_adr_constant_range_equals_range(self):
-        from tradex_trading.analytics.volatility_chop import average_daily_range
+        from tradex_trading.analytics.volatility.volatility_chop import average_daily_range
 
         # high-low = 4 flat -> ADR = 4 after warmup
         candles = [_candle(10, 12, 8, 11)] * 20
@@ -749,7 +749,7 @@ class TestVolatilityChop:
         assert all(v == pytest.approx(4.0) for v in result[4:])
 
     def test_chop_zone_constant_one_and_angle_warmup(self):
-        from tradex_trading.analytics.volatility_chop import chop_zone
+        from tradex_trading.analytics.volatility.volatility_chop import chop_zone
 
         candles = _candles_from_closes([10.0 + i * 0.5 for i in range(40)])
         result = chop_zone(candles)
@@ -769,7 +769,7 @@ class TestVolatilityChop:
 
 class TestVolatilityBands:
     def test_bollinger_percent_b_flat_is_none(self):
-        from tradex_trading.analytics.volatility_bands import bollinger_percent_b
+        from tradex_trading.analytics.volatility.volatility_bands import bollinger_percent_b
 
         flat = _candles_from_closes([50.0] * 25)
         result = bollinger_percent_b(flat, length=20, mult=2.0)
@@ -778,7 +778,7 @@ class TestVolatilityBands:
         assert all(v is None for v in result[19:])
 
     def test_bollinger_bandwidth_flat_zero(self):
-        from tradex_trading.analytics.volatility_bands import bollinger_bandwidth
+        from tradex_trading.analytics.volatility.volatility_bands import bollinger_bandwidth
 
         flat = _candles_from_closes([50.0] * 30)
         result = bollinger_bandwidth(flat, length=20, mult=2.0)
@@ -789,7 +789,7 @@ class TestVolatilityBands:
         # but the primary bandwidth assertion is the edge contract
 
     def test_kama_flat_constant_after_warmup(self):
-        from tradex_trading.analytics.volatility_bands import kama
+        from tradex_trading.analytics.volatility.volatility_bands import kama
 
         flat = _candles_from_closes([42.0] * 30)
         result = kama(flat, er_length=10, fast_length=2, slow_length=30)
@@ -797,7 +797,7 @@ class TestVolatilityBands:
         assert all(v == pytest.approx(42.0) for v in result[10:])
 
     def test_bb_trend_flat_zero(self):
-        from tradex_trading.analytics.volatility_bands import bb_trend
+        from tradex_trading.analytics.volatility.volatility_bands import bb_trend
 
         flat = _candles_from_closes([50.0] * 60)
         result = bb_trend(flat, short_length=20, long_length=50, std_dev_mult=2.0)
@@ -812,7 +812,7 @@ class TestVolatilityBands:
 
 class TestVolatilityStops:
     def test_chandelier_flat_series_bands_flat_and_equal(self):
-        from tradex_trading.analytics.volatility_stops import chandelier_exit
+        from tradex_trading.analytics.volatility.volatility_stops import chandelier_exit
 
         candles = [_candle(10, 10, 10, 10)] * 30
         result = chandelier_exit(candles, length=5, atr_length=5, atr_multiplier=3.0)
@@ -821,7 +821,7 @@ class TestVolatilityStops:
         assert result["long"][4:] == result["short"][4:]
 
     def test_chande_kroll_flat_series_bands_flat_and_equal(self):
-        from tradex_trading.analytics.volatility_stops import chande_kroll_stop
+        from tradex_trading.analytics.volatility.volatility_stops import chande_kroll_stop
 
         candles = [_candle(10, 10, 10, 10)] * 30
         result = chande_kroll_stop(candles, p=5, x=1, q=5)
@@ -830,7 +830,7 @@ class TestVolatilityStops:
         assert result["stopLong"][8:] == result["stopShort"][8:]
 
     def test_volatility_stop_flat_series_single_side_flat(self):
-        from tradex_trading.analytics.volatility_stops import volatility_stop
+        from tradex_trading.analytics.volatility.volatility_stops import volatility_stop
 
         candles = [_candle(10, 10, 10, 10)] * 30
         result = volatility_stop(candles, length=5, factor=2.0)
@@ -840,7 +840,7 @@ class TestVolatilityStops:
             assert not (u is not None and d is not None)
 
     def test_chande_kroll_strict_warmup_propagates_none(self):
-        from tradex_trading.analytics.volatility_stops import chande_kroll_stop
+        from tradex_trading.analytics.volatility.volatility_stops import chande_kroll_stop
 
         closes = [10.0 + i for i in range(30)]
         candles = _candles_from_closes(closes)
@@ -851,7 +851,7 @@ class TestVolatilityStops:
 
 class TestVolumeFlow:
     def test_adl_flat_doji_bars_zero_contribution(self):
-        from tradex_trading.analytics.volume_simple import adl
+        from tradex_trading.analytics.volume.volume_simple import adl
 
         # Doji bars (high == low) contribute nothing to ADL
         candles = [_candle(10, 10, 10, 10, 1000)] * 20
@@ -860,7 +860,7 @@ class TestVolumeFlow:
         assert all(v == pytest.approx(0.0) for v in result["adl"])
 
     def test_cmf_zero_volume_is_none(self):
-        from tradex_trading.analytics.volume_flow import chaikin_money_flow
+        from tradex_trading.analytics.volume.volume_flow import chaikin_money_flow
 
         candles = [_candle(10, 12, 9, 11, 0)] * 30
         result = chaikin_money_flow(candles, length=5)
@@ -868,14 +868,14 @@ class TestVolumeFlow:
         assert all(v is None for v in result["cmf"])
 
     def test_eom_zero_volume_is_none(self):
-        from tradex_trading.analytics.volume_flow import ease_of_movement
+        from tradex_trading.analytics.volume.volume_flow import ease_of_movement
 
         candles = [_candle(10, 12, 9, 11, 0)] * 30
         result = ease_of_movement(candles, length=5, divisor=10000)
         assert all(v is None for v in result["eom"])
 
     def test_pvt_starts_at_zero(self):
-        from tradex_trading.analytics.volume_simple import pvt
+        from tradex_trading.analytics.volume.volume_simple import pvt
 
         candles = [_candle(10, 12, 9, 11, 1000)] * 20
         result = pvt(candles)
@@ -883,7 +883,7 @@ class TestVolumeFlow:
         assert result["pvt"][0] == pytest.approx(0.0)
 
     def test_nvi_pvi_base_1000(self):
-        from tradex_trading.analytics.volume_indices import nvi, pvi
+        from tradex_trading.analytics.volume.volume_indices import nvi, pvi
 
         candles = [_candle(10, 12, 9, 11, 1000)] * 20
         n = nvi(candles, ma_length=14)
@@ -893,7 +893,7 @@ class TestVolumeFlow:
         assert p["pvi"][0] == pytest.approx(1000.0)
 
     def test_klinger_signal_uses_ema_of_gapped(self):
-        from tradex_trading.analytics.volume_indices import klinger_oscillator
+        from tradex_trading.analytics.volume.volume_indices import klinger_oscillator
 
         candles = [_candle(10, 12, 9, 11, 1000)] * 60
         result = klinger_oscillator(candles)
@@ -901,7 +901,7 @@ class TestVolumeFlow:
         assert result["signal"][0] is None
 
     def test_kst_first_print_at_roclen4_plus_smalen4(self):
-        from tradex_trading.analytics.volume_indices import know_sure_thing
+        from tradex_trading.analytics.volume.volume_indices import know_sure_thing
 
         closes = [10.0 + i * 0.5 for i in range(60)]
         candles = _candles_from_closes(closes)
@@ -919,7 +919,7 @@ class TestVolumeFlow:
 
 class TestStudiesSimple:
     def test_momentum_first_print_and_flat_zero(self):
-        from tradex_trading.analytics.studies_simple import momentum
+        from tradex_trading.analytics.studies.studies_simple import momentum
 
         rising = _candles_from_closes([10.0 + i * 0.5 for i in range(30)])
         mom = momentum(rising, len=10)["mom"]
@@ -931,7 +931,7 @@ class TestStudiesSimple:
         assert all(v == pytest.approx(0.0) for v in flat_mom[10:])
 
     def test_ma_cross_sma_lanes_and_cross_slots(self):
-        from tradex_trading.analytics.studies_simple import ma_cross
+        from tradex_trading.analytics.studies.studies_simple import ma_cross
 
         # V-shaped recovery: short SMA crosses above the long SMA mid-series.
         closes = [20.0 - i for i in range(10)] + [12.0 + i for i in range(9)]
@@ -949,7 +949,7 @@ class TestStudiesSimple:
         assert all(v is None for v in flat_cross)
 
     def test_ma_ribbon_flat_sma_lanes_equal_flat_price(self):
-        from tradex_trading.analytics.studies_simple import ma_ribbon
+        from tradex_trading.analytics.studies.studies_simple import ma_ribbon
 
         result = ma_ribbon(_candles_from_closes([42.0] * 50))
         # Explicit lane lengths: SMA lanes warm up at length-1 and then sit flat.
@@ -967,7 +967,7 @@ class TestStudiesSimple:
         assert all(v == pytest.approx(42.0) for v in result["ma4"][11:])
 
     def test_woodies_cci_flat_gap_and_hist_mirrors_cci14(self):
-        from tradex_trading.analytics.studies_simple import woodies_cci
+        from tradex_trading.analytics.studies.studies_simple import woodies_cci
 
         # Constant series -> mean absolute deviation 0 -> every column is a gap.
         flat = woodies_cci(_candles_from_closes([50.0] * 30), 5, 14)
@@ -983,7 +983,7 @@ class TestStudiesSimple:
         assert live["hist"][13] is not None
 
     def test_special_k_slowest_term_warmup(self):
-        from tradex_trading.analytics.studies_simple import special_k
+        from tradex_trading.analytics.studies.studies_simple import special_k
 
         candles = _candles_from_closes([10.0 + i * 0.5 for i in range(400)])
         result = special_k(candles, length1=10, length2=10)
@@ -1003,7 +1003,7 @@ class TestStudiesSimple:
 
 class TestStudiesTrend:
     def test_alligator_warmup_order_and_flat_equality(self):
-        from tradex_trading.analytics.studies_trend import alligator
+        from tradex_trading.analytics.studies.studies_trend import alligator
 
         flat = [_candle(10, 10, 10, 10)] * 40
         result = alligator(flat)
@@ -1017,7 +1017,7 @@ class TestStudiesTrend:
         assert all(v == pytest.approx(10.0) for v in result["jaw"][20:])
 
     def test_parabolic_sar_seed_and_uptrend_stay(self):
-        from tradex_trading.analytics.studies_trend import parabolic_sar
+        from tradex_trading.analytics.studies.studies_trend import parabolic_sar
 
         candles = _candles_from_closes([10.0 + i for i in range(40)])
         sar = parabolic_sar(candles)["sar"]
@@ -1030,7 +1030,7 @@ class TestStudiesTrend:
             assert sar[i] < lows[i]
 
     def test_ichimoku_conversion_base_span_and_lagging(self):
-        from tradex_trading.analytics.studies_trend import ichimoku
+        from tradex_trading.analytics.studies.studies_trend import ichimoku
 
         n = 120
         closes = [10.0 + i * 0.5 for i in range(n)]
@@ -1054,7 +1054,7 @@ class TestStudiesTrend:
         assert all(v is None for v in lagging[n - 26:])
 
     def test_halftrend_flat_level_and_mutual_exclusion(self):
-        from tradex_trading.analytics.studies_trend import halftrend
+        from tradex_trading.analytics.studies.studies_trend import halftrend
 
         flat = [_candle(10, 10, 10, 10)] * 40
         flat_res = halftrend(flat)
@@ -1069,7 +1069,7 @@ class TestStudiesTrend:
             assert not (u is not None and d is not None)
 
     def test_alphatrend_lagged_is_level_two_back(self):
-        from tradex_trading.analytics.studies_trend import alphatrend
+        from tradex_trading.analytics.studies.studies_trend import alphatrend
 
         candles = _candles_from_closes([10.0 + i * 0.4 for i in range(60)])
         result = alphatrend(candles, coeff=1, ap=14)
@@ -1088,7 +1088,7 @@ class TestStudiesComplex:
     def test_cpr_returns_27_keys_and_manual_toggles(self):
         from datetime import timedelta
 
-        from tradex_trading.analytics.studies_complex import cpr
+        from tradex_trading.analytics.studies.studies_complex import cpr
 
         base = datetime(2026, 7, 15, 9, 15)
         candles = []
@@ -1114,7 +1114,7 @@ class TestStudiesComplex:
                 assert all(v is None for v in result[f"{p}{k}"])
 
     def test_range_analysis_avg_gated_by_show_average(self):
-        from tradex_trading.analytics.studies_complex import range_analysis
+        from tradex_trading.analytics.studies.studies_complex import range_analysis
 
         candles = _candles_from_closes([10.0 + i for i in range(20)])
         off = range_analysis(candles, show_average=False, avg_length=3)
@@ -1127,7 +1127,7 @@ class TestStudiesComplex:
         assert all(v == pytest.approx(1.5) for v in on["avg_range"][2:])
 
     def test_vortex_first_print_and_nonnegative(self):
-        from tradex_trading.analytics.studies_complex import vortex
+        from tradex_trading.analytics.studies.studies_complex import vortex
 
         result = vortex(_candles_from_closes([10.0 + i * 0.5 for i in range(30)]), 14)
         assert all(v is None for v in result["vip"][:14])
@@ -1138,7 +1138,7 @@ class TestStudiesComplex:
                     assert v >= 0.0
 
     def test_relative_vigor_index_offset_shifts_rvgi(self):
-        from tradex_trading.analytics.studies_complex import relative_vigor_index
+        from tradex_trading.analytics.studies.studies_complex import relative_vigor_index
 
         candles = _candles_from_closes([10.0 + i * 0.3 + (i % 3) for i in range(60)])
         base_rvgi = relative_vigor_index(candles, length=10, offset=0)["rvgi"]
@@ -1150,7 +1150,7 @@ class TestStudiesComplex:
             assert shifted[i + 1] == base_rvgi[i]
 
     def test_relative_volatility_index_monotonic_up_approaches_100(self):
-        from tradex_trading.analytics.studies_complex import relative_volatility_index
+        from tradex_trading.analytics.studies.studies_complex import relative_volatility_index
 
         candles = _candles_from_closes([10.0 + i * 0.5 for i in range(60)])
         result = relative_volatility_index(candles, length=10, offset=0,
@@ -1175,7 +1175,7 @@ class TestStudiesComplex:
 
 class TestStudiesSignals:
     def test_rsi_divergence_rsi_bounded_and_flat_signals(self):
-        from tradex_trading.analytics.studies_signals import rsi_divergence
+        from tradex_trading.analytics.studies.studies_signals import rsi_divergence
 
         result = rsi_divergence([_candle(10, 10, 10, 10)] * 40, 14, 5, 5)
         for v in result["rsi"]:
@@ -1187,7 +1187,7 @@ class TestStudiesSignals:
             assert all(v is None for v in result[key])
 
     def test_trend_strength_index_flat_none_and_monotonic_one(self):
-        from tradex_trading.analytics.studies_signals import trend_strength_index
+        from tradex_trading.analytics.studies.studies_signals import trend_strength_index
 
         flat = [_candle(10, 10, 10, 10)] * 40
         assert all(v is None for v in trend_strength_index(flat, 14)["tsi"])
@@ -1199,7 +1199,7 @@ class TestStudiesSignals:
         assert out[-1] == pytest.approx(1.0, abs=1e-9)
 
     def test_williams_fractals_null_layer_and_pivot_values(self):
-        from tradex_trading.analytics.studies_signals import williams_fractals
+        from tradex_trading.analytics.studies.studies_signals import williams_fractals
 
         closes = [10, 11, 12, 11, 10, 12, 13, 12, 11]
         candles = _candles_from_closes([float(c) for c in closes])
@@ -1222,7 +1222,7 @@ class TestStudiesSignals:
         assert all(v is None for v in down[-2:])
 
     def test_williams_vix_fix_bounds_and_toggled_columns_null(self):
-        from tradex_trading.analytics.studies_signals import williams_vix_fix
+        from tradex_trading.analytics.studies.studies_signals import williams_vix_fix
 
         candles = _candles_from_closes([10.0 + i * 0.4 for i in range(60)])
         result = williams_vix_fix(candles, pd=22, bbl=20, mult=2.0, lb=50,
@@ -1239,7 +1239,7 @@ class TestStudiesSignals:
         assert all(v is None for v in result["upper_band"])
 
     def test_wavetrend_warmup_and_mom_identity(self):
-        from tradex_trading.analytics.studies_signals import wavetrend
+        from tradex_trading.analytics.studies.studies_signals import wavetrend
 
         candles = _candles_from_closes([10.0 + i * 0.5 + (i % 4) for i in range(80)])
         result = wavetrend(candles, n1=10, n2=21, sig_len=4)
@@ -1404,3 +1404,47 @@ class TestIndicatorRegistryContract:
         assert via_engine[-1] == pytest.approx(via_registry["value"][-1])
         # And the spec came from the registry, not the hardcoded _INDICATORS.
         assert REGISTRY.get("rsi") is not None
+
+
+class TestSingleSourceOfTruth:
+    """The first-class REGISTRY is the ONLY indicator store.
+
+    Regression guard for the dual-registry footgun: the catalogue, compute and
+    engine must all read one store, and the stored specs must carry full
+    fidelity (fn/plots/levels) so a lossy mirror can never silently diverge.
+    """
+
+    def test_no_legacy_dict_and_catalogue_equals_registry(self):
+        import tradex_trading.analytics.indicators as ind_mod
+        from tradex_trading.analytics.indicators import indicator_catalogue
+        from tradex_trading.analytics.registry import REGISTRY
+
+        # The legacy dict no longer exists anywhere in the module.
+        assert not hasattr(ind_mod, "_REGISTRY")
+
+        cat = {c["id"]: c for c in indicator_catalogue()}
+        specs = {s.id: s for s in REGISTRY.all()}
+        # Catalogue and registry are the same single store.
+        assert cat.keys() == specs.keys()
+        for iid, entry in cat.items():
+            spec = specs[iid]
+            # Full fidelity stored: a lossy mirror would drop plots/levels.
+            assert [p[0] for p in spec.plots] == [p["key"] for p in entry["plots"]]
+            assert list(spec.levels) == list(entry["levels"])
+            assert spec.fn is not None
+        # And get_indicator_spec resolves through the same store.
+        for iid in list(cat)[:5]:
+            assert ind_mod.get_indicator_spec(iid) is specs[iid]
+
+    def test_engine_and_compute_read_identical_spec(self):
+        from tradex_trading.analytics.indicators import (
+            compute_indicator,
+            get_indicator_spec,
+        )
+        from tradex_trading.analytics.registry import REGISTRY
+
+        # The spec the engine dispatches through is the object the catalogue
+        # serves — same identity, not a reconstructed copy.
+        assert REGISTRY.get("macd") is get_indicator_spec("macd")
+        assert compute_indicator("macd", _candles_from_closes(CLOSES * 4), {})
+

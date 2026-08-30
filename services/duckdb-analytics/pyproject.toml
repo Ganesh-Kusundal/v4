@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tradex-duckdb"
+version = "0.1.0"
+description = "TradeX v4 — read-only DuckDB analytics service over the OHLCV parquet datalake, exposed via MCP"
+requires-python = ">=3.12"
+dependencies = [
+    "duckdb>=0.10,<2",
+    "pyarrow>=14",
+]
+
+[project.optional-dependencies]
+# mcp 2.0 removed mcp.server.fastmcp; stay on the stable 1.x line.
+mcp = ["mcp>=1.0,<2", "pydantic>=2"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/duck_analytics"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["src"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

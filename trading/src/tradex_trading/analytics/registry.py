@@ -64,18 +64,24 @@ class IndicatorRegistry:
     Last registration wins on duplicate ids. Discovery is supported through
     :meth:`all` (preserves the order in which indicators were registered,
     which the catalogue/openapi endpoints depend on).
+
+    ponytail: the container value type is intentionally ``Any`` — production
+    stores the full-fidelity catalog ``IndicatorSpec`` (trigrams, plots,
+    levels, ``fn``) so the catalogue, ``compute`` and the engine all read one
+    place. The typed ``IndicatorSpec``/``ParamSpec`` classes below remain the
+    nominal shape for the decorator form and this module's unit tests.
     """
 
     def __init__(self) -> None:
-        self._specs: dict[str, IndicatorSpec] = {}
+        self._specs: dict[str, Any] = {}
         self._lock = threading.Lock()
 
-    def register(self, name: str, spec: IndicatorSpec) -> None:
+    def register(self, name: str, spec: Any) -> None:
         """Id-or-replace registration; safe to call concurrently."""
         with self._lock:
             self._specs[name] = spec
 
-    def get(self, name: str) -> IndicatorSpec:
+    def get(self, name: str) -> Any:
         """Return the spec for *name*; raise ``KeyError`` if unknown."""
         # Fast path: read without the lock; the dict swap is atomic in CPython
         # and a stale miss is recovered on retry.
@@ -88,7 +94,7 @@ class IndicatorRegistry:
                 raise KeyError(f"unknown indicator: {name!r}")
             return spec
 
-    def all(self) -> tuple[IndicatorSpec, ...]:
+    def all(self) -> tuple[Any, ...]:
         """All registered specs in insertion order — for discovery/openapi."""
         with self._lock:
             return tuple(self._specs.values())

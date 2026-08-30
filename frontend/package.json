@@ -9,12 +9,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "openalgo-charts": "^1.6.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "typescript": "^5.7.3",
     "vite": "^6.3.0",
     "vitest": "^4.1.11"

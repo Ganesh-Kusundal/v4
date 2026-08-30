@@ -9,6 +9,9 @@ export default defineConfig({
   // so "/assets/..." would 404. "./" makes index.html resolve its bundle
   // against the page URL, which is correct both at /ui/ and at root.
   base: "./",
+  test: {
+    exclude: ["**/e2e/**", "node_modules/**"],
+  },
   server: {
     port: 5173,
     proxy: {

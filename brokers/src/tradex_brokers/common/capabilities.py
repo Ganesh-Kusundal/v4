@@ -28,6 +28,7 @@ def dhan_capabilities() -> BrokerCapabilities:
         supports_kill_switch=True,
         supports_news=False,
         supports_fundamentals=False,
+        supports_same_day_intraday=True,
         depth_levels=20,
         max_stream_instruments=1000,
         supported_asset_classes=(

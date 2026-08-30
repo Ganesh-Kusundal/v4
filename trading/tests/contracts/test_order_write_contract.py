@@ -260,6 +260,34 @@ def test_paper_filled_order_refuses_cancel() -> None:
 def test_history_convenience_signature_uniform(broker_cls: type) -> None:
     sig = inspect.signature(broker_cls.history)
     params = list(sig.parameters.values())
-    # (self, instrument, timeframe, start=None, end=None, ...)
+    # (self, instrument, timeframe=None, start=None, end=None, ...)
     assert len(params) >= 5, f"{broker_cls.__name__}.history lost its defaults"
+    assert params[2].default is None, (
+        f"{broker_cls.__name__}.history timeframe must be defaulted so the "
+        "kwarg-only convenience form history(inst, interval=...) works"
+    )
     assert params[3].default is None and params[4].default is None
+
+
+def test_history_kwarg_only_form_uniform() -> None:
+    """history(inst, interval=..., lookback_days=...) must work on every
+    adapter, and omitting both timeframe and interval is a ValueError."""
+    from tradex_domain.enums import Timeframe
+    from tradex_domain.errors import BrokerUnavailableError
+    from tradex_domain.market import HistoricalSeries
+
+    # Paper serves the form directly; transport-less live brokers pass
+    # signature validation and gate afterwards (BrokerUnavailableError).
+    series = PaperBroker().history(_RELIANCE, interval="5m", lookback_days=1)
+    assert isinstance(series, HistoricalSeries)
+    assert series.timeframe is Timeframe.M5
+    for cls in (DhanBroker, UpstoxBroker):
+        try:
+            cls().history(_RELIANCE, interval="5m", lookback_days=1)
+        except BrokerUnavailableError:
+            pass  # gated after validation — the signature accepted kwargs
+        except TypeError as exc:
+            pytest.fail(f"{cls.__name__}.history rejected kwarg form: {exc}")
+    for cls in (DhanBroker, UpstoxBroker, PaperBroker):
+        with pytest.raises(ValueError):
+            cls().history(_RELIANCE)

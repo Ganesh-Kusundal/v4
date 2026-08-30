@@ -40,6 +40,19 @@ _MARKET_OPEN = MARKET_OPEN
 _MARKET_CLOSE = MARKET_CLOSE
 
 
+def market_session_mask(ts: pd.Series) -> pd.Series:
+    """Boolean mask: timestamps that are NSE weekday-session bars.
+
+    True for Mon–Fri 09:15–15:30 IST (both bounds inclusive), False otherwise.
+    Single source for the session rule so the write path, read path and
+    ``clean_datalake`` agree exactly. ponytail: the store is equity-only today
+    (``kind=\"equity\"``); when futures/currency land here, extend per-exchange
+    hours (see ``DHAN_SESSION_*``) instead of broadening this mask.
+    """
+    t = ts.dt.time
+    return (ts.dt.dayofweek < 5) & (t >= _MARKET_OPEN) & (t <= _MARKET_CLOSE)
+
+
 class ParquetStorage:
     """Hive-partitioned Parquet store for OHLCV history.
 
@@ -169,6 +182,15 @@ class ParquetStorage:
                 before - int(mask_valid.sum()),
             )
             df = df[mask_valid].copy()
+
+        # Root-cause guard: the storage contract is NSE *weekday-session* bars.
+        # Brokers occasionally emit phantom rows (a whole weekend session,
+        # pre-market 03:45+, post-15:30). Drop them at the write chokepoint so
+        # they never persist — read-time stripping alone hid them and made the
+        # lake look clean while 0.7% was garbage (2026-02-01 took a phantom
+        # Sunday session). See market_session_mask. (Idempotent: already-clean
+        # frames pass through untouched.)
+        df = df[market_session_mask(df["timestamp"])].reset_index(drop=True)
         return df
 
     # ------------------------------------------------------------------ read
@@ -228,10 +250,10 @@ class ParquetStorage:
         if timeframe is not None:
             result = result[result["timeframe"] == timeframe]
         if strip_post_market:
-            result = result[
-                (result["timestamp"].dt.time >= _MARKET_OPEN)
-                & (result["timestamp"].dt.time <= _MARKET_CLOSE)
-            ]
+            # Session rule (weekday + market hours), single-sourced. Sundays /
+            # pre-market blocks are not "post-market noise" but they are the
+            # same class of phantom; keep stored & served views consistent.
+            result = result[market_session_mask(result["timestamp"])]
         return result.sort_values(["symbol", "timestamp"]).reset_index(drop=True)
 
     def _resolve_partitions(

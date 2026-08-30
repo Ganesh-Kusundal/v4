@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -38,6 +39,7 @@ from typing import Any
 import pandas as pd
 
 from tradex_domain import Timeframe
+from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.market_calendar import NSE_HOLIDAYS_2026, to_ist_naive
 
 from tradex_trading.datalake.gap_detector import GapDetector
@@ -65,9 +67,17 @@ def _load_blacklist(path: Path) -> dict[str, dict[str, Any]]:
 
 def _save_blacklist(path: Path, blacklist: dict[str, dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
         json.dumps(blacklist, indent=2, sort_keys=True), encoding="utf-8"
     )
+    os.replace(tmp, path)  # atomic: readers never see a half-written file
+
+
+def _serves_same_day(broker: Any) -> bool:
+    """True when the broker's capability table claims same-day intraday M1."""
+    caps = getattr(broker, "_capabilities", None)
+    return isinstance(caps, BrokerCapabilities) and caps.supports_same_day_intraday
 
 
 def _active_blacklist(
@@ -144,6 +154,11 @@ class HistoricalSyncService:
         JSON file of symbols that repeatedly stayed gapped after a sync;
         they are skipped for ``BLACKLIST_COOLDOWN_DAYS`` so dead symbols
         don't slow every run (defaults to ``data/.sync_blacklist.json``).
+    holidays : frozenset | None
+        NSE holiday dates (ISO date strings) for gap detection. Defaults to
+        the newest list in ``tradex_domain.market_calendar``. ponytail: a
+        single injected set — pass the union of known years when a sync
+        window spans year boundaries.
     """
 
     def __init__(
@@ -152,11 +167,13 @@ class HistoricalSyncService:
         detector: GapDetector | None = None,
         fetcher: ParallelHistoryFetcher | None = None,
         blacklist_path: Path | None = None,
+        holidays: frozenset | None = None,
     ) -> None:
         self._store = store or ParquetStorage(Path("data"))
         self._detector = detector or GapDetector(self._store)
         self._fetcher = fetcher
         self._blacklist_path = blacklist_path or _DEFAULT_BLACKLIST_PATH
+        self._holidays = holidays or NSE_HOLIDAYS_2026
 
     # ------------------------------------------------------------------ public
 
@@ -234,7 +251,9 @@ class HistoricalSyncService:
         if filler_broker and filler_broker in (brokers or {}):
             filler = {filler_broker: brokers[filler_broker]}
             gap_pairs2 = self._gapped_pairs(
-                active_insts, start, end, str(tf.value), min_gap_stamps
+                # ponytail: only phase-1 symbols can still be gapped —
+                # upserts add rows, they never remove them.
+                to_fetch, start, end, str(tf.value), min_gap_stamps
             )
             if gap_pairs2:
                 log.info("HistoricalSync phase 2 (filler %s): %d gapped symbols",
@@ -256,8 +275,8 @@ class HistoricalSyncService:
         # today. A broker known to serve same-day bars (Dhan) tops those up.
         written3 = 0
         same_day = [
-            name for name in ("dhan",)
-            if name in (brokers or {}) and name != filler_broker
+            name for name, broker in (brokers or {}).items()
+            if name != filler_broker and _serves_same_day(broker)
         ]
         if same_day:
             now = to_ist_naive(datetime.now(UTC))
@@ -266,9 +285,9 @@ class HistoricalSyncService:
             # "missing today" is vacuous and detect(start>end) is meaningless.
             gaps_today = (
                 self._detector.detect(
-                    active_insts, start=day_start, end=now,
+                    to_fetch, start=day_start, end=now,
                     timeframe=str(tf.value), bar_freq="1min",
-                    holidays=NSE_HOLIDAYS_2026, min_gap_stamps=min_gap_stamps,
+                    holidays=self._holidays, min_gap_stamps=min_gap_stamps,
                 )
                 if now > day_start else []
             )
@@ -325,7 +344,7 @@ class HistoricalSyncService:
         gaps = self._detector.detect(
             instruments, start=start, end=end,
             timeframe=str(tf.value), bar_freq="1min",
-            holidays=NSE_HOLIDAYS_2026, min_gap_stamps=15,
+            holidays=self._holidays, min_gap_stamps=15,
         )
         # Sample OHLC sanity: read one symbol's recent bars and check invariants
         sample = self._store.read(symbols=[instruments[0].symbol], start=start, end=end)
@@ -351,7 +370,7 @@ class HistoricalSyncService:
         return self._detector.detect(
             instruments, start=start, end=end,
             timeframe=timeframe, bar_freq="1min",
-            holidays=NSE_HOLIDAYS_2026, min_gap_stamps=min_gap_stamps,
+            holidays=self._holidays, min_gap_stamps=min_gap_stamps,
         ) or []
 
     def _update_blacklist(

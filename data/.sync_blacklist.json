@@ -1,0 +1,2327 @@
+{
+  "360ONE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AADHARHFC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AARTIIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AAVAS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ABB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ABBOTINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ABCAPITAL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ABDL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ABFRL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ABLBL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ABREL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ABSLAMC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ACE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ACMESOLAR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ACUTAAS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ADANIENSOL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ADANIENT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ADANIGREEN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ADANIPORTS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ADANIPOWER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AEGISLOG": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AEGISVOPAK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AFCONS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AFFLE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AIIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AJANTPHARM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ALKEM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AMBER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AMBUJACEM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ANANDRATHI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ANANTRAJ": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ANGELONE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ANTHEM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ANURAS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "APARINDS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "APLAPOLLO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "APOLLOHOSP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "APOLLOTYRE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "APTUS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ARE&M": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ASAHIINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ASHOKLEY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ASIANPAINT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ASTERDM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ASTRAL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ATGL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ATHERENERG": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ATUL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AUBANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AUROPHARMA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AWL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "AXISBANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BAJAJ-AUTO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BAJAJFINSV": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BAJAJHFL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BAJAJHLDNG": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BAJFINANCE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BALKRISIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BALRAMCHIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BANDHANBNK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BANKBARODA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BANKINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BATAINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BAYERCROP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BBTC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BDL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BELRISE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BEML": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BERGEPAINT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BHARATFORG": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BHARTIARTL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BHARTIHEXA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BHEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BIKAJI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BIOCON": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BLS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BLUEDART": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BLUEJET": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BLUESTARCO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BOSCHLTD": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BPCL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BRIGADE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BRITANNIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BSE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "BSOFT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CAMS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CANBK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CANFINHOME": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CANHLIFE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CAPLIPOINT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CARBORUNIV": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CARTRADE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CASTROLIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CCL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CDSL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CEATLTD": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CEMPRO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CENTRALBK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CESC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CGCL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CGPOWER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CHALET": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CHAMBLFERT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CHENNPETRO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CHOICEIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CHOLAFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CHOLAHLDNG": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CIEINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CIPLA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CLEAN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "COALINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "COCHINSHIP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "COFORGE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "COHANCE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "COLPAL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CONCOR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CONCORDBIO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "COROMANDEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CPPLUS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CRAFTSMAN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CREDITACC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CRISIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CROMPTON": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CUB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CUMMINSIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "CYIENT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DABUR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DALBHARAT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DATAPATTNS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DCMSHRIRAM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DEEPAKFERT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DEEPAKNTR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DELHIVERY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DEVYANI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DIVISLAB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DIXON": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DLF": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DMART": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DOMS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "DRREDDY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ECLERX": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "EICHERMOT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "EIDPARRY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "EIHOTEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ELECON": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ELGIEQUIP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "EMAMILTD": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "EMCURE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "EMMVEE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ENDURANCE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ENGINERSIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ENRIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ERIS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ESCORTS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ETERNAL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "EXIDEIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "FACT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "FEDERALBNK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "FINCABLES": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "FIRSTCRY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "FIVESTAR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "FLUOROCHEM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "FORCEMOT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "FORTIS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "FSL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GABRIEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GAIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GALLANTT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GESHIP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GICRE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GILLETTE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GLAND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GLAXO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GLENMARK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GMDCLTD": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GMRAIRPORT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GODFRYPHLP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GODIGIT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GODREJCP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GODREJIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GODREJPROP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GPIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GRANULES": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GRAPHITE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GRASIM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GRAVITA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GROWW": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GRSE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "GVT&D": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HAL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HAVELLS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HBLENGINE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HCLTECH": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HDBFS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HDFCAMC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HDFCBANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HDFCLIFE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HEG": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HEROMOTOCO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HEXT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HFCL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HINDALCO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HINDCOPPER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HINDPETRO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HINDUNILVR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HINDZINC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HOMEFIRST": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HONASA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HONAUT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HSCL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HUDCO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "HYUNDAI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ICICIAMC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ICICIBANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ICICIGI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ICICIPRULI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IDBI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IDEA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IDFCFIRSTB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IEX": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IFCI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IGIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IGL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IIFL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IKS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INDGN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INDHOTEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INDIACEM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INDIAMART": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INDIANB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INDIGO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INDUSINDBK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INDUSTOWER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INFY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INOXWIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "INTELLECT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IOB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IOC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IPCALAB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IRB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IRCON": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IRCTC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IREDA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "IRFC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ITC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ITCHOTELS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ITI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "J&KBANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JAINREC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JBMA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JINDALSAW": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JINDALSTEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JIOFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JKCEMENT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JKTYRE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JMFINANCIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JPPOWER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JSL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JSWCEMENT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JSWDULUX": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JSWENERGY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JSWINFRA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JSWSTEEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JUBLFOOD": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JUBLINGREA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JUBLPHARMA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JWL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "JYOTICNC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KAJARIACER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KALYANKJIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KARURVYSYA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KAYNES": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KEC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KEI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KFINTECH": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KIMS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KIRLOSENG": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KOTAKBANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KPIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KPITTECH": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "KPRMILL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LALPATHLAB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LATENTVIEW": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LAURUSLABS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LEMONTREE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LENSKART": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LGEINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LICHSGFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LICI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LINDEINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LLOYDSME": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LODHA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LTF": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LTFOODS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LTM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LTTS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "LUPIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "M&M": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "M&MFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MAHABANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MANAPPURAM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MANKIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MAPMYINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MARICO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MARUTI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MAXHEALTH": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MAZDOCK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MCX": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MEDANTA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MEESHO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MFSL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MGL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MINDACORP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MMTC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MOTHERSON": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MOTILALOFS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MPHASIS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MRF": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MRPL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MSUMI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "MUTHOOTFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NAM-INDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NATCOPHARM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NATIONALUM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NAUKRI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NAVA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NAVINFLUOR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NBCC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NCC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NESTLEIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NETWEB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NEULANDLAB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NEWGEN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NH": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NHPC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NIVABUPA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NLCINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NMDC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NSLNISP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NTPC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NTPCGREEN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NUVAMA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NUVOCO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "NYKAA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "OBEROIRLTY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "OFSS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "OIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "OLAELEC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "OLECTRA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ONESOURCE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ONGC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PAGEIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PARADEEP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PATANJALI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PAYTM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PCBL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PERSISTENT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PETRONET": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PFC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PFIZER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PFOCUS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PGEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PHOENIXLTD": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PIDILITIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PIIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PINELABS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PIRAMALFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PNB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PNBHOUSING": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "POLICYBZR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "POLYCAB": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "POLYMED": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "POONAWALLA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "POWERGRID": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "POWERINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PPLPHARMA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PREMIERENE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PRESTIGE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PTCIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PVRINOX": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "PWL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RADICO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RAILTEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RAINBOW": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RBLBANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RECLTD": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "REDINGTON": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RELIANCE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RHIM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RITES": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RKFORGE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RPOWER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RRKABEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "RVNL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SAGILITY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SAIL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SAILIFE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SAMMAANCAP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SAPPHIRE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SARDAEN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SAREGAMA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SBFC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SBICARD": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SBILIFE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SBIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SCHAEFFLER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SCHNEIDER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SCI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SHREECEM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SHRIRAMFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SHYAMMETL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SIEMENS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SIGNATURE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SJVN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SOBHA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SOLARINDS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SONACOMS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SONATSOFTW": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SPLPETRO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SRF": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "STARHEALTH": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUMICHEM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUNDARMFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUNPHARMA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUNTV": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUPREMEIND": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUZLON": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SWANCORP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SWIGGY": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TATACONSUM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TATAELXSI": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TATAPOWER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TATASTEEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TCS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TECHM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "THELEELA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TIINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TITAN": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TMPV": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TORNTPHARM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TRAVELFOOD": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TRENT": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TVSMOTOR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ULTRACEMCO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "UNIONBANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "UNITDSPR": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "UNOMINDA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "UPL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "VBL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "VEDL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "VMM": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "VOLTAS": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "WAAREEENER": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "WELCORP": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "WIPRO": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "WOCKPHARMA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "YESBANK": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ZEEL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ZENSARTECH": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ZENTEC": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ZFCVINDIA": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ZYDUSLIFE": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ZYDUSWELL": {
+    "fails": 1,
+    "last_ts": "2026-08-26T16:13:00",
+    "reason": "still_gapped_after_sync"
+  }
+}

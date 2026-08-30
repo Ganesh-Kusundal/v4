@@ -38,14 +38,18 @@ def _upsert_two_symbols(store: ParquetStorage) -> None:
 
 
 def _upsert_series(store: ParquetStorage, symbol: str, closes: list[float]) -> None:
-    """Write one 1m bar per day with the given close values."""
-    rows = []
-    for day, close in enumerate(closes, start=1):
-        rows.append(
-            dict(symbol=symbol, exchange="NSE", kind="equity", timeframe="1m",
-                 timestamp=f"2026-07-{day:02d} 09:15:00", open=close, high=close,
-                 low=close, close=close, volume=1000)
-        )
+    """Write one 1m bar per *business* day with the given close values.
+
+    Uses business days from 2026-07-01 so the write-path weekday guard does
+    not drop bars (day numbers 4/5 of July 2026 fall on Sat/Sun).
+    """
+    dates = list(pd.bdate_range("2026-07-01", periods=len(closes)))
+    rows = [
+        dict(symbol=symbol, exchange="NSE", kind="equity", timeframe="1m",
+             timestamp=f"{d.date()} 09:15:00", open=close, high=close,
+             low=close, close=close, volume=1000)
+        for d, close in zip(dates, closes)
+    ]
     store.upsert(pd.DataFrame(rows))
 
 
@@ -382,7 +386,7 @@ class TestLoaderGapDetection:
 
     def test_no_warning_when_days_contiguous(self, tmp_path) -> None:
         store = ParquetStorage(tmp_path)
-        _upsert_bars(store, "RELIANCE", (1, 2, 3, 4))  # Wed/Thu/Fri/Mon 2026-07
+        _upsert_bars(store, "RELIANCE", (1, 2, 3, 6))  # Wed/Thu/Fri/Mon 2026-07
         loader = ParquetBacktestLoader(store=store)
 
         with warnings.catch_warnings():

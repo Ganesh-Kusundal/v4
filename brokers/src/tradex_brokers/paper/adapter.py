@@ -453,7 +453,7 @@ class PaperBroker:
     def history(
         self,
         instrument: Instrument,
-        timeframe: Timeframe | str,
+        timeframe: Timeframe | str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
         *,
@@ -465,6 +465,8 @@ class PaperBroker:
         same 2-arg/``interval`` form on every adapter."""
         if interval is not None:
             timeframe = Timeframe(interval)
+        if timeframe is None:
+            raise ValueError("history requires a timeframe or interval")
         if not isinstance(timeframe, Timeframe):
             timeframe = Timeframe(timeframe)
         if start is None or end is None:

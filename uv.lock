@@ -1299,6 +1299,7 @@ api = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "uvicorn" },
+    { name = "websockets" },
 ]
 datalake = [
     { name = "duckdb" },
@@ -1311,6 +1312,7 @@ full = [
     { name = "httpx" },
     { name = "numpy" },
     { name = "uvicorn" },
+    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -1330,6 +1332,8 @@ requires-dist = [
     { name = "tradex-domain", editable = "domain" },
     { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.29,<1" },
     { name = "uvicorn", marker = "extra == 'full'", specifier = ">=0.29,<1" },
+    { name = "websockets", marker = "extra == 'api'", specifier = ">=12,<18" },
+    { name = "websockets", marker = "extra == 'full'", specifier = ">=12,<18" },
 ]
 provides-extras = ["analytics", "datalake", "api", "full"]
 

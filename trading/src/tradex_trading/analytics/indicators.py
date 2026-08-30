@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any
 
@@ -737,66 +737,29 @@ class IndicatorSpec:
     fn: Callable[..., Any] | None = None
 
 
-@dataclass(slots=True)
-class IndicatorResult:
-    """Aligned computation output: one value-list per plot key."""
-
-    values: dict[str, list] = field(default_factory=dict)
-
-
-# Private imports from the first-class registry — used by register_indicator
-# to mirror every legacy spec into REGISTRY automatically.
-from tradex_trading.analytics.registry import (  # noqa: E402
-    REGISTRY as _NEW_REGISTRY,
-)
-from tradex_trading.analytics.registry import (  # noqa: E402
-    IndicatorSpec as _NewIndicatorSpec,
-)
-from tradex_trading.analytics.registry import (  # noqa: E402
-    ParamSpec as _ParamSpec,
-)
-
-_REGISTRY: dict[str, IndicatorSpec] = {}
+# Single dispatch seam: the first-class REGISTRY is the source of truth.
+# We store the full-fidelity catalog spec (trigrams/plots/levels/fn) so the
+# catalogue, compute and engine all read one place — no lossy mirror.
+from tradex_trading.analytics.registry import REGISTRY  # noqa: E402
 
 
 def register_indicator(spec: IndicatorSpec) -> None:
     """Register an indicator spec by id. Last registration wins.
 
-    Also mirrors the spec into the first-class :data:`REGISTRY` so the
-    analytics engine can dispatch through ``REGISTRY.compute(name, ...)``
-    without a separate bridge step.
+    Writes into the first-class :data:`REGISTRY` (the single source of
+    truth). The whole-fidelity spec is stored as-is, so the catalogue,
+    ``get_indicator_spec``, parameter resolution and ``compute_indicator``
+    all read the same object the engine dispatches through.
     """
-    _REGISTRY[spec.id] = spec
-    # Mirror into the new first-class registry (inline adaptation).
-    fn = getattr(spec, "fn", None)
-    if fn is not None:
-        legacy_params = getattr(spec, "params", ()) or ()
-        params: dict[str, Any] = {}
-        for entry in legacy_params:
-            if isinstance(entry, tuple) and len(entry) >= 3:
-                pname, ptype, pdefault = entry[0], entry[1], entry[2]
-            else:
-                pname, ptype, pdefault = (
-                    getattr(entry, "name", str(entry)),
-                    getattr(entry, "type", "float"),
-                    getattr(entry, "default", None),
-                )
-            params[pname] = _ParamSpec(type=ptype, default=pdefault)
-        _NEW_REGISTRY.register(
-            spec.id,
-            _NewIndicatorSpec(
-                name=spec.id,
-                inputs=("close",),
-                params=params,
-                outputs=("value",),
-                compute=fn,
-            ),
-        )
+    REGISTRY.register(spec.id, spec)
 
 
 def get_indicator_spec(indicator_id: str) -> IndicatorSpec | None:
     """Look up a spec; None for unknown ids (callers decide fail-loudness)."""
-    return _REGISTRY.get(indicator_id)
+    try:
+        return REGISTRY.get(indicator_id)
+    except KeyError:
+        return None
 
 
 def indicator_catalogue() -> list[dict[str, Any]]:
@@ -811,24 +774,23 @@ def indicator_catalogue() -> list[dict[str, Any]]:
             "plots": [{"key": p[0], "kind": p[1], "title": p[2]} for p in s.plots],
             "levels": list(s.levels),
         }
-        for s in _REGISTRY.values()
+        for s in REGISTRY.all()
     ]
 
 
 def _resolve_indicator_params(
     indicator_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
-    """Validate ``params`` against the legacy spec's schema and return a
+    """Validate ``params`` against the spec's schema and return a
     fully-merged dict (defaults filled, explicit ``None`` falling back to the
     declared default, unknown names rejected).
 
-    Exposed for the new :class:`IndicatorRegistry` so the engine can keep its
-    param-validation contract (frontend typos fail loudly) when it dispatches
-    through the new registry's ``compute``.
+    Used by :func:`compute_indicator` so frontend typos fail loudly.
     """
-    spec = _REGISTRY.get(indicator_id)
-    if spec is None:
-        raise ValueError(f"unknown indicator: {indicator_id!r}")
+    try:
+        spec = REGISTRY.get(indicator_id)
+    except KeyError:
+        raise ValueError(f"unknown indicator: {indicator_id!r}") from None
     supplied = dict(params or {})
     known = {p[0] for p in spec.params}
     unknown = set(supplied) - known
@@ -858,8 +820,11 @@ def compute_indicator(
     than silently ignored, so a frontend typo fails loudly instead of
     computing defaults that look right.
     """
-    spec = _REGISTRY.get(indicator_id)
-    if spec is None or spec.fn is None:
+    try:
+        spec = REGISTRY.get(indicator_id)
+    except KeyError:
+        raise ValueError(f"unknown indicator: {indicator_id!r}") from None
+    if spec.fn is None:
         raise ValueError(f"unknown indicator: {indicator_id!r}")
     merged = _resolve_indicator_params(indicator_id, params)
     result = spec.fn(candles, **merged)
@@ -1047,20 +1012,20 @@ for _spec in (
     register_indicator(_spec)
 
 # Batch 2 ports — oscillators & trend / strength / range A/B
-from .oscillators_range_a import (  # noqa: E402
+from .oscillators.oscillators_range_a import (  # noqa: E402
     SPEC_COPPOCK_CURVE,
     SPEC_DPO,
     SPEC_STOCHASTIC_RSI,
     SPEC_ULTIMATE_OSCILLATOR,
     SPEC_WILLIAMS_PERCENT_R,
 )
-from .oscillators_range_b import (  # noqa: E402
+from .oscillators.oscillators_range_b import (  # noqa: E402
     SPEC_BALANCE_OF_POWER,
     SPEC_CHANDE_MOMENTUM,
     SPEC_CONNORS_RSI,
     SPEC_FISHER_TRANSFORM,
 )
-from .oscillators_strength import (  # noqa: E402
+from .oscillators.oscillators_strength import (  # noqa: E402
     SPEC_MFI,
     SPEC_PPO,
     SPEC_SMI,
@@ -1069,38 +1034,38 @@ from .oscillators_strength import (  # noqa: E402
     SPEC_TRIX,
     SPEC_TSI,
 )
-from .oscillators_trend import (  # noqa: E402
+from .oscillators.oscillators_trend import (  # noqa: E402
     SPEC_ADX,
     SPEC_AROON,
     SPEC_AROON_OSCILLATOR,
     SPEC_AWESOME_OSCILLATOR,
     SPEC_CCI,
 )
-from .volatility_bands import (  # noqa: E402
+from .volatility.volatility_bands import (  # noqa: E402
     SPEC_BB_TREND,
     SPEC_BOLLINGER_BANDWIDTH,
     SPEC_BOLLINGER_PERCENT_B,
     SPEC_KAMA,
 )
-from .volatility_chop import (  # noqa: E402
+from .volatility.volatility_chop import (  # noqa: E402
     SPEC_AVERAGE_DAILY_RANGE,
     SPEC_CHOP_ZONE,
     SPEC_CHOPPINESS_INDEX,
     SPEC_HISTORICAL_VOLATILITY,
 )
-from .volatility_stops import (  # noqa: E402
+from .volatility.volatility_stops import (  # noqa: E402
     SPEC_CHANDE_KROLL_STOP,
     SPEC_CHANDELIER_EXIT,
     SPEC_VOLATILITY_STOP,
 )
-from .volume_flow import (  # noqa: E402
+from .volume.volume_flow import (  # noqa: E402
     SPEC_CHAIKIN_MONEY_FLOW,
     SPEC_CHAIKIN_OSCILLATOR,
     SPEC_EASE_OF_MOVEMENT,
     SPEC_ELDER_FORCE_INDEX,
     SPEC_ULCER_INDEX,
 )
-from .volume_indices import (  # noqa: E402
+from .volume.volume_indices import (  # noqa: E402
     SPEC_KLINGER_OSCILLATOR,
     SPEC_KNOW_SURE_THING,
     SPEC_MASS_INDEX,
@@ -1108,7 +1073,7 @@ from .volume_indices import (  # noqa: E402
     SPEC_PVI,
     SPEC_PVO,
 )
-from .volume_simple import (  # noqa: E402
+from .volume.volume_simple import (  # noqa: E402
     SPEC_ADL,
     SPEC_PVT,
     SPEC_VOLUME,
@@ -1165,28 +1130,28 @@ for _spec in (
     register_indicator(_spec)
 
 # Batch 5 ports — complex studies
-from .studies_complex import (  # noqa: E402
+from .studies.studies_complex import (  # noqa: E402
     SPEC_CPR,
     SPEC_RANGE_ANALYSIS,
     SPEC_RELATIVE_VIGOR_INDEX,
     SPEC_RELATIVE_VOLATILITY_INDEX,
     SPEC_VORTEX,
 )
-from .studies_signals import (  # noqa: E402
+from .studies.studies_signals import (  # noqa: E402
     SPEC_RSI_DIVERGENCE,
     SPEC_TREND_STRENGTH_INDEX,
     SPEC_WAVETREND,
     SPEC_WILLIAMS_FRACTALS,
     SPEC_WILLIAMS_VIX_FIX,
 )
-from .studies_simple import (  # noqa: E402
+from .studies.studies_simple import (  # noqa: E402
     SPEC_MA_CROSS,
     SPEC_MA_RIBBON,
     SPEC_MOMENTUM,
     SPEC_SPECIAL_K,
     SPEC_WOODIES_CCI,
 )
-from .studies_trend import (  # noqa: E402
+from .studies.studies_trend import (  # noqa: E402
     SPEC_ALLIGATOR,
     SPEC_ALPHATREND,
     SPEC_HALFTREND,

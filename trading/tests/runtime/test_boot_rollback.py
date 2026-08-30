@@ -25,10 +25,9 @@ def test_safe_teardown_handles_non_live(monkeypatch) -> None:
     """RED: _safe_teardown(session, broker, bus, writer_lock=None) exists.
 
     Non-live mode passes writer_lock=None; the helper must still
-    disconnect the broker, dispose the bus, and stop the session.
+    close the broker, dispose the bus, and stop the session.
     """
     broker = MagicMock()
-    broker.disconnect = MagicMock()
     bus = MagicMock()
     session = MagicMock()
 
@@ -38,7 +37,7 @@ def test_safe_teardown_handles_non_live(monkeypatch) -> None:
     )
     teardown(session=session, broker=broker, bus=bus, writer_lock=None)
 
-    broker.disconnect.assert_called_once()
+    broker.close.assert_called_once()
     bus.dispose.assert_called_once()
     session.stop.assert_called_once()
 
@@ -46,7 +45,6 @@ def test_safe_teardown_handles_non_live(monkeypatch) -> None:
 def test_safe_teardown_handles_live_with_writer_lock(monkeypatch) -> None:
     """RED: _safe_teardown with a writer_lock releases it."""
     broker = MagicMock()
-    broker.disconnect = MagicMock()
     bus = MagicMock()
     session = MagicMock()
     writer_lock = MagicMock()
@@ -56,7 +54,7 @@ def test_safe_teardown_handles_live_with_writer_lock(monkeypatch) -> None:
     assert teardown is not None
     teardown(session=session, broker=broker, bus=bus, writer_lock=writer_lock)
 
-    broker.disconnect.assert_called_once()
+    broker.close.assert_called_once()
     bus.dispose.assert_called_once()
     session.stop.assert_called_once()
     writer_lock.release.assert_called_once()
@@ -76,7 +74,6 @@ def test_paper_boot_failure_uses_rollback(monkeypatch) -> None:
     broker.master_loader = None
     broker.connect = MagicMock()
     broker.close = MagicMock()
-    broker.disconnect = MagicMock()
 
     def fake_boot_tail(*args, **kwargs):
         raise RuntimeError("simulated non-live boot failure")
@@ -108,7 +105,6 @@ def test_live_boot_failure_still_releases_lock(monkeypatch) -> None:
     broker.master_loader = None
     broker.connect = MagicMock()
     broker.close = MagicMock()
-    broker.disconnect = MagicMock()
 
     monkeypatch.setattr(
         "tradex_trading.runtime.live.build_broker_from_env",
@@ -128,4 +124,23 @@ def test_live_boot_failure_still_releases_lock(monkeypatch) -> None:
     with pytest.raises(RuntimeError, match="simulated live boot failure"):
         startup_mod.boot(cfg)
 
-    broker.disconnect.assert_called()
+    broker.close.assert_called()
+
+
+def test_safe_teardown_closes_real_broker(monkeypatch) -> None:
+    """Rollback must close a REAL adapter, not just a mock-shaped one.
+
+    MagicMock auto-generates any attribute name, which is how the
+    disconnect/close mismatch slipped through; a real PaperBroker
+    (which defines close(), not disconnect()) pins the name.
+    """
+    from tradex_brokers.paper.adapter import PaperBroker
+
+    closed: list[int] = []
+    monkeypatch.setattr(PaperBroker, "close", lambda self: closed.append(1))
+
+    startup_mod._safe_teardown(
+        session=None, broker=PaperBroker(), bus=MagicMock(), writer_lock=None
+    )
+
+    assert closed == [1], "rollback must call the broker's real close()"

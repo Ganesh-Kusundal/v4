@@ -58,6 +58,10 @@ class BrokerCapabilities:
     supports_kill_switch: bool = False
     supports_news: bool = False
     supports_fundamentals: bool = False
+    #: Serves M1 bars for the *current* session via the historical endpoint
+    #: (Dhan yes; Upstox excludes the live day). Used by the historical sync
+    #: service to pick a same-day top-up broker.
+    supports_same_day_intraday: bool = False
     #: Levels in the deepest market-depth stream (0 = no depth feed).
     #: Dhan depth-20 -> 20; Upstox full_d30 -> 30.
     depth_levels: int = 0

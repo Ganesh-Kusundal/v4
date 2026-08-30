@@ -86,7 +86,7 @@ Every item below has a test pin and a commit. Suite at completion: **2808 passed
 
 ### Backlog
 - ✅ **G7** (2026-08-30, working tree) — `ScannerEngine` streaming consumer: per-instrument `deque(maxlen=max_bars)` rolling buffer fed by `consume(candle)`; `_history()` falls back to a snapshot only before any bar streams; wired via a `bus.of_type(Candle).subscribe(...)` in `startup.py`; +5 tests.
-- 🟠 **G9** `services/duckdb-analytics` re-implements `ScannerEngine` with no shared contract. **Status:** open — package is untracked and not a uv workspace member; needs a keep-or-delete decision.
+- 🟠 **G9** `services/duckdb-analytics` re-implements `ScannerEngine` with no shared contract. **Status (2026-08-30):** decision = **delete** (untracked, not a uv workspace member, sole consumer is the scratch `candles_app.py`; nothing tracked imports either). Physical removal is pending — the delete is blocked by tool security policy; run `rm -rf services/duckdb-analytics candles_app.py` manually to close.
 - ✅ **G13** (2026-08-30, working tree) — typed-error contract: `{"error": {"code", "message"}}` envelope via one FastAPI exception handler (status→stable code map) + `ErrorDetail` model; frontend `frontend/src/http.ts` `expectJson()` replaces all 11 `if (!resp.ok) throw` sites; +10 contract tests; `tsc --noEmit` clean.
 
 ---

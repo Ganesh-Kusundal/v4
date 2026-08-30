@@ -14,7 +14,7 @@ from tradex_trading.analytics.breadth import advance_decline
 from tradex_trading.analytics.indicators import ema, roc, rsi, sma
 from tradex_trading.analytics.probability import win_rate
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
-from tradex_trading.analytics.volatility import realized_vol
+from tradex_trading.analytics.volatility.volatility import realized_vol
 
 
 class AnalyticsEngine:
@@ -85,33 +85,28 @@ class AnalyticsEngine:
         through untouched — no Price validation on this surface.
 
         Resolution order:
-          1. The first-class ``IndicatorRegistry`` (``REGISTRY.get``) — every
-             indicator registered there is automatically available to
-             scanners and callers. The legacy ``_INDICATORS`` fast path is
-             now a no-op shortcut on top of the same registry.
+          1. The ``IndicatorRegistry`` (``REGISTRY``) — the single source of
+             truth. Every indicator registered there is automatically
+             available to scanners and callers; the legacy ``_INDICATORS``
+             fast path is a no-op shortcut on top of the same registry.
           2. ``CapabilityNotSupportedError`` for truly unknown names.
         """
         key = name.lower()
-        from tradex_trading.analytics.registry import REGISTRY
+        from tradex_trading.analytics.indicators import (
+            compute_indicator,
+            get_indicator_spec,
+        )
 
-        if key in {s.name for s in REGISTRY.all()}:
-            spec = REGISTRY.get(key)
-            from tradex_trading.analytics.indicators import _resolve_indicator_params
-
-            resolved = _resolve_indicator_params(key, params or {})
-            result = spec.compute(series.candles, **resolved)
-            if isinstance(result, dict):
-                if "value" in result:
-                    raw_values = result["value"]
-                else:
-                    first_key = next(iter(result))
-                    raw_values = result[first_key]
-            else:
-                raw_values = result
-        else:
+        if get_indicator_spec(key) is None:
             raise CapabilityNotSupportedError(
                 f"indicator {name!r} is not implemented"
             )
+        result = compute_indicator(key, series.candles, params or {})
+        # compute_indicator always returns a dict of per-plot lists.
+        if "value" in result:
+            raw_values = result["value"]
+        else:
+            raw_values = result[next(iter(result))]
 
         if self._warmup_bars > 0:
             padded: list[float | None] = [None] * self._warmup_bars

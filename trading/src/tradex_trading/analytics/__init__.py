@@ -7,8 +7,8 @@ from tradex_trading.analytics.indicators import ema, macd, roc, rsi, sma
 from tradex_trading.analytics.orderflow import classify_aggressor, cvd_from_quotes, imbalance
 from tradex_trading.analytics.probability import win_rate
 from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio, total_return
-from tradex_trading.analytics.volatility import realized_vol
-from tradex_trading.analytics.volume_profile import lvn, poc, vah, val, value_area
+from tradex_trading.analytics.volatility.volatility import realized_vol
+from tradex_trading.analytics.volume.volume_profile import lvn, poc, vah, val, value_area
 
 __all__ = [
     "sma",

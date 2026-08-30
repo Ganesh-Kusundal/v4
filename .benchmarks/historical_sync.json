@@ -1,0 +1,32 @@
+[
+  {
+    "n_instruments": 50,
+    "gapped": 2,
+    "detect_cost_per_inst_us": 20.0,
+    "sync_wall_s": 0.0051,
+    "detect_call_sizes": [
+      50,
+      50
+    ]
+  },
+  {
+    "n_instruments": 250,
+    "gapped": 12,
+    "detect_cost_per_inst_us": 20.0,
+    "sync_wall_s": 0.0173,
+    "detect_call_sizes": [
+      250,
+      250
+    ]
+  },
+  {
+    "n_instruments": 500,
+    "gapped": 25,
+    "detect_cost_per_inst_us": 20.0,
+    "sync_wall_s": 0.0356,
+    "detect_call_sizes": [
+      500,
+      500
+    ]
+  }
+]

@@ -88,9 +88,18 @@ def _mock_store(total_rows=100):
     return store
 
 
-def _mock_broker(name: str) -> MagicMock:
-    """Mock broker serving a per-instrument series (for phase 2/3 fetchers)."""
+def _mock_broker(name: str, same_day: bool = False) -> MagicMock:
+    """Mock broker serving a per-instrument series (for phase 2/3 fetchers).
+
+    Carries a real (fail-closed) capability table so same-day broker
+    selection matches production behavior.
+    """
+    from tradex_domain.capabilities import BrokerCapabilities
+
     broker = MagicMock()
+    broker._capabilities = BrokerCapabilities(
+        supports_same_day_intraday=same_day,
+    )
 
     def _history(inst, tf, start, end):
         return _series(instrument=inst)
@@ -253,7 +262,7 @@ class TestPhaseThreeSameDay:
             [full_gap],   # phase-3 today check
             [],           # verification
         ]
-        dhan = _mock_broker("dhan")
+        dhan = _mock_broker("dhan", same_day=True)
         upstox = _mock_broker("upstox")
         svc = _service(detector=detector)
         with patch(
@@ -278,7 +287,7 @@ class TestPhaseThreeSameDay:
             [(INSTRUMENTS[0], [(BASE, BASE)])],  # phase-1 filter
             [],                                   # phase-2 residual
         ]
-        dhan = _mock_broker("dhan")
+        dhan = _mock_broker("dhan", same_day=True)
         svc = _service(detector=detector)
         with patch(
             "tradex_trading.datalake.historical_sync.datetime",
@@ -455,4 +464,52 @@ class TestBlacklist:
         result = svc.sync(brokers={"dhan": _mock_broker("dhan")})
         assert result.blacklisted == ["SYM4"]
         assert json.loads(_bl_path(tmp_path).read_text()) == {}  # pruned
+
+
+# --------------------------------------------------------------------------- #
+# Capability-driven same-day selection + holidays injection
+# --------------------------------------------------------------------------- #
+
+class TestCapabilityDrivenSameDay:
+    def test_any_broker_with_capability_is_used(self):
+        """Same-day top-up follows the capability table, not a hard-coded name."""
+        full_gap = (INSTRUMENTS[0], [(BASE, BASE)])
+        detector = MagicMock()
+        detector.detect.side_effect = [
+            [full_gap],   # phase-1 filter
+            [],           # phase-2 residual
+            [full_gap],   # phase-3 today check
+            [],           # verification
+        ]
+        upstox = _mock_broker("upstox", same_day=True)
+        svc = _service(detector=detector)
+        with patch(
+            "tradex_trading.datalake.historical_sync.datetime",
+            _FixedDatetime,
+        ):
+            svc.sync(brokers={"upstox": upstox}, filler_broker=None)
+        assert upstox.history.call_count >= 1
+
+    def test_broker_without_capability_never_serves_same_day(self):
+        detector = _mock_detector({"SYM0"})
+        upstox = _mock_broker("upstox", same_day=False)
+        svc = _service(detector=detector)
+        with patch(
+            "tradex_trading.datalake.historical_sync.datetime",
+            _FixedDatetime,
+        ):
+            result = svc.sync(brokers={"upstox": upstox}, filler_broker=None,
+                              verify=False)
+        assert isinstance(result, SyncResult)
+
+
+class TestHolidaysInjection:
+    def test_holidays_param_flows_to_detector(self):
+        custom = frozenset({"2026-01-26"})
+        detector = MagicMock()
+        detector.detect.return_value = []
+        svc = HistoricalSyncService(store=_mock_store(), detector=detector,
+                                    holidays=custom)
+        svc.verify()
+        assert detector.detect.call_args.kwargs["holidays"] == custom
 

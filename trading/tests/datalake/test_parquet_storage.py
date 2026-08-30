@@ -58,7 +58,7 @@ class TestParquetStorage:
         store = ParquetStorage(tmp_path)
         df = _frame([
             dict(timestamp="2026-07-01 09:15:00", open=100, high=101, low=99, close=100),
-            dict(timestamp="2026-08-01 09:15:00", open=200, high=201, low=199, close=200),
+            dict(timestamp="2026-08-03 09:15:00", open=200, high=201, low=199, close=200),
         ])
         store.upsert(df)
         result = store.read(symbols=["RELIANCE"],
@@ -74,6 +74,55 @@ class TestParquetStorage:
     def test_empty_upsert_returns_zero(self, tmp_path):
         store = ParquetStorage(tmp_path)
         assert store.upsert(pd.DataFrame()) == 0
+
+    def test_upsert_drops_phantom_session_rows(self, tmp_path):
+        """Write path strips non-NSE-session bars: weekend + pre/post market.
+
+        Regression for the 2026-02-01 phantom Sunday session (~187k rows)
+        the old path stored because read-time strip was time-of-day only.
+        """
+        store = ParquetStorage(tmp_path)
+        df = _frame([
+            # Sunday full session — must be dropped
+            dict(timestamp="2026-02-01 09:15:00", open=100, high=101, low=99, close=100),
+            dict(timestamp="2026-02-01 15:29:00", open=100, high=101, low=99, close=100),
+            # pre-market / post-market — dropped
+            dict(timestamp="2026-07-10 03:45:00", open=100, high=101, low=99, close=100),
+            dict(timestamp="2026-07-10 16:00:00", open=100, high=101, low=99, close=100),
+            # a genuine weekday-session bar — kept
+            dict(timestamp="2026-07-10 10:00:00", open=100, high=101, low=99, close=100),
+        ])
+        written = store.upsert(df)
+        assert written == 1  # only the real session bar
+
+        result = store.read(symbols=["RELIANCE"], strip_post_market=False)
+        assert len(result) == 1
+        assert result.iloc[0]["timestamp"].hour == 10
+
+    def test_read_strips_weekend_and_offsession(self, tmp_path):
+        """read(strip_post_market=True) excludes weekends + pre/post-market."""
+        store = ParquetStorage(tmp_path)
+        df = _frame([
+            dict(timestamp="2026-02-01 10:00:00", open=100, high=101, low=99, close=100),  # Sun
+            dict(timestamp="2026-02-03 10:00:00", open=100, high=101, low=99, close=100),  # Tue
+            dict(timestamp="2026-02-03 08:00:00", open=100, high=101, low=99, close=100),  # pre
+        ])
+        store.upsert(df)  # write guard already drops all but the Tue bar
+        # Write raw phantom rows around the guard to exercise read-stripping:
+        p = tmp_path / "ohlcv" / "symbol=RELIANCE" / "year=2026" / "month=02" / "data.parquet"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        raw = _frame([
+            dict(timestamp="2026-02-01 10:00:00", open=1, high=2, low=0.5, close=1.5),  # Sun
+        ])
+        raw["timestamp"] = pd.to_datetime(raw["timestamp"])
+        store._write_parquet(raw, p)
+        all_rows = store.read(symbols=["RELIANCE"], strip_post_market=False)
+        stripped = store.read(symbols=["RELIANCE"], strip_post_market=True)
+        assert all_rows["timestamp"].dt.dayofweek.eq(6).any()   # Sunday present raw
+        assert len(stripped) > 0
+        assert not stripped["timestamp"].dt.dayofweek.eq(6).any()  # stripped on read
+        assert stripped["timestamp"].dt.time.between(
+            time(9, 15), time(15, 30)).all()
 
     def test_read_empty_store(self, tmp_path):
         store = ParquetStorage(tmp_path)
@@ -125,12 +174,19 @@ class TestParquetStorage:
         assert result["timestamp"].dt.time.max() <= time(15, 30)
 
     def test_read_keeps_post_market_bars_when_disabled(self, tmp_path):
-        """strip_post_market=False returns the raw stored bars."""
+        """strip_post_market=False returns the raw stored bars.
+
+        Uses ``_write_parquet`` to place phantom bars directly (the write
+        guard now strips them on upsert), isolating read-flag behavior.
+        """
         store = ParquetStorage(tmp_path)
-        df = _frame([
+        p = tmp_path / "ohlcv" / "symbol=RELIANCE" / "year=2026" / "month=07" / "data.parquet"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        raw = _frame([
             dict(timestamp="2026-07-01 09:15:00", open=100, high=101, low=99, close=100),
             dict(timestamp="2026-07-01 17:00:00", open=100, high=101, low=99, close=100),
         ])
-        store.upsert(df)
+        raw["timestamp"] = pd.to_datetime(raw["timestamp"])
+        store._write_parquet(raw, p)
         result = store.read(symbols=["RELIANCE"], strip_post_market=False)
         assert len(result) == 2
