@@ -78,7 +78,7 @@ class TestComputeEndpoint:
             "id": "does-not-exist",
         })
         assert resp.status_code == 422
-        assert "unknown indicator" in resp.json()["detail"]
+        assert "unknown indicator" in resp.json()["error"]["message"]
 
     def test_unknown_param_is_422(self):
         resp = self._compute({

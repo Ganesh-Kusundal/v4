@@ -4,6 +4,7 @@
 // CONTROL_QUEUE_MAX) and trigger an immediate book refetch so the chart's
 // TradeController.reconcile sees fresh snapshots without 1s polling.
 import type { PlaceOrder, TradeFeed, UnsubscribeFn } from "openalgo-charts";
+import { expectJson } from "./http";
 
 export interface ChartBook {
   orders: unknown[];
@@ -13,8 +14,7 @@ export interface ChartBook {
 /** Fetch one full book snapshot. Idempotent — safe on reconnect. */
 export async function fetchBook(): Promise<ChartBook> {
   const resp = await fetch("/api/charts/book");
-  if (!resp.ok) throw new Error(`book fetch failed (${resp.status})`);
-  return resp.json() as Promise<ChartBook>;
+  return expectJson<ChartBook>(resp);
 }
 
 // Single WS multiplexer for order/fill control messages. One socket, many
@@ -125,8 +125,7 @@ export class TradexTradeFeed implements TradeFeed {
         trigger_price: o.triggerPrice,
       }),
     });
-    if (!resp.ok) throw new Error(`place failed (${resp.status}): ${await resp.text()}`);
-    const body = (await resp.json()) as { order_id: string };
+    const body = await expectJson<{ order_id: string }>(resp);
     return { orderId: body.order_id };
   }
 
@@ -142,12 +141,12 @@ export class TradexTradeFeed implements TradeFeed {
         price: patch.price,
       }),
     });
-    if (!resp.ok) throw new Error(`modify failed (${resp.status}): ${await resp.text()}`);
+    await expectJson(resp);
   }
 
   async cancelOrder(orderId: string): Promise<void> {
     const resp = await fetch(`/orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
-    if (!resp.ok) throw new Error(`cancel failed (${resp.status}): ${await resp.text()}`);
+    await expectJson(resp);
   }
 
   subscribeOrders(cb: (orders: unknown[]) => void): UnsubscribeFn {

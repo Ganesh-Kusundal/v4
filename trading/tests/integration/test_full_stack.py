@@ -60,17 +60,15 @@ class TestSessionLifecycle:
     """Test complete session lifecycle: create → start → services → stop."""
 
     def test_paper_session_lifecycle(self):
-        """Create paper session, verify lifecycle states, use services, stop."""
+        """Create paper session, verify lifecycle states, stop."""
         session = TradingSession.paper()
-        # Factories return READY so services are usable immediately.
+        # Factories return READY so properties are usable immediately.
         assert session.state == SessionState.READY
 
-        # Access all services
+        # Access core properties
         assert session.broker is not None
-        assert session.trade is not None
-        assert session.portfolio is not None
-        assert session.stream is not None
-        assert session.scanner is not None
+        assert session.engine is not None
+        assert session.bus is not None
 
         session.stop()
         assert session.state == SessionState.STOPPED
@@ -159,7 +157,7 @@ class TestOrderLifecycle:
                 order_type=OrderType.MARKET,
                 quantity=Quantity(value=Decimal("10")),
             )
-            receipt = session.trade.submit(request)
+            receipt = session.engine.submit(request)
             assert receipt is not None
             assert receipt.order_id is not None
         finally:
@@ -177,8 +175,8 @@ class TestOrderLifecycle:
                 order_type=OrderType.MARKET,
                 quantity=Quantity(value=Decimal("10")),
             )
-            session.trade.submit(request)
-            positions = session.portfolio.positions()
+            session.engine.submit(request)
+            positions = session.engine.cache.all_positions()
             assert isinstance(positions, list)
         finally:
             session.stop()
@@ -188,7 +186,7 @@ class TestOrderLifecycle:
         session = TradingSession.paper()
         session.start()
         try:
-            account = session.portfolio.account()
+            account = session.broker.get_account()
             assert account is not None
             assert account.balance is not None
             assert account.balance.amount > Decimal("0")

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from tradex_domain import IndicatorComputer, ScannerDefinition, ScannerResult
 from tradex_domain.enums import Timeframe
 from tradex_domain.errors import SDKError
-from tradex_domain.market import HistoricalSeries
+from tradex_domain.market import Candle, HistoricalSeries
 from tradex_domain.strategy import Condition
 
 _OPS = {
@@ -20,15 +21,30 @@ _OPS = {
     "!=": lambda v, t: v != t,
 }
 
+# Default cap for the per-instrument streaming buffer.  30 bars matches the
+# default ``window_days`` (D1) and keeps memory bounded at ~30 candles × N
+# instruments.  Callers can override via ``max_bars``.
+_DEFAULT_MAX_BARS = 30
+
 
 class ScannerEngine:
-    """Evaluates ``Condition`` values over a default D1 window per instrument."""
+    """Evaluates ``Condition`` values over a default D1 window per instrument.
+
+    Supports two data paths:
+
+    * **Snapshot** (legacy): ``_history()`` fetches from the market provider
+      on every scan.  Still used as fallback when no bars have been streamed.
+    * **Streaming** (G7): call ``consume(candle)`` to append bars into a
+      per-instrument rolling buffer.  Once the buffer has data, ``_history()``
+      returns it directly — no market round-trip.
+    """
 
     def __init__(
         self,
         market: Any,
         analytics: IndicatorComputer | None = None,
         window_days: int = 30,
+        max_bars: int = _DEFAULT_MAX_BARS,
     ) -> None:
         self._market = market
         if analytics is None:
@@ -36,6 +52,23 @@ class ScannerEngine:
             analytics = AnalyticsEngine()  # type: ignore[assignment]
         self._analytics: IndicatorComputer = analytics  # type: ignore[assignment]
         self._window_days = window_days
+        self._max_bars = max_bars
+        # Per-instrument rolling buffer keyed by instrument symbol.
+        self._buffers: dict[str, deque[Candle]] = defaultdict(
+            lambda: deque(maxlen=self._max_bars),
+        )
+
+    # -- streaming entry point ---------------------------------------------------
+
+    def consume(self, candle: Candle) -> None:
+        """Append *candle* to the per-instrument rolling buffer.
+
+        This is the public entry point for the bar stream (bus subscription,
+        aggregator callback, etc.).  The buffer is bounded by ``max_bars``;
+        oldest bars are dropped automatically by the underlying ``deque``.
+        """
+        key = _instrument_key(candle.instrument)
+        self._buffers[key].append(candle)
 
     def run(self, definition: ScannerDefinition) -> list[ScannerResult]:
         """Evaluate all conditions and return ranked results."""
@@ -64,6 +97,19 @@ class ScannerEngine:
     # -- internals ---------------------------------------------------------------
 
     def _history(self, instrument: Any) -> HistoricalSeries:
+        key = _instrument_key(instrument)
+        buf = self._buffers.get(key)
+        if buf:
+            # Streaming path — return buffered candles directly.
+            candles = list(buf)
+            return HistoricalSeries(
+                instrument=instrument,
+                timeframe=Timeframe.D1,
+                candles=candles,
+                start=candles[0].timestamp,
+                end=candles[-1].timestamp,
+            )
+        # Snapshot fallback — no bars streamed yet; hit the market provider.
         end = datetime.now(UTC)
         start = end - timedelta(days=self._window_days)
         try:
@@ -125,6 +171,11 @@ class ScannerEngine:
         if op is None:
             return False
         return bool(op(value, cond.threshold))
+
+
+def _instrument_key(instrument: Any) -> str:
+    """Stable hashable key for per-instrument buffer lookup."""
+    return getattr(instrument, "symbol", None) or str(instrument)
 
 
 __all__ = ["ScannerEngine"]

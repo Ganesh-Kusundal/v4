@@ -11,6 +11,7 @@ import {
 } from "openalgo-charts";
 import { unrealizedPnl, isWorking } from "openalgo-charts/trade";
 import { TradexTradeFeed, fetchBook, type ChartBook } from "./trade-feed";
+import { expectJson } from "./http";
 
 /** One /api/charts/book order row (trade-tier vocabulary). */
 export interface BookRow {
@@ -48,8 +49,7 @@ export async function placeBracket(opts: {
       stop_loss_price: opts.stopLoss, target_price: opts.target,
     }),
   });
-  if (!resp.ok) throw new Error(`bracket place failed (${resp.status}): ${await resp.text()}`);
-  const body = (await resp.json()) as { order_id: string };
+  const body = await expectJson<{ order_id: string }>(resp);
   return body.order_id;
 }
 

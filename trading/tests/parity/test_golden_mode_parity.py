@@ -40,6 +40,7 @@ from tradex_domain import (
     Timeframe,
     TimeInForce,
 )
+from tradex_domain.events import OrderFilled
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
 
@@ -116,7 +117,7 @@ class TestGoldenReactiveParity:
         strategy_engine = ReactiveStrategyEngine(session.bus)
         strategy_engine.register(strategy)
         fills = []
-        sub = session.stream.subscribe_fills(fills.append)
+        sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
         try:
             for candle in _candles():
                 session.bus.publish(candle)
@@ -132,12 +133,12 @@ class TestGoldenReactiveParity:
             assert order.correlation_id is not None
             assert order.correlation_id.value.startswith("strat-")
             # PositionManager recorded the fill at the fill price.
-            pos = session.portfolio.positions()[0]
+            pos = session.engine.cache.all_positions()[0]
             assert pos.quantity.value == 1
             assert pos.avg_price.value == fill.price.value
         finally:
             strategy_engine.dispose_all()
-            sub.cancel()
+            sub.dispose()
             session.stop()
 
     def test_backtest_boot_path_fills_at_reference_price_not_zero(self) -> None:
@@ -354,16 +355,16 @@ class TestAccountingConvergence:
         strategy_engine = ReactiveStrategyEngine(session.bus)
         strategy_engine.register(strategy)
         fills = []
-        sub = session.stream.subscribe_fills(fills.append)
+        sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
         try:
             for candle in _candles():
                 session.bus.publish(candle)
             assert len(fills) == 1
             assert fills[0].fill.price.value == Decimal("12")
-            assert session.portfolio.positions()[0].avg_price.value == Decimal("12")
+            assert session.engine.cache.all_positions()[0].avg_price.value == Decimal("12")
         finally:
             strategy_engine.dispose_all()
-            sub.cancel()
+            sub.dispose()
             session.stop()
 
         bt_strategy = SmaCrossStrategy("golden-exact-bt", INSTRUMENT)
@@ -399,7 +400,7 @@ class TestAccountingConvergence:
         strategy_engine = ReactiveStrategyEngine(session.bus)
         strategy_engine.register(_TimedPartial(INSTRUMENT))
         fills: list = []
-        sub = session.stream.subscribe_fills(fills.append)
+        sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
         try:
             for c in candles:
                 session.bus.publish(c)
@@ -409,12 +410,12 @@ class TestAccountingConvergence:
                 Decimal("110"), Decimal("120"), Decimal("130"), Decimal("140"),
             ]
             closed = next(
-                p for p in session.portfolio.positions() if p.quantity.value == 0
+                p for p in session.engine.cache.all_positions() if p.quantity.value == 0
             )
             assert closed.realized_pnl.amount == Decimal("70")
         finally:
             strategy_engine.dispose_all()
-            sub.cancel()
+            sub.dispose()
             session.stop()
 
         # Convergence: identical realized P&L across both accounting engines.

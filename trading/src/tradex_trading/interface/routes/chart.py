@@ -437,11 +437,11 @@ def create_chart_router(session: Any | None) -> APIRouter:
         if session is None:
             return {"orders": [], "positions": []}
         try:
-            raw_orders = session.trade.get_orderbook()
+            raw_orders = session.engine.all_orders()
         except Exception as exc:  # noqa: BLE001 — degrade to empty, not 500
             raise HTTPException(status_code=502, detail=f"orderbook unavailable: {exc}") from exc
         try:
-            raw_positions = session.portfolio.positions()
+            raw_positions = session.engine.cache.all_positions()
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=502, detail=f"positions unavailable: {exc}") from exc
 

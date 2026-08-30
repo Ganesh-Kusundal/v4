@@ -278,7 +278,7 @@ class TestNifty500TechnicalScanner:
         assert len(_UNIVERSE) >= 1
 
     def test_boot_can_run_it(self, monkeypatch) -> None:
-        """The nifty500 scanner runs through a booted session's ScannerService."""
+        """The nifty500 scanner runs through a booted session's ScannerEngine."""
         from unittest.mock import MagicMock
 
         from tradex_domain.market import HistoricalSeries
@@ -303,7 +303,7 @@ class TestNifty500TechnicalScanner:
 
         session = boot(AppConfig(mode="paper"), broker=fake_broker())
         try:
-            results = session.scanner.run(nifty500_technical_scanner)
+            results = session._scanner_engine.run(nifty500_technical_scanner)
             assert isinstance(results, list)
         finally:
             session.stop()

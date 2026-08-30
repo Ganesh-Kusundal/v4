@@ -21,9 +21,9 @@ collateral orders from both discovered strategies on the same instrument, so
 its assertions stay scoped by tag/instrument.
 
 Everything is driven and asserted through the documented public surface:
-``TradingSession.paper()``, ``session.bus``, ``session.stream.subscribe_fills()``,
-``session.engine.cache``, ``session.trade.get_order()`` / ``get_orderbook()``,
-``session.portfolio.positions()``, and ``session.stop()``.
+``TradingSession.paper()``, ``session.bus``, ``session.bus.of_type(OrderFilled).subscribe()``,
+``session.engine.cache``, ``session.engine.get_order()`` / ``all_orders()``,
+``session.engine.cache.all_positions()``, and ``session.stop()``.
 """
 
 from __future__ import annotations
@@ -136,7 +136,7 @@ class TestPaperSessionLiveParity:
         )
         strategy_engine.register(strategy)
         fills: list[OrderFilled] = []
-        sub = session.stream.subscribe_fills(fills.append)
+        sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
         try:
             # 20 flat closes then a rising leg → fast SMA5 crosses above SMA20 → BUY.
             closes = [10.0] * 20 + [11.0, 12.0, 13.0]
@@ -156,20 +156,20 @@ class TestPaperSessionLiveParity:
                 PlaceOrderCommand, OrderPlaced, OrderFilled,
             ]
 
-            # The order is visible through the documented trade service.
-            fetched = session.trade.get_order(order.order_id)
+            # The order is visible through the execution engine cache.
+            fetched = session.engine.get_order(order.order_id)
             assert fetched.order_id == order.order_id
-            assert session.trade.get_orderbook() == [order]
+            assert session.engine.all_orders() == [order]
 
             # PositionManager recorded the fill — public portfolio surface.
-            positions = session.portfolio.positions()
+            positions = session.engine.cache.all_positions()
             assert any(
                 p.instrument.instrument_id == strategy.instrument.instrument_id
                 for p in positions
             )
         finally:
             strategy_engine.dispose_all()
-            sub.cancel()
+            sub.dispose()
             session.stop()
 
     def test_mean_reversion_sell_lands_as_short_position(self) -> None:
@@ -191,7 +191,7 @@ class TestPaperSessionLiveParity:
         )
         strategy_engine.register(strategy)
         fills: list[OrderFilled] = []
-        sub = session.stream.subscribe_fills(fills.append)
+        sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
         try:
             # 15 strictly rising closes → RSI = 100 → transition into
             # overbought fires exactly one SELL on the 15th bar. A 16th
@@ -216,7 +216,7 @@ class TestPaperSessionLiveParity:
             ]
 
             # The SELL fill opened a short: negative quantity in the manager.
-            positions = session.portfolio.positions()
+            positions = session.engine.cache.all_positions()
             short = next(
                 (
                     p for p in positions
@@ -229,7 +229,7 @@ class TestPaperSessionLiveParity:
             assert short.is_short
         finally:
             strategy_engine.dispose_all()
-            sub.cancel()
+            sub.dispose()
             session.stop()
 
     def test_strategy_signal_reaches_stream_fills_public_api(self) -> None:
@@ -250,7 +250,7 @@ class TestPaperSessionLiveParity:
         strategy = SmaCrossStrategy("stream_fill_test", Equity.of("NSE", "RELIANCE"))
         strategy_engine.register(strategy)
         fills: list[OrderFilled] = []
-        sub = session.stream.subscribe_fills(fills.append)
+        sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
         try:
             closes = [10.0] * 20 + [11.0, 12.0, 13.0]
             for day, close in enumerate(closes, start=1):
@@ -259,7 +259,7 @@ class TestPaperSessionLiveParity:
             assert fills[0].fill.instrument.instrument_id == strategy.instrument.instrument_id
         finally:
             strategy_engine.dispose_all()
-            sub.cancel()
+            sub.dispose()
             session.stop()
 
     def test_paper_session_is_ready_and_stoppable(self) -> None:
@@ -295,7 +295,7 @@ class TestPaperSessionLiveParity:
             s for s in all_strategies if s.strategy_id == _MEAN_REVERSION_ID
         )
         fills: list[OrderFilled] = []
-        sub = session.stream.subscribe_fills(fills.append)
+        sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
         events, rec_sub = _record_bus_events(session.bus)
         try:
             assert session.mode == "backtest"
@@ -319,10 +319,10 @@ class TestPaperSessionLiveParity:
             order = mr_orders[0]
             assert order.side == OrderSide.BUY
             assert order.instrument.instrument_id == strategy.instrument.instrument_id
-            # The order is visible through the documented trade service, as
+            # The order is visible through the execution engine, as
             # in the paper path (membership — collateral orders may exist).
-            assert session.trade.get_order(order.order_id).order_id == order.order_id
-            assert order in session.trade.get_orderbook()
+            assert session.engine.get_order(order.order_id).order_id == order.order_id
+            assert order in session.engine.all_orders()
 
             mr_fills = [
                 f for f in fills
@@ -357,7 +357,7 @@ class TestPaperSessionLiveParity:
             assert pocs[0].request.correlation_id is not None
             assert placed[0].order.correlation_id == pocs[0].request.correlation_id
 
-            positions = session.portfolio.positions()
+            positions = session.engine.cache.all_positions()
             long = next(
                 (
                     p for p in positions
@@ -370,5 +370,5 @@ class TestPaperSessionLiveParity:
             assert long.is_long
         finally:
             rec_sub.dispose()
-            sub.cancel()
+            sub.dispose()
             session.stop()

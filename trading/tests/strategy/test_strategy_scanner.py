@@ -378,3 +378,87 @@ class TestScannerAllIndicators:
         defn = ScannerDefinition(universe=[_eq()], conditions=[cond])
         results = engine.run(defn)
         assert name in results[0].matched_conditions
+
+
+# ---------------------------------------------------------------------------
+# G7 — ScannerEngine streaming consumer
+# ---------------------------------------------------------------------------
+
+
+class TestScannerStreaming:
+    """Streaming path: consume() feeds a per-instrument rolling buffer."""
+
+    def test_consume_grows_history_incrementally(self) -> None:
+        """Feeding bars one at a time grows the buffered history."""
+        engine = ScannerEngine(market=_FakeMarket(), max_bars=10)
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        for i in range(5):
+            engine.consume(_candle(100.0 + i, base + timedelta(days=i)))
+        series = engine._history(_eq())
+        assert len(series.candles) == 5
+        assert float(series.candles[-1].ohlc.close.value) == 104.0
+
+    def test_buffer_respects_max_bars_cap(self) -> None:
+        """Buffer drops oldest bars when max_bars is exceeded."""
+        engine = ScannerEngine(market=_FakeMarket(), max_bars=3)
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        for i in range(7):
+            engine.consume(_candle(100.0 + i, base + timedelta(days=i)))
+        series = engine._history(_eq())
+        assert len(series.candles) == 3
+        # Oldest kept candle should be index 4 (close=104), newest is 6 (close=106)
+        assert float(series.candles[0].ohlc.close.value) == 104.0
+        assert float(series.candles[-1].ohlc.close.value) == 106.0
+
+    def test_scan_uses_streamed_bars_not_market(self) -> None:
+        """Once bars are streamed, run() uses them instead of the market."""
+        # Market returns closes [1,2,3]; stream provides [200,201,202]
+        market_candles = _series([1.0, 2.0, 3.0])
+        engine = ScannerEngine(market=_FakeMarket(market_candles), max_bars=10)
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        for i in range(3):
+            engine.consume(_candle(200.0 + i, base + timedelta(days=i)))
+        cond = Condition(name="close", operator=">", threshold=199.0)
+        defn = ScannerDefinition(universe=[_eq()], conditions=[cond])
+        results = engine.run(defn)
+        assert len(results) == 1
+        # Should match because streamed close=202 > 199
+        assert "close" in results[0].matched_conditions
+        assert results[0].indicator_values["close"] == 202.0
+
+    def test_empty_buffer_falls_back_to_market(self) -> None:
+        """When no bars have been consumed, _history uses the market provider."""
+        candles = _series([50.0, 51.0, 52.0])
+        engine = ScannerEngine(market=_FakeMarket(candles))
+        # No consume() calls — should use market
+        series = engine._history(_eq())
+        assert len(series.candles) == 3
+        assert float(series.candles[0].ohlc.close.value) == 50.0
+
+    def test_per_instrument_isolation(self) -> None:
+        """Buffers are independent per instrument."""
+        engine = ScannerEngine(market=_FakeMarket(), max_bars=10)
+        base = datetime(2026, 1, 1, tzinfo=UTC)
+        eq1 = Equity.of("NSE", "RELIANCE")
+        eq2 = Equity.of("NSE", "TCS")
+        engine.consume(_candle(100.0, base))
+        # Consume for different instrument
+        c2 = Candle(
+            instrument=eq2,
+            timeframe=Timeframe.D1,
+            ohlc=OHLC(
+                open=Price(value=Decimal("199")),
+                high=Price(value=Decimal("201")),
+                low=Price(value=Decimal("199")),
+                close=Price(value=Decimal("200")),
+            ),
+            volume=Quantity(value=Decimal("500")),
+            timestamp=base,
+        )
+        engine.consume(c2)
+        s1 = engine._history(eq1)
+        s2 = engine._history(eq2)
+        assert len(s1.candles) == 1
+        assert len(s2.candles) == 1
+        assert float(s1.candles[0].ohlc.close.value) == 100.0
+        assert float(s2.candles[0].ohlc.close.value) == 200.0

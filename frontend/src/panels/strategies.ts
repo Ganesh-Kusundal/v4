@@ -2,6 +2,7 @@
 // Every list, param, and condition name comes from /api/charts responses;
 // this panel hardcodes no formula knowledge. The backend owns all engines:
 // BacktestEngine for runs, ScannerEngine for screens.
+import { expectJson } from "../http";
 export interface StrategyCatalogue {
   strategies: { id: string; strategy_id: string; version: string }[];
   scanners: {
@@ -57,8 +58,7 @@ export interface PanelHost {
 
 export async function fetchStrategyCatalogue(): Promise<StrategyCatalogue> {
   const resp = await fetch("/api/charts/strategies");
-  if (!resp.ok) throw new Error(`strategies catalogue failed (${resp.status})`);
-  return resp.json() as Promise<StrategyCatalogue>;
+  return expectJson<StrategyCatalogue>(resp);
 }
 
 async function runBacktest(body: Record<string, unknown>): Promise<BacktestResponse> {
@@ -67,8 +67,7 @@ async function runBacktest(body: Record<string, unknown>): Promise<BacktestRespo
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!resp.ok) throw new Error(`backtest failed: ${(await resp.json()).detail ?? resp.status}`);
-  return resp.json() as Promise<BacktestResponse>;
+  return expectJson<BacktestResponse>(resp);
 }
 
 async function runScanner(id: string): Promise<ScannerResponse> {
@@ -77,8 +76,7 @@ async function runScanner(id: string): Promise<ScannerResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id }),
   });
-  if (!resp.ok) throw new Error(`scanner failed: ${(await resp.json()).detail ?? resp.status}`);
-  return resp.json() as Promise<ScannerResponse>;
+  return expectJson<ScannerResponse>(resp);
 }
 
 /**

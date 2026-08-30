@@ -177,7 +177,9 @@ def _bar_time(candle: Any) -> int:
     """UTC seconds of a bar, whether a dict (``time``/``timestamp``) or a Candle.
 
     The harness Candle stores a tz-naive IST datetime; IST is a fixed UTC+5:30
-    offset, so the original UTC epoch is recovered exactly.
+    offset, so the original UTC epoch is recovered exactly.  The API compute
+    path (``chart._candles_for_bars``) rebuilds candles with tz-aware **UTC**
+    timestamps — ``.timestamp()`` returns the true epoch for those directly.
     """
     if isinstance(candle, dict):
         t = candle.get("time")
@@ -189,6 +191,8 @@ def _bar_time(candle: Any) -> int:
             return int(t)
         return int(t.timestamp())
     naive = candle.timestamp
+    if getattr(naive, "tzinfo", None) is not None:
+        return int(naive.timestamp())
     return int((naive - datetime(1970, 1, 1)).total_seconds()) - IST_OFFSET
 
 

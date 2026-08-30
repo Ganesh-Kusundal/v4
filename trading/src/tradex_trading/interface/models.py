@@ -42,12 +42,20 @@ class OrderResponse(BaseModel):
     message: str = ""
 
 
+class ErrorDetail(BaseModel):
+    """Stable machine-readable error envelope (G13)."""
+
+    code: str
+    message: str
+
+
 class ErrorResponse(BaseModel):
-    error: str
+    error: ErrorDetail
 
 
 __all__ = [
     "AccountResponse",
+    "ErrorDetail",
     "ErrorResponse",
     "HealthResponse",
     "OrderResponse",

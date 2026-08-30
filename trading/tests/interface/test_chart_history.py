@@ -25,7 +25,7 @@ class TestHistoryContract:
         client = _client()
         resp = client.get("/api/charts/history/NSE:RELIANCE", params={"interval": "M"})
         assert resp.status_code == 422
-        assert "unsupported interval" in resp.json()["detail"]
+        assert "unsupported interval" in resp.json()["error"]["message"]
 
     def test_unknown_symbol_empty_bars_not_error(self):
         """A symbol the datalake never saw is an empty series, not a 500."""

@@ -88,14 +88,14 @@ class TestKillSwitchRegression:
     def test_kill_switch_default_from_config(self) -> None:
         config = AppConfig(kill_switch_default=True)
         session = boot(config)
-        receipt = session.trade.submit(_request())
+        receipt = session.engine.submit(_request())
         assert receipt.status == OrderStatus.REJECTED
         session.stop()
 
     def test_kill_switch_rejects_orders(self) -> None:
         session = boot()
         session._engine.kill_switch = True
-        receipt = session.trade.submit(_request())
+        receipt = session.engine.submit(_request())
         assert receipt.status == OrderStatus.REJECTED
         session.stop()
 
@@ -114,7 +114,7 @@ class TestRiskGateRegression:
         )
         session = boot(config)
         # price=100 * quantity=10 = 1000 > max_order_value=500
-        receipt = session.trade.submit(_request(quantity=10, price=Decimal("100")))
+        receipt = session.engine.submit(_request(quantity=10, price=Decimal("100")))
         assert receipt.status == OrderStatus.REJECTED
         session.stop()
 
@@ -124,7 +124,7 @@ class TestRiskGateRegression:
         )
         session = boot(config)
         # price=100 * quantity=2 = 200 < max_order_value=5000
-        receipt = session.trade.submit(_request(quantity=2, price=Decimal("100")))
+        receipt = session.engine.submit(_request(quantity=2, price=Decimal("100")))
         assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
         session.stop()
 
@@ -145,6 +145,6 @@ class TestPaperModeRegression:
 
     def test_paper_mode_submit_works(self) -> None:
         session = boot()
-        receipt = session.trade.submit(_request())
+        receipt = session.engine.submit(_request())
         assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
         session.stop()

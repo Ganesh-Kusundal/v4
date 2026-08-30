@@ -99,12 +99,45 @@ function currentPrice(): number | undefined {
   return typeof last.close === "number" ? last.close : undefined;
 }
 
+/** Last 20 bars visible window (exclusive end keeps the latest bar fully on-screen). */
+const VISIBLE_BARS = 20;
+
+// Volume bars reuse the same up/down palette as the candle renderer so the
+// bottom pane reads the same colour story as the price pane. openalgo-charts'
+// histogram renderer reads `bar.color` directly and feeds it to ctx.fillStyle,
+// which does not understand CSS `var(--…)` — it needs a literal hex/rgb.
+const VOLUME_UP_COLOR = "#26a69a";
+const VOLUME_DOWN_COLOR = "#ef5350";
+
+function volumeBars(bars: Bar[]): Bar[] {
+  return bars.map((b) => ({
+    time: b.time,
+    open: 0,
+    high: b.volume ?? 0,
+    low: 0,
+    close: b.volume ?? 0,
+    volume: b.volume,
+    color: b.close >= b.open ? VOLUME_UP_COLOR : VOLUME_DOWN_COLOR,
+  }));
+}
+
+/** Set the visible logical range to show the last VISIBLE_BARS bars. */
+function showLastBars(count: number): void {
+  chart.setVisibleLogicalRange({ from: Math.max(0, count - VISIBLE_BARS), to: count + 1 });
+}
+
 function ensureSeries(): void {
   if (priceSeries && volumeSeries) return;
   priceSeries?.remove();
   volumeSeries?.remove();
   priceSeries = chart.addSeries("candlestick");
-  volumeSeries = chart.addSeries("histogram", { priceScaleId: "" });
+  // Volume gets its own pane at the bottom (~20% of chart height, like TradingView).
+  // paneIndex:1 auto-creates a dedicated pane; setPaneWeight gives it ~20% height.
+  volumeSeries = chart.addSeries("histogram", {
+    paneIndex: 1,
+    priceFormat: { type: "volume" },
+  });
+  chart.setPaneWeight(1, 0.25); // price pane=1, volume pane≈0.25 → bottom ~20%
 }
 ensureSeries();
 
@@ -181,6 +214,25 @@ async function loadHistory(): Promise<void> {
   void tradeHost.start();
   setIndicatorContext(state.exchange, state.symbol);
   setIndicatorInterval(state.interval);
+  // Re-bind every live backend indicator instance to the current instrument
+  // and timeframe: the Tier-2 cache key is built from these routing settings,
+  // so updating them forces a fresh compute instead of painting the previous
+  // symbol's values over this chart (cross-symbol state leakage).
+  for (const inst of chart.indicators() as readonly IndicatorApi[]) {
+    if (!inst.indicatorId.startsWith("backend:")) continue;
+    const s = inst.settings() as Record<string, unknown>;
+    if (
+      s["symbol"] !== state.symbol ||
+      s["exchange"] !== state.exchange ||
+      s["interval"] !== state.interval
+    ) {
+      inst.setSettings({
+        symbol: state.symbol,
+        exchange: state.exchange,
+        interval: state.interval,
+      } as never);
+    }
+  }
   statusText.textContent = "loading…";
   try {
     const bars = await chartFeed.getBars({ symbol: state.symbol, exchange: state.exchange, interval: state.interval });
@@ -206,10 +258,15 @@ async function loadHistory(): Promise<void> {
 let liveUnsub: (() => void) | null = null;
 function bindLiveBars(): void {
   liveUnsub?.();
+  if (!priceSeries || !volumeSeries) return;
   liveUnsub =
     chartFeed.subscribeBars?.(
       { symbol: state.symbol, exchange: state.exchange, interval: state.interval },
-      () => { wsLive = true; },
+      (bar: Bar) => {
+        wsLive = true;
+        priceSeries!.update(bar as never);
+        volumeSeries!.update(volumeBars([bar])[0] as never);
+      },
     ) ?? null;
 }
 
@@ -265,10 +322,8 @@ function resetToRaw(): void {
   priceSeries!.applyOptions({ visible: true });
   volumeSeries!.applyOptions({ visible: true });
   priceSeries!.setData(lastRawBars as never[]);
-  volumeSeries!.setData(
-    (lastRawBars as unknown as { time: number; volume?: number }[]).map((b) => ({ time: b.time, value: b.volume ?? 0 })) as never[],
-  );
-  chart.setVisibleLogicalRange({ from: Math.max(0, lastRawBars.length - 150), to: lastRawBars.length + 5 });
+  volumeSeries!.setData(volumeBars(lastRawBars) as never[]);
+  showLastBars(lastRawBars.length);
 }
 
 async function applyTransform(id: string): Promise<void> {
@@ -288,9 +343,7 @@ async function applyTransform(id: string): Promise<void> {
       priceSeries!.applyOptions({ visible: true });
       volumeSeries!.applyOptions({ visible: true });
       priceSeries!.setData(bars as never[]);
-      volumeSeries!.setData(
-        (bars as unknown as { time: number; volume?: number }[]).map((b) => ({ time: b.time, value: b.volume ?? 0 })) as never[],
-      );
+      volumeSeries!.setData(volumeBars(bars) as never[]);
     } else {
       priceSeries!.applyOptions({ visible: false });
       volumeSeries!.applyOptions({ visible: false });
@@ -298,7 +351,7 @@ async function applyTransform(id: string): Promise<void> {
       transformSeries.setData(bars as never[]);
     }
     if (bars.length > 0) {
-      chart.setVisibleLogicalRange({ from: Math.max(0, bars.length - 150), to: bars.length + 5 });
+      showLastBars(bars.length);
     }
     statusText.textContent = `${bars.length} bars · ${t.name}`;
   } catch (err) {
@@ -641,7 +694,7 @@ const shortcutActions: ShortcutActions = {
   panDown: () => chart.panes()[0]?.priceScale.panByPixels(-20),
   zoomIn: () => zoomAtCenter(1.1),
   zoomOut: () => zoomAtCenter(1 / 1.1),
-  resetScale: () => chart.setVisibleLogicalRange({ from: 0, to: lastRawBars.length + 5 }),
+  resetScale: () => showLastBars(lastRawBars.length),
   fitContent: () => fitChart(),
   screenshot: () => chart.downloadScreenshot(),
   toggleGridVert: () => chart.setGridOptions({ vertLines: !chart.gridOptions().vertLines }),

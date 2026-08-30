@@ -5,9 +5,9 @@ with no broker involved: a strategy emits a ``Signal``, ``ReactiveStrategyEngine
 bridges it into a ``PlaceOrderCommand``, and ``ExecutionEngine`` (with
 ``SimulatedFillSource``) publishes ``OrderPlaced`` + ``OrderFilled``.
 
-Also covers the scanner wiring: ``ScannerService`` delegates to
-``ScannerEngine`` (the documented replacement for the removed
-``scanner_runtime`` module).
+Also covers the scanner wiring: ``ScannerEngine`` is the documented
+scanner component (the removed ``scanner_runtime`` module and
+``ScannerService`` wrapper have been deleted).
 """
 
 from __future__ import annotations
@@ -27,7 +27,6 @@ from tradex_domain import (
     Signal,
 )
 from tradex_domain.enums import ExchangeId, OrderSide, OrderType, Timeframe
-from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.market import HistoricalSeries
@@ -37,7 +36,6 @@ from tradex_domain.value_objects import Price, Quantity
 from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fill_sources import SimulatedFillSource
 from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.sdk.services.scanner import ScannerService
 from tradex_trading.strategy import ReactiveStrategyEngine, ScannerEngine
 from tradex_trading.strategy.core.scanner import ScannerEngine as CoreScannerEngine
 
@@ -157,10 +155,10 @@ class TestCqrsSignalToOrder:
         engine.shutdown()
 
 
-class TestScannerServiceWiring:
-    """ScannerService is the canonical scanner wiring (scanner_runtime removed)."""
+class TestScannerEngineWiring:
+    """ScannerEngine is the canonical scanner wiring (scanner_runtime removed)."""
 
-    def test_scanner_service_delegates_to_scanner_engine(self) -> None:
+    def test_scanner_engine_runs_definition(self) -> None:
         class _Market:
             def history(self, instrument, timeframe, start, end) -> HistoricalSeries:
                 return HistoricalSeries(
@@ -172,15 +170,10 @@ class TestScannerServiceWiring:
                 )
 
         definition = ScannerDefinition(universe=[INSTRUMENT], conditions=[])
-        service = ScannerService(ScannerEngine(_Market()))
-        results = service.run(definition)
+        engine = ScannerEngine(_Market())
+        results = engine.run(definition)
         assert isinstance(results, list)
         assert results[0].instrument == INSTRUMENT
-
-    def test_scanner_service_is_loud_when_unbound(self) -> None:
-        service = ScannerService()
-        with pytest.raises(CapabilityNotSupportedError):
-            service.run(ScannerDefinition(universe=[INSTRUMENT], conditions=[]))
 
 
 def test_core_scanner_engine_reachable_from_strategy_package() -> None:

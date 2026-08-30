@@ -6,6 +6,7 @@ Stdlib-only — no external Prometheus dependency.
 
 from __future__ import annotations
 
+import re
 import threading
 
 
@@ -143,6 +144,30 @@ class MetricsRegistry:
         self._counters.clear()
         self._gauges.clear()
         self._histograms.clear()
+
+    def render_prometheus(self) -> str:
+        """Render all metrics in Prometheus text exposition format."""
+
+        def _sanitize(name: str) -> str:
+            return re.sub(r"[^a-zA-Z0-9_:]", "_", name)
+
+        lines: list[str] = []
+        for name, c in sorted(self._counters.items()):
+            s = _sanitize(name)
+            lines.append(f"# TYPE {s} counter")
+            lines.append(f"{s} {c.value()}")
+        for name, g in sorted(self._gauges.items()):
+            s = _sanitize(name)
+            lines.append(f"# TYPE {s} gauge")
+            lines.append(f"{s} {g.value()}")
+        for name, h in sorted(self._histograms.items()):
+            s = _sanitize(name)
+            lines.append(f"# TYPE {s} summary")
+            lines.append(f"{s}_count {h.count}")
+            lines.append(f"{s}_sum {h.value()}")
+            lines.append(f"{s}_min {h.min}")
+            lines.append(f"{s}_max {h.max}")
+        return "\n".join(lines) + ("\n" if lines else "")
 
 
 __all__ = ["MetricsRegistry"]

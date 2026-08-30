@@ -58,10 +58,21 @@ def from_env() -> AppConfig:
     max_orders_per_minute_str = os.environ.get("TRADEX_RISK_MAX_ORDERS_PER_MINUTE")
     max_orders_per_minute = int(max_orders_per_minute_str) if max_orders_per_minute_str else None
 
+    reject_unknown_market_value = _parse_bool(
+        os.environ.get("TRADEX_RISK_REJECT_UNKNOWN_MARKET_VALUE", "false")
+    )
+
     risk = RiskConfig(
         max_order_value=max_order_value,
         max_position_value=max_position_value,
         max_orders_per_minute=max_orders_per_minute,
+        reject_unknown_market_value=reject_unknown_market_value,
+        max_daily_loss_amt=(
+            Decimal(v) if (v := os.environ.get("TRADEX_RISK_MAX_DAILY_LOSS")) else None
+        ),
+        max_drawdown_pct=(
+            Decimal(v) if (v := os.environ.get("TRADEX_RISK_MAX_DRAWDOWN_PCT")) else None
+        ),
     )
 
     slippage_bps_str = os.environ.get("TRADEX_SLIPPAGE_BPS")

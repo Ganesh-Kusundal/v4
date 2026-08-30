@@ -203,7 +203,7 @@ class TestExecutionConfigWiring:
                 quantity=Quantity(value=Decimal("10")),
                 price=Price(value=Decimal("100")),
             )))
-            pos = session.portfolio.positions()[0]
+            pos = session.engine.cache.all_positions()[0]
             # Slippage: BUY pays more (100 * 1.001 = 100.10).
             assert pos.avg_price.value == Decimal("100.10")
             # Fees: deducted from realized P&L (negative).
@@ -228,7 +228,7 @@ class TestExecutionConfigWiring:
                 quantity=Quantity(value=Decimal("10")),
                 price=Price(value=Decimal("100")),
             )))
-            pos = session.portfolio.positions()[0]
+            pos = session.engine.cache.all_positions()[0]
             assert pos.avg_price.value == Decimal("100.10")  # slipped
             assert pos.realized_pnl.amount < 0  # fee deducted
         finally:

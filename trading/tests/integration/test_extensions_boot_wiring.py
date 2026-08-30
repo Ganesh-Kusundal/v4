@@ -2,7 +2,7 @@
 
 ``boot()`` must register every auto-discovered extension strategy into a
 ``ReactiveStrategyEngine`` and bind a ``ScannerEngine`` (market-backed) into
-the session's ``ScannerService``, so a session can run a discovered scanner
+the session, so a session can run a discovered scanner
 without touching core files.
 """
 
@@ -73,16 +73,18 @@ class TestBootWiresDiscovery:
     def test_boot_binds_scanner_engine_and_definitions(self, monkeypatch) -> None:
         session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
         try:
-            assert session.scanner._engine is not None  # noqa: SLF001 – wiring probe
+            assert session._scanner_engine is not None  # noqa: SLF001 – wiring probe
             assert all_scanners  # sanity: discovery found the shipped scanners
-            assert len(session.scanner.discovered) == len(all_scanners)
+            assert len(session._scanner_definitions) == len(all_scanners)
         finally:
             session.stop()
 
     def test_run_all_runs_every_discovered_scanner(self, monkeypatch) -> None:
         session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
         try:
-            results = session.scanner.run_all()
+            results = {}
+            for i, definition in enumerate(session._scanner_definitions):
+                results[f"scanner_{i}"] = session._scanner_engine.run(definition)
             assert set(results) == {f"scanner_{i}" for i in range(len(all_scanners))}
             assert all(isinstance(r, list) for r in results.values())
         finally:
@@ -90,8 +92,8 @@ class TestBootWiresDiscovery:
 
     def test_session_runs_discovered_scanner(self, monkeypatch) -> None:
         """The pullback scanner (close > 500 AND rsi < 40) scores 2/2 on a
-        falling-but-high series, proving the full path: boot → ScannerService
-        → ScannerEngine → broker.history → AnalyticsEngine.rsi."""
+        falling-but-high series, proving the full path: boot → ScannerEngine
+        → broker.history → AnalyticsEngine.rsi."""
         broker = _fake_broker_with_history([600.0, 590.0, 580.0, 570.0])
         session = boot(AppConfig(mode="paper"), broker=broker)
         try:
@@ -100,7 +102,7 @@ class TestBootWiresDiscovery:
             pullback = next(
                 s for s in all_scanners if {c.name for c in s.conditions} == {"close", "rsi"}
             )
-            results = session.scanner.run(pullback)
+            results = session._scanner_engine.run(pullback)
             assert isinstance(results, list)
             assert all(isinstance(r, ScannerResult) for r in results)
             assert results  # universe instruments evaluated
@@ -114,7 +116,7 @@ class TestBootWiresDiscovery:
         session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
         try:
             for definition in all_scanners:
-                results = session.scanner.run(definition)
+                results = session._scanner_engine.run(definition)
                 assert isinstance(results, list)
         finally:
             session.stop()
@@ -135,7 +137,7 @@ class TestBootWiresDiscovery:
         for mode in ("backtest", "replay"):
             session = boot(AppConfig(mode=mode), broker=_fake_broker_with_history([10.0]))
             try:
-                engine = session.scanner._engine  # noqa: SLF001 – wiring probe
+                engine = session._scanner_engine  # noqa: SLF001 – wiring probe
                 assert isinstance(engine._market, ParquetMarketProvider)  # noqa: SLF001
             finally:
                 session.stop()
@@ -164,9 +166,9 @@ def test_paper_boot_with_real_broker_runs_discovered_scanner() -> None:
     scoring. This is the canonical path used by ``boot()`` defaults."""
     session = boot()
     try:
-        assert session.scanner._engine is not None  # noqa: SLF001 – wiring probe
+        assert session._scanner_engine is not None  # noqa: SLF001 – wiring probe
         for definition in all_scanners:
-            results = session.scanner.run(definition)
+            results = session._scanner_engine.run(definition)
             assert isinstance(results, list)
     finally:
         session.stop()

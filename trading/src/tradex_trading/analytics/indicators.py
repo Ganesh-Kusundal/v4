@@ -744,12 +744,54 @@ class IndicatorResult:
     values: dict[str, list] = field(default_factory=dict)
 
 
+# Private imports from the first-class registry — used by register_indicator
+# to mirror every legacy spec into REGISTRY automatically.
+from tradex_trading.analytics.registry import (  # noqa: E402
+    REGISTRY as _NEW_REGISTRY,
+)
+from tradex_trading.analytics.registry import (  # noqa: E402
+    IndicatorSpec as _NewIndicatorSpec,
+)
+from tradex_trading.analytics.registry import (  # noqa: E402
+    ParamSpec as _ParamSpec,
+)
+
 _REGISTRY: dict[str, IndicatorSpec] = {}
 
 
 def register_indicator(spec: IndicatorSpec) -> None:
-    """Register an indicator spec by id. Last registration wins."""
+    """Register an indicator spec by id. Last registration wins.
+
+    Also mirrors the spec into the first-class :data:`REGISTRY` so the
+    analytics engine can dispatch through ``REGISTRY.compute(name, ...)``
+    without a separate bridge step.
+    """
     _REGISTRY[spec.id] = spec
+    # Mirror into the new first-class registry (inline adaptation).
+    fn = getattr(spec, "fn", None)
+    if fn is not None:
+        legacy_params = getattr(spec, "params", ()) or ()
+        params: dict[str, Any] = {}
+        for entry in legacy_params:
+            if isinstance(entry, tuple) and len(entry) >= 3:
+                pname, ptype, pdefault = entry[0], entry[1], entry[2]
+            else:
+                pname, ptype, pdefault = (
+                    getattr(entry, "name", str(entry)),
+                    getattr(entry, "type", "float"),
+                    getattr(entry, "default", None),
+                )
+            params[pname] = _ParamSpec(type=ptype, default=pdefault)
+        _NEW_REGISTRY.register(
+            spec.id,
+            _NewIndicatorSpec(
+                name=spec.id,
+                inputs=("close",),
+                params=params,
+                outputs=("value",),
+                compute=fn,
+            ),
+        )
 
 
 def get_indicator_spec(indicator_id: str) -> IndicatorSpec | None:
@@ -1176,22 +1218,3 @@ for _spec in (
 ):
     register_indicator(_spec)
 
-# ---------------------------------------------------------------------------
-# G6 — bridge the legacy catalogue registry into the new IndicatorRegistry.
-#
-# Every spec already registered through ``register_indicator(_spec)`` above
-# is also mirrored into the first-class :data:`REGISTRY` so
-# ``AnalyticsEngine.indicator_values`` can dispatch through a single
-# ``REGISTRY.compute(name, ...)`` seam rather than a hardcoded if/elif
-# selector. The new REGISTRY.compute expects a (candles-list, **params)
-# callable; we adapt the legacy spec's ``fn`` signature to match what
-# ``compute_indicator`` already passes (candles, **resolved_params).
-# ---------------------------------------------------------------------------
-
-from tradex_trading.analytics.registry import (  # noqa: E402
-    REGISTRY as _NEW_REGISTRY,
-    register_legacy_spec as _register_legacy_spec,
-)
-
-for _entry in _REGISTRY.items():
-    _register_legacy_spec(_entry[0], _entry[1])

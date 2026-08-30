@@ -79,18 +79,16 @@ class TestBootSafety:
 # ---------------------------------------------------------------------------
 
 
-class TestSessionServicesInModes:
-    """All 7 services accessible after boot in each mode."""
+class TestSessionPropertiesInModes:
+    """Core session properties accessible after boot in each mode."""
 
     @pytest.mark.parametrize("mode", ["paper", "backtest", "replay"])
-    def test_all_services_accessible(self, mode: str) -> None:
+    def test_all_properties_accessible(self, mode: str) -> None:
         config = AppConfig(mode=mode)
         session = boot(config)
         assert session.broker is not None
-        assert session.trade is not None
-        assert session.portfolio is not None
-        assert session.stream is not None
-        assert session.scanner is not None
+        assert session.engine is not None
+        assert session.bus is not None
         session.stop()
 
     @pytest.mark.parametrize("mode", ["paper", "backtest", "replay"])

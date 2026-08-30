@@ -20,7 +20,7 @@ async def get_positions(
 ) -> list[PositionResponse]:
     if session is None:
         return []
-    positions = session.portfolio.positions()
+    positions = session.engine.cache.all_positions()
     result = [serialize_position(p) for p in positions]
     if instrument is not None:
         result = [p for p in result if instrument.lower() in p.instrument.lower()]
@@ -33,7 +33,7 @@ async def get_holdings(session: Any | None = Depends(get_session)) -> list[dict]
     if session is None:
         raise HTTPException(status_code=400, detail="no session bound")
     try:
-        holdings = session.portfolio.holdings() if hasattr(session.portfolio, "holdings") else []
+        holdings = list(session.broker.get_holdings())
         return [
             {
                 "instrument_id": (

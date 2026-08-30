@@ -4,7 +4,7 @@ The live brokers expose ``subscribe_quotes`` (both) plus either
 ``subscribe_depth`` (Dhan's dedicated depth-20 backend) or
 ``subscribe_depth_30`` (Upstox 30-level mode). This bridge subscribes both
 streams for a set of instruments and publishes every received ``Quote`` /
-``Depth`` onto the session reactive bus, where ``StreamService`` consumers and
+``Depth`` onto the session reactive bus, where stream consumers and
 the FastAPI ``/ws/stream`` bridge pick them up.
 
 Wired by ``TradingSession.live()``; paper sessions have no live feed.

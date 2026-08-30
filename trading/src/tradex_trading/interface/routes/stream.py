@@ -17,7 +17,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import secrets
 from typing import Any
+from urllib.parse import parse_qs
 
 from fastapi import WebSocket, WebSocketDisconnect
 from tradex_domain.errors import CapabilityNotSupportedError
@@ -52,6 +54,18 @@ async def ws_stream(
     if session is None:
         await ws.close(code=1011, reason="no session bound")
         return
+
+    # Auth gate — browsers cannot set headers on a WebSocket, so the key is
+    # delivered as ?api_key=<value> in the connect URL and validated here,
+    # BEFORE accept(), so an anonymous client never completes the handshake.
+    # Constant-time compare. When no key is configured (paper/dev) the WS
+    # stays open as before.
+    _expected = getattr(app.state, "api_key", None)
+    if _expected is not None:
+        _provided = parse_qs(ws.url.query).get("api_key", [None])[0]
+        if not secrets.compare_digest(str(_provided), str(_expected)):
+            await ws.close(code=1008, reason="invalid api key")
+            return
 
     await ws.accept()
     disposables: list[Any] = []
@@ -320,7 +334,26 @@ async def ws_stream(
                 _ack({"type": "subscribed_orders"})
                 return
             try:
-                handle = session.stream.subscribe_orders(_on_order)
+                # Live broker order updates — backend if bound, else fall
+                # back to the reactive bus's OrderPlaced stream (the same
+                # path StreamService used; inlined here per G8 since the
+                # service layer is gone).
+                from tradex_domain.events import OrderPlaced
+
+                from tradex_trading.sdk.streaming import (
+                    BackendStreamSubscription,
+                    StreamSubscription,
+                )
+
+                backend = getattr(session, "_stream_backend", None)
+                if backend is not None and hasattr(backend, "subscribe_orders"):
+                    sub = BackendStreamSubscription(
+                        backend, backend.subscribe_orders(_on_order), "orders",
+                    )
+                else:
+                    disposable = session.bus.of_type(OrderPlaced).subscribe(_on_order)
+                    sub = StreamSubscription(disposable, "orders")
+                handle = sub
             except Exception as exc:  # noqa: BLE001 – no backend / not READY
                 _ack({"type": "error", "message": f"order stream unavailable: {exc}"})
                 return

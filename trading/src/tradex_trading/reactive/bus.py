@@ -2,6 +2,10 @@
 
 Replaces v3's imperative EventBus with reactive streams.
 Every message is an Observable emission.
+
+R2: Internally partitioned into lanes (order, market, diagnostics, default)
+so a slow subscriber on one lane cannot block delivery on another.
+The public API (publish, subscribe, of_type, stream, dispose) is unchanged.
 """
 
 from __future__ import annotations
@@ -34,9 +38,55 @@ _MAX_NESTED_DELIVERIES = 10_000
 # Kept for backward compat with test import (deprecated stub):
 _backpressure_triggered: dict[int, bool] = {}  # noqa: F401
 
+# ---------------------------------------------------------------------------
+# R2: Lane classification
+# ---------------------------------------------------------------------------
+
+#: Lane names for the internal bus partition.
+_LANE_ORDER = "order"
+_LANE_MARKET = "market"
+_LANE_DIAGNOSTICS = "diagnostics"
+_LANE_DEFAULT = "default"
+
+#: Event class names routed to each lane. Built from tradex_domain.events.
+_ORDER_EVENT_NAMES: frozenset[str] = frozenset({
+    "OrderPlaced", "OrderFilled", "OrderRejected",
+    "OrderCancelled", "OrderModified", "PlaceOrderCommand",
+})
+_MARKET_TYPE_NAMES: frozenset[str] = frozenset({
+    "Quote", "Depth", "Candle", "Bar", "Tick", "StaleFeed",
+    "OHLC", "MarketData",
+})
+_DIAGNOSTIC_EVENT_NAMES: frozenset[str] = frozenset({
+    "ErrorOccurred",
+})
+
+
+def _lane_for(subject: object) -> str:
+    """Map an event (instance) or event type (class) to its bus lane.
+
+    Names (not isinstance) keep this module free of a ``tradex_domain``
+    import; unknown names fall back to the default lane.
+    """
+    name = subject.__name__ if isinstance(subject, type) else type(subject).__name__
+    if name in _ORDER_EVENT_NAMES:
+        return _LANE_ORDER
+    if name in _MARKET_TYPE_NAMES:
+        return _LANE_MARKET
+    if name in _DIAGNOSTIC_EVENT_NAMES:
+        return _LANE_DIAGNOSTICS
+    return _LANE_DEFAULT
+
 
 class ReactiveBus:
-    """RxPY Subject-backed message bus."""
+    """RxPY Subject-backed message bus.
+
+    R2: internally partitioned into lanes. Each lane has its own Subject
+    so ``of_type(X)`` subscribers only receive events from X's lane —
+    a slow market-data consumer cannot block order-pipeline delivery.
+    ``stream()`` and plain ``subscribe()`` still see every event via the
+    shared all-lane Subject.
+    """
 
     def __init__(
         self,
@@ -47,7 +97,15 @@ class ReactiveBus:
         # event_log wins over message_log when both are provided: callers that
         # want durability pass an SQLEventLog; the deque/list path is the
         # legacy default and stays in place for backward compatibility.
+        #: R2: all-lane Subject — ``stream()`` and ``subscribe()`` listen here.
         self._subject: Subject = Subject()
+        #: R2: per-lane Subjects for isolated ``of_type()`` delivery.
+        self._lane_subjects: dict[str, Subject] = {
+            _LANE_ORDER: Subject(),
+            _LANE_MARKET: Subject(),
+            _LANE_DIAGNOSTICS: Subject(),
+            _LANE_DEFAULT: Subject(),
+        }
         self._log: list[Any] | None = event_log if event_log is not None else message_log
         self._disposables: CompositeDisposable = CompositeDisposable()
         self._metrics = metrics
@@ -89,6 +147,11 @@ class ReactiveBus:
         (matching the message log) and effects are visible before ``publish``
         returns.
 
+        R2: each message is dispatched to both the all-lane Subject (for
+        ``stream()`` / plain ``subscribe()`` consumers) and its lane-specific
+        Subject (for ``of_type()`` consumers). Lane Subjects isolate
+        subscribers: a slow market consumer does not block order delivery.
+
         Single-threaded only: the drain state (``_pending``/``_draining``) is
         not locked. Publish from one thread, or wrap the bus in
         ``ThreadSafeReactiveBus`` for concurrent publishers.
@@ -125,7 +188,11 @@ class ReactiveBus:
                     break
                 msg = self._pending.popleft()
                 try:
+                    # R2: dispatch to all-lane Subject first (stream/subscribe),
+                    # then to the lane-specific Subject (of_type).
                     self._subject.on_next(msg)
+                    lane = _lane_for(msg)
+                    self._lane_subjects[lane].on_next(msg)
                 except Exception as exc:
                     log.error("Bus publish error: %s", exc)
                 if self._metrics is not None:
@@ -138,7 +205,21 @@ class ReactiveBus:
     # ------------------------------------------------------------------
 
     def of_type(self, msg_type: type) -> rx.Observable:
-        """Typed stream — only messages of the given type."""
+        """Typed stream — only messages of the given type.
+
+        R2: routes to the lane-specific Subject for the requested type,
+        providing isolation between lanes. Unknown types fall back to the
+        all-lane Subject so backward compatibility is preserved.
+        """
+        lane = _lane_for(msg_type)
+        subject = self._lane_subjects.get(lane)
+        if subject is not None and lane != _LANE_DEFAULT:
+            return subject.pipe(
+                ops.filter(lambda m: isinstance(m, msg_type)),
+                ops.share(),
+            )
+        # Default lane or unknown type: use the all-lane Subject so
+        # subscribers to non-domain types still work.
         return self._subject.pipe(
             ops.filter(lambda m: isinstance(m, msg_type)),
             ops.share(),
@@ -256,8 +337,7 @@ class ReactiveBus:
         it synchronously on startup. Used by the future boot-replay path that
         asks "what did we think happened 5 minutes ago?" after a crash.
         """
-        for msg in list(self._pending):
-            yield msg
+        yield from list(self._pending)
         log = self._log
         # SQLEventLog exposes .replay(after_id); list/deque expose __iter__.
         if hasattr(log, "replay"):
@@ -276,6 +356,8 @@ class ReactiveBus:
         before teardown so a concurrent ``publish()`` from another
         thread surfaces ``RuntimeError`` rather than silently enqueuing
         into a torn-down bus.
+
+        R2: completes all lane Subjects in addition to the all-lane Subject.
         """
         if self._disposed:
             return
@@ -285,3 +367,9 @@ class ReactiveBus:
             self._subject.on_completed()
         except Exception:  # pragma: no cover – defensive
             pass
+        # R2: complete lane subjects so of_type subscribers get on_completed.
+        for subject in self._lane_subjects.values():
+            try:
+                subject.on_completed()
+            except Exception:  # pragma: no cover – defensive
+                pass

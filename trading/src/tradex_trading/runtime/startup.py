@@ -6,7 +6,7 @@ Fail-closed: any error during boot prevents session creation.
 ``boot`` also wires the extensions auto-discovery contract: every strategy
 discovered in ``strategy/extensions`` is registered into a
 ``ReactiveStrategyEngine``, and every discovered scanner definition is bound
-into the session's ``ScannerService`` (via ``scanner_definitions``).
+into the session's scanner engine (via ``scanner_engine``).
 """
 
 from __future__ import annotations
@@ -131,7 +131,7 @@ def boot(
 
     This is the composition root — the ONLY place that wires everything together.
     Extension strategies are registered into a ``ReactiveStrategyEngine`` and
-    discovered scanner definitions are bound into the session's ScannerService.
+    discovered scanner definitions are bound into the session's scanner engine.
 
     Parameters
     ----------
@@ -392,9 +392,10 @@ def _boot_tail(
     broker.connect()
 
     # 7b. Bind the order/portfolio stream backend (live brokers only) so
-    # session.stream.subscribe_orders/positions reaches the broker WebSocket
-    # instead of falling back to a stub. Paper/backtest brokers expose no
-    # backend; any wiring failure degrades to the existing bus fallback.
+    # callers using session.bus for OrderPlaced/OrderCancelled/OrderModified
+    # (and live WS backends) reach the broker WebSocket instead of falling
+    # back to a stub. Paper/backtest brokers expose no backend; any wiring
+    # failure degrades to the existing bus fallback.
     stream_backend = None
     fill_bridge: Any = None
     if cfg.mode == "live":
@@ -444,10 +445,10 @@ def _boot_tail(
                 "diverge from the venue until reconciliation runs."
             )
 
-    # 7c. Scanner engine — bind the market provider so the session's
-    # ScannerService can run every auto-discovered extension scanner.
-    # Backtest/replay modes scan the local parquet datalake (offline, full
-    # Nifty universe) instead of the broker; paper/live keep live data.
+    # 7c. Scanner engine — bind the market provider so the session can run
+    # every auto-discovered extension scanner. Backtest/replay modes scan
+    # the local parquet datalake (offline, full Nifty universe) instead of
+    # the broker; paper/live keep live data.
     scanner_engine: Any = None
     if wire_strategies:
         if cfg.mode in ("backtest", "replay"):
@@ -456,6 +457,10 @@ def _boot_tail(
         else:
             scanner_market = broker
         scanner_engine = ScannerEngine(market=scanner_market)
+        # G7: stream Candle events into the scanner's rolling buffer so
+        # _history() can serve incremental data instead of re-fetching.
+        from tradex_domain.market import Candle as _Candle
+        bus.of_type(_Candle).subscribe(on_next=scanner_engine.consume)
 
     # 7d. Backtest loader — backtest/replay modes expose an offline datalake
     # backtest tool on the session: ``session.backtest.load()``/``.run()``
@@ -466,8 +471,8 @@ def _boot_tail(
         from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
         backtest_loader = ParquetBacktestLoader()
 
-    # 8. Create session — strategies registered, scanners bound into the
-    # ScannerService (definitions) so ``session.scanner.run_all()`` works.
+    # 8. Create session — strategies registered, scanner engine bound
+    # so ``session._scanner_engine.run(definition)`` works.
     # Live mode additionally wires the market feed and the daily master
     # refresh scheduler HERE (moved from ``TradingSession.live`` — the
     # composition root owns all wiring [REF-6]). The scheduler is started
@@ -504,6 +509,7 @@ def _boot_tail(
         fill_bridge=fill_bridge,
         market_feed=market_feed,
         master_scheduler=master_scheduler,
+        metrics=metrics,
     )
 
     # 8b. Live single-writer lock releases when the session stops (composition

@@ -16,7 +16,7 @@ router = APIRouter()
 async def get_account(session: Any | None = Depends(get_session)) -> AccountResponse:
     if session is None:
         raise HTTPException(status_code=404, detail="no session bound")
-    acct = session.portfolio.account()
+    acct = session.broker.get_account()
     return AccountResponse(
         balance=str(acct.balance),
         margin=str(acct.margin),

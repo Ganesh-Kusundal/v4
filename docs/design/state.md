@@ -63,9 +63,9 @@ Every item below has a test pin and a commit. Suite at completion: **2808 passed
 - ✅ **G17** `ec6c288` + `fd57963` — root `pyproject.toml` is a uv workspace manifest with `[tool.uv.workspace]` + `[tool.uv.sources]` for the three members and a `[dependency-groups].dev` listing ruff, mypy, pytest, pytest-cov, pytest-timeout, and the three workspace members. `uv lock` regenerates the lockfile (1393 lines). `uv sync --frozen` is now idempotent. `tradex-trading[datalake,api,full]` is requested so the parity and replay tests can collect. mypy on the domain kernel is clean.
 
 ### Sprint 3 — correctness at scale
-- 🟠 **G4** `BaseBroker` has ~30 pass-throughs. Refactor to a generated wall. **Status:** unstarted.
-- 🟠 **G6** Promote `AnalyticsEngine` to a first-class `IndicatorRegistry`. Co-locate goldens with specs. **Status:** unstarted.
-- 🟠 **G8** SDK service layer is a thin pass-through. Remove it or give it a real job. **Status:** unstarted.
+- ✅ **G4** `3744211` — `BaseBroker` pass-throughs replaced by a generated wall; 242-line contract test pins it.
+- ✅ **G6** `989ff2c` — first-class `IndicatorRegistry` (`analytics/registry.py`) with decorator self-registration; goldens co-located under `analytics/goldens/`; `AnalyticsEngine` resolves via `REGISTRY.get(name).compute(...)` (if/elif selector deleted).
+- ✅ **G8** (2026-08-30, working tree) — SDK service layer deleted: `sdk/services/` (portfolio/scanner/stream/trade + 871-line service test suite) removed; routes/CLI call `session.engine.*` / `session.broker.*` / `session.engine.cache.*` directly; `sdk/streaming.py` subscription handles kept (still used by the WS route + session stop). Export surface now `TradingSession`, `SessionState`, `StreamSubscription`.
 - ✅ **M3–M7** (`6634851`) — bus dispose guard, broker close dedup, `_session_date` type, `_make_order` id validation, writer lock scoped to `RuntimeContext`. Five fixes; full suite 2806 passed.
 - 🟢 **G15** Update `docs/ARCHITECTURE.md` after G10 lands. **Status:** unstarted (depends on G10).
 - 🟢 **G16** `tests/test_import_boundaries.py` — keep, update when G10 lands. **Status:** unstarted (depends on G10).
@@ -80,14 +80,14 @@ Every item below has a test pin and a commit. Suite at completion: **2808 passed
 - ✅ **M6** (cross-listed under Sprint 3) — done.
 
 ### Sprint 5 — observability
-- 🟠 **R2** Partition the bus: `OrderPipeline` / `MarketData` / `Diagnostics`. **Status:** unstarted.
-- 🟠 **R3** Promote `IndicatorSpec` / `IndicatorRegistry` to first-class contracts. **Status:** unstarted.
-- 🟢 **G14** `MetricsRegistry` is in-process and never exported. Wire Prometheus exposition or drop. **Status:** unstarted.
+- ✅ **R2** (2026-08-30, working tree) — bus partitioned into lanes (`order` / `market` / `diagnostics` / `default`) — internal per-lane Subjects, routed by event class name; public `publish` / `subscribe` / `of_type` / `stream` / `dispose` API unchanged, no subscriber edits; +15 lane-isolation tests.
+- ✅ **R3** (2026-08-30) — closed by G6: `IndicatorSpec` is the frozen dataclass contract in `analytics/registry.py`; the redundant `register_legacy_spec` bridge loop in `indicators.py` deleted — `register_indicator` is the single registration path (mirrors into legacy catalogue + first-class registry).
+- ✅ **G14** (2026-08-30, working tree) — `MetricsRegistry.render_prometheus()` emits Prometheus text exposition (stdlib only, no client lib); `GET /metrics` on the FastAPI app; boot-time registry carried on `TradingSession.metrics` so served apps expose real runtime counters.
 
 ### Backlog
-- 🟡 **G7** `ScannerEngine._history` is snapshot-only. Stream consumer. **Status:** unstarted.
-- 🟠 **G9** `services/duckdb-analytics` re-implements `ScannerEngine` with no shared contract. **Status:** unstarted.
-- 🟡 **G13** Frontend has 11 `if (!resp.ok) throw new Error(...)`; backend has no typed-error contract. **Status:** unstarted.
+- ✅ **G7** (2026-08-30, working tree) — `ScannerEngine` streaming consumer: per-instrument `deque(maxlen=max_bars)` rolling buffer fed by `consume(candle)`; `_history()` falls back to a snapshot only before any bar streams; wired via a `bus.of_type(Candle).subscribe(...)` in `startup.py`; +5 tests.
+- 🟠 **G9** `services/duckdb-analytics` re-implements `ScannerEngine` with no shared contract. **Status:** open — package is untracked and not a uv workspace member; needs a keep-or-delete decision.
+- ✅ **G13** (2026-08-30, working tree) — typed-error contract: `{"error": {"code", "message"}}` envelope via one FastAPI exception handler (status→stable code map) + `ErrorDetail` model; frontend `frontend/src/http.ts` `expectJson()` replaces all 11 `if (!resp.ok) throw` sites; +10 contract tests; `tsc --noEmit` clean.
 
 ---
 
@@ -110,3 +110,4 @@ From `tradexv2-org`: architecture first, then contracts, then tests, then implem
 - 2026-08-29 — G17 CI pre-flight closed (`ec6c288` + `fd57963`): root `pyproject.toml` now a uv workspace manifest with `[tool.uv.workspace]`, `[tool.uv.sources]`, and `[dependency-groups].dev` listing the CI tooling. `uv lock` regenerates a 1393-line `uv.lock`; `uv sync --frozen` is idempotent. Mypy on the domain kernel is clean. CI is now verifiable end-to-end.
 - 2026-08-29 — M3-M7 hardening batch (`6634851`): bus dispose guard, broker close dedup, `_session_date` type, `_make_order` id validation, writer lock scoped to `RuntimeContext`. Trading `[datalake]` extras now declare pandas + pyarrow. Per-package suite: domain 299, brokers 765, trading 1738, meta 4 — total 2806 passed (vs. prior 2808). **M3, M4, M5, M6, M7 all closed.**
 - 2026-08-29 — state file consolidated: every closed item moved to a single "Done" section with commit hashes; per-item RED/GREEN test plan sections removed (they were stale). Sprint 3 / 4 / 5 / Backlog pending items preserved.
+- 2026-08-30 — G4 (`3744211`) and G6 (`989ff2c`) landed via committed refactors. Then a two-wave parallel batch closed the rest in the working tree (uncommitted): **G8** SDK service layer deleted; **G14** Prometheus exposition on `/metrics`; **R3** legacy registry bridge removed; **R2** bus lane partition; **G7** scanner streaming consumer; **G13** typed-error contract end-to-end; plus integration repairs (2 stale POST-order tests fixed, missing `def` in a risk-gap test restored, `make_verify_api_key` / `api_key_header` dupes deleted, `/openapi.json` regression fixed). Per-package suite: domain 299, brokers 770, trading 1713 — **2782 passed, 0 failed**. Net diff −800 lines across 61 files. Remaining: G9 (keep-or-delete decision), Sprint 4 deferrables (G10–G12), G15/G16 (depend on G10).

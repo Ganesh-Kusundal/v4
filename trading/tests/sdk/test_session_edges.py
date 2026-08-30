@@ -4,15 +4,13 @@ Ported from v3 ``test_sdk_session_edges.py``.
 
 v4 API differences:
 - ``TradingSession`` requires ``broker, bus, engine, cache, broker_id``
-- Services are properties (not methods) that check READY state
-- ``StreamService`` has ``subscribe_quotes`` / ``subscribe_fills`` (not orders/positions)
+- Service layer removed; consumers use session.bus / session.engine directly
 """
 
 from __future__ import annotations
 
 import pytest
-from tradex_domain.errors import CapabilityNotSupportedError, SessionStateError
-from tradex_domain.strategy import ScannerDefinition
+from tradex_domain.errors import CapabilityNotSupportedError
 
 from tradex_trading.runtime.startup import boot
 from tradex_trading.sdk.session import SessionState
@@ -26,18 +24,6 @@ from tradex_trading.sdk.streaming import StreamSubscription
 class TestSessionStateEdges:
     """Session lifecycle edge cases."""
 
-    def test_services_raise_after_stop(self) -> None:
-        session = boot()
-        session.stop()
-        with pytest.raises(SessionStateError):
-            _ = session.trade
-        with pytest.raises(SessionStateError):
-            _ = session.portfolio
-        with pytest.raises(SessionStateError):
-            _ = session.stream
-        with pytest.raises(SessionStateError):
-            _ = session.scanner
-
     def test_state_property_reflects_lifecycle(self) -> None:
         session = boot()
         assert session.state == SessionState.READY
@@ -46,32 +32,21 @@ class TestSessionStateEdges:
 
 
 # ---------------------------------------------------------------------------
-# StreamService — subscription lifecycle
+# Reactive bus — subscription lifecycle (replaces StreamService tests)
 # ---------------------------------------------------------------------------
 
 
-class TestStreamServiceEdges:
-    """StreamService subscription management."""
+class TestBusSubscriptionEdges:
+    """Reactive bus subscription management."""
 
-    def test_subscribe_quotes_returns_subscription(self) -> None:
-        session = boot()
-        sub = session.stream.subscribe_quotes(lambda q: None)
-        assert isinstance(sub, StreamSubscription)
-        assert sub.is_active
-        session.stop()
+    def test_subscribe_quotes_returns_disposable(self) -> None:
+        from tradex_domain.market import Quote
 
-    def test_subscribe_fills_returns_subscription(self) -> None:
         session = boot()
-        sub = session.stream.subscribe_fills(lambda f: None)
-        assert isinstance(sub, StreamSubscription)
-        assert sub.is_active
-        session.stop()
-
-    def test_subscribe_depth_returns_subscription(self) -> None:
-        session = boot()
-        sub = session.stream.subscribe_depth(lambda d: None)
-        assert isinstance(sub, StreamSubscription)
-        assert sub.is_active
+        received: list[Quote] = []
+        d = session.bus.of_type(Quote).subscribe(received.append)
+        assert not d.is_disposed
+        d.dispose()
         session.stop()
 
     def test_start_market_feed_raises_in_paper_mode(self) -> None:
@@ -92,8 +67,7 @@ class TestStreamServiceEdges:
 
         session = boot()
         received: list[Depth] = []
-        sub = session.stream.subscribe_depth(received.append)
-        assert sub.is_active
+        d = session.bus.of_type(Depth).subscribe(received.append)
         depth = Depth(
             instrument=Equity.of("NSE", "RELIANCE"),
             bids=((Price(value=Decimal("1319.0")), Quantity(value=Decimal("10"))),),
@@ -102,56 +76,19 @@ class TestStreamServiceEdges:
         session.bus.publish(depth)
         assert len(received) == 1
         assert received[0].instrument.symbol == "RELIANCE"
+        d.dispose()
         session.stop()
 
-    def test_stop_cancels_subscriptions(self) -> None:
+    def test_stop_disposes_subscriptions(self) -> None:
+        from tradex_domain.market import Quote
+
         session = boot()
-        sub = session.stream.subscribe_quotes(lambda q: None)
+        sub = StreamSubscription(session.bus.of_type(Quote).subscribe(lambda q: None), "quotes")
+        session._subscriptions.append(sub)
         assert sub.is_active
         session.stop()
         # After stop, subscription should be cancelled
         assert not sub.is_active
-
-    def test_multiple_subscriptions(self) -> None:
-        session = boot()
-        sub1 = session.stream.subscribe_quotes(lambda q: None)
-        sub2 = session.stream.subscribe_fills(lambda f: None)
-        assert sub1.is_active
-        assert sub2.is_active
-        session.stop()
-        assert not sub1.is_active
-        assert not sub2.is_active
-
-
-# ---------------------------------------------------------------------------
-# ScannerService — stub
-# ---------------------------------------------------------------------------
-
-
-class TestScannerServiceEdges:
-    """ScannerService raises loudly without a bound engine."""
-
-    def test_unbound_service_raises(self) -> None:
-        from tradex_trading.sdk.services.scanner import ScannerService
-
-        service = ScannerService()  # no engine, no definitions
-        assert service.discovered == ()
-        with pytest.raises(CapabilityNotSupportedError):
-            service.run(ScannerDefinition())
-        with pytest.raises(CapabilityNotSupportedError):
-            service.top(ScannerDefinition())
-        with pytest.raises(CapabilityNotSupportedError):
-            service.run_all()
-
-    def test_booted_session_has_bound_scanner(self) -> None:
-        """boot() now wires a ScannerEngine — running a definition succeeds."""
-        session = boot()
-        try:
-            assert session.scanner._engine is not None  # noqa: SLF001 – wiring probe
-            results = session.scanner.run(ScannerDefinition())
-            assert isinstance(results, list)
-        finally:
-            session.stop()
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +100,12 @@ class TestStreamSubscriptionRepr:
     """StreamSubscription string representation."""
 
     def test_repr(self) -> None:
+        from tradex_domain.market import Quote
+
         session = boot()
-        sub = session.stream.subscribe_quotes(lambda q: None)
+        sub = StreamSubscription(session.bus.of_type(Quote).subscribe(lambda q: None), "quotes")
         r = repr(sub)
         assert "StreamSubscription" in r
         assert "quotes" in r
+        sub.cancel()
         session.stop()

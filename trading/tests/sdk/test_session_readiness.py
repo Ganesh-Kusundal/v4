@@ -106,7 +106,7 @@ def test_boot_live_returns_ready(monkeypatch) -> None:
     )
     assert session.state == SessionState.READY
     assert session.broker is not None
-    assert session.stream is not None
+    assert session.bus is not None
     assert fake.connect.called
     session.stop()
 

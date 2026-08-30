@@ -1,6 +1,7 @@
 // Watchlist shell: universe-backed search + selection. Host renders
 // its own DOM so the chart stays render-only; selection drives
 // DataFeed via chart-level symbol change.
+import { expectJson } from "../http";
 export interface WatchItem { symbol: string; exchange: string; }
 
 export function createWatchlist(
@@ -51,8 +52,7 @@ export function createWatchlist(
     if (q.trim()) params.set("q", q.trim());
     try {
       const resp = await fetch(`/api/charts/symbols?${params}`);
-      if (!resp.ok) throw new Error(String(resp.status));
-      const body = (await resp.json()) as { symbols: WatchItem[] };
+      const body = await expectJson<{ symbols: WatchItem[] }>(resp);
       all = body.symbols;
       render(all);
     } catch {

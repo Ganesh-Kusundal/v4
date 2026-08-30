@@ -91,7 +91,7 @@ class TestBacktestEndpoint:
             "/api/charts/backtest", json={**_WINDOW, "strategy": "moon_shot"}
         )
         assert resp.status_code == 422
-        assert "sma_cross" in resp.json()["detail"]
+        assert "sma_cross" in resp.json()["error"]["message"]
 
     def test_unknown_param_is_422(self):
         resp = _client().post(
@@ -136,7 +136,7 @@ class TestScannerEndpoint:
     def test_unknown_scanner_is_404_with_choices(self):
         resp = _client().post("/api/charts/scanner/run", json={"id": "nope"})
         assert resp.status_code == 404
-        assert "momentum_scanner" in resp.json()["detail"]
+        assert "momentum_scanner" in resp.json()["error"]["message"]
 
 
 # ---------------------------------------------------------------------------

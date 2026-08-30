@@ -88,7 +88,7 @@ class TestBootIntegration:
 
     def test_default_boot_has_no_positions(self) -> None:
         session = boot(AppConfig())
-        positions = session.portfolio.positions()
+        positions = session.engine.cache.all_positions()
         assert positions == []
         session.stop()
 

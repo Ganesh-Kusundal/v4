@@ -13,6 +13,7 @@
 import type { Bar } from "openalgo-charts";
 import "openalgo-charts/transform"; // side-effect: registers point-figure + kagi renderers
 import { registerTransformChartTypes } from "openalgo-charts/transform";
+import { expectJson } from "./http";
 
 export type TransformKind = "candlestick" | "point-figure" | "kagi";
 
@@ -46,8 +47,7 @@ export async function computeTransform(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, params, bars }),
   });
-  if (!resp.ok) throw new Error(`transform ${id} failed: ${await resp.text()}`);
-  const body = (await resp.json()) as { id: string; bars: Bar[] };
+  const body = await expectJson<{ id: string; bars: Bar[] }>(resp);
   return body.bars;
 }
 

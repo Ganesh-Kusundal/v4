@@ -236,8 +236,10 @@ def test_order_response_model():
 
 
 def test_error_response_model():
-    resp = ErrorResponse(error="something went wrong")
-    assert resp.model_dump() == {"error": "something went wrong"}
+    from tradex_trading.interface.models import ErrorDetail
+
+    resp = ErrorResponse(error=ErrorDetail(code="bad_request", message="something went wrong"))
+    assert resp.model_dump() == {"error": {"code": "bad_request", "message": "something went wrong"}}
 
 
 def test_account_response_model():
@@ -578,7 +580,7 @@ def _make_mock_session():
         status=OrderStatus.SUBMITTED,
         message="submitted",
     )
-    session.trade.submit.return_value = receipt
+    session.engine.submit.return_value = receipt
     return session
 
 
@@ -600,7 +602,7 @@ def test_post_order_with_session():
     assert data["order_id"] == "ORD-001"
     assert data["status"] == "SUBMITTED"
     assert data["message"] == "submitted"
-    session.trade.submit.assert_called_once()
+    session.engine.submit.assert_called_once()
 
 
 def test_post_order_with_instrument_id():
@@ -1326,6 +1328,7 @@ class TestStartFastapiServer:
         """A NEW session fails loudly before uvicorn binds a socket."""
         session = MagicMock()
         session.state = "NEW"
+        session.broker_id = "PAPER"
         with patch("uvicorn.run") as uvicorn_run:
             with pytest.raises(ValueError, match="not ready"):
                 start_fastapi_server(session, port=8081)
@@ -1479,7 +1482,7 @@ class TestPaperSessionEndToEnd:
         fabricating chain data."""
         r = client.get("/option-chain/NSE:RELIANCE")
         assert r.status_code == 500
-        assert "supports_option_chain" in r.json()["detail"]
+        assert "supports_option_chain" in r.json()["error"]["message"]
 
 
 # ---------------------------------------------------------------------------
@@ -1504,14 +1507,18 @@ class TestStartFastapiServerGuards:
         return session
 
     def test_rejects_workers_for_live_broker(self):
-        """Live brokers must not multi-process: each worker would re-authenticate."""
+        """Live brokers must not multi-process: each worker would re-authenticate.
+
+        A key is passed so the test reaches the workers guard — a keyless live
+        start is refused earlier by the fail-closed API-key guard instead.
+        """
         session = self._ready_session()
         session.broker_id = "UPSTOX"
         with patch("uvicorn.run") as uvicorn_run:
             with pytest.raises(ValueError, match="live brokers re-authenticate"):
-                start_fastapi_server(session, workers=2)
+                start_fastapi_server(session, workers=2, api_key="secret")
             with pytest.raises(ValueError, match="live brokers re-authenticate"):
-                start_fastapi_server(session, reload=True)
+                start_fastapi_server(session, reload=True, api_key="secret")
         uvicorn_run.assert_not_called()
 
     def test_object_path_leaves_no_stale_spec(self, monkeypatch):

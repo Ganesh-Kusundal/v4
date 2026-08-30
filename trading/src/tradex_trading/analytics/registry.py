@@ -133,9 +133,7 @@ def register_indicator(
        — the decorator builds the spec from the keyword arguments and binds
        the function as its ``compute`` callable.
     2. ``REGISTRY.register("rsi", spec)`` — direct registration, when the
-       module already has a fully-formed :class:`IndicatorSpec` (e.g. the
-       legacy ``indicators.py`` uses an existing dataclass with richer
-       catalogue fields). See :func:`register_legacy_spec` for the bridge.
+       module already has a fully-formed :class:`IndicatorSpec`.
 
     The decorator is idempotent on re-import: re-registering the same name
     replaces the previous binding, which keeps module reloads safe.
@@ -155,51 +153,6 @@ def register_indicator(
     return _decorator
 
 
-def register_legacy_spec(name: str, spec: Any) -> None:
-    """Bridge for the legacy catalogue-shaped ``IndicatorSpec`` (the one
-    already used by ``indicators.py`` for the chart frontend's menu).
-
-    That legacy spec has ``id``, ``fn``, and a tuple-of-tuples param schema
-    rather than the new :class:`IndicatorSpec` dataclass. We map it into the
-    new shape so every legacy registration is also reachable through the
-    registry's dispatch — without rewriting 90+ modules in this pass.
-
-    If the input is already a new-style :class:`IndicatorSpec`, it is
-    registered unchanged.
-    """
-    if isinstance(spec, IndicatorSpec):
-        REGISTRY.register(name, spec)
-        return
-    # Legacy shape: extract ``fn`` and the param schema.
-    fn = getattr(spec, "fn", None)
-    legacy_params = getattr(spec, "params", ()) or ()
-    params: dict[str, ParamSpec] = {}
-    for entry in legacy_params:
-        # legacy entry is a (name, type, default) tuple
-        if isinstance(entry, tuple) and len(entry) >= 3:
-            pname, ptype, pdefault = entry[0], entry[1], entry[2]
-        else:
-            pname, ptype, pdefault = (
-                getattr(entry, "name", str(entry)),
-                getattr(entry, "type", "float"),
-                getattr(entry, "default", None),
-            )
-        params[pname] = ParamSpec(type=ptype, default=pdefault)
-    if fn is None:
-        # No callable — registration is metadata only; skip compute.
-        return
-    REGISTRY.register(
-        name,
-        IndicatorSpec(
-            name=name,
-            inputs=("close",),
-            params=params,
-            outputs=("value",),
-            compute=fn,
-        ),
-    )
-
-
 __all__ = [
     "IndicatorRegistry",
     "IndicatorSpec",
@@ -207,5 +160,4 @@ __all__ = [
     "ParamSpec",
     "REGISTRY",
     "register_indicator",
-    "register_legacy_spec",
 ]

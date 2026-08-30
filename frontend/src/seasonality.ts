@@ -17,6 +17,7 @@ import {
   type TableCell,
   type ZOrder,
 } from "openalgo-charts";
+import { expectJson } from "./http";
 
 export interface SeasonalityCell {
   text: string;
@@ -45,8 +46,7 @@ export async function computeSeasonality(bars: Bar[], startYear = 2015): Promise
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: "seasonality", params: { start_year: startYear }, bars }),
   });
-  if (!resp.ok) throw new Error(`seasonality failed: ${await resp.text()}`);
-  const body = (await resp.json()) as { result: SeasonalityTable };
+  const body = await expectJson<{ result: SeasonalityTable }>(resp);
   return body.result;
 }
 

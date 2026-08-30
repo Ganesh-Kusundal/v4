@@ -6,27 +6,16 @@ import logging
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
+from tradex_domain.value_objects import OrderId
 
+from tradex_trading.interface.auth import verify_api_key
 from tradex_trading.interface.models import OrderResponse
 from tradex_trading.interface.routes.deps import get_session
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def verify_api_key(request: Request) -> None:
-    """FastAPI dep: check ``X-API-Key`` against ``app.state.api_key``.
-
-    Read endpoints (GET) do not require auth. Write endpoints
-    (POST/PUT/DELETE) declare this as a ``Depends``.
-    """
-    expected = request.app.state.api_key
-    if expected is None:
-        return
-    if request.headers.get("X-API-Key") != expected:
-        raise HTTPException(status_code=403, detail="Invalid API key")
 
 
 
@@ -155,7 +144,7 @@ async def list_orders(
 ) -> list[OrderResponse]:
     if session is None:
         return []
-    orders = session.trade.get_orderbook() if hasattr(session.trade, "get_orderbook") else []
+    orders = session.engine.all_orders()
     result = [
         OrderResponse(order_id=str(o.order_id), status=str(o.status))
         for o in orders
@@ -173,7 +162,12 @@ async def get_order(
     if session is None:
         raise HTTPException(status_code=404, detail="No session bound")
     try:
-        order = session.trade.get_order(order_id)
+        oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
+        order = session.engine.get_order(oid)
+        if order is None:
+            # Engine has no record — fall back to the broker (orders placed
+            # outside the session may live there).
+            order = session.broker.get_order(oid)
         return OrderResponse(order_id=str(order.order_id), status=str(order.status))
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -188,7 +182,7 @@ async def place_order(
         raise HTTPException(status_code=503, detail="no session bound")
     try:
         request = _build_order_request(body, session)
-        receipt = session.trade.submit(request)
+        receipt = session.engine.submit(request)
         return OrderResponse(
             order_id=receipt.order_id.value,
             status=str(receipt.status),
@@ -234,7 +228,11 @@ async def place_bracket_order(
     return {"order_id": str(order_id)}
 
 
-@router.put("/orders/{order_id}", response_model=OrderResponse, dependencies=[Depends(verify_api_key)])
+@router.put(
+    "/orders/{order_id}",
+    response_model=OrderResponse,
+    dependencies=[Depends(verify_api_key)],
+)
 async def modify_order(
     order_id: str,
     body: dict,
@@ -265,7 +263,8 @@ async def modify_order(
             price=price,
             time_in_force=time_in_force,
         )
-        order = session.trade.modify_order(order_id, request)
+        oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
+        order = session.engine.modify(oid, request)
         return OrderResponse(order_id=str(order.order_id), status="modified")
     except HTTPException:
         raise
@@ -277,7 +276,11 @@ async def modify_order(
         raise HTTPException(status_code=400, detail=str(e)) from e
 
 
-@router.delete("/orders/{order_id}", response_model=OrderResponse, dependencies=[Depends(verify_api_key)])
+@router.delete(
+    "/orders/{order_id}",
+    response_model=OrderResponse,
+    dependencies=[Depends(verify_api_key)],
+)
 async def cancel_order(
     order_id: str,
     session: Any | None = Depends(get_session),
@@ -285,7 +288,8 @@ async def cancel_order(
     if session is None:
         raise HTTPException(status_code=400, detail="no session bound")
     try:
-        order = session.trade.cancel(order_id)
+        oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
+        order = session.engine.cancel(oid)
         return OrderResponse(order_id=str(order.order_id), status="cancelled")
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

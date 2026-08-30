@@ -51,17 +51,16 @@ class TestPaperWiring:
 
     def test_paper_session_routes_order_through_engine(self) -> None:
         session = boot(AppConfig(mode="paper"))
-        receipt = session.trade.submit(_request())
+        receipt = session.engine.submit(_request())
         assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
         session.stop()
 
     def test_paper_session_has_all_services(self) -> None:
         session = boot()
         assert session.broker is not None
-        assert session.trade is not None
-        assert session.portfolio is not None
-        assert session.stream is not None
-        assert session.scanner is not None
+        assert session.engine is not None
+        assert session.bus is not None
+        assert session._scanner_engine is not None
         session.stop()
 
     def test_paper_session_broker_returns_quote(self) -> None:
@@ -76,7 +75,7 @@ class TestPaperWiring:
         from tradex_domain.execution import Account
 
         session = boot()
-        account = session.portfolio.account()
+        account = session.broker.get_account()
         assert isinstance(account, Account)
         session.stop()
 

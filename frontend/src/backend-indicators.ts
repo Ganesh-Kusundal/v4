@@ -2,21 +2,41 @@
 // only teaches the chart about them through the Tier-2 external-data
 // contract, so a new backend registry entry reaches the UI with zero JS
 // changes. Standardized against openalgo-charts-master/src/indicators/external.ts.
-import { createTier2Indicator, type Tier2Context } from "openalgo-charts/indicators";
+//
+// Rendering metadata (plot series type, default colour, reference levels) is
+// adopted from the SAME-version openalgo-charts built-in descriptors when an
+// id matches — the reference library stays the source of visual truth, while
+// the values themselves are always computed by the backend.
+import {
+  createTier2Indicator,
+  BUILTIN_INDICATORS,
+  type Tier2Context,
+  type Tier2Point,
+} from "openalgo-charts/indicators";
 import {
   registerIndicator,
   type IndicatorInput,
   type IndicatorPlot,
 } from "openalgo-charts";
+import { expectJson } from "./http";
 
 export interface CatalogueEntry {
   id: string;
   name: string;
   category: string;
   placement: "overlay" | "pane";
-  params: { name: string; type: string; default: number }[];
+  params: { name: string; type: string; default: number | string | boolean }[];
   plots: { key: string; kind: string; title: string }[];
 }
+
+const BUILTIN_BY_ID = new Map(BUILTIN_INDICATORS.map((d) => [d.id, d]));
+
+/** Poll cadence for live recomputation. The source library recalculates
+ * Tier-1 indicators synchronously on every bar update; across the backend
+ * boundary we approximate a per-closed-bar refresh with one compute POST per
+ * instance per poll (only propagated when values actually moved). */
+const REFRESH_MS = 15_000;
+
 
 // Legacy module-state fallback until every caller passes symbol/exchange
 // through IndicatorSettings (migration shim, not the source of truth).
@@ -67,9 +87,73 @@ async function computeOnBackend(
       params: indicatorParams,
     }),
   });
-  if (!resp.ok) throw new Error(`indicator ${id} compute failed: ${await resp.text()}`);
-  return resp.json() as Promise<ComputeResponse>;
+  return expectJson<ComputeResponse>(resp);
 }
+
+function declaredParamsOnly(
+  entry: CatalogueEntry,
+  settings: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const allowed = new Set(entry.params.map((p) => p.name));
+  const filtered: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (key in settings) filtered[key] = settings[key];
+  }
+  return filtered;
+}
+
+function mapPoints(out: ComputeResponse, entry: CatalogueEntry): Tier2Point[] {
+  return out.points.map((p) => {
+    const values: Record<string, number | null> = {};
+    for (const plot of entry.plots) {
+      const v = (p as Record<string, unknown>)[plot.key];
+      values[plot.key] =
+        typeof v === "number" ? v : v === null || v === undefined ? null : Number(v);
+    }
+    return { time: p.time, values };
+  });
+}
+
+/**
+ * Plot definition for a backend plot key: adopt the reference descriptor's
+ * series type / style / colour when its id+plot key match, otherwise fall
+ * back to the catalogue's own declaration.
+ */
+function resolvePlots(entry: CatalogueEntry): IndicatorPlot[] {
+  const refDescriptor = BUILTIN_BY_ID.get(entry.id);
+  const refInputs = ((refDescriptor?.inputs ?? []) as unknown as {
+    key: string; default?: unknown;
+  }[]);
+  const tsPlots = ((refDescriptor?.plots ?? []) as unknown as {
+    key: string; type?: string; style?: Record<string, unknown>; colorKey?: string;
+  }[]);
+  const colorDefaultFor = (colorKey?: string): string | undefined => {
+    if (!colorKey) return undefined;
+    const hit = refInputs.find((i) => i.key === colorKey);
+    const v = hit?.default;
+    return typeof v === "string" && v.startsWith("#") ? v : undefined;
+  };
+  return entry.plots.map((p, index) => {
+    // Match by key first; positional match keeps colours right for indicators
+    // whose backend plot keys were normalised ('value' vs 'ma').
+    const ref =
+      tsPlots.find((q) => q.key === p.key) ??
+      tsPlots[index] ??
+      {};
+    const style: Record<string, unknown> = { ...(ref.style ?? {}) };
+    const color = colorDefaultFor(ref.colorKey);
+    if (color !== undefined && style["color"] === undefined) style["color"] = color;
+    return {
+      key: p.key,
+      // A histogram must render as a histogram — flattening every backend
+      // plot to a line redraws MACD/Volume/WVF as trend lines.
+      type: ((ref.type as IndicatorPlot["type"]) ?? p.kind ?? "line") as IndicatorPlot["type"],
+      title: p.title,
+      style: Object.keys(style).length > 0 ? (style as IndicatorPlot["style"]) : undefined,
+    };
+  });
+}
+
 
 /**
  * Fetch the catalogue and register every entry as a Tier-2 descriptor.
@@ -78,8 +162,7 @@ async function computeOnBackend(
  */
 export async function registerBackendIndicators(): Promise<CatalogueEntry[]> {
   const resp = await fetch("/api/charts/indicators");
-  if (!resp.ok) throw new Error(`catalogue failed (${resp.status})`);
-  const body = (await resp.json()) as { indicators: CatalogueEntry[] };
+  const body = await expectJson<{ indicators: CatalogueEntry[] }>(resp);
 
   for (const entry of body.indicators) {
     const numberInputs: IndicatorInput[] = entry.params.map((p) => ({
@@ -97,11 +180,8 @@ export async function registerBackendIndicators(): Promise<CatalogueEntry[]> {
       ...numberInputs,
     ];
 
-    const plots: IndicatorPlot[] = entry.plots.map((p) => ({
-      key: p.key,
-      type: "line",
-      title: p.title,
-    }));
+    const plots = resolvePlots(entry);
+    const refDescriptor = BUILTIN_BY_ID.get(entry.id);
 
     registerIndicator(
       createTier2Indicator({
@@ -111,34 +191,56 @@ export async function registerBackendIndicators(): Promise<CatalogueEntry[]> {
         placement: entry.placement === "overlay" ? "onchart" : "pane",
         inputs,
         plots,
+        // Reference levels (RSI 70/30, stochastic 80/20, …) come from the
+        // matching built-in descriptor so panes look like the source UI.
+        // Passed through untouched — the reference fn already takes settings
+        // and tolerates an empty read; wrapping it here dereferenced
+        // .levels on descriptors that have none and threw inside addIndicator.
+        levels: refDescriptor?.levels ?? undefined,
         refetchOn: ["symbol", "exchange", "interval", ...entry.params.map((p) => p.name)],
         fetch: async (ctx: Tier2Context) => {
-          // Forward only declared indicator params — the chart's IndicatorSettings
-          // also carries style keys like `value:color` and routing keys that the
-          // backend rightly rejects as unknown. Filter to the catalogue's param
-          // list so Compute stays strict.
-          const allowed = new Set(entry.params.map((p) => p.name));
-          const filtered: Record<string, unknown> = {};
-          const settings = ctx.settings as Record<string, unknown>;
-          for (const key of allowed) {
-            if (key in settings) filtered[key] = settings[key];
-          }
-          // Routing (symbol/exchange/interval) is read by computeOnBackend from
-          // ctx.settings / fallback, not from indicator params — keep it out of
-          // the filtered payload by design.
+          // Forward only declared indicator params — the chart's
+          // IndicatorSettings also carries style keys like `value:color` and
+          // routing keys that the backend rightly rejects as unknown.
+          const filtered = declaredParamsOnly(entry, ctx.settings as Record<string, unknown>);
           const out = await computeOnBackend(entry.id, filtered, ctx);
-          return out.points.map((p) => {
-            const values: Record<string, number | null> = {};
-            for (const plot of entry.plots) {
-              const v = (p as Record<string, unknown>)[plot.key];
-              values[plot.key] =
-                typeof v === "number" ? v : v === null || v === undefined ? null : Number(v);
+          return mapPoints(out, entry);
+        },
+        subscribe: (
+          ctx: Tier2Context,
+          push: (point: Tier2Point) => void,
+        ) => {
+          // Live-bars parity: the source recomputes on every new bar; one
+          // debounced compute poll per instance plays that role across the
+          // API boundary. Merging goes through the Tier-2 upsert.
+          let stopped = false;
+          let timer: ReturnType<typeof setTimeout> | null = null;
+          let lastSerialized = "";
+          const tick = async (): Promise<void> => {
+            timer = null;
+            if (stopped) return;
+            try {
+              const filtered = declaredParamsOnly(entry, ctx.settings as Record<string, unknown>);
+              const out = await computeOnBackend(entry.id, filtered, ctx);
+              const serialized = JSON.stringify(out.points);
+              if (serialized !== lastSerialized) {
+                lastSerialized = serialized;
+                for (const pt of mapPoints(out, entry)) push(pt);
+              }
+            } catch {
+              /* transient backend/network hiccup — next poll retries */
             }
-            return { time: p.time, values };
-          });
+            if (!stopped) timer = setTimeout(() => void tick(), REFRESH_MS);
+          };
+          timer = setTimeout(() => void tick(), REFRESH_MS);
+          return () => {
+            stopped = true;
+            if (timer !== null) clearTimeout(timer);
+          };
         },
       }),
     );
   }
   return body.indicators;
 }
+

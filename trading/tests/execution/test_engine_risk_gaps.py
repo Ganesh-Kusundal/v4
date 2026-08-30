@@ -77,6 +77,137 @@ def _make_engine(**kwargs) -> ExecutionEngine:
     return ExecutionEngine(bus=bus, fill_source=fill, **kwargs)
 
 
+def _market_request(
+    price: str | None = None,
+    quantity: str = "10",
+) -> OrderRequest:
+    """MARKET order — optionally without a price (the bypass case)."""
+    instrument = Equity.of("NSE", "TEST")
+    return OrderRequest(
+        instrument=instrument,
+        side=OrderSide.BUY,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(value=Decimal(quantity)),
+        price=Price(value=Decimal(price)) if price is not None else None,
+        time_in_force=TimeInForce.DAY,
+    )
+
+
+def test_risk_manager_market_order_notional_uses_mark() -> None:
+    """A MARKET order without a price is notional-marked via price_provider,
+    so the order-value gate is not silently bypassed (real-money correctness)."""
+    rm = RiskManager(
+        max_order_value=Decimal("500"),
+        price_provider=lambda inst: Price(value=Decimal("100")),
+    )
+    req = _market_request(price=None, quantity="10")  # marked 100 * 10 = 1000
+    assert rm._incoming_exposure(req) == Decimal("1000")
+    # 1000 > 500 -> value gate trips even though request.price is None.
+    assert rm.check(req) is False
+
+
+def test_risk_manager_market_order_with_price_still_gated() -> None:
+    """MARKET order carrying a price uses that price (unchanged behavior)."""
+    rm = RiskManager(max_order_value=Decimal("500"))
+    assert rm.check(_market_request(price="100", quantity="10")) is False
+    assert rm.check(_market_request(price="10", quantity="10")) is True
+
+
+def test_risk_manager_market_order_unknown_mark_flag() -> None:
+    """When no mark can be resolved, reject_unknown_market_value decides:
+    True -> deny (fail-closed live); False -> preserve fallback (dev)."""
+    rm_closed = RiskManager(
+        max_order_value=Decimal("500"),
+        reject_unknown_market_value=True,
+    )
+    assert rm_closed.check(_market_request(price=None)) is False
+
+    rm_open = RiskManager(
+        max_order_value=Decimal("500"),
+        reject_unknown_market_value=False,
+    )
+    assert rm_open.check(_market_request(price=None)) is True
+
+
+def _make_pnl_position(symbol: str, qty: str, unrealized: str) -> Position:
+    """Position with a given unrealized PnL (for daily-loss / drawdown guards)."""
+    pos = _make_position(symbol, qty)
+    return Position(
+        instrument=pos.instrument,
+        quantity=pos.quantity,
+        avg_price=pos.avg_price,
+        realized_pnl=pos.realized_pnl,
+        unrealized_pnl=Money(amount=Decimal(unrealized)),
+    )
+
+
+def test_risk_manager_daily_loss_denies_open_allows_reduce() -> None:
+    """max_daily_loss_amt denies new exposure once breached, but always allows
+    flattening/reduction so risk is never locked on a position."""
+    holder = [Decimal("0"), Decimal("100")]  # [unrealized, qty]
+
+    def positions():
+        return [_make_pnl_position("TEST", str(holder[1]), str(holder[0]))]
+
+    rm = RiskManager(max_daily_loss_amt=Decimal("500"), positions_provider=positions)
+    buy = _make_request(price="100", quantity="10")  # increases long
+    sell = OrderRequest(
+        instrument=Equity.of("NSE", "TEST"),
+        side=OrderSide.SELL,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(Decimal("5")),
+        price=Price(Decimal("100")),
+        time_in_force=TimeInForce.DAY,
+    )
+
+    holder[0] = Decimal("0")   # baseline day start
+    assert rm.check(buy) is True
+    holder[0] = Decimal("-600")  # breached -500
+    assert rm.check(buy) is False   # new open denied
+    assert rm.check(sell) is True   # reduction always allowed
+    holder[0] = Decimal("-100")     # within limit
+    assert rm.check(buy) is True
+
+
+def test_risk_manager_drawdown_denies_open_allows_reduce() -> None:
+    """max_drawdown_pct stops new exposure after a peak-to-trough drawdown."""
+    holder = [Decimal("0"), Decimal("100")]
+
+    def positions():
+        return [_make_pnl_position("TEST", holder[1], holder[0])]
+
+    rm = RiskManager(max_drawdown_pct=Decimal("0.5"), positions_provider=positions)
+    buy = _make_request(price="100", quantity="10")
+    sell = OrderRequest(
+        instrument=Equity.of("NSE", "TEST"),
+        side=OrderSide.SELL,
+        order_type=OrderType.MARKET,
+        quantity=Quantity(Decimal("5")),
+        price=Price(Decimal("100")),
+        time_in_force=TimeInForce.DAY,
+    )
+    holder[0] = Decimal("0")       # baseline
+    assert rm.check(buy) is True
+    holder[0] = Decimal("1000")    # peak equity
+    assert rm.check(buy) is True
+    holder[0] = Decimal("300")     # 70% drawdown from peak 1000
+    assert rm.check(buy) is False  # new open denied
+    assert rm.check(sell) is True  # reduction allowed
+
+
+def test_risk_manager_market_open_counts_against_position_value() -> None:
+    """_position_exposure marks via provider (existing seam) — add a guard so a
+    MARKET open is counted against max_position_value, not treated as zero."""
+    rm = RiskManager(
+        max_position_value=Decimal("1500"),
+        price_provider=lambda _inst: Price(value=Decimal("100")),
+    )
+    # existing position
+    rm.set_positions_provider(lambda: [_make_position("TEST", qty="10")])
+    # 10 * 100 (existing) + 10 * 100 (incoming MARKET, no price) = 2000 > 1500
+    assert rm.check(_market_request(price=None, quantity="10")) is False
+
+
 # ---------------------------------------------------------------------------
 # RiskManager tests
 # ---------------------------------------------------------------------------

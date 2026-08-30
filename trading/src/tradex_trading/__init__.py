@@ -13,14 +13,7 @@ from tradex_trading.execution.fill_sources import (
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.runtime.startup import boot
-from tradex_trading.sdk.session import (
-    PortfolioService,
-    ScannerService,
-    SessionState,
-    StreamService,
-    TradeService,
-    TradingSession,
-)
+from tradex_trading.sdk.session import SessionState, TradingSession
 from tradex_trading.sdk.streaming import StreamSubscription
 
 __all__ = [
@@ -28,16 +21,12 @@ __all__ = [
     "BrokerFillSource",
     "ExecutionEngine",
     "PaperFillSource",
-    "PortfolioService",
     "ReactiveBus",
     "RiskConfig",
     "RiskManager",
-    "ScannerService",
     "SessionState",
     "SimulatedFillSource",
-    "StreamService",
     "StreamSubscription",
-    "TradeService",
     "TradingCache",
     "TradingSession",
     "boot",

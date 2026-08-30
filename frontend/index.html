@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="x-api-key" content="" data-applied="false" />
   <title>TradeX — Midnight Atelier</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◈</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -190,6 +191,11 @@
     /* Replay bar */
     #replaybar {
       position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+      /* Explicit stacking: chart pane canvases carry their own stacking
+         contexts, so without this the canvas hit-tests above the transport
+         and every replay control click lands on the chart instead. Sits
+         above pane layers (legend 5 / rail 10), below modals (60). */
+      z-index: 15;
       display: flex; align-items: center; gap: 8px; padding: 8px 12px;
       background: rgba(19,24,34,.92); border: 1px solid var(--line-2);
       border-radius: 999px; backdrop-filter: blur(16px);

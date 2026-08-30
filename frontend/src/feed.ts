@@ -12,6 +12,7 @@ import {
   type DataFeed,
   type UnsubscribeFn,
 } from "openalgo-charts";
+import { expectJson } from "./http";
 
 // Interval codes the backend serves (see chart_api.INTERVAL_TIMEFRAME).
 // 'M' (monthly) is deliberately NOT registered: neither side has calendar
@@ -61,7 +62,12 @@ class WsBarHub {
 
   private open(): void {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${proto}//${location.host}/ws/stream`);
+    // The server injects the configured key into <meta name="x-api-key">;
+    // dev/paper serves it empty and the WS connects unauthenticated.
+    const key =
+      document.querySelector('meta[name="x-api-key"]')?.getAttribute("content") ?? "";
+    const qs = key ? `?api_key=${encodeURIComponent(key)}` : "";
+    const ws = new WebSocket(`${proto}//${location.host}/ws/stream${qs}`);
     this.ws = ws;
     ws.onopen = () => {
       this.retryMs = 1000;
@@ -147,10 +153,7 @@ export class TradexDataFeed implements DataFeed {
     const resp = await fetch(
       `/api/charts/history/${encodeURIComponent(req.exchange)}:${encodeURIComponent(req.symbol)}?${params}`,
     );
-    if (!resp.ok) {
-      throw new Error(`history failed (${resp.status}): ${await resp.text()}`);
-    }
-    const body = (await resp.json()) as HistoryResponse;
+    const body = await expectJson<HistoryResponse>(resp);
     return body.bars.filter((b) => Number.isFinite(b.time));
   }
 

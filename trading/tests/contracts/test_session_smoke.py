@@ -73,10 +73,9 @@ class TestBootSmoke:
         session = boot()
         # Access all services — should not raise
         assert session.broker is not None
-        assert session.trade is not None
-        assert session.portfolio is not None
-        assert session.stream is not None
-        assert session.scanner is not None
+        assert session.engine is not None
+        assert session.bus is not None
+        assert session._scanner_engine is not None
         session.stop()
 
     def test_boot_session_has_capabilities(self) -> None:
@@ -109,7 +108,7 @@ class TestOrderSubmissionSmoke:
         from tradex_trading.runtime.startup import boot
 
         session = boot()
-        receipt = session.trade.submit(_make_request())
+        receipt = session.engine.submit(_make_request())
         assert isinstance(receipt, OrderReceipt)
         assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
         session.stop()
@@ -121,7 +120,7 @@ class TestOrderSubmissionSmoke:
         events: list[Any] = []
         session.bus.stream().subscribe(lambda m: events.append(m))
 
-        session.trade.submit(_make_request())
+        session.engine.submit(_make_request())
 
         # Should have at least OrderPlaced and OrderFilled
         event_types = [type(e) for e in events]
@@ -134,7 +133,7 @@ class TestOrderSubmissionSmoke:
 
         session = boot()
         for i in range(5):
-            receipt = session.trade.submit(_make_request())
+            receipt = session.engine.submit(_make_request())
             assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
         session.stop()
 
@@ -164,7 +163,7 @@ class TestOrderSubmissionSmoke:
         from tradex_trading.runtime.startup import boot
 
         session = boot()
-        account = session.portfolio.account()
+        account = session.broker.get_account()
         assert isinstance(account, Account)
         session.stop()
 
@@ -184,16 +183,6 @@ class TestSessionLifecycle:
         assert session.state == SessionState.READY
         session.stop()
         assert session.state == SessionState.STOPPED
-
-    def test_services_raise_after_stop(self) -> None:
-        from tradex_domain.errors import SessionStateError
-
-        from tradex_trading.runtime.startup import boot
-
-        session = boot()
-        session.stop()
-        with pytest.raises(SessionStateError):
-            _ = session.trade
 
     def test_double_stop_is_safe(self) -> None:
         from tradex_trading.runtime.startup import boot
@@ -216,7 +205,7 @@ class TestKillSwitchSmoke:
         session = boot()
         session._engine.kill_switch = True
 
-        receipt = session.trade.submit(_make_request())
+        receipt = session.engine.submit(_make_request())
         assert receipt.status == OrderStatus.REJECTED
         assert "kill_switch" in receipt.message.lower() or "kill" in receipt.message.lower()
         session.stop()
@@ -229,7 +218,7 @@ class TestKillSwitchSmoke:
         session.bus.stream().subscribe(lambda m: events.append(m))
 
         session._engine.kill_switch = True
-        session.trade.submit(_make_request())
+        session.engine.submit(_make_request())
 
         event_types = [type(e) for e in events]
         assert OrderFilled not in event_types
@@ -237,18 +226,20 @@ class TestKillSwitchSmoke:
 
 
 # ---------------------------------------------------------------------------
-# Smoke: stream service
+# Smoke: bus subscriptions
 # ---------------------------------------------------------------------------
 
-class TestStreamServiceSmoke:
-    """Stream service subscriptions work."""
+class TestBusSubscriptionSmoke:
+    """Bus subscription subscriptions work."""
 
     def test_subscribe_quotes(self) -> None:
+        from tradex_domain.market import Quote
+
         from tradex_trading.runtime.startup import boot
 
         session = boot()
         quotes: list[Any] = []
-        sub = session.stream.subscribe_quotes(lambda q: quotes.append(q))
+        sub = session.bus.of_type(Quote).subscribe(lambda q: quotes.append(q))
         assert sub is not None
         session.stop()
 
@@ -257,6 +248,6 @@ class TestStreamServiceSmoke:
 
         session = boot()
         fills: list[Any] = []
-        sub = session.stream.subscribe_fills(lambda f: fills.append(f))
+        sub = session.bus.of_type(OrderFilled).subscribe(lambda f: fills.append(f))
         assert sub is not None
         session.stop()

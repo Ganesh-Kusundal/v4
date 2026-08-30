@@ -1,11 +1,9 @@
 """TradingSession — main entry point for the v4 trading platform.
 
-Provides 4 services: trade, portfolio, stream, scanner.
 Lifecycle: NEW -> READY -> STOPPED.
+Consumers access engine, broker, bus, cache directly (service layer removed).
 
 Ported from v3 SDK session (WS-B, FDS 05 §5, D-8/D-9/D-15/D-16/D-17).
-Capability-loud: services gate on ``BrokerCapabilities`` and raise typed
-``SDKError`` subclasses (D-8).
 """
 
 from __future__ import annotations
@@ -16,7 +14,6 @@ from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
-from functools import cached_property
 from typing import Any
 
 from tradex_domain import BrokerId, SessionStateError
@@ -40,14 +37,6 @@ from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
-from tradex_trading.sdk.services import (
-    PortfolioService,
-    ScannerService,
-    StreamService,
-    TradeService,
-    _as_order_id,
-    _broker_capabilities,
-)
 from tradex_trading.sdk.streaming import StreamSubscription
 
 log = logging.getLogger(__name__)
@@ -90,6 +79,7 @@ class TradingSession:
         fill_bridge: object | None = None,
         market_feed: object | None = None,
         master_scheduler: object | None = None,
+        metrics: object | None = None,
     ) -> None:
         self._broker = broker
         self._bus = bus
@@ -97,6 +87,7 @@ class TradingSession:
         self._cache = cache
         self._broker_id = broker_id
         self._mode = mode
+        self._metrics = metrics
         self._state = SessionState.NEW
         self._subscriptions: list[StreamSubscription] = []
         self._scanner_engine = scanner_engine
@@ -188,50 +179,10 @@ class TradingSession:
     # --- bind_execution_engine (v3 parity) ------------------------------------
 
     def bind_execution_engine(self, execution_engine: ExecutionEngine) -> None:
-        """Attach the canonical execution spine to the running session.
-
-        Also invalidates the materialized ``TradeService`` so the next access
-        reconstructs it against the new engine — otherwise two engines (the
-        session's and the service's captured one) would diverge.
-        """
+        """Attach the canonical execution spine to the running session."""
         if self._state not in {SessionState.READY, SessionState.STOPPED}:
             raise SessionStateError("execution engine binding requires a started session")
         self._engine = execution_engine
-        self.__dict__.pop("trade", None)  # drop cached TradeService bound to old engine
-
-    # --- 7 Services ---
-
-
-    @cached_property
-    def trade(self) -> TradeService:
-        """TradeService — order submission, cancellation, modification."""
-        self._check_ready()
-        caps = _broker_capabilities(self._broker)
-        gate = self._make_order_gate()
-        return TradeService(self._engine, self._bus, self._broker, caps, order_gate=gate)
-
-    @cached_property
-    def portfolio(self) -> PortfolioService:
-        """PortfolioService — positions, holdings, account, portfolio."""
-        self._check_ready()
-        return PortfolioService(self._broker, self._cache)
-
-    @cached_property
-    def stream(self) -> StreamService:
-        """StreamService — reactive market data, order, and position streams."""
-        self._check_ready()
-        caps = _broker_capabilities(self._broker)
-        return StreamService(
-            self._bus, self._subscriptions, caps, backend=self._stream_backend,
-        )
-
-    @cached_property
-    def scanner(self) -> ScannerService:
-        """ScannerService — scanner definitions and results."""
-        self._check_ready()
-        return ScannerService(
-            self._scanner_engine, definitions=self._scanner_definitions
-        )
 
     # --- Properties ---
 
@@ -254,6 +205,11 @@ class TradingSession:
     def bus(self) -> ReactiveBus | ThreadSafeReactiveBus:
         """Reactive message bus (thread-safe facade for live sessions)."""
         return self._bus
+
+    @property
+    def metrics(self) -> object | None:
+        """Boot-time MetricsRegistry (for Prometheus exposition), if wired."""
+        return self._metrics
 
     @property
     def engine(self) -> ExecutionEngine:
@@ -455,12 +411,6 @@ class TradingSession:
             pass
 
 __all__ = [
-    "PortfolioService",
-    "ScannerService",
     "SessionState",
-    "StreamService",
-    "TradeService",
     "TradingSession",
-    "_as_order_id",
-    "_broker_capabilities",
 ]

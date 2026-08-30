@@ -188,7 +188,7 @@ def run_cli(argv: list[str] | None = None, runtime: Any | None = None) -> int:
                 quantity=Quantity(Decimal(str(args.quantity))),
                 price=Price(Decimal(str(args.price))) if args.price else None,
             )
-            receipt = session.trade.submit(req)
+            receipt = session.engine.submit(req)
             print(
                 json.dumps(
                     {"order_id": receipt.order_id.value, "status": receipt.status},
@@ -269,7 +269,7 @@ def cmd_positions(args: Any) -> int:
     from tradex_trading.sdk.session import TradingSession
 
     session = TradingSession.paper()
-    positions = session.portfolio.positions()
+    positions = session.engine.cache.all_positions()
 
     if not positions:
         print("No positions")
@@ -296,7 +296,7 @@ def cmd_account(args: Any) -> int:
     from tradex_trading.sdk.session import TradingSession
 
     session = TradingSession.paper()
-    account = session.portfolio.account()
+    account = session.broker.get_account()
 
     print(f"Account: {account.account_id}")
     print(f"Balance: {account.balance}")
@@ -309,7 +309,7 @@ def cmd_orders(args: Any) -> int:
     from tradex_trading.sdk.session import TradingSession
 
     session = TradingSession.paper()
-    orders = session.trade.get_orderbook()
+    orders = session.engine.all_orders()
 
     if not orders:
         print("No orders")

@@ -88,7 +88,7 @@ class TestBootStreamBackendWiring:
         session = boot(cfg)
         try:
             assert session._stream_backend is backend
-            assert session.stream._backend is backend
+            assert session._stream_backend is backend
         finally:
             session.stop()
 

@@ -14,6 +14,7 @@ import {
   type PrimitiveRenderContext,
   type ZOrder,
 } from "openalgo-charts";
+import { expectJson } from "./http";
 
 export interface ProfilePayload {
   id: string;
@@ -37,8 +38,7 @@ export async function computeProfile(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id, params, bars }),
   });
-  if (!resp.ok) throw new Error(`profile ${id} failed: ${await resp.text()}`);
-  const body = (await resp.json()) as ProfilePayload;
+  const body = await expectJson<ProfilePayload>(resp);
   return body.result;
 }
 

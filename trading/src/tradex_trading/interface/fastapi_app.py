@@ -2,23 +2,24 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from tradex_domain.errors import CapabilityNotSupportedError
+from fastapi.responses import HTMLResponse, JSONResponse
+from starlette.responses import Response
 
-# Pydantic response models, WebSocket queue helpers, and the API-key auth
-# dependency now live in sibling modules. They are re-exported from here so
-# existing callers and tests that import them off ``fastapi_app`` keep
-# working; new code should import directly from the sibling modules.
-from tradex_trading.interface.auth import api_key_header, make_verify_api_key
+# Pydantic response models and WebSocket queue helpers live in sibling
+# modules. They are re-exported from here so existing callers and tests that
+# import them off ``fastapi_app`` keep working; new code should import
+# directly from the sibling modules.
 from tradex_trading.interface.models import (  # noqa: F401  (re-exported)
     AccountResponse,
+    ErrorDetail,
     ErrorResponse,
     HealthResponse,
     OrderResponse,
@@ -59,9 +60,46 @@ def create_app(
     (drop-oldest on overflow) — small in tests to exercise backpressure.
     """
     app = FastAPI(title="TradeX v4 API", version="0.1.0")
+
+    # -- G13 typed-error contract -----------------------------------------------
+    _STATUS_CODE_MAP: dict[int, str] = {
+        400: "bad_request",
+        403: "unauthorized",
+        404: "not_found",
+        409: "conflict",
+        422: "validation",
+        500: "internal_error",
+        502: "upstream_unavailable",
+        503: "no_session",
+    }
+
+    @app.exception_handler(HTTPException)
+    async def _http_exception_handler(
+        request: Request, exc: HTTPException
+    ) -> JSONResponse:
+        code = _STATUS_CODE_MAP.get(exc.status_code, "error")
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"error": {"code": code, "message": str(exc.detail)}},
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"code": "validation", "message": str(exc)}},
+        )
+
+    # CORS: lock to the served UI origin. When dist/ is mounted the UI and API
+    # share an origin (single-origin prod); in dev Vite proxies /api + /ws to
+    # 8000 so the browser origin is localhost:5173. Allow only that host set,
+    # never "*" now that signed API access exists.
+    _origin = os.environ.get("TRADEX_UI_ORIGIN") or "http://localhost:5173"
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=[_origin],
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -83,24 +121,29 @@ def create_app(
             app.state.feed_registry = FeedRegistry(feed)
     # Single source of truth for depth-mode normalization (shared with
     # MarketFeed/FeedRegistry) — imported once, not per WebSocket connection.
-    from tradex_trading.runtime.market_feed import normalize_depth
-
-    # -- Auth dependency (built once per app via the auth module) -----------
-
-    verify_api_key = make_verify_api_key(lambda: app.state)
-
     # -- HTTP routes (each module owns its slice) ----------------------------
     # Stream route is intentionally NOT included — the WebSocket closure
     # depends on app.state.feed_registry + normalize_depth + outbound_max
     # and stays in this function below.
     from tradex_trading.interface.routes import (
         account as _account_route,
+    )
+    from tradex_trading.interface.routes import (
         extensions as _extensions_route,
+    )
+    from tradex_trading.interface.routes import (
         health as _health_route,
+    )
+    from tradex_trading.interface.routes import (
         market_data as _market_data_route,
+    )
+    from tradex_trading.interface.routes import (
         orders as _orders_route,
+    )
+    from tradex_trading.interface.routes import (
         portfolio as _portfolio_route,
     )
+    from tradex_trading.runtime.market_feed import normalize_depth
 
     for _r in (
         _health_route.router,
@@ -136,28 +179,51 @@ def create_app(
 
         app.mount("/ui", StaticFiles(directory=_UI_DIST_DIR, html=True), name="ui")
 
+        # Inject the API key into index.html at request time so the SPA's WS
+        # layer can authenticate. Read-only: paper/dev have no key -> empty content.
+        @app.get("/", response_class=HTMLResponse)
+        async def _root_with_key() -> str:  # noqa: ANN001
+            html = (_UI_DIST_DIR / "index.html").read_text()
+            key = getattr(app.state, "api_key", None) or ""
+            return html.replace(
+                'content="" data-applied="false"',
+                f'content="{key}" data-applied="true"',
+            )
+
+    # -- Prometheus metrics exposition (G14) -----------------------------------
+    from tradex_trading.runtime.metrics import MetricsRegistry
+
+    # Prefer the boot-time registry carried by the session (real runtime
+    # counters: bus drops, engine errors); fall back to a fresh one for
+    # session-less test apps. isinstance-guarded so MagicMock sessions in
+    # tests never leak a fake registry into /metrics.
+    _session_metrics = getattr(session, "metrics", None) if session is not None else None
+    if not isinstance(_session_metrics, MetricsRegistry):
+        _session_metrics = None
+    app.state.metrics = _session_metrics or MetricsRegistry()
+
+    # Return a raw Response (annotated with the module-level class so the
+    # forward ref resolves): FastAPI skips response-model schema generation
+    # for Response subclasses, keeping /openapi.json intact.
+    @app.get("/metrics")
+    async def _metrics_endpoint() -> Response:
+        return Response(
+            content=app.state.metrics.render_prometheus(),
+            media_type="text/plain; version=0.0.4",
+        )
+
     return app
 
 
-# The actual definitions live in :mod:`tradex_trading.interface._helpers`
-# (so route modules can import them without a cycle). Re-exported here
-# for back-compat with code that imports them off fastapi_app.
-from tradex_trading.interface._helpers import (  # noqa: F401
+# Readiness probe helpers live in :mod:`tradex_trading.interface._helpers`
+# (imported here, mid-file, so route modules can import them without a
+# cycle); used by ``start_fastapi_server`` below to refuse a raw session.
+from tradex_trading.interface._helpers import (  # noqa: E402
     is_ready as _is_ready,
+)
+from tradex_trading.interface._helpers import (  # noqa: E402
     readiness as _readiness,
-    serialize_position as _serialize_position,
 )
-
-# The actual definitions live in :mod:`tradex_trading.interface.routes._market_helpers`
-# (so route modules can import them without a cycle). Re-exported here
-# under their original underscore-prefixed names for back-compat with code
-# that imports them off fastapi_app.
-from tradex_trading.interface.routes._market_helpers import (  # noqa: F401
-    enrich_chain_live as _enrich_chain_live,
-    resolve_underlying_instrument as _resolve_underlying_instrument,
-    serialize_option_chain as _serialize_option_chain,
-)
-
 
 #: Serve-spec environment keys — how the importable ASGI factory below learns
 #: how to rebuild a session inside a uvicorn-spawned subprocess (workers /
@@ -165,6 +231,22 @@ from tradex_trading.interface.routes._market_helpers import (  # noqa: F401
 #: an in-memory TradingSession object is not (it holds threads/sockets).
 _SERVE_ENV_BROKER = "TRADEX_SERVE_BROKER"
 _SERVE_ENV_API_KEY = "TRADEX_SERVE_API_KEY"
+
+
+def _require_api_key_for_live(broker: str | None, api_key: str | None) -> None:
+    """Refuse to serve a live broker without an API key (fail-closed).
+
+    Paper is the dev path and stays keyless. Any live broker must be
+    reachable only through an authenticated endpoint — an unset key means
+    the write/order routes would run unauthenticated, which is unacceptable
+    for real money.
+    """
+    broker = (broker or "PAPER").upper()
+    if broker != "PAPER" and not api_key:
+        raise ValueError(
+            f"live broker {broker!r} requires an API key (set "
+            f"TRADEX_SERVE_API_KEY / pass api_key=)"
+        )
 
 
 def serve_app() -> FastAPI:
@@ -186,6 +268,7 @@ def serve_app() -> FastAPI:
 
     broker = os.environ.get(_SERVE_ENV_BROKER, "PAPER").upper()
     api_key = os.environ.get(_SERVE_ENV_API_KEY) or None
+    _require_api_key_for_live(broker, api_key)
     if broker == "PAPER":
         session = TradingSession.paper()
     else:
@@ -219,6 +302,7 @@ def start_fastapi_server(
     broker_id = str(
         getattr(session, "broker_id", "PAPER") if session is not None else "PAPER"
     ).upper()
+    _require_api_key_for_live(broker_id, api_key)
     if (workers > 1 or reload) and broker_id != "PAPER":
         # Every spawned worker/reload process rebuilds its own session via
         # serve_app(), which for a live broker means a fresh token/auth flow

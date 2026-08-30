@@ -1,11 +1,9 @@
-"""Session lifecycle tests — services, state transitions, kill switch.
+"""Session lifecycle tests — state transitions, kill switch.
 
 Ported from v3 ``test_followup_execution_session.py``.
 
 v4 API differences:
 - ``TradingSession(broker, bus, engine, cache, broker_id)`` requires all components
-- Services are properties (not methods) that check READY state
-- ``SessionStateError`` raised when accessing services outside READY
 - ``stop()`` replaces v3 ``close()``
 """
 
@@ -41,49 +39,6 @@ def _make_request() -> OrderRequest:
         time_in_force=TimeInForce.DAY,
         product_type=ProductType.INTRADAY,
     )
-
-
-# ---------------------------------------------------------------------------
-# Session service accessors require READY state
-# ---------------------------------------------------------------------------
-
-
-class TestSessionServiceAccessors:
-    """Services raise SessionStateError when session is not READY."""
-
-    def test_services_raise_in_new_state(self) -> None:
-        session = boot()
-        # boot() returns READY, so create a raw session in NEW state
-        bus = ReactiveBus()
-        engine = ExecutionEngine(bus=bus, fill_source=PaperFillSource())
-        raw = TradingSession(
-            broker=session._broker,
-            bus=bus,
-            engine=engine,
-            cache=engine.cache,
-            broker_id=BrokerId.PAPER,
-        )
-        # raw is in NEW state
-        from tradex_domain.errors import SessionStateError
-        with pytest.raises(SessionStateError):
-            _ = raw.trade
-        session.stop()
-
-    def test_services_raise_after_stop(self) -> None:
-        session = boot()
-        session.stop()
-        from tradex_domain.errors import SessionStateError
-        with pytest.raises(SessionStateError):
-            _ = session.trade
-
-    def test_all_services_accessible_in_ready(self) -> None:
-        session = boot()
-        assert session.broker is not None
-        assert session.trade is not None
-        assert session.portfolio is not None
-        assert session.stream is not None
-        assert session.scanner is not None
-        session.stop()
 
 
 # ---------------------------------------------------------------------------
