@@ -54,6 +54,7 @@ def _build_order_request(body: dict, session: Any) -> Any:
     order_type = OrderType(body.get("order_type", "MARKET"))
     quantity = Quantity(Decimal(str(body["quantity"])))
     price = Price(Decimal(str(body["price"]))) if body.get("price") is not None else None
+    trigger_price = Price(Decimal(str(body["trigger_price"]))) if body.get("trigger_price") is not None else None
     time_in_force = (
         TimeInForce(body["time_in_force"])
         if body.get("time_in_force")
@@ -65,6 +66,7 @@ def _build_order_request(body: dict, session: Any) -> Any:
         order_type=order_type,
         quantity=quantity,
         price=price,
+        trigger_price=trigger_price,
         time_in_force=time_in_force,
     )
 
@@ -245,8 +247,18 @@ async def modify_order(
         from tradex_domain.execution import OrderRequest
         from tradex_domain.value_objects import Price, Quantity
 
-        instrument = session.broker.search(body["symbol"])[0]
-        side = OrderSide(body["side"])
+        oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
+        existing = session.engine.get_order(oid)
+        if existing is None:
+            raise HTTPException(status_code=422, detail="order not found")
+
+        symbol = body.get("symbol")
+        if symbol is not None:
+            instrument = session.broker.search(symbol)[0]
+        else:
+            instrument = existing.instrument
+
+        side = OrderSide(body["side"]) if "side" in body else existing.side
         order_type = OrderType(body.get("order_type", "LIMIT"))
         quantity = Quantity(Decimal(str(body["quantity"])))
         price = Price(Decimal(str(body["price"]))) if body.get("price") is not None else None
@@ -263,7 +275,6 @@ async def modify_order(
             price=price,
             time_in_force=time_in_force,
         )
-        oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
         order = session.engine.modify(oid, request)
         return OrderResponse(order_id=str(order.order_id), status="modified")
     except HTTPException:
