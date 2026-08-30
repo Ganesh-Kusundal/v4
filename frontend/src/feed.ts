@@ -87,6 +87,7 @@ class WsBarHub {
           low: Number(msg["low"]),
           close: Number(msg["close"]),
           volume: Number((msg["volume"] as number) ?? 0),
+          closed: Boolean(msg["closed"]),
         };
         for (const cb of sub.cbs) cb(bar);
       } catch { /* malformed frame: ignore */ }
