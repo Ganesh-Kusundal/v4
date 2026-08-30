@@ -69,21 +69,21 @@ const tradeFeed = new TradexTradeFeed();
 
 // ---------- chart -------------------------------------------------------------
 const chartHost = $<HTMLDivElement>("chart");
-let chart = createChart(chartHost, {
-  theme: darkTheme,
-  timezone: "Asia/Kolkata",
-  dataFeed: chartFeed,
-  shortcuts: false,
-} as unknown as Record<string, unknown>);
-
 // Chart calculates its size at creation time from the container's bounding
-// rect. If the CSS grid hasn't settled yet, the canvas pixel buffers are
-// sized wrong and never update. Rebuild the chart after a frame to fix.
+// rect. The container must have final dimensions BEFORE createChart() —
+// otherwise the canvas pixel buffers are sized to the wrong height and never
+// updates. Wait one frame for the CSS grid to settle.
+let chart: ReturnType<typeof createChart> | null = null;
 requestAnimationFrame(() => {
   const rect = chartHost.getBoundingClientRect();
-  if (rect.width > 0 && rect.height > 0) {
-    chart.applyOptions({ width: rect.width, height: rect.height } as never);
-  }
+  chart = createChart(chartHost, {
+    theme: darkTheme,
+    timezone: "Asia/Kolkata",
+    dataFeed: chartFeed,
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    shortcuts: false,
+  } as unknown as Record<string, unknown>);
 });
 
 // The primary chart joins the link group immediately; a future multi-chart
