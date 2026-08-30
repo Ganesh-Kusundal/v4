@@ -25,6 +25,7 @@ class TradeWsHub {
   private readonly positionCbs = new Set<(positions: unknown[]) => void>();
   private pollingFallback: number | null = null;
   private reconnectMs = 1000;
+  onLiveChange: ((live: boolean) => void) | null = null;
 
   ensure(): void {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) return;
@@ -37,6 +38,7 @@ class TradeWsHub {
     this.ws = ws;
     ws.onopen = () => {
       this.reconnectMs = 1000;
+      this.onLiveChange?.(true);
       void this.refetchAll();
       this.startPollFallback(false);
     };
@@ -51,6 +53,7 @@ class TradeWsHub {
     };
     ws.onclose = () => {
       this.ws = null;
+      this.onLiveChange?.(false);
       if (this.orderCbs.size === 0 && this.positionCbs.size === 0) {
         this.stopPollFallback();
         return;
@@ -111,6 +114,7 @@ class TradeWsHub {
 const tradeHub = new TradeWsHub();
 
 export class TradexTradeFeed implements TradeFeed {
+  setLiveCallback(cb: (live: boolean) => void): void { tradeHub.onLiveChange = cb; }
   async placeOrder(o: PlaceOrder): Promise<{ orderId: string }> {
     const resp = await fetch("/orders", {
       method: "POST",
@@ -134,11 +138,11 @@ export class TradexTradeFeed implements TradeFeed {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        symbol: patch.symbol,
-        side: patch.side,
-        order_type: patch.type,
-        quantity: patch.qty,
-        price: patch.price,
+        ...(patch.symbol && { symbol: patch.symbol }),
+        ...(patch.side && { side: patch.side }),
+        ...(patch.type && { order_type: patch.type }),
+        ...(patch.qty && { quantity: patch.qty }),
+        ...(patch.price && { price: patch.price }),
       }),
     });
     await expectJson(resp);

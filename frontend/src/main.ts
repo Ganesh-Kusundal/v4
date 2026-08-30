@@ -171,7 +171,9 @@ function setStatus(on: boolean): void { statusDot.classList.toggle("on", on); }
 
 // feed.ts WsBarHub reconnects silently; reflect liveness via first bar ack.
 let wsLive = false;
-setInterval(() => setStatus(wsLive), 1000);
+let tradeWsLive = false;
+tradeFeed.setLiveCallback((live) => { tradeWsLive = live; });
+setInterval(() => setStatus(wsLive && tradeWsLive), 1000);
 
 // ---------- history load --------------------------------------------------------
 // Chrome context from the loaded bars: prevClose is the first loaded bar's close
