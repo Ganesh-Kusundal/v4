@@ -142,14 +142,18 @@ function ensureSeries(): void {
 ensureSeries();
 
 // ---------- trade tier host (on-chart orders + positions from /book) ---------
+// Two peers consume the same book snapshots:
+//   - TradeController (read path): reconciles book → on-chart primitives
+//   - OrderEngine (write path): tracks client intent, OCO, drag-modify
 const tradeHost = createTradingHost(
   chart as never,
   tradeFeed,
+  tradeFeed, // OrderFeed: TradexTradeFeed implements both TradeFeed and OrderFeed
   (symbol: string): number | undefined => {
     // Synchronous LTP: last close of the loaded bars for the chart's symbol.
     // Other symbols degrade to entry price (flat PnL) until a live LTP source
     // lands — the trade-tier PositionMarker band / distance labels don't apply
-    // to the base TradingController's pnlText anyway.
+    // to the base TradeController's pnlText anyway.
     if (symbol !== state.symbol) return undefined;
     return currentPrice();
   },
@@ -540,13 +544,24 @@ function renderChips(): void {
 }
 
 // Order ticket: qty field + Buy/Sell market orders through the execution spine.
+// Buy/Sell buttons route through OrderEngine → TradexTradeFeed.place() → POST /orders.
+// OrderEngine tracks intent (SUBMITTED → ACKNOWLEDGED) and handles idempotency.
 const qtyInput = document.createElement("input");
 qtyInput.type = "number"; qtyInput.className = "field field--qty";
 qtyInput.value = "10"; qtyInput.min = "1"; qtyInput.title = "Quantity";
 function placeOrder(side: "BUY" | "SELL"): void {
   const qty = Math.max(1, Math.round(Number(qtyInput.value) || 1));
-  tradeFeed.placeOrder({ symbol: state.symbol, exchange: state.exchange, side, type: "MARKET", qty })
-    .then(() => logLine(`order ${side} ${qty} ${state.symbol} sent`))
+  tradeHost.orderEngine.placeOrder({
+    symbol: state.symbol,
+    exchange: state.exchange,
+    side,
+    type: "MARKET",
+    qty,
+  })
+    .then((res) => {
+      if (res.ok) logLine(`order ${side} ${qty} ${state.symbol} sent (${res.clientId})`);
+      else logLine(`order rejected: ${res.reason ?? "unknown"}`);
+    })
     .catch((e) => logLine(`order rejected: ${e instanceof Error ? e.message : String(e)}`));
 }
 const buyBtn = document.createElement("button");

@@ -1,11 +1,15 @@
-// Trade wiring: maps openalgo-charts' TradeFeed onto the v4 backend's
-// REST + WebSocket. Orders ride POST/PUT/DELETE /orders (execution spine);
-// order/fill deltas stream over /ws/stream control queue (fastapi_app.py
+// Trade wiring: maps openalgo-charts' TradeFeed + OrderFeed onto the v4
+// backend's REST + WebSocket. Orders ride POST/PUT/DELETE /orders (execution
+// spine); order/fill deltas stream over /ws/stream control queue (fastapi_app.py
 // CONTROL_QUEUE_MAX) and trigger an immediate book refetch so the chart's
 // TradeController.reconcile sees fresh snapshots without 1s polling.
+//
+// TradexTradeFeed implements BOTH interfaces:
+//   - TradeFeed (openalgo-charts): higher-level place/modify/cancel + subscribe
+//   - OrderFeed (openalgo-charts/trade): minimal write path for OrderEngine
 import type { PlaceOrder, TradeFeed, UnsubscribeFn } from "openalgo-charts";
+import type { OrderFeed, ModifyPatch, TradeMode, PlaceRequest } from "./trade/order-engine";
 import { expectJson } from "./http";
-
 export interface ChartBook {
   orders: unknown[];
   positions: unknown[];
@@ -113,8 +117,10 @@ class TradeWsHub {
 
 const tradeHub = new TradeWsHub();
 
-export class TradexTradeFeed implements TradeFeed {
+export class TradexTradeFeed implements TradeFeed, OrderFeed {
   setLiveCallback(cb: (live: boolean) => void): void { tradeHub.onLiveChange = cb; }
+
+  // --- TradeFeed interface (openalgo-charts) ---
   async placeOrder(o: PlaceOrder): Promise<{ orderId: string }> {
     const resp = await fetch("/orders", {
       method: "POST",
@@ -153,6 +159,44 @@ export class TradexTradeFeed implements TradeFeed {
     await expectJson(resp);
   }
 
+  // --- OrderFeed interface (openalgo-charts/trade) ---
+  async place(req: PlaceRequest & { mode: TradeMode }): Promise<{ orderId: string }> {
+    const resp = await fetch("/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        exchange: req.exchange,
+        symbol: req.symbol,
+        side: req.side,
+        order_type: req.type,
+        quantity: req.qty,
+        price: req.price,
+        trigger_price: req.triggerPrice,
+      }),
+    });
+    const body = await expectJson<{ order_id: string }>(resp);
+    return { orderId: body.order_id };
+  }
+
+  async modify(orderId: string, patch: ModifyPatch): Promise<void> {
+    const resp = await fetch(`/orders/${encodeURIComponent(orderId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...(patch.qty !== undefined && { quantity: patch.qty }),
+        ...(patch.price !== undefined && { price: patch.price }),
+        ...(patch.triggerPrice !== undefined && { trigger_price: patch.triggerPrice }),
+      }),
+    });
+    await expectJson(resp);
+  }
+
+  async cancel(orderId: string): Promise<void> {
+    const resp = await fetch(`/orders/${encodeURIComponent(orderId)}`, { method: "DELETE" });
+    await expectJson(resp);
+  }
+
+  // --- Subscriptions (feed TradeController.reconcile) ---
   subscribeOrders(cb: (orders: unknown[]) => void): UnsubscribeFn {
     return tradeHub.subscribeOrders(cb);
   }

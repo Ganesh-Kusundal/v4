@@ -1,15 +1,15 @@
 // Trade tier host: maps the backend /api/charts/book onto openalgo-charts'
-// TradingController + TradeMarkersPrimitive. Every order mutation rides the
-// existing TradexTradeFeed (/orders); this module only feeds state and draws.
-import {
-  TradingController,
-  TradeMarkersPrimitive,
-  DEFAULT_TRADING_COLORS,
-  type IPrimitive,
-  type TradingOrder,
-  type TradingPosition,
-} from "openalgo-charts";
-import { unrealizedPnl, isWorking } from "openalgo-charts/trade";
+// TradeController (read path) + OrderEngine (write path). Two independent peers
+// consume the same book snapshots:
+//
+//   - TradeController.reconcile(orders, positions) → on-chart primitives
+//   - OrderEngine.placeOrder() → intent tracking, OCO, drag-modify
+//
+// Order mutations ride the existing TradexTradeFeed (/orders); this module only
+// feeds state, draws, and tracks intent.
+import { OrderEngine, type OrderFeed } from "./trade/order-engine";
+import { TradeController, type TradeHost } from "./trade/trade-controller";
+import type { Order, Position } from "./trade/types";
 import { TradexTradeFeed, fetchBook, type ChartBook } from "./trade-feed";
 import { expectJson } from "./http";
 
@@ -53,107 +53,80 @@ export async function placeBracket(opts: {
   return body.order_id;
 }
 
-/** Map /book orders into the reference TradingOrder shape, working only. */
-export function mapOrdersToTrading(
-  orders: BookRow[],
-  _ltpBySymbol: Record<string, number>,
-): TradingOrder[] {
-  const out: TradingOrder[] = [];
-  for (const o of orders) {
-    // /book status strings already match the trade tier's OrderStatus union, so
-    // isWorking applies directly (pending/working/partial stay, terminal drops).
-    if (!isWorking(o as never)) continue;
-    out.push({
-      id: o.id,
-      // The base TradingOrderType union is 'limit'|'stop'|'stop_limit' — no
-      // "market" member. A working MARKET order still reads as a resting price
-      // line; the controller only uses `type` as the pill label, so map it
-      // through and cast.
-      type: (o.type === "SL" ? "stop" : o.type === "SL-M" ? "stop_limit" : "limit") as TradingOrder["type"],
-      side: (o.side === "BUY" ? "buy" : "sell") as TradingOrder["side"],
-      price: o.price,
-      size: Math.max(o.qty - o.filledQty, 0),
-    });
-  }
-  return out;
+/** Map a backend book row to the trade-tier Order shape. */
+function mapBookRowToOrder(o: BookRow): Order {
+  return {
+    id: o.id,
+    symbol: o.symbol,
+    // The base OrderSide union is 'BUY'|'SELL' — direct pass-through.
+    side: o.side as Order["side"],
+    // The base OrderType union is 'MARKET'|'LIMIT'|'SL'|'SL-M' — direct pass-through.
+    type: o.type as Order["type"],
+    qty: o.qty,
+    filledQty: o.filledQty,
+    price: o.price,
+    triggerPrice: o.triggerPrice ?? undefined,
+    // Backend status strings already match the trade-tier OrderStatus union
+    // (pending/working/partial/filled/cancelled/rejected).
+    status: o.status as Order["status"],
+  };
 }
 
-/** Map /book positions into the reference TradingPosition shape + PnL text. */
-export function mapPositionsToTrading(
-  positions: BookPosition[],
-  ltpBySymbol: Record<string, number>,
-): TradingPosition[] {
-  const out: TradingPosition[] = [];
-  for (const p of positions) {
-    if (p.netQty === 0) continue;
-    const ltp = ltpBySymbol[p.symbol] ?? p.avgPrice;
-    // unrealizedPnl(position, ltp) = (ltp - avgPrice) * netQty — signed, so a
-    // short's PnL is already correct with no side argument.
-    const uPnl = unrealizedPnl({ symbol: p.symbol, netQty: p.netQty, avgPrice: p.avgPrice }, ltp);
-    out.push({
-      id: `${p.exchange}:${p.symbol}`,
-      side: p.netQty >= 0 ? "long" : "short",
-      entryPrice: p.avgPrice,
-      size: Math.abs(p.netQty),
-      pnlText: uPnl.toFixed(2),
-    });
-  }
-  return out;
+/** Map a backend book position to the trade-tier Position shape. */
+function mapBookPositionToPosition(p: BookPosition): Position {
+  return {
+    symbol: p.symbol,
+    netQty: p.netQty,
+    avgPrice: p.avgPrice,
+  };
 }
 
 export interface TradingHostHandle {
   sync(book: ChartBook): void;
   start(): Promise<void>;
   stop(): void;
-}
-
-/** The slice of the Chart instance the host touches (chart implements TradingHost). */
-interface ChartHostLike {
-  addPrimitive(p: IPrimitive, where?: number): void;
-  removePrimitive(p: IPrimitive): void;
+  /** The OrderEngine peer — exposes placeOrder/cancelOrder for UI wiring. */
+  readonly orderEngine: OrderEngine;
 }
 
 /**
- * Build the on-chart trade host. The chart itself implements TradingHost
- * (reference core/chart.ts constructs `new TradingController(this)`), so we
- * pass it directly as the controller host; markers attach to pane 0 the same
- * way the P2 profile primitives do.
+ * Build the on-chart trade host. The chart itself implements TradeHost
+ * (reference core/chart.ts constructs `new TradeController(this)`), so we
+ * pass it directly as the controller host.
+ *
+ * Two peers are wired:
+ *   - TradeController: reconciles book snapshots → primitives
+ *   - OrderEngine: tracks client intent via TradexTradeFeed (OrderFeed)
  */
 export function createTradingHost(
   chart: unknown,
   tradeFeed: TradexTradeFeed,
+  orderFeed: OrderFeed,
   getLtp: (symbol: string) => number | undefined,
 ): TradingHostHandle {
-  const controller = new TradingController(chart as never);
-  const markers = new TradeMarkersPrimitive(DEFAULT_TRADING_COLORS);
-  const host = chart as ChartHostLike;
-  let markersAttached = false;
-  const attachMarkers = (): void => {
-    if (markersAttached) return;
-    host.addPrimitive(markers, 0);
-    markersAttached = true;
-  };
-  attachMarkers();
+  const controller = new TradeController(chart as TradeHost);
+  const orderEngine = new OrderEngine({
+    feed: orderFeed,
+    constraints: { tickSize: 0.05 }, // NSE equity default; overridden by priceBand below
+    armed: true, // fire immediately — no confirm gate for v4
+  });
 
   let unsubOrders: (() => void) | null = null;
   let unsubPositions: (() => void) | null = null;
 
   const sync = (book: ChartBook): void => {
-    const orders = book.orders as BookRow[];
-    const positions = book.positions as BookPosition[];
-    const ltp: Record<string, number> = {};
+    const orders = (book.orders as BookRow[]).map(mapBookRowToOrder);
+    const positions = (book.positions as BookPosition[]).map(mapBookPositionToPosition);
+    // Push LTP into the controller for live P&L / distance labels.
     for (const o of orders) {
-      const v = getLtp(o.symbol);
-      if (v !== undefined) ltp[o.symbol] = v;
+      const ltp = getLtp(o.symbol);
+      if (ltp !== undefined) controller.onLtp(o.symbol, ltp);
     }
     for (const p of positions) {
-      const v = getLtp(p.symbol);
-      if (v !== undefined) ltp[p.symbol] = v;
+      const ltp = getLtp(p.symbol);
+      if (ltp !== undefined) controller.onLtp(p.symbol, ltp);
     }
-    controller.syncState({
-      orders: mapOrdersToTrading(orders, ltp),
-      positions: mapPositionsToTrading(positions, ltp),
-    });
+    controller.reconcile(orders, positions);
   };
 
   const refresh = async (): Promise<void> => {
@@ -166,7 +139,6 @@ export function createTradingHost(
 
   const start = async (): Promise<void> => {
     await refresh();
-    attachMarkers();
     unsubOrders?.();
     unsubPositions?.();
     unsubOrders = tradeFeed.subscribeOrders(() => {
@@ -182,10 +154,7 @@ export function createTradingHost(
     unsubOrders = null;
     unsubPositions?.();
     unsubPositions = null;
-    controller.clear();
-    host.removePrimitive(markers);
-    markersAttached = false;
   };
 
-  return { sync, start, stop };
+  return { sync, start, stop, orderEngine };
 }
