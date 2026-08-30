@@ -99,6 +99,11 @@ class IndicatorRegistry:
         with self._lock:
             return tuple(self._specs.values())
 
+    def discard(self, name: str) -> None:
+        """Remove *name* if present — used by tests to undo registrations."""
+        with self._lock:
+            self._specs.pop(name, None)
+
     def compute(
         self, name: str, series: Any, **params: Any
     ) -> IndicatorResult:

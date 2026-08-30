@@ -69,15 +69,22 @@ const tradeFeed = new TradexTradeFeed();
 
 // ---------- chart -------------------------------------------------------------
 const chartHost = $<HTMLDivElement>("chart");
-const chart = createChart(chartHost, {
+let chart = createChart(chartHost, {
   theme: darkTheme,
   timezone: "Asia/Kolkata",
   dataFeed: chartFeed,
-  // Keyboard control is the shell's job: the shell owns a global ShortcutManager
-  // (shortcuts.ts) and disabling the chart's built-in hover-gated handler keeps
-  // a single owner per key — otherwise the same arrow key fires twice.
   shortcuts: false,
 } as unknown as Record<string, unknown>);
+
+// Chart calculates its size at creation time from the container's bounding
+// rect. If the CSS grid hasn't settled yet, the canvas pixel buffers are
+// sized wrong and never update. Rebuild the chart after a frame to fix.
+requestAnimationFrame(() => {
+  const rect = chartHost.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    chart.applyOptions({ width: rect.width, height: rect.height } as never);
+  }
+});
 
 // The primary chart joins the link group immediately; a future multi-chart
 // host can add more members via linkChart(). Symbol sync is off, so changing

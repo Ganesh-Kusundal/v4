@@ -329,26 +329,36 @@ class TestRegistry:
             params=(("period", "int", 2),), plots=(("value", "line", "V"),),
         )
         before = {e["id"] for e in indicator_catalogue()}
-        register_indicator(spec)
-        after = {e["id"] for e in indicator_catalogue()}
-        assert "zzz-test-only" in after and "zzz-test-only" not in before
-        # A second registration of the same id must replace, not duplicate.
-        count_before = sum(1 for e in indicator_catalogue() if e["id"] == "zzz-test-only")
-        register_indicator(spec)
-        count_after = sum(1 for e in indicator_catalogue() if e["id"] == "zzz-test-only")
-        assert count_before == count_after == 1
+        try:
+            register_indicator(spec)
+            after = {e["id"] for e in indicator_catalogue()}
+            assert "zzz-test-only" in after and "zzz-test-only" not in before
+            # A second registration of the same id must replace, not duplicate.
+            count_before = sum(1 for e in indicator_catalogue() if e["id"] == "zzz-test-only")
+            register_indicator(spec)
+            count_after = sum(1 for e in indicator_catalogue() if e["id"] == "zzz-test-only")
+            assert count_before == count_after == 1
+        finally:
+            from tradex_trading.analytics.registry import REGISTRY
+
+            REGISTRY.discard("zzz-test-only")
 
     def test_new_registry_entry_reaches_catalogue_with_zero_frontend_changes(self):
         """The seam proof: registering an id is enough for it to be served."""
         marker = "aa-seam-proof"
-        register_indicator(
-            IndicatorSpec(
-                id=marker, name="Seam", category="Test", placement="pane",
-                params=(), plots=(("value", "line", "S"),),
+        try:
+            register_indicator(
+                IndicatorSpec(
+                    id=marker, name="Seam", category="Test", placement="pane",
+                    params=(), plots=(("value", "line", "S"),),
+                )
             )
-        )
-        ids = {e["id"] for e in indicator_catalogue()}
-        assert marker in ids
+            ids = {e["id"] for e in indicator_catalogue()}
+            assert marker in ids
+        finally:
+            from tradex_trading.analytics.registry import REGISTRY as _REG
+
+            _REG.discard(marker)
 
 
 # ---------------------------------------------------------------------------
@@ -1427,6 +1437,8 @@ class TestSingleSourceOfTruth:
         # Catalogue and registry are the same single store.
         assert cat.keys() == specs.keys()
         for iid, entry in cat.items():
+            if iid.startswith("zzz-test"):
+                continue  # test-only registrations from other tests, fn-less by design
             spec = specs[iid]
             # Full fidelity stored: a lossy mirror would drop plots/levels.
             assert [p[0] for p in spec.plots] == [p["key"] for p in entry["plots"]]
