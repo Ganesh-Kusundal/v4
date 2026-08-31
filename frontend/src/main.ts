@@ -69,24 +69,28 @@ const tradeFeed = new TradexTradeFeed();
 
 // ---------- chart -------------------------------------------------------------
 const chartHost = $<HTMLDivElement>("chart");
-// Chart calculates its size at creation time from the container's bounding
-// rect. The container must have final dimensions BEFORE createChart() —
-// otherwise the canvas pixel buffers are sized to the wrong height and never
-// updates. Wait one frame for the CSS grid to settle.
-let chart: ReturnType<typeof createChart> | null = null;
-requestAnimationFrame(() => {
+let chart = createChart(chartHost, {
+  theme: darkTheme,
+  timezone: "Asia/Kolkata",
+  dataFeed: chartFeed,
+  shortcuts: false,
+} as unknown as Record<string, unknown>);
+
+// The primary chart joins the link group immediately; a future multi-chart
+// host can add more members via linkChart(). Symbol sync is off, so changing
+// instrument on the member needs no re-linking.
+linkChart(chart as never);
+
+// Fix chart canvas height: the chart library sizes its canvas pixel buffer at
+// creation time from the container's bounding rect. If the CSS grid hasn't
+// settled, the buffer is sized wrong and never updates. Use a ResizeObserver
+// to keep the chart matched to its container's actual dimensions.
+new ResizeObserver(() => {
   const rect = chartHost.getBoundingClientRect();
-  chart = createChart(chartHost, {
-    theme: darkTheme,
-    timezone: "Asia/Kolkata",
-    dataFeed: chartFeed,
-    width: Math.round(rect.width),
-    height: Math.round(rect.height),
-    shortcuts: false,
-  } as unknown as Record<string, unknown>);
-  // The primary chart joins the link group immediately after creation.
-  linkChart(chart as never);
-});
+  if (rect.width > 0 && rect.height > 0) {
+    chart.applyOptions({ width: rect.width, height: rect.height } as never);
+  }
+}).observe(chartHost);
 
 let priceSeries: SeriesApi | null = null;
 let volumeSeries: SeriesApi | null = null;
@@ -143,25 +147,12 @@ function ensureSeries(): void {
   });
   chart.setPaneWeight(1, 0.25); // price pane=1, volume pane≈0.25 → bottom ~20%
 }
-ensureSeries();
 
 // ---------- trade tier host (on-chart orders + positions from /book) ---------
-// Two peers consume the same book snapshots:
-//   - TradeController (read path): reconciles book → on-chart primitives
-//   - OrderEngine (write path): tracks client intent, OCO, drag-modify
-const tradeHost = createTradingHost(
-  chart as never,
-  tradeFeed,
-  tradeFeed, // OrderFeed: TradexTradeFeed implements both TradeFeed and OrderFeed
-  (symbol: string): number | undefined => {
-    // Synchronous LTP: last close of the loaded bars for the chart's symbol.
-    // Other symbols degrade to entry price (flat PnL) until a live LTP source
-    // lands — the trade-tier PositionMarker band / distance labels don't apply
-    // to the base TradeController's pnlText anyway.
-    if (symbol !== state.symbol) return undefined;
-    return currentPrice();
-  },
-);
+// Wired in mountChart() once the chart instance exists.
+let tradeHost!: ReturnType<typeof createTradingHost>;
+let chrome!: Chrome;
+let stopShortcuts: () => void = () => {};
 
 // ---------- status -------------------------------------------------------------
 const statusDot = document.createElement("span");
@@ -696,36 +687,6 @@ lload.addEventListener("click", () => {
   } catch (e) { statusText.textContent = `restore failed: ${String(e)}`; }
 });
 
-// ---------- keyboard shortcuts ---------------------------------------------------
-// The chart was created with `shortcuts: false`, so this shell ShortcutManager is
-// the single key owner. Every DEFAULT_KEYMAP command routes to an existing chart
-// op (all are public API on Chart/TimeScale/Pane — nothing invented here).
-const timeScale = chart.timeScale;
-const panBars = (n: number): void => {
-  const r = chart.getVisibleLogicalRange();
-  chart.setVisibleLogicalRange({ from: r.from + n, to: r.to + n });
-};
-const zoomAtCenter = (factor: number): void => timeScale.zoomAtX(timeScale.width / 2, factor);
-const shortcutActions: ShortcutActions = {
-  panLeft: () => panBars(-10),
-  panRight: () => panBars(10),
-  panLeftFast: () => panBars(-50),
-  panRightFast: () => panBars(50),
-  panUp: () => chart.panes()[0]?.priceScale.panByPixels(20),
-  panDown: () => chart.panes()[0]?.priceScale.panByPixels(-20),
-  zoomIn: () => zoomAtCenter(1.1),
-  zoomOut: () => zoomAtCenter(1 / 1.1),
-  resetScale: () => showLastBars(lastRawBars.length),
-  fitContent: () => fitChart(),
-  screenshot: () => chart.downloadScreenshot(),
-  toggleGridVert: () => chart.setGridOptions({ vertLines: !chart.gridOptions().vertLines }),
-  toggleGridHorz: () => chart.setGridOptions({ horzLines: !chart.gridOptions().horzLines }),
-  toggleCrosshairMagnet: () =>
-    chart.applyOptions({ crosshairMode: chart.crosshairMode() === "magnet" ? "normal" : "magnet" }),
-};
-const stopShortcuts = createShellShortcuts(shortcutActions).start();
-window.addEventListener("beforeunload", stopShortcuts);
-
 // Replay toggle lives in shellbar too (transport detail in #replaybar).
 const rpBtn = document.createElement("button");
 rpBtn.className = "tbtn";
@@ -762,27 +723,12 @@ linkBtn.addEventListener("click", () => {
   linkBtn.classList.toggle("is-on", linked);
   if (linked) linkChart(chart as never); else unlinkAll();
 });
-wireCompare(chart, chartFeed as never, () => ({ ...state }));
-wireChartSettings(chart);
-
-// Chrome primitives: watermark, series markers, price levels, pane legend,
-// event markers, buy-sell buttons. Mounted with sensible defaults and toggled
-// from the shellbar. BuySellButtons route through the same placeOrder() as the
-// shellbar BUY/SELL buttons (the on-chart panel is a duplicate control).
-const chrome = new Chrome(chart as never);
-chrome.setOrderAction((side) => placeOrder(side));
+// Chrome toggle — wired in mountChart() after the chart instance exists.
 let chromeOn = true;
 const chromeBtn = document.createElement("button");
 chromeBtn.className = "tbtn is-on";
 chromeBtn.textContent = "Chrome";
 chromeBtn.title = "Chrome primitives — watermark, price levels, legend, buy-sell, markers";
-chromeBtn.addEventListener("click", () => {
-  chromeOn = !chromeOn;
-  chromeBtn.classList.toggle("is-on", chromeOn);
-  if (chromeOn) chrome.enable(lastChromeCtx, priceSeries);
-  else chrome.disable();
-});
-chrome.enable(lastChromeCtx, priceSeries);
 
 shellbar.append(
   brand, divider(),
@@ -805,33 +751,101 @@ statusWrap.className = "status";
 statusWrap.append(statusDot, statusText, sourcePill, modePill);
 shellbar.append(statusWrap);
 
-// ---------- draw rail -----------------------------------------------------------
+// ---------- mount chart (after shellbar DOM so grid row-1 height is final) -----
+// Chart calculates its canvas pixel buffer at creation time. If the CSS grid
+// hasn't settled (shellbar empty), the canvas is sized wrong. mountChart()
+// waits for the container to have final dimensions before creating the chart.
+setTimeout(() => mountChart(), 100);
 const railEl = $("rail");
 const magnetBox = document.createElement("input");
 magnetBox.type = "checkbox";
 magnetBox.checked = true;
 magnetBox.id = "magnet";
-createDrawRail(railEl, chart, { magnetCheckbox: magnetBox });
-
-// ---------- legend (OHLC readout via subscribeCrosshairMove) ----------------------
 const legendEl = $("legend");
-// Zoom/pan navigator: library primitive, fades in near the plot bottom.
-const timeNav = new TimeNavigator({ id: "tradex-nav" } as never);
-chart.addPrimitive(timeNav as never);
-type CrossEvt = { bar?: { open: number; high: number; low: number; close: number; volume?: number; time: number } | null; point?: { x: number; y: number } | null };
-chart.subscribeCrosshairMove?.(((e: CrossEvt) => {
-  (timeNav as unknown as { setPointer(p: { x: number; y: number } | null): void }).setPointer(e.point ?? null);
-  const b = e.bar;
-  if (!b) { legendEl.innerHTML = ""; return; }
-  legendEl.innerHTML = "";
-  const name = document.createElement("span");
-  name.className = "name";
-  name.textContent = `${state.symbol} · ${state.interval}`;
-  const meta = document.createElement("span");
-  meta.className = "meta";
-  meta.textContent = ` O ${b.open} H ${b.high} L ${b.low} C ${b.close}${b.volume !== undefined ? ` V ${Math.round(b.volume)}` : ""}`;
-  legendEl.append(name, meta);
-}) as never);
+
+function mountChart(): void {
+  chart = createChart(chartHost, {
+    theme: darkTheme,
+    timezone: "Asia/Kolkata",
+    dataFeed: chartFeed,
+    shortcuts: false,
+  } as unknown as Record<string, unknown>);
+  linkChart(chart as never);
+  ensureSeries();
+  tradeHost = createTradingHost(
+    chart as never,
+    tradeFeed,
+    tradeFeed,
+    (symbol: string): number | undefined => {
+      if (symbol !== state.symbol) return undefined;
+      return currentPrice();
+    },
+  );
+  wireCompare(chart, chartFeed as never, () => ({ ...state }));
+  wireChartSettings(chart);
+  chrome = new Chrome(chart as never);
+  chrome.setOrderAction((side) => placeOrder(side));
+  chrome.enable(lastChromeCtx, priceSeries);
+  chromeBtn.addEventListener("click", () => {
+    chromeOn = !chromeOn;
+    chromeBtn.classList.toggle("is-on", chromeOn);
+    if (chromeOn) chrome.enable(lastChromeCtx, priceSeries);
+    else chrome.disable();
+  });
+
+  const timeScale = chart.timeScale;
+  const panBars = (n: number): void => {
+    const r = chart.getVisibleLogicalRange();
+    chart.setVisibleLogicalRange({ from: r.from + n, to: r.to + n });
+  };
+  const zoomAtCenter = (factor: number): void => timeScale.zoomAtX(timeScale.width / 2, factor);
+  stopShortcuts = createShellShortcuts({
+    panLeft: () => panBars(-10),
+    panRight: () => panBars(10),
+    panLeftFast: () => panBars(-50),
+    panRightFast: () => panBars(50),
+    panUp: () => chart.panes()[0]?.priceScale.panByPixels(20),
+    panDown: () => chart.panes()[0]?.priceScale.panByPixels(-20),
+    zoomIn: () => zoomAtCenter(1.1),
+    zoomOut: () => zoomAtCenter(1 / 1.1),
+    resetScale: () => showLastBars(lastRawBars.length),
+    fitContent: () => fitChart(),
+    screenshot: () => chart.downloadScreenshot(),
+    toggleGridVert: () => chart.setGridOptions({ vertLines: !chart.gridOptions().vertLines }),
+    toggleGridHorz: () => chart.setGridOptions({ horzLines: !chart.gridOptions().horzLines }),
+    toggleCrosshairMagnet: () =>
+      chart.applyOptions({ crosshairMode: chart.crosshairMode() === "magnet" ? "normal" : "magnet" }),
+  } satisfies ShortcutActions).start();
+  window.addEventListener("beforeunload", stopShortcuts);
+
+  createDrawRail(railEl, chart, { magnetCheckbox: magnetBox });
+  const timeNav = new TimeNavigator({ id: "tradex-nav" } as never);
+  chart.addPrimitive(timeNav as never);
+  type CrossEvt = { bar?: { open: number; high: number; low: number; close: number; volume?: number; time: number } | null; point?: { x: number; y: number } | null };
+  chart.subscribeCrosshairMove?.(((e: CrossEvt) => {
+    (timeNav as unknown as { setPointer(p: { x: number; y: number } | null): void }).setPointer(e.point ?? null);
+    const b = e.bar;
+    if (!b) { legendEl.innerHTML = ""; return; }
+    legendEl.innerHTML = "";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = `${state.symbol} · ${state.interval}`;
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = ` O ${b.open} H ${b.high} L ${b.low} C ${b.close}${b.volume !== undefined ? ` V ${Math.round(b.volume)}` : ""}`;
+    legendEl.append(name, meta);
+  }) as never);
+
+  const syncChartSize = (): void => {
+    const { width, height } = chartHost.getBoundingClientRect();
+    if (width > 0 && height > 0) chart.applySize(Math.round(width), Math.round(height));
+  };
+  requestAnimationFrame(() => requestAnimationFrame(syncChartSize));
+  window.addEventListener("resize", syncChartSize);
+
+  void loadHistory().then(() => bindLiveBars());
+}
+mountChart();
 
 // ---------- watchlist / panel / dock ----------------------------------------------
 const watchlist = createWatchlist($("watchlist"), (item) => {
@@ -1048,4 +1062,3 @@ void (async () => {
   catalogueById.clear();
   for (const e of entries) catalogueById.set(`backend:${e.id}`, e);
 })();
-void loadHistory().then(() => bindLiveBars());
