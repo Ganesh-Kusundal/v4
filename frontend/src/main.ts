@@ -84,12 +84,9 @@ requestAnimationFrame(() => {
     height: Math.round(rect.height),
     shortcuts: false,
   } as unknown as Record<string, unknown>);
+  // The primary chart joins the link group immediately after creation.
+  linkChart(chart as never);
 });
-
-// The primary chart joins the link group immediately; a future multi-chart
-// host can add more members via linkChart(). Symbol sync is off, so changing
-// instrument on the member needs no re-linking.
-linkChart(chart as never);
 
 let priceSeries: SeriesApi | null = null;
 let volumeSeries: SeriesApi | null = null;
