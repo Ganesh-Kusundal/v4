@@ -1,1 +1,142 @@
-{}
+{
+  "CHOLAFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "ENRIN": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SAIL": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SBIN": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SOBHA": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SOLARINDS": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SONACOMS": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SONATSOFTW": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SPLPETRO": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "STARHEALTH": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUMICHEM": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUNDARMFIN": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUNPHARMA": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUNTV": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUPREMEIND": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SUZLON": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SWANCORP": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SWIGGY": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SYNGENE": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "SYRMA": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TATACAP": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TATACHEM": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TATACOMM": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TATACONSUM": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TATAELXSI": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TBOTEK": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TCS": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  },
+  "TVSMOTOR": {
+    "fails": 1,
+    "last_ts": "2026-08-31T18:34:00",
+    "reason": "still_gapped_after_sync"
+  }
+}

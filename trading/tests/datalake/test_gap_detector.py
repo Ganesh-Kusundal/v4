@@ -166,3 +166,40 @@ class TestSessionAwareDetection:
                                   min_gap_stamps=3)
         assert len(floored) == 1
         assert floored[0][1] == [(datetime(2026, 7, 3, 9, 15), datetime(2026, 7, 3, 15, 15))]
+
+
+def test_tail_days_limits_scan_window(tmp_path):
+    store = ParquetStorage(tmp_path)
+    rows = [
+        dict(timestamp=f"2026-07-01 09:{i:02d}:00", open=100, high=101, low=99, close=100)
+        for i in range(15, 60)
+    ] + [
+        dict(timestamp=f"2026-07-01 10:{i:02d}:00", open=100, high=101, low=99, close=100)
+        for i in range(0, 15)
+    ]
+    store.upsert(_frame(rows))
+    detector = GapDetector(store)
+    inst = _FakeInst("RELIANCE")
+    full = detector.detect(
+        [inst], start=datetime(2026, 7, 1, 9, 15),
+        end=datetime(2026, 7, 1, 10, 14), timeframe="1m", bar_freq="1min",
+    )
+    tailed = detector.detect(
+        [inst], start=datetime(2026, 7, 1, 9, 15),
+        end=datetime(2026, 7, 1, 10, 14), timeframe="1m", bar_freq="1min",
+        tail_days=7,
+    )
+    assert full == tailed == []
+
+
+def test_parallel_detect_matches_sequential(tmp_path):
+    store = ParquetStorage(tmp_path)
+    detector = GapDetector(store)
+    insts = [_FakeInst("A"), _FakeInst("B"), _FakeInst("C")]
+    kwargs = dict(
+        start=datetime(2026, 7, 1), end=datetime(2026, 7, 31),
+        timeframe="1m", bar_freq="1min",
+    )
+    seq = {i.symbol: r for i, r in detector.detect(insts, max_workers=1, **kwargs)}
+    par = {i.symbol: r for i, r in detector.detect(insts, max_workers=4, **kwargs)}
+    assert seq == par

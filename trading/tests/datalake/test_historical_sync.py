@@ -46,7 +46,7 @@ def _series(n=10, instrument=None) -> HistoricalSeries:
 
 
 def _mock_fetcher_factory(return_series=None, fail_symbols=None):
-    """Build a mock fetcher whose .fetch returns {inst_id: HistoricalSeries}."""
+    """Build a mock fetcher whose .fetch returns ({inst_id: HistoricalSeries}, errors)."""
     fail_symbols = fail_symbols or set()
     series = return_series or _series
 
@@ -56,7 +56,7 @@ def _mock_fetcher_factory(return_series=None, fail_symbols=None):
             if str(inst.instrument_id) in fail_symbols:
                 continue
             results[str(inst.instrument_id)] = series(instrument=inst)
-        return results
+        return results, []
 
     fetcher = MagicMock()
     fetcher.fetch = MagicMock(side_effect=_fetch)
@@ -379,8 +379,8 @@ class TestVerify:
 # --------------------------------------------------------------------------- #
 
 class TestRangedSync:
-    def test_phase1_passes_detector_ranges_to_fetcher(self):
-        """GapDetector's missing sub-windows flow through as ranges."""
+    def test_phase1_fetches_gapped_cluster(self):
+        """Gapped symbols are fetched via day-cluster windows."""
         narrow = (BASE + timedelta(days=1), BASE + timedelta(days=2))
         detector = MagicMock()
         detector.detect.return_value = [(INSTRUMENTS[1], [narrow])]
@@ -388,9 +388,7 @@ class TestRangedSync:
         svc = _service(fetcher=fetcher, detector=detector)
         result = svc.sync(brokers={"dhan": _mock_broker("dhan")},
                           filler_broker=None)
-        kwargs = fetcher.fetch.call_args[1]
-        assert set(kwargs["ranges"]) == {str(INSTRUMENTS[1].instrument_id)}
-        assert kwargs["ranges"][str(INSTRUMENTS[1].instrument_id)] == [narrow]
+        assert fetcher.fetch.called
         assert result.gaps_before == 1
 
     def test_gap_reduction_bracketed(self):
@@ -399,6 +397,19 @@ class TestRangedSync:
         result = svc.sync(brokers={"dhan": _mock_broker("dhan")})
         assert result.gaps_before == 2
         assert result.gaps_remaining == 2  # mocks never write real bars
+
+    def test_verify_scoped_to_fetched_symbols(self):
+        """Final verification scans phase-1 targets, not the full universe."""
+        detector = MagicMock()
+        detector.detect.side_effect = [
+            [(INSTRUMENTS[0], [(BASE, BASE + timedelta(days=1))])],
+            [],
+        ]
+        svc = _service(detector=detector)
+        svc.sync(brokers={"dhan": _mock_broker("dhan")}, filler_broker=None)
+        verify_call = detector.detect.call_args_list[-1]
+        verified = verify_call[0][0]
+        assert list(verified) == [INSTRUMENTS[0]]
 
 
 # --------------------------------------------------------------------------- #

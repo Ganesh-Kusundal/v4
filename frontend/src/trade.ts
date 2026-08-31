@@ -35,24 +35,6 @@ export interface BookPosition {
   avgPrice: number;
 }
 
-/** Place a bracket (super) order — entry + protective stop/target legs. */
-export async function placeBracket(opts: {
-  exchange: string; symbol: string; side: "BUY" | "SELL";
-  quantity: number; price: number; stopLoss: number; target: number;
-}): Promise<string> {
-  const resp = await fetch("/orders/bracket", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      exchange: opts.exchange, symbol: opts.symbol, side: opts.side,
-      order_type: "LIMIT", quantity: opts.quantity, price: opts.price,
-      stop_loss_price: opts.stopLoss, target_price: opts.target,
-    }),
-  });
-  const body = await expectJson<{ order_id: string }>(resp);
-  return body.order_id;
-}
-
 /** Map a backend book row to the trade-tier Order shape. */
 function mapBookRowToOrder(o: BookRow): Order {
   return {

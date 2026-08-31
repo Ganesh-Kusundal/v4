@@ -13,7 +13,12 @@ from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
 
-from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher, _split
+from tradex_trading.datalake.parallel_fetcher import (
+    ParallelHistoryFetcher,
+    _default_workers,
+    _split,
+    fetch_with_backoff,
+)
 
 INSTRUMENTS = [Equity.of("NSE", f"SYM{i}") for i in range(8)]
 BASE = datetime(2026, 8, 1, 9, 15, tzinfo=UTC)
@@ -99,7 +104,7 @@ class TestRouting:
         brokers = {"dhan": _make_broker("dhan"), "upstox": _make_broker("upstox")}
         insts = INSTRUMENTS
         fetcher = ParallelHistoryFetcher(brokers)
-        results = fetcher.fetch(insts, Timeframe.M1,
+        results, _ = fetcher.fetch(insts, Timeframe.M1,
                                 datetime(2026, 5, 1), datetime(2026, 7, 30))
         assert len(results) == 8
         # Both brokers must have been called: split assigns ~4 symbols each.
@@ -117,7 +122,7 @@ class TestDhanIntradayWindowGuard:
         start, end = datetime(2026, 1, 1), datetime(2026, 5, 1)  # 120 days
         dhan = _make_broker("dhan")
         fetcher = ParallelHistoryFetcher({"dhan": dhan})
-        results = fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
+        results, _ = fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
         assert len(results) == 1
         # 120d / 90d cap = 2 windows, so 2 underlying history calls
         assert dhan.history.call_count == 2
@@ -126,14 +131,14 @@ class TestDhanIntradayWindowGuard:
         """60-day M1 range, Dhan only → within 90-day window, fetches fine."""
         fetcher = ParallelHistoryFetcher({"dhan": _make_broker("dhan")})
         start, end = datetime(2026, 1, 1), datetime(2026, 3, 2)  # 60 days
-        results = fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
+        results, _ = fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
         assert len(results) == 1
 
     def test_dhan_daily_range_not_limited(self):
         """> 90-day D1 range, Dhan only → historical endpoint has no cap."""
         fetcher = ParallelHistoryFetcher({"dhan": _make_broker("dhan")})
         start, end = datetime(2026, 1, 1), datetime(2026, 8, 1)  # 212 days
-        results = fetcher.fetch([INSTRUMENTS[0]], Timeframe.D1, start, end)
+        results, _ = fetcher.fetch([INSTRUMENTS[0]], Timeframe.D1, start, end)
         assert len(results) == 1
 
     def test_beyond_window_with_other_broker_available_auto_chunks(self):
@@ -141,7 +146,7 @@ class TestDhanIntradayWindowGuard:
         dhan = _make_broker("dhan")
         fetcher = ParallelHistoryFetcher({"dhan": dhan, "upstox": _make_broker("upstox")})
         start, end = datetime(2026, 1, 1), datetime(2026, 5, 1)  # 120 days
-        results = fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
+        results, _ = fetcher.fetch([INSTRUMENTS[0]], Timeframe.M1, start, end)
         assert len(results) == 1
         assert dhan.history.call_count == 2
 
@@ -156,14 +161,14 @@ class TestParallelFetch:
         brokers = {"dhan": _make_broker("dhan"), "upstox": _make_broker("upstox")}
         fetcher = ParallelHistoryFetcher(brokers, max_workers=4)
         end = BASE + timedelta(days=7)
-        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        results, _ = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
         assert len(results) == len(INSTRUMENTS)
 
     def test_fetch_empty_instruments(self):
         """Empty instrument list → empty results."""
         brokers = {"dhan": _make_broker("dhan")}
         fetcher = ParallelHistoryFetcher(brokers)
-        results = fetcher.fetch([], Timeframe.M1, BASE, BASE + timedelta(days=7))
+        results, _ = fetcher.fetch([], Timeframe.M1, BASE, BASE + timedelta(days=7))
         assert results == {}
 
     def test_fetch_uses_both_brokers_for_short_range(self):
@@ -186,7 +191,7 @@ class TestParallelFetch:
         brokers = {"dhan": dhan, "upstox": upstox}
         fetcher = ParallelHistoryFetcher(brokers, max_workers=4)
         end = BASE + timedelta(days=60)
-        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        results, _ = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
         assert len(results) == len(INSTRUMENTS)
         # Split assignment: both brokers must serve part of the universe.
         assert dhan.history.call_count >= 1
@@ -200,7 +205,7 @@ class TestParallelFetch:
         brokers = {"dhan": dhan, "upstox": upstox}
         fetcher = ParallelHistoryFetcher(brokers, max_workers=4)
         end = BASE + timedelta(days=7)
-        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        results, _ = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
         # All instruments should succeed (failover covers the failures)
         assert len(results) == len(INSTRUMENTS)
 
@@ -248,7 +253,7 @@ class TestFailoverFanout:
         }
         fetcher = ParallelHistoryFetcher(brokers, max_workers=1)
         end = BASE + timedelta(days=7)
-        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        results, _ = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
         assert results == {}  # everything failed
 
         total_calls = sum(b.history.call_count for b in brokers.values())
@@ -266,7 +271,7 @@ class TestFailoverFanout:
         brokers = {"dhan": dhan, "upstox": upstox}
         fetcher = ParallelHistoryFetcher(brokers, max_workers=4)
         end = BASE + timedelta(days=7)
-        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        results, _ = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
         # Every symbol succeeds via failover to the healthy broker
         assert len(results) == len(INSTRUMENTS)
         # Each failed dhan call is followed by exactly one upstox call
@@ -298,6 +303,32 @@ def test_fetch_respects_historical_rate_bucket() -> None:
     assert elapsed >= 0.35
 
 
+def test_transport_limiter_skips_fetcher_prefetch_acquire() -> None:
+    """Production brokers gate in transport — fetcher must not double-acquire."""
+    from tradex_brokers.common.resilience import limiter_for_provider
+
+    limiter = limiter_for_provider("dhan")
+    acquires = 0
+    original = limiter.acquire
+
+    def counting(bucket: str, *, timeout: float = 30.0) -> bool:
+        nonlocal acquires
+        acquires += 1
+        return original(bucket, timeout=timeout)
+
+    limiter.acquire = counting  # type: ignore[method-assign]
+    broker = MagicMock()
+    broker.rate_limiter = limiter
+    broker.history = MagicMock(return_value=_series(5))
+
+    fetcher = ParallelHistoryFetcher({"dhan": broker}, max_workers=4)
+    insts = [Equity.of("NSE", f"ACQ{i}") for i in range(10)]
+    fetcher.fetch(insts, Timeframe.M1, BASE, BASE + timedelta(days=7))
+
+    assert broker.history.call_count == 10
+    assert acquires == 0
+
+
 def test_failover_throttled_by_failover_broker_limiter() -> None:
     """A symbol that fails over to Upstox is throttled by Upstox's limiter.
 
@@ -317,13 +348,19 @@ def test_failover_throttled_by_failover_broker_limiter() -> None:
     dhan = _make_broker("dhan", fail_symbols=all_symbols)
     upstox = _make_broker("upstox")
     upstox.rate_limiter = slow
+
+    def _throttled_history(inst, tf, start, end):
+        slow.acquire("historical", timeout=30.0)
+        return _series()
+
+    upstox.history = MagicMock(side_effect=_throttled_history)
     fetcher = ParallelHistoryFetcher(
         {"dhan": dhan, "upstox": upstox},
         max_workers=1,
     )
     end = BASE + timedelta(days=7)
     t0 = time.monotonic()
-    results = fetcher.fetch(INSTRUMENTS[:2], Timeframe.M1, BASE, end)
+    results, _ = fetcher.fetch(INSTRUMENTS[:2], Timeframe.M1, BASE, end)
     elapsed = time.monotonic() - t0
 
     assert len(results) == 2  # both symbols served via Upstox (failover)
@@ -342,7 +379,7 @@ class TestRangedFetch:
         inst = INSTRUMENTS[0]
         r1 = (datetime(2026, 8, 3), datetime(2026, 8, 4))
         r2 = (datetime(2026, 8, 10), datetime(2026, 8, 11))
-        results = fetcher.fetch(
+        results, _ = fetcher.fetch(
             [inst], Timeframe.M1,
             datetime(2026, 8, 1), datetime(2026, 8, 20),
             ranges={str(inst.instrument_id): [r1, r2]},
@@ -358,7 +395,7 @@ class TestRangedFetch:
         fetcher = ParallelHistoryFetcher({"dhan": _make_broker("dhan")})
         inst = INSTRUMENTS[0]
         win = (datetime(2026, 8, 3), datetime(2026, 8, 4))
-        results = fetcher.fetch(
+        results, _ = fetcher.fetch(
             [inst], Timeframe.M1,
             datetime(2026, 8, 1), datetime(2026, 8, 20),
             ranges={str(inst.instrument_id): [win, win]},
@@ -372,7 +409,7 @@ class TestRangedFetch:
         dhan = _make_broker("dhan")
         fetcher = ParallelHistoryFetcher({"dhan": dhan})
         a, b = INSTRUMENTS[0], INSTRUMENTS[1]
-        results = fetcher.fetch(
+        results, _ = fetcher.fetch(
             [a, b], Timeframe.M1,
             BASE, BASE + timedelta(days=7),
             ranges={str(a.instrument_id): [(BASE, BASE + timedelta(days=1))]},
@@ -402,7 +439,7 @@ class TestBrokerHealth:
         brokers = {"dhan": dhan, "upstox": upstox}
         fetcher = ParallelHistoryFetcher(brokers, max_workers=1)
         end = BASE + timedelta(days=7)
-        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        results, _ = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
         # All symbols served (1 via upstox failover, the rest via dhan).
         assert len(results) == len(INSTRUMENTS)
         # dhan is the primary for half the batch (8/2 = 4) and was NOT
@@ -419,7 +456,7 @@ class TestBrokerHealth:
         brokers = {"dhan": dhan, "upstox": upstox}
         fetcher = ParallelHistoryFetcher(brokers, max_workers=1)
         end = BASE + timedelta(days=7)
-        results = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        results, _ = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
         # All served via upstox failover.
         assert len(results) == len(INSTRUMENTS)
         # dhan was blacklisted after K distinct misses (default 3), so the
@@ -487,3 +524,103 @@ class TestSharedLimiter:
 
         assert ok is False
         assert elapsed < 1.0, f"acquire blocked {elapsed:.2f}s during cooldown"
+
+
+def test_fetch_with_backoff_retries_after_partial_failure() -> None:
+    """Pending symbols are retried after a no-progress attempt."""
+    calls = {"n": 0}
+
+    class _FlakyFetcher:
+        def fetch(self, instruments, tf, start, end, ranges=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {}, [
+                    f"{i.instrument_id}: all brokers failed (Rate limit exceeded)"
+                    for i in instruments
+                ]
+            return {str(instruments[0].instrument_id): _series(3)}, []
+
+    inst = Equity.of("NSE", "RETRY")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(time, "sleep", lambda _s: None)
+        out = fetch_with_backoff(
+            _FlakyFetcher(), [inst], Timeframe.M1,
+            BASE, BASE + timedelta(days=1), max_retries=3,
+        )
+    assert calls["n"] == 2
+    assert str(inst.instrument_id) in out
+
+
+def test_default_workers_dhan_is_conservative() -> None:
+    assert _default_workers(["dhan", "upstox"]) == 2
+    assert _default_workers(["upstox"]) == 4
+
+
+def test_fetch_with_backoff_fails_fast_on_permanent_error() -> None:
+    """Permanent failures (empty series) should not trigger sleep."""
+    class _PermanentFaker:
+        def fetch(self, instruments, tf, start, end, ranges=None):
+            return {}, [
+                f"{i.instrument_id}: all brokers failed (upstox: empty stitched series)"
+                for i in instruments
+            ]
+
+    inst = Equity.of("NSE", "DEAD")
+    t0 = time.monotonic()
+    out = fetch_with_backoff(
+        _PermanentFaker(), [inst], Timeframe.M1,
+        BASE, BASE + timedelta(days=1), max_retries=6,
+    )
+    elapsed = time.monotonic() - t0
+    assert elapsed < 1.0
+    assert out == {}
+
+
+def test_fetch_with_backoff_retries_on_transient_error() -> None:
+    """Transient failures (429) should trigger retry with sleep."""
+    calls = {"n": 0}
+
+    class _TransientFaker:
+        def fetch(self, instruments, tf, start, end, ranges=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return {}, [
+                    f"{i.instrument_id}: all brokers failed (Rate limit exceeded)"
+                    for i in instruments
+                ]
+            return {str(instruments[0].instrument_id): _series(3)}, []
+
+    inst = Equity.of("NSE", "RETRY")
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(time, "sleep", lambda _s: None)
+        out = fetch_with_backoff(
+            _TransientFaker(), [inst], Timeframe.M1,
+            BASE, BASE + timedelta(days=1), max_retries=3,
+        )
+    assert calls["n"] == 2
+    assert str(inst.instrument_id) in out
+
+
+def test_fetch_with_backoff_skips_dead_symbols() -> None:
+    """Dead symbols are not retried in subsequent calls."""
+    calls = {"n": 0}
+
+    class _Faker:
+        def fetch(self, instruments, tf, start, end, ranges=None):
+            calls["n"] += 1
+            return {}, [
+                f"{i.instrument_id}: all brokers failed (upstox: empty stitched series)"
+                for i in instruments
+            ]
+
+    inst = Equity.of("NSE", "DEAD2")
+    dead = set()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(time, "sleep", lambda _s: None)
+        fetch_with_backoff(
+            _Faker(), [inst], Timeframe.M1,
+            BASE, BASE + timedelta(days=1), max_retries=6,
+            dead_symbols=dead,
+        )
+    assert calls["n"] == 1
+    assert str(inst.instrument_id) in dead

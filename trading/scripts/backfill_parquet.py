@@ -203,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
         batch_idx, batch = queue.pop(0)
         t0 = time.perf_counter()
         try:
-            results = fetcher.fetch(batch, Timeframe(args.timeframe), start, end)
+            results, _ = fetcher.fetch(batch, Timeframe(args.timeframe), start, end)
         except Exception as exc:
             log.exception("Batch %d failed: %s", batch_idx, exc)
             results = {}

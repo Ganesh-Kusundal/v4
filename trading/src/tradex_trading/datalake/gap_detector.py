@@ -16,6 +16,7 @@ Adapted from nTrade's GapDetector.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -77,6 +78,8 @@ class GapDetector:
         bar_freq: str = "5min",
         holidays: set[date] | None = None,
         min_gap_stamps: int = 1,
+        max_workers: int = 1,
+        tail_days: int | None = None,
     ) -> list[tuple]:
         """Return instruments with their missing date ranges.
 
@@ -87,31 +90,43 @@ class GapDetector:
         truncated tails or drop stray closing bars; without a floor such
         noise flags every symbol as gapped and ``--skip-existing`` refetches
         the whole universe on every run.
+
+        ``max_workers`` parallelizes per-symbol parquet reads (read-only).
+        ``tail_days`` limits the scan window to ``last_stored - tail_days``
+        for symbols with existing data (incremental daily sync).
         """
-        results: list[tuple] = []
+        inst_list = list(instruments)
+        if not inst_list:
+            return []
         holiday_set = frozenset(holidays) if holidays else frozenset()
 
-        for inst in instruments:
+        def _scan_one(inst) -> tuple | None:
             symbol = inst.symbol
+            scan_start = start
+            if tail_days is not None:
+                last = self.last_stored(symbol)
+                if last is not None:
+                    tail_start = (last - timedelta(days=tail_days)).replace(
+                        hour=0, minute=0, second=0, microsecond=0,
+                    )
+                    scan_start = max(start, tail_start)
             existing = self._store.read(
-                symbols=[symbol], start=start, end=end, timeframe=timeframe,
+                symbols=[symbol], start=scan_start, end=end, timeframe=timeframe,
             )
 
             if existing.empty:
-                results.append((inst, [(start, end)]))
-                continue
+                return inst, [(start, end)]
 
-            expected = _session_grid(start, end, bar_freq, holiday_set)
+            expected = _session_grid(scan_start, end, bar_freq, holiday_set)
             if not len(expected):
-                continue
+                return None
             existing_ts = pd.to_datetime(existing["timestamp"]).sort_values()
             existing_set = set(existing_ts)
 
             missing_times = [t for t in expected if t not in existing_set]
             if not missing_times:
-                continue
+                return None
 
-            # Group consecutive missing timestamps into contiguous ranges
             gaps: list[tuple[datetime, datetime]] = []
             gap_start = missing_times[0]
             prev = gap_start
@@ -130,8 +145,22 @@ class GapDetector:
                 ]
 
             if gaps:
-                results.append((inst, gaps))
+                return inst, gaps
+            return None
 
+        if max_workers <= 1:
+            results: list[tuple] = []
+            for inst in inst_list:
+                hit = _scan_one(inst)
+                if hit is not None:
+                    results.append(hit)
+            return results
+
+        results = []
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for hit in pool.map(_scan_one, inst_list):
+                if hit is not None:
+                    results.append(hit)
         return results
 
     def missing_symbols(

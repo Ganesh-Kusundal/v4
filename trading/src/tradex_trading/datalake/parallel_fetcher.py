@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
@@ -100,7 +101,109 @@ def _split(items: list, n: int) -> list[list]:
     return [items[i * k + min(i, m):(i + 1) * k + min(i + 1, m)] for i in range(n)]
 
 
+def _default_workers(broker_names: list[str]) -> int:
+    """Provider-aware concurrency: Dhan burst walls sit below 5/s after ~100 calls."""
+    if "dhan" in broker_names:
+        return 2
+    return 4
+
+
+def fetch_with_backoff(
+    fetcher: ParallelHistoryFetcher,
+    batch: list[Instrument],
+    tf: Timeframe | str,
+    c_start: datetime,
+    c_end: datetime,
+    *,
+    batch_size: int = 20,
+    max_retries: int = 6,
+    ranges: dict[str, list[tuple[datetime, datetime]]] | None = None,
+    dead_symbols: set[str] | None = None,
+) -> dict[str, HistoricalSeries]:
+    """Fetch a batch with exponential backoff on rate-limit bursts.
+
+    ``dead_symbols`` tracks symbols that failed permanently (empty series,
+    unknown to broker) so they are skipped on subsequent retries and
+    clusters. Only transient failures (429, limiter timeout) trigger sleep.
+    """
+    pending = list(batch)
+    merged: dict[str, HistoricalSeries] = {}
+    backoff = 30.0
+    zero_progress_streak = 0
+    if dead_symbols is None:
+        dead_symbols = set()
+    for attempt in range(1, max_retries + 1):
+        if not pending:
+            break
+        pending = [
+            i for i in pending
+            if str(i.instrument_id) not in dead_symbols
+        ]
+        if not pending:
+            break
+        results, errors = fetcher.fetch(
+            pending, tf, c_start, c_end, ranges=ranges,
+        )
+        merged.update(results)
+        succeeded_ids = set(results.keys())
+        still_pending = [
+            inst for inst in pending
+            if str(inst.instrument_id) not in succeeded_ids
+        ]
+        if not still_pending:
+            break
+        if len(still_pending) < len(pending):
+            zero_progress_streak = 0
+            backoff = 30.0
+        else:
+            zero_progress_streak += 1
+            if zero_progress_streak >= 2:
+                log.warning(
+                    "fetch_with_backoff: no progress twice — giving up on "
+                    "%d symbol(s)",
+                    len(still_pending),
+                )
+                break
+        if not _has_transient_errors(errors):
+            log.warning(
+                "fetch_with_backoff: permanent failures only — "
+                "giving up on %d symbol(s)",
+                len(still_pending),
+            )
+            dead_symbols.update(str(i.instrument_id) for i in still_pending)
+            break
+        log.warning(
+            "fetch_with_backoff: rate-limited (attempt %d/%d) — sleeping %.0fs",
+            attempt, max_retries, backoff,
+        )
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 480.0)
+        pending = still_pending
+    return merged
+
+
+def _is_transient_error(error_msg: str) -> bool:
+    """Classify a fetch error as transient (retry may help) or permanent.
+
+    Permanent errors: empty series, symbol not in broker registry.
+    Transient errors: HTTP 429, rate limiter timeout, network issues.
+    """
+    permanent_markers = ("empty stitched", "empty series", "empty failover")
+    if any(m in error_msg for m in permanent_markers):
+        return False
+    return True
+
+
+def _has_transient_errors(errors: list[str]) -> bool:
+    """True if any error looks retryable."""
+    return any(_is_transient_error(e) for e in errors)
+
+
 def _provider_for(name: str) -> str:
+    """Map a broker key to the provider name used for rate-limit tables."""
+    if name in ("dhan", "upstox", "paper"):
+        return name
+    return "paper"
     """Map a broker key to the provider name used for rate-limit tables.
 
     The fetcher's broker keys are ``"dhan"``/``"upstox"``/``"paper"``,
@@ -182,18 +285,36 @@ class ParallelHistoryFetcher:
         # provider-tuned limiter so a failover call is throttled by the
         # limiter of the broker actually serving it.
         self._rate_limiter = rate_limiter
+        self._explicit_limiter = rate_limiter is not None
         self._limiters = {}
+        self._prefetch_gate: dict[str, bool] = {}
         for name, broker in brokers.items():
             if rate_limiter is not None:        # explicit override (kept for tests)
                 self._limiters[name] = rate_limiter
+                self._prefetch_gate[name] = True
                 continue
             shared = getattr(broker, "rate_limiter", None)
             if shared is not None:              # production path: read from broker
                 self._limiters[name] = shared
+                self._prefetch_gate[name] = False
                 continue
             # ponytail: test doubles / non-standard brokers — fall back to a
             # provider-tuned limiter so existing test isolation is preserved.
             self._limiters[name] = limiter_for_provider(_provider_for(name))
+            self._prefetch_gate[name] = True
+
+    def _maybe_acquire(
+        self, broker_name: str, broker: Any, inst_id: str,
+    ) -> None:
+        if not self._prefetch_gate.get(broker_name, True):
+            return
+        limiter = self._limiters[broker_name]
+        if not limiter.acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
+            log.warning(
+                "ParallelHistoryFetcher: rate-limit gate timed out for "
+                "%s via %s — proceeding anyway",
+                inst_id, broker_name,
+            )
 
     # ------------------------------------------------------------------ public
 
@@ -204,8 +325,12 @@ class ParallelHistoryFetcher:
         start: datetime,
         end: datetime,
         ranges: dict[str, list[tuple[datetime, datetime]]] | None = None,
-    ) -> dict[str, HistoricalSeries]:
-        """Fetch history for all instruments.  Returns ``{symbol: HistoricalSeries}``.
+    ) -> tuple[dict[str, HistoricalSeries], list[str]]:
+        """Fetch history for all instruments.
+
+        Returns ``(results, errors)`` — results keyed by instrument_id and
+        a list of error messages for failed symbols (used by fetch_with_backoff
+        to classify transient vs permanent failures).
 
         Routing: instruments split across all configured brokers; per-broker
         poll caps handled by auto-chunking (see ``_pick_brokers``).
@@ -220,7 +345,7 @@ class ParallelHistoryFetcher:
         whole trailing window.  Result envelopes still report start/end.
         """
         if not instruments:
-            return {}
+            return {}, []
         if not self._brokers:
             raise ValueError("ParallelHistoryFetcher requires at least one broker")
         if isinstance(timeframe, str):
@@ -286,7 +411,6 @@ class ParallelHistoryFetcher:
             return broker.history(inst, timeframe, s, e)
 
         def _fetch_one(broker_name: str, broker: Any, inst: Instrument) -> None:
-            limiter = self._limiters[broker_name]
             first_exc: Exception | None = None
             skip_primary = False
             with lock:
@@ -307,12 +431,7 @@ class ParallelHistoryFetcher:
                     raise RuntimeError(
                         f"{broker_name}: empty stitched series for {inst.instrument_id}"
                     )
-                if not limiter.acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
-                    log.warning(
-                        "ParallelHistoryFetcher: rate-limit gate timed out for "
-                        "%s via %s — proceeding anyway",
-                        inst.instrument_id, broker_name,
-                    )
+                self._maybe_acquire(broker_name, broker, str(inst.instrument_id))
                 series = _call_history(broker, inst, s=start, e=end)
                 if series is not None and len(series.candles) > 0:
                     with lock:
@@ -345,14 +464,7 @@ class ParallelHistoryFetcher:
                             f"{other_name}: empty stitched failover"
                             f" for {inst.instrument_id}"
                         )
-                    if not self._limiters[other_name].acquire(
-                        "historical", timeout=ACQUIRE_TIMEOUT_S
-                    ):
-                        log.warning(
-                            "ParallelHistoryFetcher: rate-limit gate timed out for "
-                            "%s via %s — proceeding anyway",
-                            inst.instrument_id, other_name,
-                        )
+                    self._maybe_acquire(other_name, other_broker, str(inst.instrument_id))
                     series = _call_history(other_broker, inst, s=start, e=end)
                     if series is not None and len(series.candles) > 0:
                         with lock:
@@ -377,7 +489,7 @@ class ParallelHistoryFetcher:
         if errors:
             log.warning("ParallelHistoryFetcher: %d failures: %s", len(errors), errors[:5])
         log.info("ParallelHistoryFetcher: %d/%d succeeded", len(results), len(instruments))
-        return results
+        return results, errors
 
     # ------------------------------------------------------------------ routing
 
@@ -394,14 +506,8 @@ class ParallelHistoryFetcher:
         the broker raises (caller decides failover vs. blacklist).
         """
         stitched: list = []
-        limiter = self._limiters[broker_name]
         for ws, we in windows:
-            if not limiter.acquire("historical", timeout=ACQUIRE_TIMEOUT_S):
-                log.warning(
-                    "ParallelHistoryFetcher: rate-limit gate timed out for "
-                    "%s via %s — proceeding anyway",
-                    inst.instrument_id, broker_name,
-                )
+            self._maybe_acquire(broker_name, broker, str(inst.instrument_id))
             part = broker.history(inst, self._timeframe, ws, we)
             if part is not None and part.candles:
                 stitched.extend(part.candles)
@@ -438,4 +544,8 @@ class ParallelHistoryFetcher:
         return list(self._brokers.keys())
 
 
-__all__ = ["ParallelHistoryFetcher"]
+__all__ = [
+    "ParallelHistoryFetcher",
+    "_default_workers",
+    "fetch_with_backoff",
+]

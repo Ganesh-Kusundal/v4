@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                for i in range(0, len(targets), batch_size)]
     for idx, batch in enumerate(batches, 1):
         t0 = time.perf_counter()
-        results = fetcher.fetch(batch, Timeframe(args.timeframe), start, end)
+        results, _ = fetcher.fetch(batch, Timeframe(args.timeframe), start, end)
         frames = []
         for inst_id, series in results.items():
             sym = inst_id.split(":")[-1] if ":" in inst_id else inst_id

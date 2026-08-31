@@ -28,66 +28,15 @@ from tradex_domain.market_calendar import NSE_HOLIDAYS_2026  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
 from tradex_trading.datalake.historical_sync import HistoricalSyncService, _series_to_frame  # noqa: E402
-from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher  # noqa: E402
+from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402
+    ParallelHistoryFetcher,
+    _default_workers,
+    fetch_with_backoff,
+)
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
 from tradex_trading.datalake.universe import load_universe  # noqa: E402
 
 import pandas as pd  # noqa: E402
-
-
-def _fetch_batch_with_backoff(
-    fetcher,
-    batch,
-    tf,
-    c_start,
-    c_end,
-    max_retries: int = 6,
-) -> dict:
-    """Fetch one batch, retrying with backoff on rate-limit bursts.
-
-    Distinguishes transient (quota) from permanent failures: if a batch
-    makes zero progress across two consecutive attempts, the remaining
-    symbols are treated as dead (e.g. not in the broker's registry) and
-    given up rather than burning 15 min of backoff on them.
-    """
-    pending = list(batch)
-    merged: dict = {}
-    backoff = 30.0
-    zero_progress_streak = 0
-    for attempt in range(1, max_retries + 1):
-        if not pending:
-            break
-        results = fetcher.fetch(pending, tf, c_start, c_end)
-        merged.update(results)
-        succeeded_ids = set(results.keys())
-        still_pending = [
-            inst for inst in pending
-            if str(inst.instrument_id) not in succeeded_ids
-        ]
-        if not still_pending:
-            break
-        if len(still_pending) < len(pending):
-            # Partial success — quota is flowing; keep backing off for rest.
-            zero_progress_streak = 0
-            backoff = 30.0
-        else:
-            zero_progress_streak += 1
-            if zero_progress_streak >= 2:
-                log.warning(
-                    "batch made no progress twice — giving up on %d symbols "
-                    "(permanent failure, e.g. unknown to broker)",
-                    len(still_pending),
-                )
-                break
-        log.warning(
-            "batch rate-limited (attempt %d/%d) — sleeping %.0fs",
-            attempt, max_retries, backoff,
-        )
-        import time
-        time.sleep(backoff)
-        backoff = min(backoff * 2, 480.0)
-        pending = still_pending
-    return merged
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -122,7 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     log.info("detecting gaps (window %s -> %s)...", start.date(), end.date())
     gaps = detector.detect(instruments, start=start, end=end,
                            timeframe="1m", bar_freq="1min",
-                           holidays=NSE_HOLIDAYS_2026, min_gap_stamps=15)
+                           holidays=NSE_HOLIDAYS_2026, min_gap_stamps=15,
+                           max_workers=8, tail_days=7)
     log.info("%d gapped symbols", len(gaps))
     if not gaps:
         print("[fill-gaps] lake is clean — nothing to do")
@@ -151,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     total_written = 0
+    dead_symbols: set[str] = set()
     # Biggest clusters first: fills the most symbols earliest and pushes
     # dead singletons (permanent broker failures) to the very end.
     for (c_start, c_end), insts in sorted(
@@ -162,13 +113,17 @@ def main(argv: list[str] | None = None) -> int:
         pref = ["dhan"] if is_today else (
             ["upstox"] if "upstox" in brokers else ["dhan"])
         chosen = {n: brokers[n] for n in pref if n in brokers} or brokers
-        fetcher = ParallelHistoryFetcher(chosen, max_workers=4)
+        w = _default_workers(list(chosen.keys()))
+        fetcher = ParallelHistoryFetcher(chosen, max_workers=w)
         log.info("cluster %s -> %s (%d symbols, broker=%s)",
                  c_start.date(), c_end.date(), len(insts), list(chosen))
 
         for i in range(0, len(insts), 20):
             batch = insts[i:i + 20]
-            results = _fetch_batch_with_backoff(fetcher, batch, tf, c_start, c_end)
+            results = fetch_with_backoff(
+                fetcher, batch, tf, c_start, c_end,
+                dead_symbols=dead_symbols,
+            )
             frames = []
             for inst_id, series in results.items():
                 sym = inst_id.split(":")[-1] if ":" in inst_id else inst_id
@@ -183,7 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     # ---- verify ----
     remaining = detector.detect(instruments, start=start, end=end,
                                 timeframe="1m", bar_freq="1min",
-                                holidays=NSE_HOLIDAYS_2026, min_gap_stamps=15)
+                                holidays=NSE_HOLIDAYS_2026, min_gap_stamps=15,
+                                max_workers=8, tail_days=7)
     log.info("verification: %d gapped symbols remain", len(remaining))
     print(f"[fill-gaps] DONE written={total_written} "
           f"gapped_remaining={len(remaining)}")

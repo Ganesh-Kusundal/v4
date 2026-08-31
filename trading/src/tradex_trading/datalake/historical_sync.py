@@ -31,6 +31,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -43,7 +44,11 @@ from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.market_calendar import NSE_HOLIDAYS_2026, to_ist_naive
 
 from tradex_trading.datalake.gap_detector import GapDetector
-from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
+from tradex_trading.datalake.parallel_fetcher import (
+    ParallelHistoryFetcher,
+    _default_workers,
+    fetch_with_backoff,
+)
 from tradex_trading.datalake.parquet_storage import ParquetStorage
 from tradex_trading.datalake.universe import load_universe
 
@@ -111,6 +116,25 @@ def _series_to_frame(series, symbol: str) -> pd.DataFrame:
             "volume": float(c.volume.value),
         })
     return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+def _cluster_gaps(
+    gap_pairs: list[tuple],
+) -> dict[tuple[datetime, datetime], list]:
+    """Group missing ranges into day-span clusters (fill_gaps semantics)."""
+    clusters: dict[tuple[datetime, datetime], list] = defaultdict(list)
+    seen: dict[tuple[datetime, datetime], set[str]] = defaultdict(set)
+    for inst, ranges in gap_pairs:
+        for gs, ge in ranges:
+            key = (
+                datetime.combine(gs.date(), datetime.min.time()),
+                datetime.combine(ge.date(), datetime.min.time())
+                + timedelta(days=1),
+            )
+            if inst.symbol not in seen[key]:
+                clusters[key].append(inst)
+                seen[key].add(inst.symbol)
+    return clusters
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,9 +209,11 @@ class HistoricalSyncService:
         brokers: dict[str, Any] | None = None,
         filler_broker: str | None = "upstox",
         batch_size: int = 20,
-        workers: int = 4,
+        workers: int | None = None,
         min_gap_stamps: int = 15,
         verify: bool = True,
+        tail_days: int | None = 7,
+        gap_workers: int = 8,
     ) -> SyncResult:
         """Sync one universe/timeframe for the trailing ``months`` window.
 
@@ -229,50 +255,42 @@ class HistoricalSyncService:
         if brokers is None:
             brokers = self._build_brokers_from_env()
 
-        fetcher = self._fetcher or ParallelHistoryFetcher(brokers, max_workers=workers)
+        worker_count = workers if workers is not None else _default_workers(
+            list(brokers.keys())
+        )
 
         gap_pairs = self._gapped_pairs(
-            active_insts, start, end, str(tf.value), min_gap_stamps
+            active_insts, start, end, str(tf.value), min_gap_stamps,
+            tail_days=tail_days, gap_workers=gap_workers,
         )
         to_fetch = [inst for inst, _ in gap_pairs]
-        range_map = {
-            str(inst.instrument_id): rngs for inst, rngs in gap_pairs
-        }
         gaps_before = len(to_fetch)
         log.info("HistoricalSync phase 1: %d/%d need data",
                  gaps_before, len(active_insts))
 
-        written1 = self._fetch_and_upsert(
-            fetcher, to_fetch, tf, start, end, batch_size, range_map
+        written1 = self._fetch_clusters(
+            gap_pairs, brokers or {}, tf, start, end,
+            batch_size, worker_count, now=end,
         )
 
         # --- Phase 2: filler top-up for residual gaps (ranged) ---
         written2 = 0
         if filler_broker and filler_broker in (brokers or {}):
-            filler = {filler_broker: brokers[filler_broker]}
             gap_pairs2 = self._gapped_pairs(
-                # ponytail: only phase-1 symbols can still be gapped —
-                # upserts add rows, they never remove them.
-                to_fetch, start, end, str(tf.value), min_gap_stamps
+                to_fetch, start, end, str(tf.value), min_gap_stamps,
+                gap_workers=gap_workers,
             )
             if gap_pairs2:
                 log.info("HistoricalSync phase 2 (filler %s): %d gapped symbols",
                          filler_broker, len(gap_pairs2))
-                filler_fetcher = ParallelHistoryFetcher(filler, max_workers=workers)
-                range_map2 = {
-                    str(inst.instrument_id): rngs
-                    for inst, rngs in gap_pairs2
-                }
-                written2 = self._fetch_and_upsert(
-                    filler_fetcher,
-                    [inst for inst, _ in gap_pairs2],
-                    tf, start, end, batch_size, range_map2,
+                written2 = self._fetch_clusters(
+                    gap_pairs2,
+                    {filler_broker: brokers[filler_broker]},
+                    tf, start, end, batch_size, worker_count,
+                    broker_pref=[filler_broker], now=end,
                 )
 
         # --- Phase 3: same-day top-up via a broker that serves live-day M1 ---
-        # Upstox's historical endpoint excludes the current session, so after
-        # a filler pass every symbol fetched only from it is still missing
-        # today. A broker known to serve same-day bars (Dhan) tops those up.
         written3 = 0
         same_day = [
             name for name, broker in (brokers or {}).items()
@@ -281,34 +299,31 @@ class HistoricalSyncService:
         if same_day:
             now = to_ist_naive(datetime.now(UTC))
             day_start = now.replace(hour=9, minute=0, second=0, microsecond=0)
-            # ponytail: skip before 09:00 IST — session hasn't opened, so
-            # "missing today" is vacuous and detect(start>end) is meaningless.
             gaps_today = (
-                self._detector.detect(
-                    to_fetch, start=day_start, end=now,
-                    timeframe=str(tf.value), bar_freq="1min",
-                    holidays=self._holidays, min_gap_stamps=min_gap_stamps,
+                self._gapped_pairs(
+                    to_fetch, day_start, now, str(tf.value), min_gap_stamps,
+                    gap_workers=gap_workers,
                 )
                 if now > day_start else []
             )
             if gaps_today:
                 log.info("HistoricalSync phase 3 (same-day via %s): %d symbols "
                          "missing today", same_day[0], len(gaps_today))
-                sd_fetcher = ParallelHistoryFetcher(
-                    {same_day[0]: brokers[same_day[0]]}, max_workers=workers
-                )
-                todays_insts = [inst for inst, _ in gaps_today]
-                written3 = self._fetch_and_upsert(
-                    sd_fetcher, todays_insts, tf, day_start, now,
-                    batch_size,
+                sd_brokers = {same_day[0]: brokers[same_day[0]]}
+                written3 = self._fetch_clusters(
+                    gaps_today, sd_brokers, tf, day_start, now,
+                    batch_size, worker_count,
+                    broker_pref=same_day, now=now,
                 )
 
         # --- Verification + failure bookkeeping ---
         gaps_remaining = 0
         failed: list[str] = []
         if verify:
+            verify_insts = to_fetch if to_fetch else active_insts
             gaps_after = self._gapped_pairs(
-                instruments, start, end, str(tf.value), min_gap_stamps
+                verify_insts, start, end, str(tf.value), min_gap_stamps,
+                gap_workers=gap_workers,
             )
             gaps_remaining = len(gaps_after)
             failed = [inst.symbol for inst, _ in gaps_after]
@@ -365,12 +380,16 @@ class HistoricalSyncService:
 
     # ------------------------------------------------------------------ helpers
 
-    def _gapped_pairs(self, instruments, start, end, timeframe, min_gap_stamps):
+    def _gapped_pairs(
+        self, instruments, start, end, timeframe, min_gap_stamps,
+        *, tail_days: int | None = None, gap_workers: int = 1,
+    ):
         """GapDetector run -> ``[(inst, missing_ranges)]`` for gapped symbols."""
         return self._detector.detect(
             instruments, start=start, end=end,
             timeframe=timeframe, bar_freq="1min",
             holidays=self._holidays, min_gap_stamps=min_gap_stamps,
+            max_workers=gap_workers, tail_days=tail_days,
         ) or []
 
     def _update_blacklist(
@@ -410,6 +429,68 @@ class HistoricalSyncService:
         # ponytail: unconditional rewrite keeps prune/bump logic trivial.
         _save_blacklist(self._blacklist_path, updated)
 
+    def _fetch_clusters(
+        self,
+        gap_pairs: list[tuple],
+        brokers: dict[str, Any],
+        tf: Timeframe,
+        start: datetime,
+        end: datetime,
+        batch_size: int,
+        workers: int,
+        *,
+        broker_pref: list[str] | None = None,
+        now: datetime | None = None,
+    ) -> int:
+        if not gap_pairs or not brokers:
+            return 0
+        now = now or end
+        clusters = _cluster_gaps(gap_pairs)
+        total = 0
+        dead_symbols: set[str] = set()
+        for (c_start, c_end), insts in sorted(
+            clusters.items(), key=lambda kv: len(kv[1]), reverse=True,
+        ):
+            fetch_end = min(c_end - timedelta(seconds=1), end)
+            if broker_pref:
+                names = [n for n in broker_pref if n in brokers]
+            elif c_end.date() >= now.date():
+                names = [
+                    n for n in brokers
+                    if n == "dhan" or _serves_same_day(brokers[n])
+                ] or list(brokers.keys())
+            else:
+                names = (
+                    ["upstox"] if "upstox" in brokers else list(brokers.keys())
+                )
+            chosen = {n: brokers[n] for n in names if n in brokers} or brokers
+            if self._fetcher is not None:
+                fetcher = self._fetcher
+            else:
+                w = workers if workers else _default_workers(list(chosen.keys()))
+                fetcher = ParallelHistoryFetcher(chosen, max_workers=w)
+            log.info(
+                "HistoricalSync cluster %s->%s: %d symbols via %s",
+                c_start.date(), fetch_end.date(), len(insts), list(chosen),
+            )
+            for i in range(0, len(insts), batch_size):
+                batch = insts[i:i + batch_size]
+                results = fetch_with_backoff(
+                    fetcher, batch, tf, c_start, fetch_end,
+                    dead_symbols=dead_symbols,
+                )
+                frames = []
+                for inst_id, series in results.items():
+                    sym = inst_id.split(":")[-1] if ":" in inst_id else inst_id
+                    df = _series_to_frame(series, sym)
+                    if not df.empty:
+                        frames.append(df)
+                if frames:
+                    total += self._store.upsert(
+                        pd.concat(frames, ignore_index=True),
+                    )
+        return total
+
     def _fetch_and_upsert(self, fetcher, instruments, tf, start, end, batch_size,
                           ranges=None) -> int:
         if not instruments:
@@ -417,7 +498,9 @@ class HistoricalSyncService:
         total = 0
         batches = [instruments[i:i + batch_size] for i in range(0, len(instruments), batch_size)]
         for batch in batches:
-            results = fetcher.fetch(batch, tf, start, end, ranges=ranges)
+            results = fetch_with_backoff(
+                fetcher, batch, tf, start, end, ranges=ranges,
+            )
             frames = []
             for inst_id, series in results.items():
                 sym = inst_id.split(":")[-1] if ":" in inst_id else inst_id
