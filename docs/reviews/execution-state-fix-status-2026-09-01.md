@@ -55,3 +55,11 @@ the five fix commits.
 The 8 Minor findings (6-13) are documented in the review report and remain open;
 none block live-broker work. Deferred intentionally to keep this branch focused on
 the Critical/Important set.
+
+All 8 re-verified open at fixed HEAD on 2026-09-01: rate-limit window still
+in-memory and not rebuilt on recovery (6); risk rejections still leave no audit
+event (7); `get_orders`/`get_positions` still return bare `list` (8); paper-mode
+fills still absent from `CommandResult.events` (9); `test_get_positions_after_fill`
+still exercises `apply_fill` as a paper delta-0 no-op (10); research-script lookback
+semantics and unused `import sys` unchanged (11, 12); `read_after` still
+materializes and filters under lock (13).
