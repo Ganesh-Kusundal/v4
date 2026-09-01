@@ -13,7 +13,7 @@ from tradex_domain.execution import Fill, OrderRequest, Position
 from tradex_domain.instruments import Equity, Instrument
 from tradex_domain.value_objects import Money, OrderId, Price, Quantity
 
-from tradex_trading.events.order_fsm import OrderState, TERMINAL_STATES, transition
+from tradex_trading.events.order_fsm import InvalidStateTransition, OrderState, TERMINAL_STATES, transition
 from tradex_trading.events.store import Event, EventStore
 from tradex_trading.execution.position_math import apply_fill
 
@@ -143,7 +143,7 @@ class OrderBookActor:
             stored = self._store.append(event)
             return [stored]
 
-        # Create order with NEW status
+        # Create order with NEW status (not yet registered in state)
         order_id = str(uuid.uuid4())
         order = _OrderState(
             order_id=order_id,
@@ -155,12 +155,8 @@ class OrderBookActor:
             filled_quantity=Decimal("0"),
             correlation_id=cmd.correlation_id,
         )
-        self._orders[order_id] = order
 
-        # Transition NEW -> ACK
-        order.status = transition(order.status, "ack")
-
-        # Emit OrderPlaced event
+        # Emit OrderPlaced event BEFORE mutating state
         event = Event(
             event_id=str(uuid.uuid4()),
             event_time=now,
@@ -177,7 +173,13 @@ class OrderBookActor:
                 "correlation_id": cmd.correlation_id,
             },
         )
+        # Persist FIRST — only mutate state if append succeeds
         stored = self._store.append(event)
+
+        # NOW register order and transition (state mutation AFTER persist)
+        self._orders[order_id] = order
+        order.status = transition(order.status, "ack")
+
         return [stored]
 
     def _handle_apply_fill(self, cmd: ApplyFillCommand) -> list[Event]:
@@ -197,7 +199,6 @@ class OrderBookActor:
                 filled_quantity=Decimal("0"),
                 correlation_id=cmd.correlation_id,
             )
-            self._orders[cmd.order_id] = order
 
             synth_event = Event(
                 event_id=str(uuid.uuid4()),
@@ -211,25 +212,28 @@ class OrderBookActor:
                     "reason": "fill_for_unknown_order",
                 },
             )
+            # Persist FIRST — only mutate state if append succeeds
             stored = self._store.append(synth_event)
             events.append(stored)
+            # NOW register synthetic order in state (AFTER persist)
+            self._orders[cmd.order_id] = order
 
         # Compute delta vs current filled_quantity (idempotent)
         delta = cmd.cumulative_filled - order.filled_quantity
         if delta <= 0:
             return []  # Duplicate or stale fill — no events
 
-        # Update order filled quantity
-        order.filled_quantity = cmd.cumulative_filled
+        # Compute new state values BEFORE mutating
+        new_filled_quantity = cmd.cumulative_filled
         is_complete = cmd.cumulative_filled >= order.quantity
 
-        # Transition order state
+        # Compute new status via FSM (may raise InvalidStateTransition)
         event_type = "full_fill" if is_complete else "fill"
         try:
-            order.status = transition(order.status, event_type)
-        except Exception:
+            new_status = transition(order.status, event_type)
+        except InvalidStateTransition:
             # Fallback for edge cases (e.g., fill from NEW directly)
-            order.status = OrderState.FILLED if is_complete else OrderState.PARTIALLY_FILLED
+            new_status = OrderState.FILLED if is_complete else OrderState.PARTIALLY_FILLED
 
         # Emit OrderFilled event
         filled_event = Event(
@@ -250,8 +254,13 @@ class OrderBookActor:
                 "fill_id": cmd.fill_id,
             },
         )
+        # Persist FIRST
         stored = self._store.append(filled_event)
         events.append(stored)
+
+        # NOW mutate order state (AFTER persist succeeds)
+        order.filled_quantity = new_filled_quantity
+        order.status = new_status
 
         # Update position (skip for unknown instruments)
         instrument_str = order.instrument
@@ -276,7 +285,6 @@ class OrderBookActor:
             fill_id=cmd.fill_id,
         )
         new_pos = apply_fill(existing_pos, fill)
-        self._positions[instrument_str] = new_pos
 
         # Emit PositionUpdated event
         position_event = Event(
@@ -293,8 +301,12 @@ class OrderBookActor:
                 "realized_pnl": str(new_pos.realized_pnl.amount),
             },
         )
+        # Persist FIRST
         stored = self._store.append(position_event)
         events.append(stored)
+
+        # NOW mutate position state (AFTER persist succeeds)
+        self._positions[instrument_str] = new_pos
 
         return events
 
@@ -308,8 +320,8 @@ class OrderBookActor:
         if order.status in TERMINAL_STATES:
             return []
 
-        # Transition to CANCELLED
-        order.status = transition(order.status, "cancel")
+        # Compute new status BEFORE mutating
+        new_status = transition(order.status, "cancel")
 
         event = Event(
             event_id=str(uuid.uuid4()),
@@ -323,12 +335,14 @@ class OrderBookActor:
                 "reason": "user_cancel",
             },
         )
+        # Persist FIRST
         stored = self._store.append(event)
+        # NOW mutate state (AFTER persist succeeds)
+        order.status = new_status
         return [stored]
 
     def _handle_trip_kill_switch(self, cmd: TripKillSwitchCommand) -> list[Event]:
         now = cmd.event_time
-        self._kill_switch = True
 
         events: list[Event] = []
 
@@ -348,10 +362,14 @@ class OrderBookActor:
         stored = self._store.append(kill_event)
         events.append(stored)
 
+        # NOW mutate kill_switch state (AFTER persist succeeds)
+        self._kill_switch = True
+
         # Cancel all open (non-terminal) orders
         for order in self._orders.values():
             if order.status not in TERMINAL_STATES:
-                order.status = transition(order.status, "cancel")
+                # Compute new status BEFORE mutating
+                new_status = transition(order.status, "cancel")
                 cancel_event = Event(
                     event_id=str(uuid.uuid4()),
                     event_time=now,
@@ -364,8 +382,11 @@ class OrderBookActor:
                         "reason": "kill_switch",
                     },
                 )
+                # Persist FIRST
                 stored = self._store.append(cancel_event)
                 events.append(stored)
+                # NOW mutate state (AFTER persist succeeds)
+                order.status = new_status
 
         return events
 
@@ -374,10 +395,16 @@ class OrderBookActor:
         self._kill_switch = True
 
     def recover(self) -> None:
-        """Recover state from event log by replaying all events."""
+        """Recover state from event log by replaying all events.
+
+        Rebuilds both state AND the idempotency map so that commands
+        with previously-seen correlation_ids are not re-processed.
+        """
         events = self._store.read_all(self._session_id)
         for event in events:
             self._apply_event(event)
+        # Rebuild idempotency map from all events
+        self._rebuild_idempotency(events)
 
     def _apply_event(self, event: Event) -> None:
         """Apply an event to rebuild state (no store write)."""
@@ -391,6 +418,19 @@ class OrderBookActor:
                 status=OrderState.ACK,
                 filled_quantity=Decimal("0"),
                 correlation_id=event.payload.get("correlation_id", ""),
+            )
+            self._orders[order.order_id] = order
+        elif event.type == "SyntheticOrderCreated":
+            # Register synthetic order in state during recovery
+            order = _OrderState(
+                order_id=event.payload["order_id"],
+                instrument="unknown",
+                side="UNKNOWN",
+                quantity=Decimal("0"),
+                price=None,
+                status=OrderState.ACK,
+                filled_quantity=Decimal("0"),
+                correlation_id=event.correlation_id,
             )
             self._orders[order.order_id] = order
         elif event.type == "OrderFilled":
@@ -416,6 +456,27 @@ class OrderBookActor:
             )
         elif event.type == "KillSwitchTripped":
             self._kill_switch = True
+
+    def _rebuild_idempotency(self, events: list[Event]) -> None:
+        """Rebuild the idempotency map from replayed events.
+
+        Groups events by correlation_id so that re-processing a command
+        with the same correlation_id returns the cached events instead
+        of creating duplicates.
+        """
+        # Group events by correlation_id, preserving order
+        grouped: dict[str, list[Event]] = {}
+        for event in events:
+            cid = event.correlation_id
+            if cid not in grouped:
+                grouped[cid] = []
+            grouped[cid].append(event)
+
+        # Only register entries that represent successful commands
+        # (i.e., not OrderRejected)
+        for cid, evts in grouped.items():
+            if evts[0].type != "OrderRejected":
+                self._idempotency[cid] = IdempotencyEntry(events=evts)
 
     def snapshot(self) -> dict:
         """Return current state (orders, positions, kill_switch)."""

@@ -469,3 +469,270 @@ def test_recovery_restores_kill_switch_state(actor, sample_request):
 
     assert new_actor._kill_switch is True
     assert new_actor.snapshot()["kill_switch"] is True
+
+
+# =============================================================================
+# New Tests — Recovery Flow Fixes
+# =============================================================================
+
+def test_recovery_registers_synthetic_orders(actor):
+    """SyntheticOrderCreated events must be replayed into state during recovery.
+
+    Before fix: _apply_event had no branch for SyntheticOrderCreated,
+    so after recovery synthetic orders were lost and state diverged from event log.
+    """
+    fill_cmd = ApplyFillCommand(
+        order_id="external-ord-1",
+        cumulative_filled=Decimal("5"),
+        fill_price=Decimal("2500"),
+        fill_id="trade-ext-001",
+        correlation_id="corr-ext-001",
+        event_time=datetime(2026, 1, 1, 9, 16, tzinfo=UTC),
+    )
+    actor.handle(fill_cmd)
+
+    # Verify synthetic order exists in runtime state
+    assert "external-ord-1" in actor._orders
+    assert actor._orders["external-ord-1"].side == "UNKNOWN"
+
+    # Recover into a fresh actor
+    new_actor = OrderBookActor(session_id="test-sess", event_store=actor._store)
+    new_actor.recover()
+
+    # Synthetic order MUST be present after recovery
+    assert "external-ord-1" in new_actor._orders
+    assert new_actor._orders["external-ord-1"].side == "UNKNOWN"
+    # After recovery, the OrderFilled event is also replayed, so status is FILLED
+    assert new_actor._orders["external-ord-1"].status == OrderState.FILLED
+    assert new_actor._orders["external-ord-1"].filled_quantity == Decimal("5")
+
+
+def test_recovery_rebuilds_idempotency_map(actor, sample_request):
+    """After recovery, commands with previously-seen correlation_ids must NOT
+    create duplicate orders — they should return cached events.
+
+    Before fix: recover() never rebuilt self._idempotency, so a command with
+    a correlation_id that was already processed would create a new order.
+    """
+    # Place order with correlation_id "corr-001"
+    place_cmd = PlaceOrderCommand(
+        request=sample_request,
+        correlation_id="corr-001",
+        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+    )
+    original_events = actor.handle(place_cmd)
+    assert len(original_events) == 1
+    assert original_events[0].type == "OrderPlaced"
+
+    # Recover into a fresh actor
+    new_actor = OrderBookActor(session_id="test-sess", event_store=actor._store)
+    new_actor.recover()
+
+    # Idempotency map must contain the correlation_id
+    assert "corr-001" in new_actor._idempotency
+
+    # Re-processing the same command must return cached events, NOT create a new order
+    dup_events = new_actor.handle(place_cmd)
+    assert len(dup_events) == 1
+    assert dup_events[0].event_id == original_events[0].event_id  # Same event returned
+    assert len(new_actor._orders) == 1  # Still only 1 order, no duplicate
+
+
+def test_recovery_idempotency_with_multiple_commands(actor, sample_request):
+    """Idempotency map must track ALL correlation_ids from the event log."""
+    # Place order
+    place_cmd = PlaceOrderCommand(
+        request=sample_request,
+        correlation_id="corr-place",
+        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+    )
+    place_events = actor.handle(place_cmd)
+    order_id = place_events[0].payload["order_id"]
+
+    # Apply fill
+    fill_cmd = ApplyFillCommand(
+        order_id=order_id,
+        cumulative_filled=Decimal("5"),
+        fill_price=Decimal("2500"),
+        fill_id="trade-001",
+        correlation_id="corr-fill",
+        event_time=datetime(2026, 1, 1, 9, 16, tzinfo=UTC),
+    )
+    actor.handle(fill_cmd)
+
+    # Recover
+    new_actor = OrderBookActor(session_id="test-sess", event_store=actor._store)
+    new_actor.recover()
+
+    # Both correlation_ids must be in idempotency map
+    assert "corr-place" in new_actor._idempotency
+    assert "corr-fill" in new_actor._idempotency
+
+    # Re-processing either command returns cached events
+    dup_place = new_actor.handle(place_cmd)
+    assert dup_place[0].event_id == place_events[0].event_id
+
+
+def test_recovery_idempotency_excludes_rejections(actor, sample_request):
+    """OrderRejected events must NOT be registered in the idempotency map,
+    so that rejected commands can be retried."""
+    # Trip kill switch
+    actor.trip_kill_switch("test")
+
+    # Place order — will be rejected
+    place_cmd = PlaceOrderCommand(
+        request=sample_request,
+        correlation_id="corr-rejected",
+        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+    )
+    events = actor.handle(place_cmd)
+    assert events[0].type == "OrderRejected"
+
+    # Recover
+    new_actor = OrderBookActor(session_id="test-sess", event_store=actor._store)
+    new_actor.recover()
+
+    # Rejected correlation_id must NOT be in idempotency map
+    assert "corr-rejected" not in new_actor._idempotency
+
+
+def test_handle_apply_fill_catches_invalid_state_transition_only(actor):
+    """_handle_apply_fill must catch InvalidStateTransition, not bare Exception.
+
+    This ensures bugs (e.g., KeyError, TypeError) are not silently swallowed.
+    """
+    from tradex_trading.events.order_fsm import InvalidStateTransition
+
+    # Create a scenario where transition raises InvalidStateTransition:
+    # An order in FILLED state receiving another fill
+    fill_cmd = ApplyFillCommand(
+        order_id="unknown-ord",
+        cumulative_filled=Decimal("5"),
+        fill_price=Decimal("2500"),
+        fill_id="trade-001",
+        correlation_id="corr-001",
+        event_time=datetime(2026, 1, 1, 9, 16, tzinfo=UTC),
+    )
+    # First fill creates synthetic order and fills it
+    events1 = actor.handle(fill_cmd)
+    assert len(events1) == 2  # SyntheticOrderCreated + OrderFilled
+
+    # Second fill with higher cumulative — order is already FILLED (qty=5, cum=5)
+    # This triggers the InvalidStateTransition fallback
+    fill_cmd2 = ApplyFillCommand(
+        order_id="unknown-ord",
+        cumulative_filled=Decimal("10"),
+        fill_price=Decimal("2501"),
+        fill_id="trade-002",
+        correlation_id="corr-002",
+        event_time=datetime(2026, 1, 1, 9, 17, tzinfo=UTC),
+    )
+    # This should NOT raise — it should use the fallback
+    events2 = actor.handle(fill_cmd2)
+    assert len(events2) == 1  # OrderFilled only (no synthetic)
+    assert events2[0].type == "OrderFilled"
+
+
+def test_state_mutation_after_persist_in_place_order(actor, sample_request, monkeypatch):
+    """If store.append() fails, state must NOT be mutated.
+
+    This test verifies the ordering: compute event, persist, then mutate state.
+    """
+    from tradex_trading.events.store import Event
+
+    place_cmd = PlaceOrderCommand(
+        request=sample_request,
+        correlation_id="corr-fail",
+        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+    )
+
+    # First call succeeds, second (for idempotency) would return cached
+    # We need to test the failure case — patch append to raise on first call
+    original_append = actor._store.append
+    call_count = 0
+
+    def failing_append(event):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("Disk full")
+        return original_append(event)
+
+    actor._store.append = failing_append
+
+    # When append fails, the exception should propagate and state should NOT be mutated
+    with pytest.raises(RuntimeError, match="Disk full"):
+        actor.handle(place_cmd)
+
+    # State must NOT be mutated since persist failed
+    assert len(actor._orders) == 0
+    assert "corr-fail" not in actor._idempotency
+
+
+def test_state_mutation_after_persist_in_apply_fill(actor, sample_request, monkeypatch):
+    """If store.append() fails during fill handling, state must NOT be mutated."""
+    # Place a real order first
+    place_cmd = PlaceOrderCommand(
+        request=sample_request,
+        correlation_id="corr-001",
+        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+    )
+    place_events = actor.handle(place_cmd)
+    order_id = place_events[0].payload["order_id"]
+
+    # Now attempt a fill, but make the OrderFilled event append fail
+    original_append = actor._store.append
+    call_count = 0
+
+    def failing_append(event):
+        nonlocal call_count
+        call_count += 1
+        # 1st call from fill handler = OrderFilled event (FAILS)
+        if call_count == 1:
+            raise RuntimeError("Disk full")
+        return original_append(event)
+
+    actor._store.append = failing_append
+
+    fill_cmd = ApplyFillCommand(
+        order_id=order_id,
+        cumulative_filled=Decimal("5"),
+        fill_price=Decimal("2500"),
+        fill_id="trade-001",
+        correlation_id="corr-002",
+        event_time=datetime(2026, 1, 1, 9, 16, tzinfo=UTC),
+    )
+
+    with pytest.raises(RuntimeError, match="Disk full"):
+        actor.handle(fill_cmd)
+
+    # Order state must NOT be updated since persist failed
+    assert actor._orders[order_id].filled_quantity == Decimal("0")
+    assert actor._orders[order_id].status == OrderState.ACK
+
+
+def test_recovery_preserves_synthetic_order_after_subsequent_fill(actor):
+    """After recovery, a synthetic order that received a fill must have correct state."""
+    # Create synthetic order via unknown order fill
+    fill_cmd = ApplyFillCommand(
+        order_id="ext-ord",
+        cumulative_filled=Decimal("10"),
+        fill_price=Decimal("2500"),
+        fill_id="trade-ext",
+        correlation_id="corr-ext",
+        event_time=datetime(2026, 1, 1, 9, 16, tzinfo=UTC),
+    )
+    events = actor.handle(fill_cmd)
+
+    # Should have SyntheticOrderCreated + OrderFilled
+    assert any(e.type == "SyntheticOrderCreated" for e in events)
+    assert any(e.type == "OrderFilled" for e in events)
+
+    # Recover
+    new_actor = OrderBookActor(session_id="test-sess", event_store=actor._store)
+    new_actor.recover()
+
+    # Synthetic order must exist with correct filled state
+    assert "ext-ord" in new_actor._orders
+    assert new_actor._orders["ext-ord"].filled_quantity == Decimal("10")
+    assert new_actor._orders["ext-ord"].status == OrderState.FILLED
