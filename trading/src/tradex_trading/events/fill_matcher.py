@@ -125,9 +125,6 @@ class FillMatcher:
             # Duplicate (equal) or stale (lower) — skip
             return None
 
-        # Track this fill_quantity BEFORE processing
-        self._last_filled[broker_id] = update.filled_quantity
-
         # Create ApplyFillCommand
         fill_id = f"fill-{broker_id}-{update.filled_quantity}"
         command = ApplyFillCommand(
@@ -142,7 +139,11 @@ class FillMatcher:
         # Send to processor
         result = self._processor.process(command)
 
-        if result.success:
+        if result.success and result.events:
+            # ONLY advance tracker AFTER successful processing with events.
+            # If the actor returns empty events (rejection/no-op), do NOT
+            # advance — this allows the next update to retry the fill.
+            self._last_filled[broker_id] = update.filled_quantity
             log.info(
                 "Fill applied: order_id=%s broker_id=%s filled=%d price=%s",
                 mapping.order_id,
@@ -150,12 +151,19 @@ class FillMatcher:
                 update.filled_quantity,
                 update.fill_price,
             )
-        else:
+        elif not result.success:
             log.warning(
                 "Fill rejected: order_id=%s broker_id=%s reason=%s",
                 mapping.order_id,
                 broker_id,
                 result.error,
+            )
+        else:
+            log.info(
+                "Fill no-op (empty events): order_id=%s broker_id=%s filled=%d — tracker not advanced",
+                mapping.order_id,
+                broker_id,
+                update.filled_quantity,
             )
 
         return result

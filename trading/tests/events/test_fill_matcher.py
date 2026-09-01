@@ -383,3 +383,82 @@ def test_multiple_orders_independent_tracking(setup, sample_request):
     # Verify independent state
     assert actor._orders[oid1].filled_quantity == Decimal("3")
     assert actor._orders[oid2].filled_quantity == Decimal("10")
+
+
+def test_retry_after_rejection_tracker_not_advanced(setup, sample_request):
+    """When the actor returns empty events (rejection/no-op), the tracker
+    must NOT advance — this allows the next update to retry the fill.
+
+    Scenario:
+    1. Order placed, registered with FillMatcher (tracker at 0)
+    2. Actor's state diverges — its filled_quantity is already 5
+    3. FillMatcher processes fill of 5 — sends to processor
+    4. Actor computes delta=0, returns empty events (no-op)
+    5. Tracker must stay at 0 (NOT advanced)
+    6. Actor's state corrected (filled back to 0)
+    7. FillMatcher processes fill of 5 again — sends to processor
+    8. Actor computes delta=5, emits events
+    9. Tracker advances to 5
+    """
+    store, actor, processor, matcher = setup
+
+    # Place an order through the processor
+    place_cmd = PlaceOrderCommand(
+        request=sample_request,
+        correlation_id="corr-001",
+        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+    )
+    place_result = processor.process(place_cmd)
+    order_id = place_result.events[0].payload["order_id"]
+
+    # Register the order with the FillMatcher
+    matcher.register_order(
+        order_id=order_id,
+        broker_order_id="BROKER-ORD-RETRY",
+        instrument="NSE:RELIANCE",
+        side="BUY",
+    )
+
+    # Simulate state divergence: actor's filled_quantity is already 5
+    # (e.g., due to recovery desync or partial replay)
+    actor._orders[order_id].filled_quantity = Decimal("5")
+
+    # First update: filled_quantity=5 — FillMatcher sends to processor,
+    # but actor returns empty events (delta=0, no-op)
+    update = BrokerOrderUpdate(
+        broker_order_id="BROKER-ORD-RETRY",
+        instrument="NSE:RELIANCE",
+        side="BUY",
+        quantity=10,
+        filled_quantity=5,
+        fill_price=Decimal("2500"),
+        status="PARTIALLY_FILLED",
+        timestamp=datetime(2026, 1, 1, 9, 16, tzinfo=UTC),
+    )
+    result = matcher.process_update(update)
+
+    # Actor returned empty events — result.success=True but no events
+    assert result is not None
+    assert result.success is True
+    assert len(result.events) == 0
+
+    # CRITICAL: Tracker must NOT have advanced — still at 0
+    assert matcher._last_filled["BROKER-ORD-RETRY"] == 0
+
+    # Correct the actor's state (simulating recovery/correction)
+    actor._orders[order_id].filled_quantity = Decimal("0")
+
+    # Retry: same fill_quantity=5 — this time actor accepts (delta=5)
+    result2 = matcher.process_update(update)
+
+    # Actor now emits events
+    assert result2 is not None
+    assert result2.success is True
+    assert len(result2.events) > 0
+    filled_events = [e for e in result2.events if e.type == "OrderFilled"]
+    assert len(filled_events) == 1
+    assert filled_events[0].payload["fill_quantity"] == "5"
+    assert filled_events[0].payload["cumulative_filled"] == "5"
+
+    # Tracker now advanced to 5
+    assert matcher._last_filled["BROKER-ORD-RETRY"] == 5
