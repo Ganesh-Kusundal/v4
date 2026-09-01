@@ -45,6 +45,11 @@ against fixed code once finding 5 is also fixed.
 
 Full suite: **1889 passed, 16 skipped** (1889+16 = 1905 collected).
 
+The review report's "(1893 passed)" at the reviewed HEAD is the *collected*
+count: re-verified at `d79def1`, the suite was 1877 passed + 16 skipped = 1893
+collected. The +12 passed tests at fixed HEAD are the red-green tests added by
+the five fix commits.
+
 ## Minor findings
 
 The 8 Minor findings (6-13) are documented in the review report and remain open;
