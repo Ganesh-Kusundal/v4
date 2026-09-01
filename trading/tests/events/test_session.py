@@ -187,7 +187,12 @@ def test_session_stop_is_idempotent(paper_config):
 
 
 def test_place_order_in_paper_mode(paper_config):
-    """Paper mode, place order, verify CommandResult."""
+    """Paper mode, place order, verify CommandResult.
+
+    Paper mode simulates an instant fill at the order's limit price, so a
+    successful placement emits OrderPlaced followed by OrderFilled +
+    PositionUpdated via the synchronous paper fill callback.
+    """
     session = TradingSession(paper_config)
     session.start()
 
@@ -200,6 +205,15 @@ def test_place_order_in_paper_mode(paper_config):
     assert len(result.events) >= 1
     assert result.events[0].type == "OrderPlaced"
     assert result.correlation_id == "corr-place-001"
+
+    # Paper mode fills instantly: the order read model reflects the fill
+    # (OrderFilled/PositionUpdated were emitted via the paper callback and
+    # applied to projectors before this method returned).
+    order_id = result.events[0].payload["order_id"]
+    order = session.get_orders()[0]
+    assert order.order_id == order_id
+    assert order.status == "FILLED"
+    assert order.filled_quantity == Decimal("10")
 
     session.stop()
 
@@ -214,11 +228,17 @@ def test_place_order_before_start_raises(paper_config):
 
 
 def test_cancel_order_in_paper_mode(paper_config):
-    """Paper mode, place and cancel order."""
+    """Paper mode: cancel after instant fill is a no-op.
+
+    Paper mode fills orders instantly at placement, so the order is terminal
+    (FILLED) by the time cancel_order is called. Cancelling a terminal order
+    emits no events per the order FSM. The cancel still succeeds (the command
+    was processed) but the order remains FILLED.
+    """
     session = TradingSession(paper_config)
     session.start()
 
-    # Place order
+    # Place order (paper mode fills instantly)
     request = make_request(correlation_id="corr-cancel-001")
     place_result = session.place_order(request)
     assert place_result.success is True
@@ -226,10 +246,14 @@ def test_cancel_order_in_paper_mode(paper_config):
     # Get the order_id from the event
     order_id = place_result.events[0].payload["order_id"]
 
-    # Cancel order
+    # Cancel order — no-op because the order is already FILLED
     cancel_result = session.cancel_order(order_id)
     assert cancel_result.success is True
-    assert cancel_result.events[0].type == "OrderCancelled"
+    assert len(cancel_result.events) == 0
+
+    # The order remains FILLED, not cancelled
+    order = session.get_orders()[0]
+    assert order.status == "FILLED"
 
     session.stop()
 
@@ -263,9 +287,10 @@ def test_get_orders_returns_placed_orders(paper_config):
     # Verify they are OrderView instances
     assert all(isinstance(o, OrderView) for o in orders)
 
-    # Verify order details
+    # Paper mode fills instantly: quantities reflect the placed amounts
     quantities = {o.filled_quantity for o in orders}
-    assert Decimal("0") in quantities  # Both start unfilled
+    assert Decimal("10") in quantities
+    assert Decimal("20") in quantities
 
     session.stop()
 

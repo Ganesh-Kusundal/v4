@@ -10,12 +10,13 @@ Architecture:
     - OrderBookActor (single-writer state owner)
     - CommandProcessor (idempotent command handler)
     - Projectors (read model derivation)
+    - RiskEngine (order validation)
 
     Only the data source and fill mechanism change:
     - Live: Broker WebSocket, real-time fills via FillMatcher
     - Backtest: Historical data, simulated fills
     - Replay: Event log replay at configurable speed
-    - Paper: Simulated broker, no real money
+    - Paper: Simulated broker, instant fills at limit price
 """
 
 from __future__ import annotations
@@ -30,10 +31,11 @@ from typing import Optional
 
 from tradex_domain import OrderRequest
 from tradex_trading.events.actor import CancelOrderCommand, OrderBookActor, PlaceOrderCommand
+from tradex_trading.events.data_source import DataSource, FillCallback, create_data_source
 from tradex_trading.events.processor import CommandProcessor, CommandResult
 from tradex_trading.events.projectors import OrderBookProjector, PositionProjector
 from tradex_trading.events.recovery import SessionRecovery
-from tradex_trading.events.risk_engine import RiskConfig, RiskEngine
+from tradex_trading.events.risk_engine import RiskConfig, RiskEngine, RiskResult
 from tradex_trading.events.store import EventStore
 
 log = logging.getLogger(__name__)
@@ -128,7 +130,6 @@ class SessionConfig:
 # TradingSession
 # =============================================================================
 
-
 class TradingSession:
     """Single entry point for all trading modes.
 
@@ -173,12 +174,22 @@ class TradingSession:
             command_processor=self._processor,
         )
 
+        # Data source — mode-specific market data and fill routing
+        self._data_source: DataSource = create_data_source(
+            config=config.data_source,
+            on_fill=self._on_data_source_fill,
+            command_processor=self._processor,
+        )
+
+        # Track order placement timestamps for rate limiting
+        self._order_timestamps: list[datetime] = []
+
     # -------------------------------------------------------------------------
     # Lifecycle
     # -------------------------------------------------------------------------
 
     def start(self) -> None:
-        """Start the session — recover state from event log.
+        """Start the session — recover state from event log, start data source.
 
         Transitions NEW -> READY. Idempotent: no-op if already READY.
         """
@@ -195,11 +206,14 @@ class TradingSession:
         # Rebuild projectors from recovered events
         self._rebuild_projectors()
 
+        # Start the data source (connect to broker, open historical file, etc.)
+        self._data_source.start()
+
         self._state = SessionState.READY
         log.info("Session %s started (mode=%s)", self._config.session_id, self._config.mode)
 
     def stop(self) -> None:
-        """Stop the session — close resources.
+        """Stop the session — close data source and resources.
 
         Transitions to STOPPED. Idempotent: no-op if already STOPPED.
         """
@@ -207,6 +221,9 @@ class TradingSession:
             return
         if self._state == SessionState.NEW:
             return  # Never started, nothing to stop
+
+        # Stop the data source first (disconnect broker, close files)
+        self._data_source.stop()
 
         self._store.close()
         self._state = SessionState.STOPPED
@@ -226,6 +243,14 @@ class TradingSession:
     def place_order(self, request: OrderRequest) -> CommandResult:
         """Place an order through the unified pipeline.
 
+        Risk check is performed BEFORE the order is placed. If the risk check
+        fails, the order is rejected without being sent to the event store.
+
+        After successful placement, the data source is notified so it can:
+        - live: register with broker's order stream for fill tracking
+        - paper: simulate immediate fill
+        - backtest/replay: no-op (fills come from data, not orders)
+
         Args:
             request: The order request with instrument, side, quantity, price.
 
@@ -237,6 +262,16 @@ class TradingSession:
         correlation_id = request.correlation_id or str(uuid.uuid4())
         event_time = datetime.now(UTC)
 
+        # --- Risk check BEFORE placing the order ---
+        risk_result = self._check_risk(request, event_time)
+        if not risk_result.approved:
+            return CommandResult(
+                success=False,
+                events=[],  # No events emitted — order never entered the pipeline
+                correlation_id=correlation_id,
+                error=f"Risk check failed: {risk_result.reason}",
+            )
+
         command = PlaceOrderCommand(
             request=request,
             correlation_id=correlation_id,
@@ -244,7 +279,39 @@ class TradingSession:
         )
 
         result = self._processor.process(command)
-        self._update_projectors(result.events)
+
+        if result.is_duplicate:
+            # Cached result from a previous call with the same correlation_id.
+            # Events were already persisted AND applied to the projectors when
+            # this command first processed. Re-applying OrderPlaced would
+            # corrupt the read model (e.g. reset a paper-filled FILLED order
+            # back to ACK/0) and re-notifying the data source would duplicate
+            # fill tracking, so return the cached result untouched.
+            return result
+
+        if result.success and result.events:
+            # Track order timestamp for rate limiting
+            self._order_timestamps.append(event_time)
+
+            # Project events BEFORE notifying the data source.
+            # Paper mode's on_order_placed synchronously triggers a fill
+            # (apply_fill -> _update_projectors), so OrderPlaced must be in the
+            # read model first or OrderFilled is dropped as an unknown order.
+            self._update_projectors(result.events)
+
+            # Notify the data source about the placed order
+            # This triggers: live=FillMatcher registration, paper=instant fill
+            order_id = result.events[0].payload["order_id"]
+            self._data_source.on_order_placed(
+                order_id=order_id,
+                instrument=str(request.instrument.instrument_id),
+                side=request.side.value,
+                quantity=request.quantity.value,
+                price=request.price.value if request.price else None,
+            )
+        else:
+            self._update_projectors(result.events)
+
         return result
 
     def cancel_order(self, order_id: str) -> CommandResult:
@@ -306,6 +373,75 @@ class TradingSession:
         self._update_projectors(result.events)
         return result
 
+    # -------------------------------------------------------------------------
+    # Risk Engine Integration
+    # -------------------------------------------------------------------------
+
+    def _check_risk(self, request: OrderRequest, event_time: datetime) -> RiskResult:
+        """Run risk checks on an order request before placement.
+
+        Builds a temporary OrderView from the request and validates it
+        against the risk engine's constraints (order value, rate limit,
+        instrument allowlist).
+        """
+        from tradex_trading.events.projectors import OrderView
+
+        # Build a temporary OrderView for risk validation
+        order_view = OrderView(
+            order_id="pending",  # Not yet assigned
+            instrument=str(request.instrument.instrument_id),
+            side=request.side.value,
+            quantity=request.quantity.value,
+            price=request.price.value if request.price else None,
+            status="PENDING",
+            filled_quantity=Decimal("0"),
+            correlation_id=request.correlation_id or "",
+        )
+
+        # Build current positions from projector
+        positions = {}
+        for pos in self._position_projector.get_all_positions():
+            positions[pos.instrument] = pos
+
+        return self._risk_engine.check_order(
+            order=order_view,
+            positions=positions,
+            recent_orders=self._order_timestamps,
+        )
+
+    # -------------------------------------------------------------------------
+    # Data Source Fill Callback
+    # -------------------------------------------------------------------------
+
+    def _on_data_source_fill(
+        self,
+        order_id: str,
+        cumulative_filled: Decimal,
+        fill_price: Decimal,
+        fill_id: Optional[str],
+    ) -> None:
+        """Callback invoked by the data source when a fill is available.
+
+        This makes apply_fill automatic — the data source drives fills:
+        - paper: SimulatedDataSource calls this immediately on order placement
+        - live: BrokerDataSource calls this when broker reports a fill
+        - backtest: HistoricalDataSource calls this when historical data triggers a fill
+        """
+        log.info(
+            "Data source fill: order_id=%s cumulative=%s price=%s",
+            order_id, cumulative_filled, fill_price,
+        )
+        self.apply_fill(
+            order_id=order_id,
+            cumulative_filled=cumulative_filled,
+            fill_price=fill_price,
+            fill_id=fill_id,
+        )
+
+    # -------------------------------------------------------------------------
+    # Projectors
+    # -------------------------------------------------------------------------
+
     def _update_projectors(self, events: list) -> None:
         """Update projectors with new events."""
         for event in events:
@@ -316,7 +452,7 @@ class TradingSession:
     # Read Models
     # -------------------------------------------------------------------------
 
-    def get_orders(self) -> list[OrderView]:
+    def get_orders(self) -> list:
         """Get all orders as read models.
 
         Returns:
@@ -325,7 +461,7 @@ class TradingSession:
         self._check_running()
         return self._order_projector.get_all_orders()
 
-    def get_positions(self) -> list[PositionView]:
+    def get_positions(self) -> list:
         """Get all positions as read models.
 
         Returns:
@@ -378,6 +514,20 @@ class TradingSession:
     def config(self) -> SessionConfig:
         """Session configuration."""
         return self._config
+
+    @property
+    def risk_engine(self) -> RiskEngine:
+        """Risk engine instance."""
+        return self._risk_engine
+
+    @property
+    def fill_matcher(self):
+        """FillMatcher for live mode. Raises RuntimeError if not in live mode."""
+        if not hasattr(self._data_source, 'fill_matcher'):
+            raise RuntimeError(
+                "FillMatcher is only available in live mode (broker data source)"
+            )
+        return self._data_source.fill_matcher
 
 
 # =============================================================================
