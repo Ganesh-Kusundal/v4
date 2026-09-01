@@ -335,6 +335,34 @@ class TradingSession:
         self._update_projectors(result.events)
         return result
 
+    def trip_kill_switch(self, reason: str) -> CommandResult:
+        """Trip the kill switch — halt all new orders and cancel open ones.
+
+        Fail-closed control: while the kill switch is active, every new
+        PlaceOrderCommand is rejected with reason "kill_switch_active", and
+        all non-terminal open orders are cancelled. The KillSwitchTripped
+        event is persisted so the halt survives restart/recovery.
+
+        Args:
+            reason: Human-readable reason for the halt.
+
+        Returns:
+            CommandResult with the emitted events.
+        """
+        self._check_running()
+
+        from tradex_trading.events.actor import TripKillSwitchCommand
+
+        command = TripKillSwitchCommand(
+            reason=reason,
+            correlation_id=str(uuid.uuid4()),
+            event_time=datetime.now(UTC),
+        )
+
+        result = self._processor.process(command)
+        self._update_projectors(result.events)
+        return result
+
     def apply_fill(
         self,
         order_id: str,

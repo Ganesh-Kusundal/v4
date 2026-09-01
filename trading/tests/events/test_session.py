@@ -467,3 +467,42 @@ def test_data_source_config_validation():
     """DataSourceConfig should validate type values."""
     with pytest.raises(ValueError, match="Invalid data source type"):
         DataSourceConfig(type="invalid_type")
+
+
+def test_trip_kill_switch_rejects_new_orders(paper_config):
+    """Tripping the kill switch through the session rejects all new orders."""
+    session = TradingSession(paper_config)
+    session.start()
+
+    result = session.trip_kill_switch("manual test halt")
+    assert result.success is True
+    assert any(e.type == "KillSwitchTripped" for e in result.events)
+
+    # New orders must be rejected while the kill switch is active
+    request = make_request(correlation_id="corr-kill-001")
+    place_result = session.place_order(request)
+    assert place_result.success is False
+    assert place_result.error is not None
+    assert "kill_switch" in place_result.error
+
+    session.stop()
+
+
+def test_kill_switch_survives_recovery(paper_config):
+    """Kill switch state must persist across session restart (event log replay)."""
+    session1 = TradingSession(paper_config)
+    session1.start()
+    session1.trip_kill_switch("halt before restart")
+
+    session1.stop()
+
+    # Restart with same session_id and DB — the kill switch must still be tripped
+    session2 = TradingSession(paper_config)
+    session2.start()
+
+    request = make_request(correlation_id="corr-kill-recover-001")
+    place_result = session2.place_order(request)
+    assert place_result.success is False
+    assert "kill_switch" in place_result.error
+
+    session2.stop()
