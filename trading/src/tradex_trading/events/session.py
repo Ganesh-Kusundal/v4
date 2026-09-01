@@ -356,6 +356,15 @@ class TradingSession:
         all non-terminal open orders are cancelled. The KillSwitchTripped
         event is persisted so the halt survives restart/recovery.
 
+        IMPORTANT — local state only, live-mode caveat: this cancels open
+        orders in THIS session's event-sourced state machine. It does NOT
+        send cancel requests to the broker. In live mode, orders that were
+        already acknowledged by the broker remain working there until
+        broker-side cancellation is integrated (the BrokerDataSource does
+        not yet implement outbound cancels). Operators tripping the kill
+        switch during live trading must cancel open orders directly with
+        the broker until adapter integration lands.
+
         Args:
             reason: Human-readable reason for the halt.
 
