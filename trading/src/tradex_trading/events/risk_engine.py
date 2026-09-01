@@ -196,7 +196,12 @@ class RiskEngine:
     # -------------------------------------------------------------------------
 
     def _check_rate_limit(self, recent_orders: list[datetime]) -> bool:
-        """Check if recent orders are within the per-minute rate limit.
+        """Check if placing one more order stays within the per-minute limit.
+
+        The candidate order counts toward the limit: with N orders already in
+        the window, the candidate is order N+1, so it is approved only when
+        N+1 <= max_orders_per_minute. (Before, the candidate was excluded,
+        allowing one order beyond the configured limit.)
 
         Counts orders within the 60-second window ending at the most recent
         order timestamp (or current time if list is empty).
@@ -213,7 +218,8 @@ class RiskEngine:
 
         cutoff = reference_time - timedelta(minutes=1)
         count = sum(1 for ts in recent_orders if ts >= cutoff)
-        return count <= self._config.max_orders_per_minute
+        # +1 accounts for the candidate order being placed now.
+        return count + 1 <= self._config.max_orders_per_minute
 
     @staticmethod
     def _compute_order_risk_score(

@@ -192,8 +192,8 @@ class TestCheckOrderRejected:
     def test_rate_limit_rejected(self, engine: RiskEngine):
         """Too many orders in the last minute → rejected."""
         now = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
-        # 6 orders in the last minute, limit is 5
-        recent_orders = [now - timedelta(seconds=i * 10) for i in range(6)]
+        # 5 orders in the last minute, limit is 5 — the candidate is the 6th
+        recent_orders = [now - timedelta(seconds=i * 10) for i in range(5)]
         order = _order()
         result = engine.check_order(order, positions={}, recent_orders=recent_orders)
         assert result.approved is False
@@ -201,9 +201,31 @@ class TestCheckOrderRejected:
         assert "rate" in result.reason.lower()
 
     def test_rate_limit_at_exact_boundary_approved(self, engine: RiskEngine):
-        """Orders in window == max_orders_per_minute → approved (boundary inclusive)."""
+        """4 recent + the candidate == max_orders_per_minute → approved."""
+        now = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+        recent_orders = [now - timedelta(seconds=i * 10) for i in range(4)]
+        order = _order()
+        result = engine.check_order(order, positions={}, recent_orders=recent_orders)
+        assert result.approved is True
+
+    def test_rate_limit_counts_candidate_order(self, engine: RiskEngine):
+        """The candidate order itself counts toward the limit.
+
+        With max=5 and exactly 5 recent orders in the window, the candidate
+        is the 6th → rejected. This pins the off-by-one semantics: the limit
+        bounds orders *including* the one being placed.
+        """
         now = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
         recent_orders = [now - timedelta(seconds=i * 10) for i in range(5)]
+        order = _order()
+        result = engine.check_order(order, positions={}, recent_orders=recent_orders)
+        assert result.approved is False
+        assert "rate" in (result.reason or "").lower()
+
+    def test_rate_limit_allows_up_to_max_including_candidate(self, engine: RiskEngine):
+        """max-1 recent + candidate == max → approved (no off-by-one)."""
+        now = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+        recent_orders = [now - timedelta(seconds=i * 10) for i in range(4)]
         order = _order()
         result = engine.check_order(order, positions={}, recent_orders=recent_orders)
         assert result.approved is True

@@ -187,6 +187,29 @@ def test_session_stop_is_idempotent(paper_config):
     assert session.state == "STOPPED"
 
 
+def make_rate_config(tmp_db, max_orders_per_minute: int) -> SessionConfig:
+    """SessionConfig (paper mode) with a small per-minute rate limit."""
+    return SessionConfig(
+        session_id=f"rate-{max_orders_per_minute}",
+        mode="paper",
+        event_store_path=tmp_db,
+        risk_config=RiskConfig(
+            max_order_value=1_000_000.0,
+            max_position_value=5_000_000.0,
+            max_orders_per_minute=max_orders_per_minute,
+            max_daily_loss=50_000.0,
+        ),
+        data_source=DataSourceConfig(
+            type="simulated",
+            broker=BrokerConfig(
+                broker_id="paper",
+                client_id="paper-client",
+                access_token="paper-token",
+            ),
+        ),
+    )
+
+
 def test_place_order_in_paper_mode(paper_config):
     """Paper mode, place order, verify CommandResult.
 
@@ -474,6 +497,53 @@ def test_duplicate_order_idempotency(paper_config):
     # Only one order should exist
     orders = session.get_orders()
     assert len(orders) == 1
+
+    session.stop()
+
+
+def test_rate_limit_rejects_order_beyond_max(tmp_db):
+    """Session-level rate limit counts the candidate order.
+
+    With max_orders_per_minute=2, placing a third distinct order within the
+    same minute must be rejected — the limit bounds orders *including* the
+    one being placed, not orders already placed.
+    """
+    config = make_rate_config(tmp_db, max_orders_per_minute=2)
+    session = TradingSession(config)
+    session.start()
+
+    r1 = session.place_order(make_request(correlation_id="corr-rate-001"))
+    r2 = session.place_order(make_request(correlation_id="corr-rate-002"))
+    r3 = session.place_order(make_request(correlation_id="corr-rate-003"))
+
+    assert r1.success is True
+    assert r2.success is True
+    # The third order is the 3rd within the minute: 2 in window + candidate
+    assert r3.success is False
+    assert r3.error is not None
+    assert "rate" in r3.error.lower()
+
+    # Only the two approved orders exist
+    assert len(session.get_orders()) == 2
+
+    session.stop()
+
+
+def test_rate_limit_boundary_allows_max_orders(tmp_db):
+    """With max_orders_per_minute=2, the second order is still approved.
+
+    The candidate is counted: 1 recent + candidate == 2 <= max → approved.
+    """
+    config = make_rate_config(tmp_db, max_orders_per_minute=2)
+    session = TradingSession(config)
+    session.start()
+
+    r1 = session.place_order(make_request(correlation_id="corr-rate-bound-001"))
+    r2 = session.place_order(make_request(correlation_id="corr-rate-bound-002"))
+
+    assert r1.success is True
+    assert r2.success is True
+    assert len(session.get_orders()) == 2
 
     session.stop()
 
