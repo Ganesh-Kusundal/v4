@@ -381,6 +381,16 @@ class OrderBookActor:
         """Convenience method for testing — trips kill switch without emitting events."""
         self._kill_switch = True
 
+    def reset_state(self) -> None:
+        """Clear all state before recovery replay.
+
+        Ensures idempotency: calling recover() multiple times produces
+        the same result, regardless of prior state.
+        """
+        self._orders = {}
+        self._positions = {}
+        self._kill_switch = False
+
     def recover(self) -> None:
         """Recover state from event log by replaying all events.
 

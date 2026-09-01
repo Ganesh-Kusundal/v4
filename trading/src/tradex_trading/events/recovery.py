@@ -11,7 +11,9 @@ The recovery process is deterministic: same events → same state, always.
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Optional
 
 from tradex_trading.events.actor import OrderBookActor
@@ -80,7 +82,7 @@ class SessionRecovery:
         recovery = SessionRecovery(event_store, order_book, command_processor)
         result = recovery.recover()
         if result.success:
-            recon = recovery.reconcile_with_broker(broker_orders)
+            recon = recovery.reconcile_with_broker(broker_orders, broker_to_internal)
     """
 
     def __init__(
@@ -104,6 +106,11 @@ class SessionRecovery:
             RecoveryResult with counts and success status.
         """
         try:
+            # Clear state before replay to ensure idempotency.
+            # Without this, calling recover() on an actor with existing state
+            # would duplicate entries.
+            self._actor.reset_state()
+
             # Recover order book state from event log
             self._actor.recover()
 
@@ -124,7 +131,7 @@ class SessionRecovery:
                 positions_recovered=positions_recovered,
                 last_sequence=last_sequence,
             )
-        except Exception as e:
+        except (sqlite3.Error, ValueError, KeyError, TypeError) as e:
             return RecoveryResult(
                 success=False,
                 orders_recovered=0,
@@ -134,7 +141,9 @@ class SessionRecovery:
             )
 
     def reconcile_with_broker(
-        self, broker_orders: list[BrokerOrderUpdate]
+        self,
+        broker_orders: list[BrokerOrderUpdate],
+        broker_to_internal: Optional[dict[str, str]] = None,
     ) -> ReconciliationResult:
         """Compare local state with broker state to detect drift.
 
@@ -145,6 +154,8 @@ class SessionRecovery:
 
         Args:
             broker_orders: List of current broker order updates.
+            broker_to_internal: Optional mapping from broker_order_id to internal order_id.
+                If not provided, falls back to matching by (instrument, side).
 
         Returns:
             ReconciliationResult with discrepancies and sync status.
@@ -153,55 +164,25 @@ class SessionRecovery:
         local_only_orders: list[str] = []
         broker_only_orders: list[str] = []
 
-        # Build lookup maps
-        # We need to correlate local orders with broker orders.
-        # The broker orders have broker_order_id; local orders have order_id.
-        # For reconciliation, we compare by matching instruments and sides
-        # since the FillMatcher's mapping may not exist during early recovery.
-        #
-        # Strategy: match by (instrument, side) pair. If broker has an update
-        # for which no local order exists with same instrument+side, it's broker-only.
-        # If local has an order with no matching broker update, it's local-only.
-
         snapshot = self._actor.snapshot()
         local_orders = snapshot["orders"]
 
-        # Build map of (instrument, side) -> local order
-        local_by_key: dict[tuple[str, str], dict] = {}
-        for oid, order in local_orders.items():
-            key = (order["instrument"], order["side"])
-            local_by_key[key] = order
-
-        # Build map of (instrument, side) -> broker order
-        broker_by_key: dict[tuple[str, str], BrokerOrderUpdate] = {}
-        for bupd in broker_orders:
-            key = (bupd.instrument, bupd.side)
-            broker_by_key[key] = bupd
-
-        # Check for discrepancies in matched orders
-        for key, local_order in local_by_key.items():
-            if key in broker_by_key:
-                broker_update = broker_by_key[key]
-                local_filled = local_order["filled_quantity"]
-                broker_filled = str(broker_update.filled_quantity)
-
-                if local_filled != broker_filled:
-                    discrepancies.append(
-                        Discrepancy(
-                            order_id=local_order["order_id"],
-                            field="filled_quantity",
-                            local_value=local_filled,
-                            broker_value=broker_filled,
-                        )
-                    )
-            else:
-                # Local order has no matching broker order
-                local_only_orders.append(local_order["order_id"])
-
-        # Check for broker-only orders
-        for key, broker_update in broker_by_key.items():
-            if key not in local_by_key:
-                broker_only_orders.append(broker_update.broker_order_id)
+        if broker_to_internal is not None:
+            # Use explicit mapping from broker_order_id to order_id.
+            # This is the correct approach when the FillMatcher's mapping is available.
+            self._reconcile_with_mapping(
+                local_orders, broker_orders, broker_to_internal,
+                discrepancies, local_only_orders, broker_only_orders,
+            )
+        else:
+            # Fallback: match by (instrument, side).
+            # WARNING: This can only detect broker-only/local-only orders correctly
+            # when there's at most one order per (instrument, side). For multiple
+            # orders on the same instrument+side, use broker_to_internal mapping.
+            self._reconcile_by_instrument_side(
+                local_orders, broker_orders,
+                discrepancies, local_only_orders, broker_only_orders,
+            )
 
         in_sync = (
             len(discrepancies) == 0
@@ -215,3 +196,130 @@ class SessionRecovery:
             local_only_orders=local_only_orders,
             broker_only_orders=broker_only_orders,
         )
+
+    def _reconcile_with_mapping(
+        self,
+        local_orders: dict[str, dict],
+        broker_orders: list[BrokerOrderUpdate],
+        broker_to_internal: dict[str, str],
+        discrepancies: list[Discrepancy],
+        local_only_orders: list[str],
+        broker_only_orders: list[str],
+    ) -> None:
+        """Reconcile using explicit broker_order_id → order_id mapping."""
+        # Build set of broker_order_ids that have updates
+        broker_ids_with_updates = {bupd.broker_order_id for bupd in broker_orders}
+
+        # Build map of broker_order_id -> broker update
+        broker_by_id: dict[str, BrokerOrderUpdate] = {
+            bupd.broker_order_id: bupd for bupd in broker_orders
+        }
+
+        # Check each local order
+        for order_id, local_order in local_orders.items():
+            # Find broker_order_id for this internal order_id
+            broker_id = None
+            for bid, oid in broker_to_internal.items():
+                if oid == order_id:
+                    broker_id = bid
+                    break
+
+            if broker_id is None:
+                # No mapping found — local order has no broker counterpart
+                local_only_orders.append(order_id)
+                continue
+
+            if broker_id in broker_by_id:
+                broker_update = broker_by_id[broker_id]
+                local_filled = Decimal(local_order["filled_quantity"])
+                broker_filled = Decimal(str(broker_update.filled_quantity))
+
+                if local_filled != broker_filled:
+                    discrepancies.append(
+                        Discrepancy(
+                            order_id=order_id,
+                            field="filled_quantity",
+                            local_value=str(local_filled),
+                            broker_value=str(broker_filled),
+                        )
+                    )
+            else:
+                # Local order has mapping but no broker update
+                local_only_orders.append(order_id)
+
+        # Check for broker-only orders
+        for bupd in broker_orders:
+            if bupd.broker_order_id in broker_to_internal:
+                internal_id = broker_to_internal[bupd.broker_order_id]
+                if internal_id not in local_orders:
+                    broker_only_orders.append(bupd.broker_order_id)
+            else:
+                # Broker order has no mapping to internal order
+                broker_only_orders.append(bupd.broker_order_id)
+
+    def _reconcile_by_instrument_side(
+        self,
+        local_orders: dict[str, dict],
+        broker_orders: list[BrokerOrderUpdate],
+        discrepancies: list[Discrepancy],
+        local_only_orders: list[str],
+        broker_only_orders: list[str],
+    ) -> None:
+        """Reconcile by matching (instrument, side) — handles multiple orders correctly."""
+        # Build map of (instrument, side) -> list of local orders
+        local_by_key: dict[tuple[str, str], list[dict]] = {}
+        for oid, order in local_orders.items():
+            key = (order["instrument"], order["side"])
+            if key not in local_by_key:
+                local_by_key[key] = []
+            local_by_key[key].append(order)
+
+        # Build map of (instrument, side) -> list of broker updates
+        broker_by_key: dict[tuple[str, str], list[BrokerOrderUpdate]] = {}
+        for bupd in broker_orders:
+            key = (bupd.instrument, bupd.side)
+            if key not in broker_by_key:
+                broker_by_key[key] = []
+            broker_by_key[key].append(bupd)
+
+        # Check for discrepancies in matched orders
+        for key, local_list in local_by_key.items():
+            if key in broker_by_key:
+                broker_list = broker_by_key[key]
+                # Match local orders with broker updates by index
+                # (best-effort when no explicit mapping available)
+                for i, local_order in enumerate(local_list):
+                    if i < len(broker_list):
+                        broker_update = broker_list[i]
+                        local_filled = Decimal(local_order["filled_quantity"])
+                        broker_filled = Decimal(str(broker_update.filled_quantity))
+
+                        if local_filled != broker_filled:
+                            discrepancies.append(
+                                Discrepancy(
+                                    order_id=local_order["order_id"],
+                                    field="filled_quantity",
+                                    local_value=str(local_filled),
+                                    broker_value=str(broker_filled),
+                                )
+                            )
+                    else:
+                        # More local orders than broker updates
+                        local_only_orders.append(local_order["order_id"])
+            else:
+                # No broker updates for this (instrument, side)
+                for local_order in local_list:
+                    local_only_orders.append(local_order["order_id"])
+
+        # Check for broker-only orders
+        for key, broker_list in broker_by_key.items():
+            if key in local_by_key:
+                local_list = local_by_key[key]
+                # Extra broker updates beyond local orders
+                if len(broker_list) > len(local_list):
+                    for i in range(len(local_list), len(broker_list)):
+                        broker_only_orders.append(broker_list[i].broker_order_id)
+            else:
+                # No local orders for this (instrument, side)
+                for bupd in broker_list:
+                    broker_only_orders.append(bupd.broker_order_id)

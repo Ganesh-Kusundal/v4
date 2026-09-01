@@ -115,9 +115,18 @@ class EventStore:
         return [e for e in all_events if e.sequence_number > after_seq]
 
     def get_last_sequence(self, session_id: str) -> int:
-        """Get the last sequence number for a session (0 if no events)."""
+        """Get the last per-session sequence number (0 if no events).
+
+        Uses ROW_NUMBER() to match the gapless per-session sequence semantics
+        used by read_all() and read_after(). The global AUTOINCREMENT
+        sequence_number has gaps when multiple sessions interleave writes,
+        so MAX() would return a wrong (inflated) value.
+        """
         cursor = self._db.execute(
-            """SELECT MAX(sequence_number) FROM events WHERE session_id = ?""",
+            """SELECT MAX(per_session_seq) FROM (
+                   SELECT ROW_NUMBER() OVER (ORDER BY sequence_number) AS per_session_seq
+                   FROM events WHERE session_id = ?
+               )""",
             (session_id,),
         )
         row = cursor.fetchone()
