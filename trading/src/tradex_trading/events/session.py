@@ -262,6 +262,15 @@ class TradingSession:
         correlation_id = request.correlation_id or str(uuid.uuid4())
         event_time = datetime.now(UTC)
 
+        # --- Idempotency BEFORE the risk gate ---
+        # A retry with a known correlation_id returns the cached result from
+        # when the command first processed. Risk checks (which can change
+        # verdicts over time, e.g. the rate-limit window filling up) must not
+        # reject a duplicate of an already-processed order.
+        cached = self._processor.peek(correlation_id)
+        if cached is not None:
+            return cached
+
         # --- Risk check BEFORE placing the order ---
         risk_result = self._check_risk(request, event_time)
         if not risk_result.approved:

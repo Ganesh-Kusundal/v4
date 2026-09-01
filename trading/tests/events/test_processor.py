@@ -100,6 +100,56 @@ def test_process_releases_idempotency_on_rejection(setup, sample_request):
     assert result2.is_duplicate is False  # NOT a duplicate - it was re-processed
 
 
+def test_peek_returns_none_for_unknown_correlation_id(setup, sample_request):
+    """peek() on an unprocessed correlation_id returns None (no cached result)."""
+    store, actor, processor = setup
+    assert processor.peek("never-seen") is None
+
+
+def test_peek_returns_cached_duplicate_result(setup, sample_request):
+    """peek() after processing returns the cached result marked duplicate.
+
+    peek() must NOT re-execute the command — it is a read-only probe used by
+    callers (e.g. session.place_order) to check idempotency BEFORE running
+    pre-processing steps like risk checks.
+    """
+    store, actor, processor = setup
+    cmd = PlaceOrderCommand(
+        request=sample_request,
+        correlation_id="corr-001",
+        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+    )
+    result1 = processor.process(cmd)
+
+    peeked = processor.peek("corr-001")
+    assert peeked is not None
+    assert peeked.is_duplicate is True
+    assert peeked.success is True
+    assert peeked.events[0].event_id == result1.events[0].event_id
+
+    # peek() is non-mutating: a real duplicate process still works
+    result2 = processor.process(cmd)
+    assert result2.is_duplicate is True
+    assert result2.success is True
+
+
+def test_peek_returns_none_after_rejection(setup, sample_request):
+    """peek() returns None for rejected commands (idempotency key released)."""
+    store, actor, processor = setup
+    actor.trip_kill_switch("test")
+
+    cmd = PlaceOrderCommand(
+        request=sample_request,
+        correlation_id="corr-001",
+        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+    )
+    result1 = processor.process(cmd)
+    assert result1.success is False
+
+    # Rejection is not cached — retry must be possible
+    assert processor.peek("corr-001") is None
+
+
 def test_recover_rebuilds_idempotency_map(setup, sample_request):
     """Process commands, create new processor, recover, verify duplicates detected."""
     store, actor, processor = setup

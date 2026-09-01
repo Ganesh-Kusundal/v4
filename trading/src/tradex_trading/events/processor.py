@@ -35,6 +35,30 @@ class CommandProcessor:
         self._actor = order_book
         self._idempotency: dict[str, CommandResult] = {}
 
+    def peek(self, correlation_id: str) -> Optional[CommandResult]:
+        """Return the cached result for a correlation_id without re-processing.
+
+        Read-only idempotency probe: if a command with this correlation_id
+        was already processed successfully, returns the cached result with
+        is_duplicate=True; otherwise returns None. Never mutates state or
+        re-executes the command.
+
+        Callers that run pre-processing steps (e.g. risk checks) before
+        delegating to process() should probe with peek() first so duplicate
+        retries return the cached result instead of a fresh (and possibly
+        different) pre-processing verdict.
+        """
+        cached = self._idempotency.get(correlation_id)
+        if cached is None:
+            return None
+        return CommandResult(
+            success=cached.success,
+            events=cached.events,
+            correlation_id=cached.correlation_id,
+            error=cached.error,
+            is_duplicate=True,
+        )
+
     def process(self, command) -> CommandResult:
         """Process a command, return result.
 

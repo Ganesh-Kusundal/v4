@@ -501,6 +501,41 @@ def test_duplicate_order_idempotency(paper_config):
     session.stop()
 
 
+def test_duplicate_retry_bypasses_risk_gate(tmp_db):
+    """A duplicate retry returns the cached result, not a fresh risk verdict.
+
+    Scenario: rate limit max=2. Orders A and B are placed (both approved).
+    Retrying A with the same correlation_id must return A's cached success
+    (is_duplicate=True) — NOT a rate-limit rejection, because A already
+    processed. Risk checks run only for genuinely new commands.
+    """
+    config = make_rate_config(tmp_db, max_orders_per_minute=2)
+    session = TradingSession(config)
+    session.start()
+
+    req_a = make_request(correlation_id="corr-dup-risk-001")
+    req_b = make_request(correlation_id="corr-dup-risk-002")
+    result_a1 = session.place_order(req_a)
+    result_b = session.place_order(req_b)
+    assert result_a1.success is True
+    assert result_b.success is True
+
+    # Retry A — the rate window is now full (2 orders), but A already
+    # processed, so the retry must return the cached result.
+    result_a2 = session.place_order(req_a)
+
+    assert result_a2.success is True
+    assert result_a2.is_duplicate is True
+    assert result_a2.error is None
+    # Same events as the original placement
+    assert result_a2.events[0].event_id == result_a1.events[0].event_id
+
+    # Still only 2 orders — no duplicate was created
+    assert len(session.get_orders()) == 2
+
+    session.stop()
+
+
 def test_rate_limit_rejects_order_beyond_max(tmp_db):
     """Session-level rate limit counts the candidate order.
 
