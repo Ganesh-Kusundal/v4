@@ -22,6 +22,7 @@ Architecture:
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -148,6 +149,9 @@ class TradingSession:
     def __init__(self, config: SessionConfig) -> None:
         self._config = config
         self._state = SessionState.NEW
+        # Serializes state mutations across threads (review fix 13).
+        # RLock: paper mode reenters via on_order_placed -> apply_fill.
+        self._lock = threading.RLock()
 
         # Core event-sourcing pipeline (shared across all modes)
         self._store = EventStore(config.event_store_path)
@@ -258,70 +262,70 @@ class TradingSession:
             CommandResult with success status and emitted events.
         """
         self._check_running()
+        with self._lock:
+            correlation_id = request.correlation_id or str(uuid.uuid4())
+            event_time = datetime.now(UTC)
 
-        correlation_id = request.correlation_id or str(uuid.uuid4())
-        event_time = datetime.now(UTC)
+            # --- Idempotency BEFORE the risk gate ---
+            # A retry with a known correlation_id returns the cached result from
+            # when the command first processed. Risk checks (which can change
+            # verdicts over time, e.g. the rate-limit window filling up) must not
+            # reject a duplicate of an already-processed order.
+            cached = self._processor.peek(correlation_id)
+            if cached is not None:
+                return cached
 
-        # --- Idempotency BEFORE the risk gate ---
-        # A retry with a known correlation_id returns the cached result from
-        # when the command first processed. Risk checks (which can change
-        # verdicts over time, e.g. the rate-limit window filling up) must not
-        # reject a duplicate of an already-processed order.
-        cached = self._processor.peek(correlation_id)
-        if cached is not None:
-            return cached
+            # --- Risk check BEFORE placing the order ---
+            risk_result = self._check_risk(request, event_time)
+            if not risk_result.approved:
+                return CommandResult(
+                    success=False,
+                    events=[],  # No events emitted — order never entered the pipeline
+                    correlation_id=correlation_id,
+                    error=f"Risk check failed: {risk_result.reason}",
+                )
 
-        # --- Risk check BEFORE placing the order ---
-        risk_result = self._check_risk(request, event_time)
-        if not risk_result.approved:
-            return CommandResult(
-                success=False,
-                events=[],  # No events emitted — order never entered the pipeline
+            command = PlaceOrderCommand(
+                request=request,
                 correlation_id=correlation_id,
-                error=f"Risk check failed: {risk_result.reason}",
+                event_time=event_time,
             )
 
-        command = PlaceOrderCommand(
-            request=request,
-            correlation_id=correlation_id,
-            event_time=event_time,
-        )
+            result = self._processor.process(command)
 
-        result = self._processor.process(command)
+            if result.is_duplicate:
+                # Cached result from a previous call with the same correlation_id.
+                # Events were already persisted AND applied to the projectors when
+                # this command first processed. Re-applying OrderPlaced would
+                # corrupt the read model (e.g. reset a paper-filled FILLED order
+                # back to ACK/0) and re-notifying the data source would duplicate
+                # fill tracking, so return the cached result untouched.
+                return result
 
-        if result.is_duplicate:
-            # Cached result from a previous call with the same correlation_id.
-            # Events were already persisted AND applied to the projectors when
-            # this command first processed. Re-applying OrderPlaced would
-            # corrupt the read model (e.g. reset a paper-filled FILLED order
-            # back to ACK/0) and re-notifying the data source would duplicate
-            # fill tracking, so return the cached result untouched.
+            if result.success and result.events:
+                # Track order timestamp for rate limiting
+                self._order_timestamps.append(event_time)
+
+                # Project events BEFORE notifying the data source.
+                # Paper mode's on_order_placed synchronously triggers a fill
+                # (apply_fill -> _update_projectors), so OrderPlaced must be in the
+                # read model first or OrderFilled is dropped as an unknown order.
+                self._update_projectors(result.events)
+
+                # Notify the data source about the placed order
+                # This triggers: live=FillMatcher registration, paper=instant fill
+                order_id = result.events[0].payload["order_id"]
+                self._data_source.on_order_placed(
+                    order_id=order_id,
+                    instrument=str(request.instrument.instrument_id),
+                    side=request.side.value,
+                    quantity=request.quantity.value,
+                    price=request.price.value if request.price else None,
+                )
+            else:
+                self._update_projectors(result.events)
+
             return result
-
-        if result.success and result.events:
-            # Track order timestamp for rate limiting
-            self._order_timestamps.append(event_time)
-
-            # Project events BEFORE notifying the data source.
-            # Paper mode's on_order_placed synchronously triggers a fill
-            # (apply_fill -> _update_projectors), so OrderPlaced must be in the
-            # read model first or OrderFilled is dropped as an unknown order.
-            self._update_projectors(result.events)
-
-            # Notify the data source about the placed order
-            # This triggers: live=FillMatcher registration, paper=instant fill
-            order_id = result.events[0].payload["order_id"]
-            self._data_source.on_order_placed(
-                order_id=order_id,
-                instrument=str(request.instrument.instrument_id),
-                side=request.side.value,
-                quantity=request.quantity.value,
-                price=request.price.value if request.price else None,
-            )
-        else:
-            self._update_projectors(result.events)
-
-        return result
 
     def cancel_order(self, order_id: str) -> CommandResult:
         """Cancel an existing order.
@@ -333,16 +337,16 @@ class TradingSession:
             CommandResult with success status and emitted events.
         """
         self._check_running()
+        with self._lock:
+            command = CancelOrderCommand(
+                order_id=order_id,
+                correlation_id=str(uuid.uuid4()),
+                event_time=datetime.now(UTC),
+            )
 
-        command = CancelOrderCommand(
-            order_id=order_id,
-            correlation_id=str(uuid.uuid4()),
-            event_time=datetime.now(UTC),
-        )
-
-        result = self._processor.process(command)
-        self._update_projectors(result.events)
-        return result
+            result = self._processor.process(command)
+            self._update_projectors(result.events)
+            return result
 
     def trip_kill_switch(self, reason: str) -> CommandResult:
         """Trip the kill switch — halt all new orders and cancel open ones.
@@ -359,18 +363,18 @@ class TradingSession:
             CommandResult with the emitted events.
         """
         self._check_running()
+        with self._lock:
+            from tradex_trading.events.actor import TripKillSwitchCommand
 
-        from tradex_trading.events.actor import TripKillSwitchCommand
+            command = TripKillSwitchCommand(
+                reason=reason,
+                correlation_id=str(uuid.uuid4()),
+                event_time=datetime.now(UTC),
+            )
 
-        command = TripKillSwitchCommand(
-            reason=reason,
-            correlation_id=str(uuid.uuid4()),
-            event_time=datetime.now(UTC),
-        )
-
-        result = self._processor.process(command)
-        self._update_projectors(result.events)
-        return result
+            result = self._processor.process(command)
+            self._update_projectors(result.events)
+            return result
 
     def apply_fill(
         self,
@@ -394,21 +398,21 @@ class TradingSession:
             CommandResult with success status and emitted events.
         """
         self._check_running()
+        with self._lock:
+            from tradex_trading.events.actor import ApplyFillCommand
 
-        from tradex_trading.events.actor import ApplyFillCommand
+            command = ApplyFillCommand(
+                order_id=order_id,
+                cumulative_filled=cumulative_filled,
+                fill_price=fill_price,
+                fill_id=fill_id,
+                correlation_id=str(uuid.uuid4()),
+                event_time=datetime.now(UTC),
+            )
 
-        command = ApplyFillCommand(
-            order_id=order_id,
-            cumulative_filled=cumulative_filled,
-            fill_price=fill_price,
-            fill_id=fill_id,
-            correlation_id=str(uuid.uuid4()),
-            event_time=datetime.now(UTC),
-        )
-
-        result = self._processor.process(command)
-        self._update_projectors(result.events)
-        return result
+            result = self._processor.process(command)
+            self._update_projectors(result.events)
+            return result
 
     # -------------------------------------------------------------------------
     # Risk Engine Integration

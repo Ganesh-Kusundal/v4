@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -665,3 +666,165 @@ def test_kill_switch_survives_recovery(paper_config):
     assert "kill_switch" in place_result.error
 
     session2.stop()
+
+
+# =============================================================================
+# Thread safety (review fix 13)
+# =============================================================================
+
+
+def test_concurrent_same_correlation_places_exactly_one_order(tmp_db):
+    """8 threads place the SAME order (same correlation_id) concurrently.
+
+    The idempotency cache is check-then-cache: without a lock, two or more
+    threads can both miss the cache, both pass the risk gate, and both run
+    the processor before either caches the result — producing duplicate
+    OrderPlaced events and double position state in the read model.
+    """
+    config = make_rate_config(tmp_db, max_orders_per_minute=100)
+    session = TradingSession(config)
+    session.start()
+
+    request = make_request(correlation_id="corr-race-001")
+    results: list = []
+    results_lock = threading.Lock()
+    barrier = threading.Barrier(8)
+
+    def worker():
+        barrier.wait()
+        result = session.place_order(request)
+        with results_lock:
+            results.append(result)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results) == 8
+    # Exactly one worker executed the command; the rest got cached results.
+    assert sum(1 for r in results if r.success and not r.is_duplicate) == 1
+    assert sum(1 for r in results if r.is_duplicate) == 7
+
+    # Read model: exactly one order, one open position of 10.
+    orders = session.get_orders()
+    assert len(orders) == 1
+    assert orders[0].status == "FILLED"  # paper mode auto-fills
+
+    positions = session.get_positions()
+    assert len(positions) == 1
+    assert positions[0].quantity == Decimal("10")
+
+    session.stop()
+
+
+def test_concurrent_same_cumulative_fill_applies_once(tmp_db):
+    """2 threads apply the SAME cumulative fill to one order concurrently.
+
+    The actor computes delta = cumulative_filled - order.filled_quantity
+    then mutates: two threads can both read filled_quantity=0, both compute
+    delta=10, and both emit OrderFilled(fill_quantity=10) — double-crediting
+    the position and double-persisting the fill.
+    """
+    config = SessionConfig(
+        session_id="fill-race-001",
+        mode="backtest",  # no auto-fill; fills come from apply_fill
+        event_store_path=tmp_db,
+        risk_config=RiskConfig(
+            max_order_value=1_000_000.0,
+            max_position_value=5_000_000.0,
+            max_orders_per_minute=100,
+            max_daily_loss=50_000.0,
+        ),
+        data_source=DataSourceConfig(
+            type="historical",
+            historical_path="data/ohlcv/",
+        ),
+    )
+    session = TradingSession(config)
+    session.start()
+
+    place = session.place_order(make_request(correlation_id="corr-fill-race"))
+    assert place.success
+
+    barrier = threading.Barrier(2)
+
+    def worker():
+        barrier.wait()
+        session.apply_fill(
+            order_id=place.events[0].payload["order_id"],
+            cumulative_filled=Decimal("10"),
+            fill_price=Decimal("2500"),
+            fill_id="fill-race-001",
+        )
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # Order read model: single fill, cumulative 10, not 20.
+    orders = session.get_orders()
+    assert len(orders) == 1
+    assert orders[0].filled_quantity == Decimal("10")
+
+    # Position: 10 shares, not 20.
+    positions = session.get_positions()
+    assert len(positions) == 1
+    assert positions[0].quantity == Decimal("10")
+
+    # Event log: exactly one OrderFilled event for this order.
+    events = session._store.read_all(config.session_id)
+    order_id = place.events[0].payload["order_id"]
+    filled_events = [
+        e
+        for e in events
+        if e.type == "OrderFilled" and e.payload["order_id"] == order_id
+    ]
+    assert len(filled_events) == 1
+
+    session.stop()
+
+
+def test_concurrent_place_respects_rate_limit_under_threads(tmp_db):
+    """4 threads place distinct orders concurrently with max_orders_per_minute=3.
+
+    Rate limiting reads then appends to _order_timestamps: without a lock,
+    concurrent placements can all observe an empty window and all pass,
+    allowing more orders than the configured maximum.
+    """
+    config = make_rate_config(tmp_db, max_orders_per_minute=3)
+    session = TradingSession(config)
+    session.start()
+
+    results: list = []
+    results_lock = threading.Lock()
+    barrier = threading.Barrier(4)
+
+    def worker(i: int):
+        barrier.wait()
+        result = session.place_order(make_request(correlation_id=f"corr-rl-{i}"))
+        with results_lock:
+            results.append(result)
+
+    threads = [
+        threading.Thread(target=worker, args=(i,)) for i in range(4)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(results) == 4
+    approved = sum(1 for r in results if r.success)
+    rejected = sum(1 for r in results if not r.success)
+    assert approved == 3
+    assert rejected == 1
+    assert "Risk check failed" in results[[r.success for r in results].index(False)].error
+
+    # Read model: exactly 3 orders.
+    assert len(session.get_orders()) == 3
+
+    session.stop()
