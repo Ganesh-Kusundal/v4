@@ -14,6 +14,7 @@ from decimal import Decimal
 import pytest
 
 from tradex_domain import Equity, OrderRequest, OrderSide, OrderType, Price, Quantity
+from tradex_trading.events.fill_matcher import BrokerOrderUpdate
 from tradex_trading.events.processor import CommandResult
 from tradex_trading.events.projectors import OrderView, PositionView
 from tradex_trading.events.risk_engine import RiskConfig
@@ -375,6 +376,59 @@ def test_live_mode_configures_broker_data_source(live_config):
     assert session.data_source.type == "broker"
     assert session.data_source.broker is not None
     assert session.data_source.broker.broker_id == "dhan"
+
+    session.stop()
+
+
+def test_live_fill_updates_read_models_without_restart(live_config):
+    """Live mode: broker fills via FillMatcher must update the session's read
+    models (orders + positions) immediately — not only after a restart/rebuild.
+
+    Regression test for the live projector-bypass bug: FillMatcher previously
+    sent ApplyFillCommands straight to the CommandProcessor, persisting
+    OrderFilled/PositionUpdated to the event store while leaving the session's
+    projectors untouched.
+    """
+    session = TradingSession(live_config)
+    session.start()
+
+    # Place an order (registered with the FillMatcher by on_order_placed)
+    request = make_request(correlation_id="corr-live-fill-001")
+    place_result = session.place_order(request)
+    assert place_result.success is True
+    order_id = place_result.events[0].payload["order_id"]
+
+    # Sanity: read models show the placed (unfilled) order
+    order = session.get_orders()[0]
+    assert order.status == "ACK"
+    assert order.filled_quantity == Decimal("0")
+    assert session.get_positions() == []
+
+    # Feed a broker fill through the live data source path
+    broker_order_id = f"broker-{order_id[:8]}"  # deterministic mapping from on_order_placed
+    session.fill_matcher.process_update(
+        BrokerOrderUpdate(
+            broker_order_id=broker_order_id,
+            instrument="NSE:RELIANCE",
+            side="BUY",
+            quantity=10,
+            filled_quantity=10,
+            fill_price=Decimal("2500"),
+            status="FILLED",
+            timestamp=datetime.now(UTC),
+        )
+    )
+
+    # Read models must reflect the fill WITHOUT a session restart
+    order = session.get_orders()[0]
+    assert order.status == "FILLED"
+    assert order.filled_quantity == Decimal("10")
+
+    positions = session.get_positions()
+    assert len(positions) == 1
+    assert positions[0].instrument == "NSE:RELIANCE"
+    assert positions[0].quantity == Decimal("10")
+    assert positions[0].avg_price == Decimal("2500")
 
     session.stop()
 

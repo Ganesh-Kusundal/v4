@@ -447,19 +447,25 @@ class TradingSession:
         cumulative_filled: Decimal,
         fill_price: Decimal,
         fill_id: Optional[str],
-    ) -> None:
+    ) -> Optional[CommandResult]:
         """Callback invoked by the data source when a fill is available.
 
         This makes apply_fill automatic — the data source drives fills:
         - paper: SimulatedDataSource calls this immediately on order placement
-        - live: BrokerDataSource calls this when broker reports a fill
+        - live: BrokerDataSource's FillMatcher calls this when the broker
+          reports a fill (so live fills flow through the session's
+          apply_fill path and update projectors, not just the event store)
         - backtest: HistoricalDataSource calls this when historical data triggers a fill
+
+        Returns the CommandResult of applying the fill so fill-source
+        idempotency trackers (e.g. the FillMatcher) can decide whether to
+        advance their last-processed state.
         """
         log.info(
             "Data source fill: order_id=%s cumulative=%s price=%s",
             order_id, cumulative_filled, fill_price,
         )
-        self.apply_fill(
+        return self.apply_fill(
             order_id=order_id,
             cumulative_filled=cumulative_filled,
             fill_price=fill_price,

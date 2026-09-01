@@ -3,13 +3,15 @@
 Replaces the legacy LiveFillBridge with a cleaner, testable component.
 
 Architecture:
-    Broker Stream → BrokerOrderUpdate → FillMatcher → ApplyFillCommand → CommandProcessor
+    Broker Stream → BrokerOrderUpdate → FillMatcher → ApplyFillCommand → on_fill callback → CommandProcessor + Projectors
 
 The FillMatcher:
     - Maps internal order IDs to broker order IDs
     - Tracks last processed (broker_order_id, filled_quantity) for idempotency
     - Emits ApplyFillCommands for new fills only
-    - Skips duplicate and stale updates silently
+    - Routes fills through the on_fill callback so the session applies them
+      under its own lock (process command + update projectors atomically);
+      falls back to direct processor dispatch when no callback is wired
 """
 
 from __future__ import annotations
@@ -19,11 +21,10 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Callable, Optional
 
 from tradex_trading.events.actor import ApplyFillCommand
 from tradex_trading.events.processor import CommandProcessor, CommandResult
-
 log = logging.getLogger(__name__)
 
 
@@ -71,8 +72,16 @@ class FillMatcher:
         single-threaded broker stream handler (same as the old LiveFillBridge).
     """
 
-    def __init__(self, command_processor: CommandProcessor):
+    def __init__(
+        self,
+        command_processor: CommandProcessor,
+        on_fill: Optional[Callable[[ApplyFillCommand], CommandResult]] = None,
+    ):
         self._processor = command_processor
+        # Fills are routed through this callback (the session's apply_fill
+        # path) so command processing and projector updates stay atomic.
+        # When None, fall back to direct processor dispatch.
+        self._on_fill = on_fill
         # broker_order_id → _OrderMapping
         self._broker_to_internal: dict[str, _OrderMapping] = {}
         # broker_order_id → last processed filled_quantity
@@ -102,7 +111,9 @@ class FillMatcher:
         """Process a broker order update.
 
         If the update matches a registered order and has new fill quantity,
-        creates an ApplyFillCommand and sends it to the CommandProcessor.
+        creates an ApplyFillCommand and routes it through the on_fill callback
+        (when wired) so the session applies the fill under its own lock;
+        otherwise sends it directly to the CommandProcessor.
 
         Returns:
             CommandResult if a fill was applied, None if skipped or unknown.
@@ -136,8 +147,13 @@ class FillMatcher:
             event_time=update.timestamp,
         )
 
-        # Send to processor
-        result = self._processor.process(command)
+        # Route through the session's fill path (on_fill callback) when wired,
+        # so command processing and projector updates happen atomically under
+        # the session lock. Falls back to direct processor dispatch otherwise.
+        if self._on_fill is not None:
+            result = self._on_fill(command)
+        else:
+            result = self._processor.process(command)
 
         if result.success and result.events:
             # ONLY advance tracker AFTER successful processing with events.

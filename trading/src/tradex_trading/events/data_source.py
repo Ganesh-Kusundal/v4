@@ -20,8 +20,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Callable, Optional
 
+from tradex_trading.events.actor import ApplyFillCommand
 from tradex_trading.events.fill_matcher import BrokerOrderUpdate, FillMatcher
-from tradex_trading.events.processor import CommandProcessor
+from tradex_trading.events.processor import CommandProcessor, CommandResult
 
 if TYPE_CHECKING:
     # Import only for static analysis to avoid a circular import:
@@ -30,8 +31,10 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Callback invoked when a fill needs to be applied: (order_id, cumulative_filled, fill_price, fill_id)
-FillCallback = Callable[[str, Decimal, Decimal, Optional[str]], None]
+# Callback invoked when a fill needs to be applied: (order_id, cumulative_filled, fill_price, fill_id).
+# Returns the CommandResult of applying the fill (or None if the callback does
+# not report one) so fill-source idempotency trackers can decide whether to advance.
+FillCallback = Callable[[str, Decimal, Decimal, Optional[str]], Optional[CommandResult]]
 
 
 class DataSource(ABC):
@@ -99,8 +102,36 @@ class BrokerDataSource(DataSource):
     ) -> None:
         super().__init__(on_fill)
         self._broker_config = broker_config
-        self._fill_matcher = FillMatcher(command_processor)
+        # Route matcher-emitted fills through the session's on_fill path so
+        # command processing and projector updates stay atomic under the
+        # session lock (prevents the live projector-bypass).
+        self._fill_matcher = FillMatcher(
+            command_processor, on_fill=self._apply_fill_command
+        )
         self._started = False
+
+    def _apply_fill_command(self, command: ApplyFillCommand) -> CommandResult:
+        """Adapt the 4-arg FillCallback to the matcher's command callback.
+
+        Preserves the matcher-generated fill_id (broker_id + cumulative
+        quantity) so fill dedup stays stable across retries.
+        """
+        result = self._on_fill(
+            command.order_id,
+            command.cumulative_filled,
+            command.fill_price,
+            command.fill_id,
+        )
+        if result is None:
+            # Callback produced no result — report failure so the matcher
+            # does not advance its tracker (the next update can retry).
+            return CommandResult(
+                success=False,
+                events=[],
+                correlation_id=command.correlation_id,
+                error="on_fill callback returned no result",
+            )
+        return result
 
     def start(self) -> None:
         """Connect to broker and start listening for order updates.
@@ -149,8 +180,9 @@ class BrokerDataSource(DataSource):
         """Process a broker order-stream update through the FillMatcher.
 
         Called by the broker adapter layer when a real order update arrives.
-        The FillMatcher emits an ApplyFillCommand to the CommandProcessor,
-        which routes back through the normal pipeline.
+        The FillMatcher emits an ApplyFillCommand that flows back through the
+        on_fill callback into the session, which processes the command and
+        updates its projectors atomically.
         """
         result = self._fill_matcher.process_update(update)
         if result is not None and result.success:
