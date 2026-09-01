@@ -63,13 +63,6 @@ class _OrderState:
     correlation_id: str
 
 
-@dataclass
-class IdempotencyEntry:
-    """Tracks the result of processing a command by correlation_id."""
-
-    events: list[Event]
-
-
 def _instrument_from_str(instrument_str: str) -> Instrument:
     """Reconstruct an Instrument from its string representation.
 
@@ -87,6 +80,9 @@ class OrderBookActor:
 
     All mutations go through handle(). No other code mutates state.
     Events are appended to the EventStore. State can be recovered by replaying events.
+
+    NOTE: This actor is a PURE command handler — it does NOT track idempotency.
+    Idempotency is the sole responsibility of the CommandProcessor.
     """
 
     def __init__(self, session_id: str, event_store: EventStore):
@@ -95,32 +91,23 @@ class OrderBookActor:
         self._orders: dict[str, _OrderState] = {}
         self._positions: dict[str, Position] = {}
         self._kill_switch = False
-        self._idempotency: dict[str, IdempotencyEntry] = {}
 
     def handle(self, command) -> list[Event]:
-        """Process a command and return events to append."""
-        correlation_id = command.correlation_id
+        """Process a command and return events to append.
 
-        # Idempotency check — return cached result if already processed
-        if correlation_id in self._idempotency:
-            return self._idempotency[correlation_id].events
-
+        This is a pure command handler — no idempotency tracking.
+        The caller (CommandProcessor) is responsible for deduplication.
+        """
         if isinstance(command, PlaceOrderCommand):
-            events = self._handle_place_order(command)
+            return self._handle_place_order(command)
         elif isinstance(command, ApplyFillCommand):
-            events = self._handle_apply_fill(command)
+            return self._handle_apply_fill(command)
         elif isinstance(command, CancelOrderCommand):
-            events = self._handle_cancel_order(command)
+            return self._handle_cancel_order(command)
         elif isinstance(command, TripKillSwitchCommand):
-            events = self._handle_trip_kill_switch(command)
+            return self._handle_trip_kill_switch(command)
         else:
             raise ValueError(f"Unknown command type: {type(command)}")
-
-        # Store idempotency entry for successful commands (not rejections)
-        if events and events[0].type != "OrderRejected":
-            self._idempotency[correlation_id] = IdempotencyEntry(events=events)
-
-        return events
 
     def _handle_place_order(self, cmd: PlaceOrderCommand) -> list[Event]:
         now = cmd.event_time
@@ -397,14 +384,12 @@ class OrderBookActor:
     def recover(self) -> None:
         """Recover state from event log by replaying all events.
 
-        Rebuilds both state AND the idempotency map so that commands
-        with previously-seen correlation_ids are not re-processed.
+        Rebuilds state from events only — no idempotency tracking.
+        Idempotency is the responsibility of the CommandProcessor.
         """
         events = self._store.read_all(self._session_id)
         for event in events:
             self._apply_event(event)
-        # Rebuild idempotency map from all events
-        self._rebuild_idempotency(events)
 
     def _apply_event(self, event: Event) -> None:
         """Apply an event to rebuild state (no store write)."""
@@ -456,27 +441,6 @@ class OrderBookActor:
             )
         elif event.type == "KillSwitchTripped":
             self._kill_switch = True
-
-    def _rebuild_idempotency(self, events: list[Event]) -> None:
-        """Rebuild the idempotency map from replayed events.
-
-        Groups events by correlation_id so that re-processing a command
-        with the same correlation_id returns the cached events instead
-        of creating duplicates.
-        """
-        # Group events by correlation_id, preserving order
-        grouped: dict[str, list[Event]] = {}
-        for event in events:
-            cid = event.correlation_id
-            if cid not in grouped:
-                grouped[cid] = []
-            grouped[cid].append(event)
-
-        # Only register entries that represent successful commands
-        # (i.e., not OrderRejected)
-        for cid, evts in grouped.items():
-            if evts[0].type != "OrderRejected":
-                self._idempotency[cid] = IdempotencyEntry(events=evts)
 
     def snapshot(self) -> dict:
         """Return current state (orders, positions, kill_switch)."""

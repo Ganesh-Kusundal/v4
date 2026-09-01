@@ -324,20 +324,6 @@ def test_snapshot_returns_current_state(actor, sample_request):
     assert len(snapshot["orders"]) == 1
 
 
-def test_idempotency_same_correlation_id_returns_same_events(actor, sample_request):
-    cmd = PlaceOrderCommand(
-        request=sample_request,
-        correlation_id="corr-001",
-        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
-    )
-    events1 = actor.handle(cmd)
-
-    # Same command again — should return same events (idempotent)
-    events2 = actor.handle(cmd)
-    assert len(events2) == len(events1)
-    assert events2[0].event_id == events1[0].event_id
-
-
 def test_partial_fill_then_full_fill(actor, sample_request):
     # Place order
     place_cmd = PlaceOrderCommand(
@@ -507,95 +493,6 @@ def test_recovery_registers_synthetic_orders(actor):
     assert new_actor._orders["external-ord-1"].filled_quantity == Decimal("5")
 
 
-def test_recovery_rebuilds_idempotency_map(actor, sample_request):
-    """After recovery, commands with previously-seen correlation_ids must NOT
-    create duplicate orders — they should return cached events.
-
-    Before fix: recover() never rebuilt self._idempotency, so a command with
-    a correlation_id that was already processed would create a new order.
-    """
-    # Place order with correlation_id "corr-001"
-    place_cmd = PlaceOrderCommand(
-        request=sample_request,
-        correlation_id="corr-001",
-        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
-    )
-    original_events = actor.handle(place_cmd)
-    assert len(original_events) == 1
-    assert original_events[0].type == "OrderPlaced"
-
-    # Recover into a fresh actor
-    new_actor = OrderBookActor(session_id="test-sess", event_store=actor._store)
-    new_actor.recover()
-
-    # Idempotency map must contain the correlation_id
-    assert "corr-001" in new_actor._idempotency
-
-    # Re-processing the same command must return cached events, NOT create a new order
-    dup_events = new_actor.handle(place_cmd)
-    assert len(dup_events) == 1
-    assert dup_events[0].event_id == original_events[0].event_id  # Same event returned
-    assert len(new_actor._orders) == 1  # Still only 1 order, no duplicate
-
-
-def test_recovery_idempotency_with_multiple_commands(actor, sample_request):
-    """Idempotency map must track ALL correlation_ids from the event log."""
-    # Place order
-    place_cmd = PlaceOrderCommand(
-        request=sample_request,
-        correlation_id="corr-place",
-        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
-    )
-    place_events = actor.handle(place_cmd)
-    order_id = place_events[0].payload["order_id"]
-
-    # Apply fill
-    fill_cmd = ApplyFillCommand(
-        order_id=order_id,
-        cumulative_filled=Decimal("5"),
-        fill_price=Decimal("2500"),
-        fill_id="trade-001",
-        correlation_id="corr-fill",
-        event_time=datetime(2026, 1, 1, 9, 16, tzinfo=UTC),
-    )
-    actor.handle(fill_cmd)
-
-    # Recover
-    new_actor = OrderBookActor(session_id="test-sess", event_store=actor._store)
-    new_actor.recover()
-
-    # Both correlation_ids must be in idempotency map
-    assert "corr-place" in new_actor._idempotency
-    assert "corr-fill" in new_actor._idempotency
-
-    # Re-processing either command returns cached events
-    dup_place = new_actor.handle(place_cmd)
-    assert dup_place[0].event_id == place_events[0].event_id
-
-
-def test_recovery_idempotency_excludes_rejections(actor, sample_request):
-    """OrderRejected events must NOT be registered in the idempotency map,
-    so that rejected commands can be retried."""
-    # Trip kill switch
-    actor.trip_kill_switch("test")
-
-    # Place order — will be rejected
-    place_cmd = PlaceOrderCommand(
-        request=sample_request,
-        correlation_id="corr-rejected",
-        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
-    )
-    events = actor.handle(place_cmd)
-    assert events[0].type == "OrderRejected"
-
-    # Recover
-    new_actor = OrderBookActor(session_id="test-sess", event_store=actor._store)
-    new_actor.recover()
-
-    # Rejected correlation_id must NOT be in idempotency map
-    assert "corr-rejected" not in new_actor._idempotency
-
-
 def test_handle_apply_fill_catches_invalid_state_transition_only(actor):
     """_handle_apply_fill must catch InvalidStateTransition, not bare Exception.
 
@@ -666,7 +563,6 @@ def test_state_mutation_after_persist_in_place_order(actor, sample_request, monk
 
     # State must NOT be mutated since persist failed
     assert len(actor._orders) == 0
-    assert "corr-fail" not in actor._idempotency
 
 
 def test_state_mutation_after_persist_in_apply_fill(actor, sample_request, monkeypatch):
@@ -736,3 +632,33 @@ def test_recovery_preserves_synthetic_order_after_subsequent_fill(actor):
     assert "ext-ord" in new_actor._orders
     assert new_actor._orders["ext-ord"].filled_quantity == Decimal("10")
     assert new_actor._orders["ext-ord"].status == OrderState.FILLED
+
+
+def test_actor_is_pure_command_handler_no_idempotency(actor, sample_request):
+    """The actor must NOT track idempotency — it is a pure command handler.
+
+    Idempotency is the sole responsibility of the CommandProcessor.
+    This test verifies the actor has no _idempotency attribute.
+    """
+    # Verify actor has no idempotency tracking
+    assert not hasattr(actor, '_idempotency')
+
+    # Handle a command — should produce events
+    cmd = PlaceOrderCommand(
+        request=sample_request,
+        correlation_id="corr-001",
+        event_time=datetime(2026, 1, 1, 9, 15, tzinfo=UTC),
+    )
+    events1 = actor.handle(cmd)
+    assert len(events1) == 1
+    assert events1[0].type == "OrderPlaced"
+
+    # Handle the SAME command again — actor creates a NEW order (no deduplication)
+    # This is correct behavior — the processor handles deduplication
+    events2 = actor.handle(cmd)
+    assert len(events2) == 1
+    assert events2[0].type == "OrderPlaced"
+    # Different order_id proves no deduplication at actor level
+    assert events2[0].payload["order_id"] != events1[0].payload["order_id"]
+    # Now there are 2 orders in the actor (processor would prevent this in production)
+    assert len(actor._orders) == 2
