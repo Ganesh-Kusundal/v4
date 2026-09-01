@@ -268,3 +268,54 @@ def test_close_releases_connection(store):
     # After close, operations should fail
     with pytest.raises(sqlite3.ProgrammingError):
         store.read_all("sess-001")
+
+
+def test_store_is_thread_safe(tmp_path):
+    """Concurrent appends from multiple threads must not corrupt the log.
+
+    The broker stream handler (live mode) runs on a different thread than
+    the session that created the store. With sqlite's default
+    check_same_thread=True this raises ProgrammingError; with the lock it
+    must serialize cleanly and preserve exact sequence ordering.
+    """
+    import threading
+
+    store = EventStore(str(tmp_path / "threads.db"))
+    n_threads, per_thread = 4, 50
+    barrier = threading.Barrier(n_threads)
+
+    def worker(tid: int) -> None:
+        barrier.wait()  # maximize contention
+        for i in range(per_thread):
+            store.append(
+                Event(
+                    event_id=f"evt-t{tid}-{i}",
+                    event_time=datetime.now(UTC),
+                    processed_time=datetime.now(UTC),
+                    correlation_id=f"corr-t{tid}-{i}",
+                    session_id="thread-session",
+                    type="OrderPlaced",
+                    payload={"thread": tid, "i": i},
+                )
+            )
+
+    threads = [threading.Thread(target=worker, args=(t,)) for t in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    events = store.read_all("thread-session")
+    assert len(events) == n_threads * per_thread
+
+    # Sequence numbers must be a gapless 1..N ordering (serialized appends)
+    seqs = [e.sequence_number for e in events]
+    assert seqs == sorted(seqs)
+    assert min(seqs) == 1
+    assert max(seqs) == n_threads * per_thread
+
+    # No duplicate event_ids (each append assigned a unique sequence)
+    ids = {e.event_id for e in events}
+    assert len(ids) == n_threads * per_thread
+
+    store.close()

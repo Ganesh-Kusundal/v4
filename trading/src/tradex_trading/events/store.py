@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
@@ -24,15 +25,24 @@ class Event:
 
 
 class EventStore:
-    """SQLite-backed append-only event log."""
+    """SQLite-backed append-only event log.
+
+    Thread-safe: all connection access is serialized through a lock, and
+    the connection is opened with check_same_thread=False. In live mode
+    the broker stream handler (FillMatcher callbacks) runs on a different
+    thread than the session that created this store; sqlite's default
+    check_same_thread=True would raise ProgrammingError on that access.
+    """
 
     def __init__(self, db_path: str):
-        self._db = sqlite3.connect(db_path)
+        self._lock = threading.Lock()
+        self._db = sqlite3.connect(db_path, check_same_thread=False)
         self._db.row_factory = sqlite3.Row
         self._init_schema()
 
     def _init_schema(self) -> None:
-        self._db.execute("""
+        with self._lock:
+            self._db.execute("""
             CREATE TABLE IF NOT EXISTS events (
                 sequence_number INTEGER PRIMARY KEY AUTOINCREMENT,
                 event_id TEXT UNIQUE NOT NULL,
@@ -52,32 +62,33 @@ class EventStore:
 
     def append(self, event: Event) -> Event:
         """Append an event. Returns the event with sequence_number assigned."""
-        cursor = self._db.execute(
-            """INSERT INTO events
-               (event_id, event_time, processed_time, correlation_id,
-                session_id, type, payload)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                event.event_id,
-                event.event_time.isoformat(),
-                event.processed_time.isoformat(),
-                event.correlation_id,
-                event.session_id,
-                event.type,
-                json.dumps(event.payload),
-            ),
-        )
-        self._db.commit()
-        return Event(
-            event_id=event.event_id,
-            event_time=event.event_time,
-            processed_time=event.processed_time,
-            correlation_id=event.correlation_id,
-            session_id=event.session_id,
-            type=event.type,
-            payload=event.payload,
-            sequence_number=cursor.lastrowid,
-        )
+        with self._lock:
+            cursor = self._db.execute(
+                """INSERT INTO events
+                   (event_id, event_time, processed_time, correlation_id,
+                    session_id, type, payload)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    event.event_id,
+                    event.event_time.isoformat(),
+                    event.processed_time.isoformat(),
+                    event.correlation_id,
+                    event.session_id,
+                    event.type,
+                    json.dumps(event.payload),
+                ),
+            )
+            self._db.commit()
+            return Event(
+                event_id=event.event_id,
+                event_time=event.event_time,
+                processed_time=event.processed_time,
+                correlation_id=event.correlation_id,
+                session_id=event.session_id,
+                type=event.type,
+                payload=event.payload,
+                sequence_number=cursor.lastrowid,
+            )
 
     def read_all(self, session_id: str) -> list[Event]:
         """Read all events for a session, in sequence order.
@@ -86,15 +97,16 @@ class EventStore:
         since global AUTOINCREMENT sequence_numbers have gaps when
         multiple sessions interleave writes.
         """
-        cursor = self._db.execute(
-            """SELECT event_id, event_time, processed_time, correlation_id,
-                      session_id, type, payload,
-                      ROW_NUMBER() OVER (ORDER BY sequence_number) AS per_session_seq
-               FROM events WHERE session_id = ?
-               ORDER BY sequence_number""",
-            (session_id,),
-        )
-        return [self._row_to_event(row) for row in cursor]
+        with self._lock:
+            cursor = self._db.execute(
+                """SELECT event_id, event_time, processed_time, correlation_id,
+                          session_id, type, payload,
+                          ROW_NUMBER() OVER (ORDER BY sequence_number) AS per_session_seq
+                   FROM events WHERE session_id = ?
+                   ORDER BY sequence_number""",
+                (session_id,),
+            )
+            return [self._row_to_event(row) for row in cursor]
 
     def read_after(self, session_id: str, after_seq: int) -> list[Event]:
         """Read events after a specific per-session sequence number.
@@ -102,17 +114,18 @@ class EventStore:
         The after_seq refers to the gapless per-session sequence (1, 2, 3...),
         not the global AUTOINCREMENT value.
         """
-        cursor = self._db.execute(
-            """SELECT event_id, event_time, processed_time, correlation_id,
-                      session_id, type, payload,
-                      ROW_NUMBER() OVER (ORDER BY sequence_number) AS per_session_seq
-               FROM events
-               WHERE session_id = ?
-               ORDER BY sequence_number""",
-            (session_id,),
-        )
-        all_events = [self._row_to_event(row) for row in cursor]
-        return [e for e in all_events if e.sequence_number > after_seq]
+        with self._lock:
+            cursor = self._db.execute(
+                """SELECT event_id, event_time, processed_time, correlation_id,
+                          session_id, type, payload,
+                          ROW_NUMBER() OVER (ORDER BY sequence_number) AS per_session_seq
+                   FROM events
+                   WHERE session_id = ?
+                   ORDER BY sequence_number""",
+                (session_id,),
+            )
+            all_events = [self._row_to_event(row) for row in cursor]
+            return [e for e in all_events if e.sequence_number > after_seq]
 
     def get_last_sequence(self, session_id: str) -> int:
         """Get the last per-session sequence number (0 if no events).
@@ -122,19 +135,21 @@ class EventStore:
         sequence_number has gaps when multiple sessions interleave writes,
         so MAX() would return a wrong (inflated) value.
         """
-        cursor = self._db.execute(
-            """SELECT MAX(per_session_seq) FROM (
-                   SELECT ROW_NUMBER() OVER (ORDER BY sequence_number) AS per_session_seq
-                   FROM events WHERE session_id = ?
-               )""",
-            (session_id,),
-        )
-        row = cursor.fetchone()
-        return row[0] if row and row[0] is not None else 0
+        with self._lock:
+            cursor = self._db.execute(
+                """SELECT MAX(per_session_seq) FROM (
+                       SELECT ROW_NUMBER() OVER (ORDER BY sequence_number) AS per_session_seq
+                       FROM events WHERE session_id = ?
+                   )""",
+                (session_id,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row and row[0] is not None else 0
 
     def close(self) -> None:
         """Close the underlying database connection."""
-        self._db.close()
+        with self._lock:
+            self._db.close()
 
     def _row_to_event(self, row: sqlite3.Row) -> Event:
         return Event(
