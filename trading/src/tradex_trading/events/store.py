@@ -80,10 +80,16 @@ class EventStore:
         )
 
     def read_all(self, session_id: str) -> list[Event]:
-        """Read all events for a session, in sequence order."""
+        """Read all events for a session, in sequence order.
+
+        Uses ROW_NUMBER() to produce a gapless per-session sequence,
+        since global AUTOINCREMENT sequence_numbers have gaps when
+        multiple sessions interleave writes.
+        """
         cursor = self._db.execute(
             """SELECT event_id, event_time, processed_time, correlation_id,
-                      session_id, type, payload, sequence_number
+                      session_id, type, payload,
+                      ROW_NUMBER() OVER (ORDER BY sequence_number) AS per_session_seq
                FROM events WHERE session_id = ?
                ORDER BY sequence_number""",
             (session_id,),
@@ -91,15 +97,22 @@ class EventStore:
         return [self._row_to_event(row) for row in cursor]
 
     def read_after(self, session_id: str, after_seq: int) -> list[Event]:
-        """Read events after a specific sequence number."""
+        """Read events after a specific per-session sequence number.
+
+        The after_seq refers to the gapless per-session sequence (1, 2, 3...),
+        not the global AUTOINCREMENT value.
+        """
         cursor = self._db.execute(
             """SELECT event_id, event_time, processed_time, correlation_id,
-                      session_id, type, payload, sequence_number
-               FROM events WHERE session_id = ? AND sequence_number > ?
+                      session_id, type, payload,
+                      ROW_NUMBER() OVER (ORDER BY sequence_number) AS per_session_seq
+               FROM events
+               WHERE session_id = ?
                ORDER BY sequence_number""",
-            (session_id, after_seq),
+            (session_id,),
         )
-        return [self._row_to_event(row) for row in cursor]
+        all_events = [self._row_to_event(row) for row in cursor]
+        return [e for e in all_events if e.sequence_number > after_seq]
 
     def get_last_sequence(self, session_id: str) -> int:
         """Get the last sequence number for a session (0 if no events)."""
@@ -110,6 +123,10 @@ class EventStore:
         row = cursor.fetchone()
         return row[0] if row and row[0] is not None else 0
 
+    def close(self) -> None:
+        """Close the underlying database connection."""
+        self._db.close()
+
     def _row_to_event(self, row: sqlite3.Row) -> Event:
         return Event(
             event_id=row["event_id"],
@@ -119,5 +136,5 @@ class EventStore:
             session_id=row["session_id"],
             type=row["type"],
             payload=json.loads(row["payload"]),
-            sequence_number=row["sequence_number"],
+            sequence_number=row["per_session_seq"],
         )
