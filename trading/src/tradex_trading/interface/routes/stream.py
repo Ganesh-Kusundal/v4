@@ -538,8 +538,9 @@ async def ws_stream(
                 from tradex_domain.enums import Timeframe as _TF
 
                 from tradex_trading.datalake.parquet_storage import ParquetStorage
+                from tradex_trading.datalake.paths import DATALAKE_ROOT
 
-                store = ParquetStorage("data/")
+                store = ParquetStorage(DATALAKE_ROOT)
                 symbol = instrument.split(":")[-1]
                 minutes = int(msg.get("minutes", 390))
                 # Anchor on the datalake's own last day when the trailing

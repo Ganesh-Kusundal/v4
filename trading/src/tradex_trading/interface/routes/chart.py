@@ -141,7 +141,9 @@ def _backtest_candles(instrument: Any, tf: Timeframe, start: datetime, end: date
     from tradex_brokers.common.market_builders import candles_from_dataframe
     from tradex_domain.market import HistoricalSeries
 
-    store = _get_store("data/")
+    from tradex_trading.datalake.paths import DATALAKE_ROOT
+
+    store = _get_store(DATALAKE_ROOT)
     df = store.read(symbols=[instrument.symbol], start=start, end=end)
     if df.empty:
         return []
@@ -693,12 +695,15 @@ def create_chart_router(session: Any | None) -> APIRouter:
 
         Candle construction and resampling are single-sourced (market_builders
         + HistoricalSeries.resample); this endpoint adds only the IST->UTC
-        edge conversion on top.
+        edge conversion on top. The store is anchored to the repo root
+        (``datalake.paths.DATALAKE_ROOT``) so serve works from any cwd.
         """
         from tradex_brokers.common.market_builders import candles_from_dataframe
         from tradex_domain.market import HistoricalSeries
 
-        store = _get_store("data/")
+        from tradex_trading.datalake.paths import DATALAKE_ROOT
+
+        store = _get_store(DATALAKE_ROOT)
         df = store.read(
             symbols=[instrument.symbol],
             start=start,
