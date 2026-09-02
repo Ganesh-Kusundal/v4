@@ -63,3 +63,38 @@ fills still absent from `CommandResult.events` (9); `test_get_positions_after_fi
 still exercises `apply_fill` as a paper delta-0 no-op (10); research-script lookback
 semantics and unused `import sys` unchanged (11, 12); `read_after` still
 materializes and filters under lock (13).
+
+## Independent review of the fix range (2026-09-02)
+
+Range `d79def1..a1e211a` independently re-reviewed read-only by a fresh
+reviewer subagent (worktree isolation for base-revision checks).
+
+**Verdict: Ready to merge — Yes (approve).** All 5 target findings genuinely
+fixed and verified; no new Critical or Important issues.
+
+Reviewer's independently reproduced evidence:
+
+- Full suite at HEAD: 1889 passed / 16 skipped; at pristine base `d79def1`
+  (scratch worktree): 1877 passed / 16 skipped — matches this doc exactly.
+- Probes: 0/5 at base, 5/5 at HEAD (perfect discrimination).
+- Red→green: HEAD tests on base sources fail in exactly 10 tests mapping 1:1
+  to findings 1/2/3/5; finding 2's conditional red (masked by finding 5's
+  off-by-one on pristine base) reproduced as documented.
+- Concurrency tests stable across 10 consecutive runs.
+- Lock order session→processor→store traced across all paths: no inversion,
+  no deadlock; paper-mode reentrancy safe (RLock).
+- Live-fill routing complete for all modes; all 8 original Minors confirmed
+  still open.
+
+New Minor findings from this review (non-blocking, noted for follow-up):
+
+- **M1** — session.py:510-526: `get_orders`/`get_positions` read without the
+  session lock; cross-thread consumers can observe transiently torn
+  cross-model views (GIL makes single reads atomic but not cross-model).
+- **M2** — session.py:219: `stop()` is unsynchronized against concurrent
+  commands.
+- **M3** — fill_matcher.py:153: `on_fill=None` fallback dispatches directly to
+  the processor, bypassing projectors — a latent re-introduction path of the
+  original Critical bug (test-only today).
+- **M4** — duplicate `trip_kill_switch` emits a second `KillSwitchTripped`
+  event (pre-existing behavior).
