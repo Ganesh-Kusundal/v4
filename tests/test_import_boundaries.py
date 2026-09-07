@@ -86,3 +86,83 @@ def test_all_three_packages_present() -> None:
     """Guard against the test silently scanning nothing."""
     for name, src in _SRC.items():
         assert _py_files(src), f"no .py files found under {name}/src"
+
+
+# ---------------------------------------------------------------------------
+# Single-authority guard for the active execution spine
+# ---------------------------------------------------------------------------
+
+# The platform's production-readiness argument is: one order authority and one
+# money path. If a new module starts claiming order state, fill identity, mark
+# freshness, or unrealized PnL as authoritative, this test should fail instead
+# of letting the claim silently exist alongside the active spine.
+#
+# This is a small structural guard, not a full architectural lint. It watches the
+# named authority symbols that the 2026-09-04 reviews treated as the live spine:
+#   - execution: ExecutionEngine / PositionManager / TradingCache
+#   - money path: position_math.apply_fill
+#
+# If the repo later adopts a new spine, this guard must be revisited explicitly.
+
+_SINGLE_AUTHORITY_SYMBOLS: dict[str, set[str]] = {
+    "trading/src/tradex_trading/execution/engine.py": {"ExecutionEngine"},
+    "trading/src/tradex_trading/execution/position_manager.py": {"PositionManager"},
+    "trading/src/tradex_trading/execution/position_math.py": {"apply_fill"},
+    "trading/src/tradex_trading/execution/trading_cache.py": {"TradingCache"},
+}
+
+
+def _top_level_names(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names: set[str] = set()
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef):
+            names.add(node.name)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            names.add(node.name)
+    return names
+
+
+def test_single_execution_authority_in_active_spine() -> None:
+    """The active spine keeps order + money authority in a small, named set.
+
+    If a second module in the execution tree starts defining the same
+    authoritative symbols, that is a duplication signal and the build must
+    fail so the team can decide which authority owns the concern.
+    """
+    trading_src = _ROOT / "trading/src"
+    executed: dict[str, set[str]] = {}
+    for path in sorted(trading_src.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        rel = str(path.relative_to(_ROOT))
+        names = _top_level_names(path)
+        if names:
+            executed[rel] = names
+
+    assert executed, "trading/src appears to contain no Python files"
+
+    for path_text, expected in _SINGLE_AUTHORITY_SYMBOLS.items():
+        owning = executed.get(path_text)
+        assert owning is not None, f"expected authority file missing: {path_text}"
+        missing = expected - owning
+        assert not missing, (
+            f"{path_text} no longer owns the expected authority symbols: {sorted(missing)}. "
+            "If this is intentional, update the single-authority guard explicitly."
+        )
+
+    # One money path: apply_fill should not be redefined in another execution
+    # module as an authoritative fill applier. We do not forbid helpers named
+    # apply_fill elsewhere; we forbid the authoritative one from being duplicated
+    # in the active execution tree.
+    authoritative_owner = (
+        "trading/src/tradex_trading/execution/position_math.py"
+    )
+    owners_of_apply_fill = sorted(
+        rel for rel, names in executed.items()
+        if "apply_fill" in names and rel != authoritative_owner
+    )
+    assert not owners_of_apply_fill, (
+        "apply_fill is defined in more than one execution module. "
+        "Money path duplication detected:\n" + "\n".join(owners_of_apply_fill)
+    )
