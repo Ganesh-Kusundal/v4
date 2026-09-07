@@ -4,372 +4,223 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="x-api-key" content="" data-applied="false" />
-  <title>TradeX — Midnight Atelier</title>
+  <title>TradeX v4</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◈</text></svg>" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Fragment+Mono&family=Newsreader:opsz,wght@6..72,400;6..72,600&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* ━━━ Midnight Atelier — Editorial Trading Terminal ━━━
-       Deep ink + warm paper + brass. Data in mono, stories in serif.
-       Asymmetric, tactile, deliberately not a generic "dark mode". */
+    /* TradeX v4 — Clean Trading Terminal */
 
     :root {
-      --ink: #080a10;
-      --ink-2: #0f131c;
-      --panel: #131822;
-      --panel-2: #1a2230;
-      --elev: #1e293b;
-      --elev-2: #243347;
-      --line: #1e2a3a;
-      --line-2: #253445;
-      --paper: #e8e0d0;
-      --paper-dim: #c9bfab;
-      --muted: #6b7a90;
-      --faint: #3d4a5e;
-      --brass: #c8a86a;
-      --brass-2: #e8c99a;
-      --teal: #2dd4a0;
-      --teal-dim: #0f3d32;
-      --coral: #ff5a5a;
-      --coral-dim: #3d1a1a;
-      --amber: #f0b429;
-      --r: 10px; --r-sm: 6px; --h: 30px;
+      --bg: #020617;
+      --surface: #0F172A;
+      --surface-2: #1E293B;
+      --fg: #F8FAFC;
+      --muted: #94A3B8;
+      --border: #334155;
+      --bull: #22C55E;
+      --bear: #EF4444;
     }
     * { box-sizing: border-box; }
-    * { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+    * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 999px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--faint); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
 
     html, body { margin: 0; height: 100%; }
     body {
-      background:
-        radial-gradient(900px 600px at 20% -10%, rgba(200,168,106,0.08), transparent 60%),
-        radial-gradient(700px 500px at 90% 0%, rgba(45,212,160,0.06), transparent 55%),
-        linear-gradient(180deg, var(--ink-2), var(--ink));
-      background-color: var(--ink);
-      color: var(--paper);
-      font-family: "Sora", system-ui, sans-serif;
-      font-size: 13px; line-height: 1.45;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "Inter", system-ui, sans-serif;
+      font-size: 13px; line-height: 1.4;
       display: grid;
-      grid-template-columns: minmax(0,1fr) 320px;
-      grid-template-rows: auto minmax(0,1fr) auto;
-      gap: 8px; padding: 10px;
+      grid-template-columns: 1fr;
+      grid-template-rows: 40px 1fr;
+      gap: 0; padding: 0;
       height: 100vh; overflow: hidden;
-    }
-    /* grain */
-    body::before {
-      content:""; position: fixed; inset: 0; pointer-events: none; opacity: .035;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.9'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
     }
 
     /* ── Shellbar ── */
     .shellbar {
       grid-column: 1 / -1;
-      display: flex; align-items: center; gap: 0;
-      background: linear-gradient(180deg, var(--panel), #0d111b);
-      border: 1px solid var(--line); border-radius: var(--r);
-      padding: 6px 10px; flex-wrap: wrap;
-      box-shadow: 0 4px 24px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.04);
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 12px; height: 40px;
     }
     .brand {
-      display: inline-flex; align-items: center; gap: 10px;
-      font-family: "Newsreader", serif; font-weight: 600; font-size: 16px;
-      letter-spacing: -0.02em; color: var(--paper);
+      font-weight: 600; font-size: 14px; color: var(--fg);
     }
-    .brand-dot {
-      width: 28px; height: 28px; border-radius: 7px;
-      background: linear-gradient(135deg, var(--brass), #8b6f3a);
-      display: grid; place-items: center;
-      font-family: "Newsreader", serif; font-weight: 700; font-size: 13px; color: var(--ink);
-      box-shadow: 0 2px 10px rgba(200,168,106,.3);
+    .sym-btn {
+      height: 28px; padding: 0 10px;
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+      color: var(--fg); font: 500 12px "Inter", system-ui, sans-serif; cursor: pointer;
     }
-    .brand em {
-      font-family: "Fragment Mono", monospace; font-size: 10px; font-style: normal;
-      letter-spacing: .14em; text-transform: uppercase;
-      color: var(--brass); border: 1px solid rgba(200,168,106,.25);
-      background: rgba(200,168,106,.08); padding: 2px 6px; border-radius: 4px;
+    .tf-pills {
+      display: flex; gap: 0;
+      border: 1px solid var(--border); border-radius: 4px; overflow: hidden;
     }
-    .divider { width: 1px; height: 20px; background: var(--line); margin: 0 10px; flex: none; }
-    .shellbar .tbtn {
-      height: 28px; padding: 0 11px; border-radius: 7px;
-      background: transparent; border: 1px solid transparent;
-      color: var(--paper-dim); font: 500 12px "Sora", sans-serif;
-      letter-spacing: .02em; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
-      transition: all .15s;
+    .tf-pills button {
+      height: 26px; padding: 0 10px;
+      background: transparent; border: none; border-right: 1px solid var(--border);
+      color: var(--muted); font: 500 11px "Inter", system-ui, sans-serif; cursor: pointer;
     }
-    .shellbar .tbtn:hover { background: var(--elev); border-color: var(--line-2); color: var(--paper); }
-    .shellbar .tbtn b { font-weight: 700; }
-    .tbtn--buy { color: var(--teal) !important; border-color: rgba(45,212,160,.2) !important; background: rgba(45,212,160,.08) !important; }
-    .tbtn--buy:hover { background: rgba(45,212,160,.14) !important; border-color: var(--teal) !important; }
-    .tbtn--sell { color: var(--coral) !important; border-color: rgba(255,90,90,.2) !important; background: rgba(255,90,90,.08) !important; }
-    .tbtn--sell:hover { background: rgba(255,90,90,.14) !important; border-color: var(--coral) !important; }
-    .tbtn.is-on { background: var(--paper) !important; color: var(--ink) !important; border-color: var(--paper) !important; }
-    .pills {
-      display: inline-flex; background: var(--ink); border: 1px solid var(--line);
-      border-radius: 8px; padding: 2px; gap: 1px;
+    .tf-pills button:last-child { border-right: none; }
+    .tf-pills button.is-on { background: var(--surface-2); color: var(--fg); }
+    .qty-input {
+      width: 56px; height: 26px; text-align: center;
+      background: var(--surface-2); border: 1px solid var(--border); border-radius: 4px;
+      color: var(--fg); font: 600 12px "Inter", system-ui, sans-serif;
+      font-variant-numeric: tabular-nums;
     }
-    .pills button {
-      height: 24px; padding: 0 10px; border-radius: 6px; border: 0;
-      background: transparent; color: var(--muted);
-      font: 600 11px "Fragment Mono", monospace; letter-spacing: .04em;
-      cursor: pointer; transition: all .15s;
+    .buy-btn, .sell-btn {
+      height: 28px; padding: 0 14px; border-radius: 4px;
+      font: 600 12px "Inter", system-ui, sans-serif; cursor: pointer;
+      border: 1px solid transparent;
     }
-    .pills button:hover { color: var(--paper); }
-    .pills button.is-on { background: var(--brass); color: var(--ink); box-shadow: 0 1px 6px rgba(200,168,106,.3); }
-    .field--qty {
-      width: 64px; height: 28px; text-align: center;
-      background: var(--ink); border: 1px solid var(--line); border-radius: 7px;
-      color: var(--paper); font: 600 12px "Fragment Mono", monospace;
+    .buy-btn { color: var(--bull); border-color: rgba(34,197,94,0.3); }
+    .sell-btn { color: var(--bear); border-color: rgba(239,68,68,0.3); }
+    .buy-btn:hover { background: rgba(34,197,94,0.1); }
+    .sell-btn:hover { background: rgba(239,68,68,0.1); }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
+    .status-dot.on { background: var(--bull); }
+    .status-text {
+      font: 11px "Inter", system-ui, sans-serif; color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-left: auto;
     }
-    .field--brk {
-      width: 74px; height: 28px; text-align: center;
-      background: var(--ink); border: 1px solid var(--line); border-radius: 7px;
-      color: var(--paper); font: 600 11px "Fragment Mono", monospace;
-    }
-    .field--brk::placeholder { color: var(--faint); }
-    .field--brk:focus { border-color: var(--brass); outline: none; }
-    .pill--brk { color: var(--brass); border-color: rgba(200,168,106,.3); background: rgba(200,168,106,.08); }
-    .shellbar .field--tf {
-      height: 28px; padding: 0 8px; flex: none;
-      background: var(--ink); border: 1px solid var(--line); border-radius: 7px;
-      color: var(--paper-dim); font: 500 11px "Sora", sans-serif; cursor: pointer;
-      transition: all .15s;
-    }
-    .shellbar .field--tf:hover { border-color: var(--line-2); color: var(--paper); }
-    .shellbar .field--tf:focus { border-color: var(--brass); outline: none; }
-    .shellbar .field--profile { color: var(--brass); border-color: rgba(200,168,106,.3); }
-    .status { margin-left: auto; display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
-    .pill { font: 500 10px "Fragment Mono", monospace; letter-spacing: .06em; text-transform: uppercase;
-      padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: var(--ink); }
-    .pill.live { color: var(--teal); border-color: rgba(45,212,160,.3); background: var(--teal-dim); }
-    #status { font: 11px "Fragment Mono", monospace; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
-    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 3px rgba(255,255,255,.04); }
-    .status-dot.on { background: var(--teal); box-shadow: 0 0 8px var(--teal), 0 0 0 3px rgba(45,212,160,.15); }
 
     /* ── Chart Stage ── */
-    #split { grid-column: 1; grid-row: 2; display: flex; min-height: 0; min-width: 0;
-      background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
-      overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,.35);
-    }
+    #split { grid-column: 1; grid-row: 2; display: flex; min-height: 0; min-width: 0; }
     .stage { position: relative; flex: 1; min-height: 0; min-width: 0; background: #0a0e14; }
     #chart { position: absolute; inset: 0; }
     #chart canvas { position: absolute; top: 0; left: 0; width: 100% !important; height: 100% !important; }
     #legend {
-      position: absolute; top: 12px; left: 14px; z-index: 5; pointer-events: none;
-      display: inline-flex; align-items: baseline; gap: 10px;
-      background: rgba(10,14,20,.82); border: 1px solid rgba(255,255,255,.06);
-      backdrop-filter: blur(12px); padding: 7px 12px; border-radius: 8px;
-      font: 11px "Fragment Mono", monospace; box-shadow: 0 4px 16px rgba(0,0,0,.3);
+      position: absolute; top: 8px; left: 8px; z-index: 5; pointer-events: none;
+      display: inline-flex; align-items: baseline; gap: 8px;
+      font: 11px "Inter", system-ui, sans-serif; font-variant-numeric: tabular-nums;
+      color: var(--muted); background: transparent; border: none;
     }
     #legend:empty { display: none; }
-    #legend .name { font-family: "Newsreader", serif; font-weight: 600; font-size: 12px; color: var(--paper); }
+    #legend .name { font-weight: 500; font-size: 11px; color: var(--fg); }
     #legend .meta { color: var(--muted); }
-
-    /* Rail */
-    .rail {
-      position: absolute; top: 0; left: 0; bottom: 0; width: 44px; z-index: 10;
-      background: linear-gradient(180deg, #0e131c, #0a0e14);
-      border-right: 1px solid var(--line);
-      display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 0;
-    }
-    .rail button {
-      width: 32px; height: 32px; display: grid; place-items: center;
-      background: transparent; border: 1px solid transparent; border-radius: 8px;
-      color: var(--muted); cursor: pointer; transition: all .15s;
-    }
-    .rail button:hover { background: var(--elev); color: var(--paper); border-color: var(--line-2); }
-    .rail button.is-on { background: var(--paper); color: var(--ink); border-color: var(--paper); }
-    .rail .sep { width: 20px; height: 1px; background: var(--line); margin: 6px 0; }
-    .rail button { position: relative; }
-    .rail svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-    .railtip { position: absolute; left: 48px; top: 50%; transform: translateY(-50%); white-space: nowrap; padding: 6px 10px; border-radius: 6px; background: var(--elev-2); color: var(--paper); border: 1px solid var(--line); font: 500 11px "Sora", sans-serif; opacity: 0; pointer-events: none; transition: opacity .12s; box-shadow: 0 8px 24px rgba(0,0,0,.4); z-index: 20; }
-    .rail button:hover .railtip { opacity: 1; }
-    .railtip b { color: var(--brass); font-weight: 600; margin-left: 6px; font-size: 10px; }
-    .stage.has-rail #chart { left: 44px; }
 
     /* Replay bar */
     #replaybar {
       position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
-      /* Explicit stacking: chart pane canvases carry their own stacking
-         contexts, so without this the canvas hit-tests above the transport
-         and every replay control click lands on the chart instead. Sits
-         above pane layers (legend 5 / rail 10), below modals (60). */
-      z-index: 15;
-      display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-      background: rgba(19,24,34,.92); border: 1px solid var(--line-2);
-      border-radius: 999px; backdrop-filter: blur(16px);
-      box-shadow: 0 8px 24px rgba(0,0,0,.4);
+      z-index: 15; display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
     }
     #replaybar[hidden] { display: none; }
-    #replaybar button { height: 26px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--line);
-      background: var(--elev); color: var(--paper-dim); font: 600 11px "Sora", sans-serif; cursor: pointer; }
-    #replaybar button.is-on { background: var(--brass); color: var(--ink); border-color: var(--brass); }
-    #replaybar input[type=range] { width: 160px; accent-color: var(--brass); }
-    #replaybar .rcount { font: 11px "Fragment Mono", monospace; color: var(--paper); }
-    #replaybar .rclock { font: 10px "Fragment Mono", monospace; color: var(--muted); }
-
-    /* ── Sidepanel ── */
-    #sidepanel { grid-column: 2; grid-row: 2; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
-    #watchlist, #panel-host {
-      background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
-      overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,.2);
+    #replaybar button {
+      height: 24px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--border);
+      background: var(--surface-2); color: var(--muted); font: 500 11px "Inter", system-ui, sans-serif; cursor: pointer;
     }
-    #watchlist { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-    #watchlist h3 {
-      margin: 0; padding: 10px 12px 8px;
-      font: 600 10px "Sora", sans-serif; letter-spacing: .12em; text-transform: uppercase;
-      color: var(--brass); border-bottom: 1px solid var(--line);
-      display: flex; align-items: center; gap: 6px;
-    }
-    #watchlist h3::before { content: "◈"; font-size: 8px; color: var(--faint); }
-    #watchlist input[type="search"] {
-      margin: 10px 10px 8px; height: 32px;
-      background: var(--ink); border: 1px solid var(--line); border-radius: 8px;
-      color: var(--paper); font: 12px "Sora", sans-serif; padding: 0 10px 0 28px;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%236b7a90' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-3-3'/%3E%3C/svg%3E");
-      background-repeat: no-repeat; background-position: 9px center;
-      outline: none; transition: all .15s;
-    }
-    #watchlist input:focus { border-color: var(--brass); box-shadow: 0 0 0 3px rgba(200,168,106,.12); }
-    #watchlist input::placeholder { color: var(--faint); }
-    .wl-list { flex: 1; overflow-y: auto; padding: 0 6px 6px; }
-    .wl-row {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 7px 8px; border-radius: 6px; cursor: pointer;
-      border: 1px solid transparent; transition: all .12s;
-    }
-    .wl-row:hover { background: var(--elev); border-color: var(--line); }
-    .wl-row.active { background: var(--paper); border-color: var(--paper); }
-    .wl-row.active .wl-sym { color: var(--ink); }
-    .wl-row.active .wl-exch { color: rgba(8,10,16,.6); }
-    .wl-sym { font: 600 12px "Fragment Mono", monospace; letter-spacing: -.01em; color: var(--paper); }
-    .wl-exch { font: 500 10px "Sora", sans-serif; color: var(--muted); margin-left: 6px; }
-    .wl-row .wl-price { font: 500 11px "Fragment Mono", monospace; color: var(--muted); }
-
-    #panel-host { flex: 0 0 auto; max-height: 42%; overflow-y: auto; padding: 14px; }
-    #panel-host h3 {
-      font: 600 10px "Sora", sans-serif; letter-spacing: .12em; text-transform: uppercase;
-      color: var(--brass); margin: 0 0 10px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
-    }
-    /* Fix white inputs: force dark theme */
-    #panel-host select, #panel-host input[type="text"], #panel-host input[type="number"],
-    #panel-host input:not([type="checkbox"]):not([type="color"]) {
-      background: var(--ink) !important; border: 1px solid var(--line) !important;
-      color: var(--paper) !important; border-radius: 7px !important;
-      padding: 6px 10px !important; font: 12px "Sora", sans-serif !important;
-      width: 100% !important; outline: none !important;
-    }
-    #panel-host select:focus, #panel-host input:focus { border-color: var(--brass) !important; box-shadow: 0 0 0 3px rgba(200,168,106,.1) !important; }
-    #panel-host label { font: 500 11px "Sora", sans-serif; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
-    #panel-host .btn, #panel-host button {
-      background: var(--paper) !important; color: var(--ink) !important;
-      border: 1px solid var(--paper) !important; border-radius: 7px !important;
-      font: 600 11px "Sora", sans-serif !important; letter-spacing: .02em;
-      padding: 7px 14px !important; cursor: pointer; transition: all .15s;
-    }
-    #panel-host .btn:hover { background: var(--paper-dim) !important; }
-    #panel-host .scanner-btn {
-      width: 100%; text-align: left; background: var(--elev) !important;
-      border: 1px solid var(--line) !important; color: var(--paper-dim) !important;
-      padding: 8px 10px !important; border-radius: 7px !important;
-      font: 500 12px "Sora", sans-serif !important; margin-bottom: 6px;
-    }
-    #panel-host .scanner-btn:hover { border-color: var(--brass) !important; color: var(--paper) !important; background: var(--elev-2) !important; }
-
-    /* ── Bottom Dock ── */
-    #bottom-dock {
-      grid-column: 1 / -1; grid-row: 3;
-      display: flex; flex-direction: column;
-      background: var(--panel); border: 1px solid var(--line); border-radius: var(--r);
-      overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,.2);
-      min-height: 0;
-    }
-    #bottom-tabs { display: flex; gap: 0; padding: 0 10px; border-bottom: 1px solid var(--line); background: var(--ink); }
-    #bottom-tabs button {
-      background: transparent; border: none; border-bottom: 2px solid transparent;
-      color: var(--muted); padding: 10px 14px;
-      font: 600 10px "Sora", sans-serif; letter-spacing: .1em; text-transform: uppercase;
-      cursor: pointer; position: relative; top: 1px; transition: all .15s;
-    }
-    #bottom-tabs button.active { color: var(--brass); border-bottom-color: var(--brass); }
-    #bottom-tabs button:hover { color: var(--paper); }
-    #bottom-tabs button.dock-toggle { margin-left: auto; }
-    #bottom-panels { flex: 1; overflow: auto; padding: 12px; background: var(--panel); min-height: 140px; }
-    .dock-panel { display: none; } .dock-panel.active { display: block; }
-    /* Collapsed: panels hidden, dock shrinks to its tab row. */
-    #bottom-panels.dock-hidden { display: none; }
-    #bottom-dock.dock-collapsed { flex: 0 0 auto; }
-    #bottom-dock.dock-collapsed #bottom-tabs { border-bottom: none; }
-    #bottom-panels h3 { font: 600 10px "Sora", sans-serif; letter-spacing: .12em; text-transform: uppercase; color: var(--brass); margin: 0 0 8px; }
-    #bottom-panels select, #bottom-panels input { background: var(--ink) !important; border: 1px solid var(--line) !important; color: var(--paper) !important; }
-    #bottom-panels input { width: 120px !important; }
-    #bottom-panels button { background: var(--elev) !important; border: 1px solid var(--line) !important; color: var(--paper-dim) !important; border-radius: 6px !important; }
-    #bottom-panels button:hover { border-color: var(--brass) !important; }
-    #bottom-panels pre { background: var(--ink) !important; border: 1px solid var(--line) !important; color: var(--paper-dim) !important; border-radius: 7px !important; padding: 10px !important; }
+    #replaybar button.is-on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+    #replaybar input[type=range] { width: 160px; accent-color: var(--muted); }
+    #replaybar .rcount { font: 11px "Inter", system-ui, sans-serif; font-variant-numeric: tabular-nums; color: var(--fg); }
+    #replaybar .rclock { font: 10px "Inter", system-ui, sans-serif; font-variant-numeric: tabular-nums; color: var(--muted); }
 
     /* ── Modals ── */
-    #setmodal, #cmpmodal, #chartset { position: fixed; inset: 0; z-index: 60; background: rgba(4,6,10,.72); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; }
+    #setmodal, #cmpmodal, #chartset {
+      position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+    }
     #setmodal[hidden], #cmpmodal[hidden], #chartset[hidden] { display: none; }
-    .set-card { width: 380px; max-height: 80vh; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: 0 24px 64px rgba(0,0,0,.5); overflow: hidden; }
-    .set-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); font: 600 13px "Newsreader", serif; color: var(--paper); }
+    .set-card {
+      width: 380px; max-height: 80vh; display: flex; flex-direction: column;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    }
+    .set-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 14px; border-bottom: 1px solid var(--border);
+      font: 600 13px "Inter", system-ui, sans-serif; color: var(--fg);
+    }
     .set-head button { border: 0; background: transparent; color: var(--muted); font-size: 18px; cursor: pointer; }
     .set-body { padding: 14px 16px; overflow: auto; display: grid; gap: 4px; }
     .set-row { display: grid; grid-template-columns: 1fr 140px; align-items: center; gap: 10px; min-height: 30px; }
-    .set-row label { font: 500 12px "Sora", sans-serif; color: var(--paper-dim); }
-    .set-ctl input { height: 28px; background: var(--ink); border: 1px solid var(--line); border-radius: 6px; color: var(--paper); padding: 0 8px; font: 12px "Fragment Mono", monospace; width: 100%; }
-    .set-ctl input:focus { border-color: var(--brass); outline: none; }
-    .set-foot { display: flex; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--line); }
-    .set-foot .btn { height: 30px; padding: 0 14px; border-radius: 7px; font: 600 12px "Sora", sans-serif; cursor: pointer; }
-    .set-foot .btn--ghost { background: var(--elev); border: 1px solid var(--line); color: var(--muted); }
-    .set-foot .btn--primary { background: var(--brass); border: 1px solid var(--brass); color: var(--ink); }
+    .set-row label { font: 500 12px "Inter", system-ui, sans-serif; color: var(--muted); }
+    .set-ctl input {
+      height: 28px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+      color: var(--fg); padding: 0 8px; font: 12px "Inter", system-ui, sans-serif; width: 100%;
+    }
+    .set-ctl input:focus { border-color: var(--muted); outline: none; }
+    .set-foot { display: flex; justify-content: space-between; padding: 12px 16px; border-top: 1px solid var(--border); }
+    .set-foot .btn {
+      height: 28px; padding: 0 12px; border-radius: 4px;
+      font: 600 12px "Inter", system-ui, sans-serif; cursor: pointer;
+    }
+    .set-foot .btn--ghost { background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
+    .set-foot .btn--primary { background: var(--fg); border: 1px solid var(--fg); color: var(--bg); }
 
-    /* Chips */
-    .indlist { display: inline-flex; gap: 6px; flex-wrap: wrap; }
-    .chip { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px 4px 10px; border-radius: 999px; background: var(--elev); border: 1px solid var(--line); font: 500 11px "Sora", sans-serif; color: var(--paper-dim); }
-    .chip b { color: var(--paper); font-weight: 600; }
-    .chip button { width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 11px; }
-    .chip button:hover { background: var(--line); color: var(--paper); }
+    /* ── Overlays ── */
+    .overlay {
+      position: fixed; top: 40px; bottom: 0; z-index: 20;
+      display: flex; flex-direction: column;
+      background: var(--surface); border: 1px solid var(--border);
+      transition: transform 0.2s ease;
+    }
+    .overlay--right { right: 0; width: 280px; transform: translateX(100%); }
+    .overlay--left { left: 0; width: 44px; transform: translateX(-100%); }
+    .overlay--bottom { left: 0; right: 0; bottom: 0; top: auto; height: 140px; transform: translateY(100%); }
+    .overlay--right.open { transform: translateX(0); }
+    .overlay--left.open { transform: translateX(0); }
+    .overlay--bottom.open { transform: translateY(0); }
 
-    /* Scrollbar polish already above */
+    /* ── Command Palette ── */
+    .palette-backdrop {
+      position: fixed; inset: 0; z-index: 30;
+      background: rgba(0,0,0,0.5); display: flex; align-items: flex-start; justify-content: center; padding-top: 120px;
+    }
+    .palette-modal {
+      width: 500px; max-height: 60vh; display: flex; flex-direction: column;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+    }
+    .palette-input {
+      height: 40px; padding: 0 12px; background: var(--bg); border: none; border-bottom: 1px solid var(--border);
+      color: var(--fg); font: 13px "Inter", system-ui, sans-serif; outline: none;
+    }
+    .palette-results { flex: 1; overflow-y: auto; padding: 8px; }
+    .palette-cat {
+      font: 600 10px "Inter", system-ui, sans-serif; letter-spacing: .05em; text-transform: uppercase;
+      color: var(--muted); padding: 8px 8px 4px;
+    }
+    .palette-row {
+      width: 100%; text-align: left; padding: 8px; border: none; border-radius: 4px;
+      background: transparent; color: var(--fg); font: 12px "Inter", system-ui, sans-serif; cursor: pointer;
+    }
+    .palette-row:hover { background: var(--surface-2); }
+    .palette-empty { padding: 16px; text-align: center; color: var(--muted); font: 12px "Inter", system-ui, sans-serif; }
 
-    @media (max-width: 900px) {
-      body { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr 200px 160px; }
-      #split { grid-column: 1; } #sidepanel { grid-column: 1; flex-direction: row; } #bottom-dock { grid-column: 1; }
+    /* ── Focus States ── */
+    :focus-visible { outline: 2px solid #3B82F6; outline-offset: 2px; }
+
+    /* ── Reduced Motion ── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
     }
   </style>
 </head>
 <body>
-  <input type="text" id="symbol" class="field field--sym" value="RELIANCE" title="Symbol" spellcheck="false" autocomplete="off" hidden />
   <header class="shellbar" id="shellbar">
-    <button id="tradetoggle" class="tbtn" title="Show/hide on-chart orders + positions from /api/charts/book" hidden>Trade</button>
+    <span class="brand">TradeX</span>
+    <button class="sym-btn" id="sym-btn">NSE:RELIANCE</button>
+    <div class="tf-pills" id="tf-pills"></div>
+    <input type="number" class="qty-input" id="qty-input" value="10" min="1" />
+    <button class="buy-btn" id="buy-btn">BUY</button>
+    <button class="sell-btn" id="sell-btn">SELL</button>
+    <span class="status-dot" id="status-dot"></span>
+    <span class="status-text" id="status-text">ready</span>
   </header>
-  <div class="legacy" hidden aria-hidden="true">
-    <select id="interval"><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="30m">30m</option><option value="1h">1h</option><option value="1d" selected>1D</option></select>
-    <select id="indpick"></select><button id="indadd">Add</button><span id="indlist" class="indlist"></span>
-    <select id="drawtool"></select><button id="drawundo">&#8630;</button><button id="drawredo">&#8631;</button><button id="drawdel">Del</button><button id="drawclear">Clear</button>
-    <label class="chk"><input type="checkbox" id="magnet" /> <span>Magnet</span></label>
-    <button id="load">Load</button><button id="save">Save PNG</button><button id="fit">Fit</button>
-    <input type="number" id="qty" class="field field--qty" value="100" min="1" />
-    <select id="product"><option>MIS</option><option>CNC</option></select>
-    <button id="buy">Buy</button><button id="sell">Sell</button><button id="cancel">Cancel</button>
-    <button id="lsave">Save</button><button id="lload">Restore</button>
-    <span id="status"></span>
-  </div>
-  <div class="split" id="split">
-    <main class="stage has-rail">
-      <div class="rail" id="rail"></div>
+  <div id="split">
+    <main class="stage">
       <div id="chart"></div>
       <div id="legend"></div>
       <div id="replaybar" hidden></div>
     </main>
   </div>
-  <aside id="sidepanel">
-    <div id="watchlist"><h3>Watchlist</h3></div>
-    <div id="panel-host"></div>
-  </aside>
-  <section id="bottom-dock"></section>
   <div id="setmodal" hidden><div class="set-card"><div class="set-head"><span id="set-title"></span><button id="set-x">×</button></div><div id="set-body" class="set-body"></div><div class="set-foot"><button id="set-remove" class="btn btn--ghost">Remove</button><span style="margin-left:auto;display:flex;gap:8px"><button id="set-cancel" class="btn btn--ghost">Cancel</button><button id="set-ok" class="btn btn--primary">Apply</button></span></div></div></div>
   <div id="cmpmodal" hidden><div class="set-card"><div class="set-head"><span>Compare</span><button id="cmp-x">×</button></div><div class="set-body"><div class="set-row"><label>Symbol</label><div class="set-ctl"><input id="cmp-sym" placeholder="RELIANCE" /></div></div><div class="set-row"><label>Mode</label><div class="set-ctl"><select id="cmp-mode"><option value="percentage">Percent</option><option value="indexed-to-100">Indexed</option><option value="none">Own scale</option></select></div></div><div id="cmp-list" style="margin-top:10px"></div></div><div class="set-foot"><button id="cmp-close" class="btn btn--ghost">Close</button><button id="cmp-add" class="btn btn--primary">Add</button></div></div></div>
   <div id="chartset" hidden><div class="cset-card"><div class="set-head"><span>Chart Settings</span><button id="cset-x">×</button></div><div class="cset-main"><nav class="cset-tabs" id="cset-tabs"></nav><div id="cset-body" class="set-body"></div></div><div class="set-foot"><button id="cset-defaults" class="btn btn--ghost">Restore</button><button id="cset-cancel" class="btn btn--ghost">Cancel</button><button id="cset-ok" class="btn btn--primary">OK</button></div></div></div>
