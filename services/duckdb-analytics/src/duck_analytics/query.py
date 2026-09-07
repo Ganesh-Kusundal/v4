@@ -33,7 +33,6 @@ _FORBIDDEN = (
 # Single-quoted literal (doubled quotes are escapes) — stripped before the
 # keyword scan so values are never mistaken for statements.
 _LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
-_LIMIT_TAIL_RE = re.compile(r"\bLIMIT\s+\d+\s*$", re.IGNORECASE)
 
 
 class QueryNotAllowedError(ValueError):
@@ -100,10 +99,8 @@ class QueryService:
             raise QueryNotAllowedError(f"forbidden keyword: {forbidden}")
 
     def _apply_limit(self, sql: str, limit: int) -> tuple[str, bool]:
-        """Append LIMIT cap unless the statement already ends with one."""
-        if _LIMIT_TAIL_RE.search(sql.strip()):
-            return sql, False
-        return sql.rstrip().rstrip(";") + f" LIMIT {limit}", True
+        """Wrap SQL so the service cap cannot be bypassed by caller SQL."""
+        return f"SELECT * FROM ({sql.rstrip().rstrip(';')}) AS _limited_q LIMIT {limit}", True
 
     # ------------------------------------------------------------------ exec
 

@@ -89,9 +89,14 @@ cat.close()
 - SELECT/WITH only — INSERT/DDL/ATTACH/COPY/INSTALL/PRAGMA/CALL rejected;
   multi-statement strings rejected.
 - Server-side row cap (default 1000, max 50 000) + `truncated` flag +
-  best-effort `total_row_count`.
+  best-effort `total_row_count`; caller-provided SQL limits cannot bypass the
+  service cap, and strict callers fail on truncation.
 - Memory/thread caps (`4GB`, `4`) on the DuckDB connection.
 - Retry-once on torn reads while `ParquetStorage.upsert` rewrites a partition.
+- Results include a dataset fingerprint derived from configured input-file
+  metadata and the session policy. This identifies the observed input set; it
+  is not an immutable content snapshot, so reproducible studies should pin an
+  immutable lake copy or manifest externally.
 - Indicator parity: SMA identical to `analytics/indicators.sma`; RSI is exact
   Wilder smoothing via closed-form decay sum, golden-tested against
   `analytics/indicators.rsi`. Guard: keep scanned bars per symbol ≲9000.

@@ -62,13 +62,14 @@ class DuckDBCatalog:
     @property
     def connection(self) -> duckdb.DuckDBPyConnection:
         """Connection with views registered; created on first access."""
-        if self._con is None:
-            con = duckdb.connect(":memory:")
-            con.execute(f"SET memory_limit='{self._config.memory_limit}'")
-            con.execute(f"SET threads={self._config.threads}")
-            self._register_views(con)
-            self._con = con
-        return self._con
+        with self._lock:
+            if self._con is None:
+                con = duckdb.connect(":memory:")
+                con.execute(f"SET memory_limit='{self._config.memory_limit}'")
+                con.execute(f"SET threads={self._config.threads}")
+                self._register_views(con)
+                self._con = con
+            return self._con
 
     def _register_views(self, con: duckdb.DuckDBPyConnection) -> None:
         glob = self._config.glob.replace("'", "''")
@@ -118,9 +119,10 @@ class DuckDBCatalog:
         return [(str(name), str(dtype)) for name, dtype in rows]
 
     def close(self) -> None:
-        if self._con is not None:
-            self._con.close()
-            self._con = None
+        with self._lock:
+            if self._con is not None:
+                self._con.close()
+                self._con = None
 
     def __enter__(self) -> DuckDBCatalog:
         return self

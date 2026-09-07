@@ -54,6 +54,11 @@ class TestCaps:
         res = service.execute("SELECT ts FROM ohlcv", limit=10**9)
         assert res.row_count <= 50_000
 
+    def test_user_limit_cannot_bypass_service_cap(self, service):
+        res = service.execute("SELECT ts FROM ohlcv LIMIT 100", limit=2)
+        assert res.row_count == 2
+        assert res.truncated is True
+
     def test_elapsed_and_columns(self, service):
         res = service.execute("SELECT symbol, close FROM ohlcv LIMIT 3")
         assert res.columns == ["symbol", "close"]
