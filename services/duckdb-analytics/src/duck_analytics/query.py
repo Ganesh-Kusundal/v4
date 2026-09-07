@@ -51,6 +51,7 @@ class QueryResult:
     truncated: bool
     elapsed_ms: float
     point_in_time_safe: bool
+    dataset_fingerprint: str
 
 
 def _first_keyword(sql: str) -> str:
@@ -112,12 +113,13 @@ class QueryService:
         params: dict[str, object] | list[object] | None = None,
         *,
         limit: int | None = None,
-        point_in_time_safe: bool = False,
+        require_complete: bool = False,
     ) -> QueryResult:
         """Run *sql* read-only. Named params use DuckDB ``$name`` syntax.
 
-        *point_in_time_safe* is caller-asserted metadata: scanner wrappers
-        that injected an ``as_of`` bound set it True.
+        Raw SQL is never classified as verified point-in-time safe. Scanner
+        wrappers expose that property separately after constructing a bounded
+        query.
         """
         self._validate(sql)
         cap = min(limit or self._config.default_row_limit, self._config.max_row_limit)
@@ -130,7 +132,8 @@ class QueryService:
         start = time.perf_counter()
         timer: threading.Timer | None = None
         timeout_s = self._config.statement_timeout_s
-        try:
+        with self._catalog.execution_lock:
+          try:
             if timeout_s and timeout_s > 0:
                 timer = threading.Timer(timeout_s, con.interrupt)
                 timer.daemon = True
@@ -138,7 +141,7 @@ class QueryService:
             rel = con.execute(limited_sql, args)
             rows = rel.fetchall()
             col_names = [c[0] for c in (rel.description or [])]
-        except duckdb.IOException as e:
+          except duckdb.IOException as e:
             # Torn parquet file during a concurrent upsert rewrite — retry once.
             try:
                 rel = con.execute(limited_sql, args)
@@ -148,7 +151,7 @@ class QueryService:
                 raise RuntimeError(
                     f"data file unreadable after retry (concurrent rewrite?): {e}"
                 ) from e
-        finally:
+          finally:
             if timer is not None:
                 timer.cancel()
 
@@ -162,6 +165,8 @@ class QueryService:
                 total = int(con.execute(count_sql, args).fetchone()[0])  # type: ignore[index]
             except Exception:
                 total = None
+            if require_complete:
+                raise QueryNotAllowedError(f"query result truncated at {cap} rows")
         return QueryResult(
             columns=col_names,
             rows=rows[:cap],
@@ -169,7 +174,8 @@ class QueryService:
             total_row_count=total,
             truncated=truncated,
             elapsed_ms=round(elapsed_ms, 2),
-            point_in_time_safe=point_in_time_safe,
+            point_in_time_safe=False,
+            dataset_fingerprint=self._catalog.dataset_fingerprint,
         )
 
 

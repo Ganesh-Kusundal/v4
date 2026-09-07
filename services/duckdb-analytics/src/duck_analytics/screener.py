@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = default_config_for(_REPO_HINT)
     cat = DuckDBCatalog(cfg)
     try:
-        res = QueryService(cat, cfg).execute(q.sql, None, point_in_time_safe=True)
+        res = QueryService(cat, cfg).execute(q.sql, None, require_complete=True)
     finally:
         cat.close()
 

@@ -143,7 +143,7 @@ def run_screener(
         strict=strict,
     )
     out = _rows_payload(
-        _service.execute(q.sql, None, point_in_time_safe=True)
+        _service.execute(q.sql, None, require_complete=True)
     )
     out["scan"] = q.description
     out["point_in_time_safe"] = True
@@ -155,7 +155,7 @@ def run_breadth(as_of: str, dma: int = 20, timeframe: str = "1d") -> str:
     """Per-day market breadth: % of symbols above N-bar DMA, advances/declines."""
     q = breadth(as_of, dma=dma, timeframe=timeframe)
     out = _rows_payload(
-        _service.execute(q.sql, None, point_in_time_safe=True)
+        _service.execute(q.sql, None, require_complete=True)
     )
     out["scan"] = q.description
     out["point_in_time_safe"] = True
@@ -181,7 +181,7 @@ def run_rs_score(
     bpd = bars_per_day if bars_per_day is not None else 25
     sql = rs_score_sql(end=as_of, days=days, bars_per_day=bpd,
                        interval=TF_TO_INTERVAL[timeframe])
-    out = _rows_payload(_service.execute(sql, None, point_in_time_safe=True))
+    out = _rows_payload(_service.execute(sql, None, require_complete=True))
     out["point_in_time_safe"] = True
     out["params"] = {"days": days, "timeframe": timeframe, "bars_per_day": bpd}
     return _payload(out)

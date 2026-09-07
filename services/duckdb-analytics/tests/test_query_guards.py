@@ -89,10 +89,14 @@ class TestTimeout:
 
 
 class TestPointInTimeFlag:
-    def test_flag_propagates(self, service):
-        res = service.execute(
-            "SELECT 1", point_in_time_safe=True
-        )
-        assert res.point_in_time_safe is True
-        res2 = service.execute("SELECT 1")
-        assert res2.point_in_time_safe is False
+    def test_raw_queries_are_not_verified_safe(self, service):
+        res = service.execute("SELECT 1")
+        assert res.point_in_time_safe is False
+
+    def test_strict_query_rejects_truncated_results(self, service):
+        with pytest.raises(QueryNotAllowedError, match="truncated"):
+            service.execute("SELECT ts FROM ohlcv", limit=2, require_complete=True)
+
+    def test_result_contains_dataset_provenance(self, service):
+        res = service.execute("SELECT 1")
+        assert res.dataset_fingerprint

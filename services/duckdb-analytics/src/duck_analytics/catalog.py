@@ -15,6 +15,8 @@ naive ``TIME``/``TIMESTAMP`` literals. Never introduce TIMESTAMPTZ.
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
+import threading
 from pathlib import Path
 
 import duckdb
@@ -35,6 +37,25 @@ class DuckDBCatalog:
     def __init__(self, config: AnalyticsConfig | None = None) -> None:
         self._config = config or AnalyticsConfig()
         self._con: duckdb.DuckDBPyConnection | None = None
+        self._lock = threading.RLock()
+        self._fingerprint: str | None = None
+
+    @property
+    def execution_lock(self) -> threading.RLock:
+        return self._lock
+
+    @property
+    def dataset_fingerprint(self) -> str:
+        """Stable identity for the configured input files and policy."""
+        if self._fingerprint is None:
+            digest = hashlib.sha256()
+            digest.update(str(Path(self._config.glob).resolve()).encode())
+            digest.update(f"|{MARKET_OPEN}|{MARKET_CLOSE}|IST".encode())
+            for path in sorted(Path(self._config.base_path).glob("**/data.parquet")):
+                stat = path.stat()
+                digest.update(f"|{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}".encode())
+            self._fingerprint = digest.hexdigest()
+        return self._fingerprint
 
     # ------------------------------------------------------------------ setup
 
