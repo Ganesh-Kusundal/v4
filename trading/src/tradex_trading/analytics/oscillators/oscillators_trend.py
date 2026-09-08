@@ -139,27 +139,38 @@ def adx(
         plus_dm[i] = up if (up > down and up > 0) else 0.0
         minus_dm[i] = down if (down > up and down > 0) else 0.0
 
-    tr_r = _rma(tr, int(period))
+    tr = true_ranges(candles)
+    # Engine parity (momentum.ts): bar 0 has no true range — the Wilder TR
+    # seed window is tr[1..period], so smoothing starts at global index 1.
+    tr_r: list[float | None] = [None] * n
+    if n > 1:
+        tail = _rma([float(v) for v in tr[1:]], int(period))
+        for j, val in enumerate(tail):
+            tr_r[1 + j] = val
     plus_r = _rma(plus_dm, int(period))
     minus_r = _rma(minus_dm, int(period))
 
     plus_di: list[float | None] = [None] * n
     minus_di: list[float | None] = [None] * n
     dx: list[float | None] = [None] * n
+    held_p: float | None = None
+    held_m: float | None = None
     for i in range(n):
         trv = tr_r[i]
-        if trv is None or trv == 0:
+        # Zero range holds the previous DI (engine hold-last rule); a None
+        # range leaves everything gapped.
+        if trv is not None and trv != 0:
+            pr = plus_r[i]
+            mr = minus_r[i]
+            if pr is not None and mr is not None:
+                held_p = (pr / trv) * 100.0
+                held_m = (mr / trv) * 100.0
+        if held_p is None or held_m is None:
             continue
-        pr = plus_r[i]
-        mr = minus_r[i]
-        if pr is None or mr is None:
-            continue
-        pdi = (pr / trv) * 100.0
-        mdi = (mr / trv) * 100.0
-        plus_di[i] = pdi
-        minus_di[i] = mdi
-        s = pdi + mdi
-        dx[i] = 0.0 if s == 0 else (abs(pdi - mdi) / s) * 100.0
+        plus_di[i] = held_p
+        minus_di[i] = held_m
+        s = held_p + held_m
+        dx[i] = 0.0 if s == 0 else (abs(held_p - held_m) / s) * 100.0
 
     # ADX = RMA(DX) from first finite DX
     adx_out: list[float | None] = [None] * n

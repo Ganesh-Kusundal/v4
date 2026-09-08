@@ -186,9 +186,12 @@ def parabolic_sar(
 ) -> dict[str, list]:
     """Parabolic SAR — the classic EP/AF state machine.
 
-    Matches ``PARABOLIC_SAR.calc`` in trend.ts: seeded from bars 0/1, then per
-    bar ``sar += af*(ep - sar)`` clamped against the prior two bars' range, with
-    flip / EP-update / AF-increment branches. Output is None-padded at index 0.
+    Matches ``PARABOLIC_SAR.calc`` in trend.ts: trend seeded from closes
+    0/1, SAR/EP seeded from bars 0/1 extremes with the seed bar carrying the
+    seed itself (``out[1]`` unaccelerated, ``out[0]`` gapped). Per bar:
+    propagate first, test reversal on the unclamped stop, update EP/AF, then
+    clamp against the prior two bars' range (clamp also applies to reversal
+    stops via ``max(ep, high)`` / ``min(ep, low)`` with the current bar).
     """
     n = len(candles)
     out: list[float | None] = [None] * n
@@ -203,26 +206,18 @@ def parabolic_sar(
     sar = lows[0] if rising else highs[0]
     ep = highs[1] if rising else lows[1]
     af = step
+    out[1] = sar
 
-    for i in range(1, n):
+    for i in range(2, n):
         sar += af * (ep - sar)
-        lo1 = lows[i - 1]
-        hi1 = highs[i - 1]
-        lo2 = lows[i - 2] if i >= 2 else lo1
-        hi2 = highs[i - 2] if i >= 2 else hi1
-        if rising:
-            sar = min(sar, lo1, lo2)
-        else:
-            sar = max(sar, hi1, hi2)
-
         if rising and lows[i] < sar:
             rising = False
-            sar = ep
+            sar = max(ep, highs[i])
             ep = lows[i]
             af = step
         elif not rising and highs[i] > sar:
             rising = True
-            sar = ep
+            sar = min(ep, lows[i])
             ep = highs[i]
             af = step
         elif rising and highs[i] > ep:
@@ -231,6 +226,10 @@ def parabolic_sar(
         elif not rising and lows[i] < ep:
             ep = lows[i]
             af = min(max_, af + inc)
+        if rising:
+            sar = min(sar, lows[i - 1], lows[i - 2])
+        else:
+            sar = max(sar, highs[i - 1], highs[i - 2])
         out[i] = sar
     return {"sar": out}
 

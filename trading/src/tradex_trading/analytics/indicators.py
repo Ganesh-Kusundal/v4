@@ -177,20 +177,45 @@ def wma(values: list, period: int) -> list[float | None]:
     return out
 
 
+def _fractional_wma(values: list, period: float) -> list[float | None]:
+    """WMA over a fractional window (openalgo-charts parity).
+
+    Matches ``fractionalWma`` (src/indicators/overlay.ts): ``span =
+    ceil(period)``, weight ``period - k`` for ``values[i - k]``, denominator
+    ``sum(period - k)``. None before index ``span - 1``; a None anywhere in a
+    window nulls that slot (TS NaN carry-through).
+    """
+    n = len(values)
+    out: list[float | None] = [None] * n
+    span = math.ceil(period)
+    if period <= 0 or n < span:
+        return out
+    floats = [_to_float(v) if v is not None else None for v in values]
+    denom = sum(period - k for k in range(span))
+    for i in range(span - 1, n):
+        window = floats[i - span + 1 : i + 1]
+        if any(v is None for v in window):
+            continue
+        acc = sum(v * (period - (span - 1 - j)) for j, v in enumerate(window))
+        out[i] = acc / denom
+    return out
+
+
 def hma(values: list, period: int) -> list[float | None]:
     """Hull Moving Average (openalgo-charts parity).
 
-    ``wma(2*wma(half) - wma(period), root)`` where both sub-periods are
-    FLOORED per the TS source (integer division truncates, never rounds):
-    half = max(1, floor(period/2)) — so 9 smooths over 4 bars — and
-    root = max(1, floor(sqrt(period))). Warmup Nones propagate through
-    each pass exactly as TS NaN does.
+    ``wma(2*fractionalWma(half) - wma(period), root)`` with a deliberately
+    NON-floored half: ``half = max(0.5, period / 2)`` (an odd length uses a
+    fractional window per the TS source) and ``root = max(1,
+    floor(sqrt(period)))``. Warmup Nones propagate through each pass exactly
+    as TS NaN does.
     """
     if period <= 0:
         raise ValueError("period must be positive")
-    half = max(1, period // 2)
+    period = max(2, int(period))
+    half = max(0.5, period / 2)
     root = max(1, math.isqrt(period))
-    fast = wma(values, half)
+    fast = _fractional_wma(values, half)
     slow = wma(values, period)
     raw = [
         None if f is None or s is None else 2.0 * f - s
@@ -308,14 +333,26 @@ def alma(
 
 def macd(values: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, list]:
     """MACD: EMA(fast) − EMA(slow), plus signal EMA and histogram (parity with
-    openalgo-charts). Full-length lists, no warmup padding."""
+    openalgo-charts ``momentum.ts``).
+
+    Both legs are SMA-seeded (None for the first ``period - 1`` bars); the
+    signal smooths the MACD line starting at its first finite value
+    (``fromFirstValue``), so outputs are None-padded through the warmup.
+    """
     if min(fast, slow, signal) < 1:
         raise ValueError("periods must be positive")
-    f = ema(values, fast)
-    s = ema(values, slow)
-    line = [a - b for a, b in zip(f, s, strict=True)]
-    sig = ema(line, signal)
-    hist = [m - g for m, g in zip(line, sig, strict=True)]
+    floats = [_to_float(v) for v in values]
+    f = _sma_seeded_ema(floats, int(fast))
+    s = _sma_seeded_ema(floats, int(slow))
+    line = [
+        None if a is None or b is None else a - b
+        for a, b in zip(f, s, strict=True)
+    ]
+    sig = _ema_of_gapped(line, int(signal))
+    hist = [
+        None if m is None or g is None else m - g
+        for m, g in zip(line, sig, strict=True)
+    ]
     return {"macd": line, "signal": sig, "histogram": hist}
 
 
@@ -840,7 +877,7 @@ def _builtin_specs() -> list[IndicatorSpec]:
         return sma(closes_only(candles), int(period))
 
     def _fn_ema(candles, period):
-        return ema(closes_only(candles), int(period))
+        return _sma_seeded_ema(closes_only(candles), int(period))
 
     def _fn_wma(candles, period):
         return wma(closes_only(candles), int(period))
