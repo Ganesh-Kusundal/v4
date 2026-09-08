@@ -24,6 +24,8 @@ from urllib.parse import parse_qs
 from fastapi import WebSocket, WebSocketDisconnect
 from tradex_domain.errors import CapabilityNotSupportedError
 
+from tradex_trading.interface.routes.stream_indicators import IndicatorStreamRegistry
+
 from tradex_trading.interface.queueing import (
     CONTROL_QUEUE_MAX,
     _enqueue_control_drop_oldest,
@@ -317,6 +319,10 @@ async def ws_stream(
             elif msg_type == "unsubscribe_bars":
                 _unsubscribe_bars(msg)
                 _ack({"type": "unsubscribed_bars"})
+            elif msg_type == "indicator-sub":
+                _indicator_sub(msg)
+            elif msg_type == "indicator-unsub":
+                _indicator_unsub(msg)
             elif msg_type == "replay_start":
                 await _replay_start(msg)
             elif msg_type == "replay_pause":
@@ -415,6 +421,61 @@ async def ws_stream(
                 "closed": frame.closed,
                 "source": getattr(frame, "source", "live"),
             })
+            indicator_registry.handle_bar_frame(frame)
+
+        # --- Indicator push (Tier-2 subscribe seam) ----------------------
+        indicator_registry = IndicatorStreamRegistry(
+            lambda frame_dict: _enqueue_drop_oldest(ticks, frame_dict)
+        )
+
+        def _indicator_sub(msg: dict[str, Any]) -> None:
+            items = msg.get("indicators")
+            if not isinstance(items, list) or not items:
+                _ack({"type": "error", "message": "indicator-sub needs 'indicators': [{instrument, interval, ids, mode?}]"})
+                return
+            accepted = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    ids = indicator_registry.add(
+                        str(item.get("instrument", "")),
+                        str(item.get("interval", "1m")),
+                        [str(i) for i in (item.get("ids") or [])],
+                        str(item.get("mode", "bar-close")),
+                    )
+                except ValueError as exc:
+                    _ack({"type": "error", "message": str(exc)})
+                    return
+                accepted.append({
+                    "instrument": str(item.get("instrument", "")),
+                    "interval": str(item.get("interval", "1m")),
+                    "ids": ids,
+                    "mode": str(item.get("mode", "bar-close")),
+                })
+            _ack({"type": "indicator-subscribed", "indicators": accepted})
+
+        def _indicator_unsub(msg: dict[str, Any]) -> None:
+            items = msg.get("indicators")
+            if not isinstance(items, list) or not items:
+                _ack({"type": "error", "message": "indicator-unsub needs 'indicators': [{instrument, interval, ids?}]"})
+                return
+            removed = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                ids = item.get("ids")
+                dropped_ids = indicator_registry.remove(
+                    str(item.get("instrument", "")),
+                    str(item.get("interval", "1m")),
+                    [str(i) for i in ids] if ids else None,
+                )
+                removed.append({
+                    "instrument": str(item.get("instrument", "")),
+                    "interval": str(item.get("interval", "1m")),
+                    "ids": dropped_ids,
+                })
+            _ack({"type": "indicator-unsubscribed", "indicators": removed})
 
         def _make_aggregator(inst_id: str, interval: str) -> Any:
             from tradex_domain.enums import Timeframe
