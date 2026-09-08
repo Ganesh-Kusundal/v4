@@ -116,10 +116,13 @@ class TestGoldenValues:
         with pytest.raises(ValueError, match="positive"):
             wma([1.0, 2.0], 0)
 
-    def test_hma_floors_half_period_for_odd_length(self):
-        # TS source: half = floor(9/2) = 4 (never 4.5), root = floor(sqrt(9)) = 3.
+    def test_hma_fractional_half_period_for_odd_length(self):
+        # TS source (overlay.ts): half is deliberately NOT floored — length 9
+        # uses a 4.5-bar fractional window; root = floor(sqrt(9)) = 3.
+        from tradex_trading.analytics.indicators import _fractional_wma
+
         values = [float(i) for i in range(1, 21)]
-        fast = wma(values, 4)
+        fast = _fractional_wma(values, 4.5)
         slow = wma(values, 9)
         raw = [None if f is None or s is None else 2 * f - s for f, s in zip(fast, slow)]
         expected = wma(raw, 3)
@@ -535,17 +538,16 @@ class TestOscillatorsTrend:
         # Constant 3-point range, no directional movement -> +DI/-DI/DX/ADX are 0 after warmup
         candles = [_candle(10, 12, 9, 11)] * 30
         result = adx(candles, period=14, adx_period=14)
-        # ADX needs period-1 warmup for DM/TR plus adx_period-1 for DX smoothing
-        # After that the flat series is all zeros
-        assert all(v is None for v in result["plusDi"][:13])
-        assert all(v is None for v in result["minusDi"][:13])
-        # From period-1 onward DI is 0 (no DM, TR>0)
-        assert all(v == pytest.approx(0.0) for v in result["plusDi"][13:])
-        assert all(v == pytest.approx(0.0) for v in result["minusDi"][13:])
+        # TR seed window is tr[1..14] (bar 0 has no true range), so DI starts
+        # at 14; DX starts there too and ADX first prints at 14 + 14 - 1 = 27.
+        assert all(v is None for v in result["plusDi"][:14])
+        assert all(v is None for v in result["minusDi"][:14])
+        # From 14 onward DI is 0 (no DM, TR>0)
+        assert all(v == pytest.approx(0.0) for v in result["plusDi"][14:])
+        assert all(v == pytest.approx(0.0) for v in result["minusDi"][14:])
         # DX is 0 as well, so ADX smooths zeros -> 0 after its own warmup
-        # start of DX is at period-1 (13), ADX first finite at 13 + 14 -1 = 26
-        assert all(v is None for v in result["adx"][:26])
-        assert all(v == pytest.approx(0.0) for v in result["adx"][26:])
+        assert all(v is None for v in result["adx"][:27])
+        assert all(v == pytest.approx(0.0) for v in result["adx"][27:])
 
     def test_awesome_oscillator_is_sma5_minus_sma34(self):
         from tradex_trading.analytics.indicators import _to_float, sma

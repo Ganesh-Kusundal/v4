@@ -1,0 +1,1399 @@
+{
+ "sma": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "ma": "line"
+  }
+ },
+ "ema": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "ma": "line"
+  }
+ },
+ "wma": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "ma": "line"
+  }
+ },
+ "vwap": {
+  "inputs": {
+   "anchor": "select",
+   "source": "source",
+   "offset": "number",
+   "calcMode": "select",
+   "showBand1": "boolean",
+   "bandMult1": "number",
+   "showBand2": "boolean",
+   "bandMult2": "number",
+   "showBand3": "boolean",
+   "bandMult3": "number",
+   "color": "color",
+   "band1Color": "color",
+   "band2Color": "color",
+   "band3Color": "color"
+  },
+  "plots": {
+   "vwap": "line",
+   "upper1": "line",
+   "lower1": "line",
+   "upper2": "line",
+   "lower2": "line",
+   "upper3": "line",
+   "lower3": "line"
+  }
+ },
+ "bollinger": {
+  "inputs": {
+   "length": "number",
+   "stdDev": "number",
+   "source": "source",
+   "basisColor": "color",
+   "bandColor": "color"
+  },
+  "plots": {
+   "upper": "line",
+   "basis": "line",
+   "lower": "line"
+  }
+ },
+ "supertrend": {
+  "inputs": {
+   "period": "number",
+   "multiplier": "number",
+   "upColor": "color",
+   "downColor": "color"
+  },
+  "plots": {
+   "up": "line",
+   "down": "line"
+  }
+ },
+ "halftrend": {
+  "inputs": {
+   "amplitude": "number",
+   "channelDeviation": "number",
+   "atrPeriod": "number",
+   "showChannels": "boolean",
+   "showSignals": "boolean",
+   "showLabels": "boolean",
+   "upColor": "color",
+   "downColor": "color"
+  },
+  "plots": {
+   "up": "line",
+   "down": "line",
+   "atrHigh": "line",
+   "atrLow": "line",
+   "buySignal": "line",
+   "sellSignal": "line"
+  }
+ },
+ "parabolic-sar": {
+  "inputs": {
+   "start": "number",
+   "increment": "number",
+   "maximum": "number",
+   "color": "color"
+  },
+  "plots": {
+   "sar": "line"
+  }
+ },
+ "ichimoku": {
+  "inputs": {
+   "conversionPeriod": "number",
+   "basePeriod": "number",
+   "laggingSpanPeriod": "number",
+   "displacement": "number",
+   "conversionColor": "color",
+   "baseColor": "color",
+   "spanAColor": "color",
+   "spanBColor": "color",
+   "laggingColor": "color",
+   "cloudUpColor": "color",
+   "cloudDownColor": "color"
+  },
+  "plots": {
+   "conversion": "line",
+   "base": "line",
+   "spanA": "line",
+   "spanB": "line",
+   "lagging": "line"
+  }
+ },
+ "rsi": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color",
+   "overbought": "number",
+   "oversold": "number",
+   "bandColor": "color"
+  },
+  "plots": {
+   "rsi": "line"
+  }
+ },
+ "macd": {
+  "inputs": {
+   "fastPeriod": "number",
+   "slowPeriod": "number",
+   "signalPeriod": "number",
+   "source": "source",
+   "macdColor": "color",
+   "histUpColor": "color",
+   "histUpFadeColor": "color",
+   "histDownColor": "color",
+   "histDownFadeColor": "color",
+   "signalColor": "color"
+  },
+  "plots": {
+   "histogram": "histogram",
+   "macd": "line",
+   "signal": "line"
+  }
+ },
+ "stochastic": {
+  "inputs": {
+   "kPeriod": "number",
+   "kSmoothing": "number",
+   "dPeriod": "number",
+   "kColor": "color",
+   "dColor": "color",
+   "bandColor": "color"
+  },
+  "plots": {
+   "k": "line",
+   "d": "line"
+  }
+ },
+ "adx": {
+  "inputs": {
+   "period": "number",
+   "adxPeriod": "number",
+   "adxColor": "color",
+   "plusColor": "color",
+   "minusColor": "color"
+  },
+  "plots": {
+   "plusDi": "line",
+   "minusDi": "line",
+   "adx": "line"
+  }
+ },
+ "cci": {
+  "inputs": {
+   "period": "number",
+   "constant": "number",
+   "color": "color",
+   "bandColor": "color",
+   "maType": "select",
+   "maLength": "number",
+   "bbMult": "number",
+   "maColor": "color",
+   "bbUpperColor": "color",
+   "bbLowerColor": "color"
+  },
+  "plots": {
+   "cci": "line",
+   "ma": "line",
+   "bbUpper": "line",
+   "bbLower": "line"
+  }
+ },
+ "mfi": {
+  "inputs": {
+   "period": "number",
+   "color": "color",
+   "bandColor": "color"
+  },
+  "plots": {
+   "mfi": "line"
+  }
+ },
+ "atr": {
+  "inputs": {
+   "period": "number",
+   "color": "color"
+  },
+  "plots": {
+   "atr": "line"
+  }
+ },
+ "williams-vix-fix": {
+  "inputs": {
+   "pd": "number",
+   "bbl": "number",
+   "mult": "number",
+   "lb": "number",
+   "ph": "number",
+   "pl": "number",
+   "hp": "boolean",
+   "sd": "boolean",
+   "highColor": "color",
+   "normalColor": "color",
+   "rangeColor": "color",
+   "bandColor": "color"
+  },
+  "plots": {
+   "wvf": "histogram",
+   "rangeHigh": "line",
+   "rangeLow": "line",
+   "upperBand": "line"
+  }
+ },
+ "volume": {
+  "inputs": {
+   "color": "color"
+  },
+  "plots": {
+   "volume": "histogram"
+  }
+ },
+ "obv": {
+  "inputs": {
+   "color": "color",
+   "maType": "select",
+   "maLength": "number",
+   "bbMult": "number",
+   "maColor": "color",
+   "bbUpperColor": "color",
+   "bbLowerColor": "color"
+  },
+  "plots": {
+   "obv": "line",
+   "ma": "line",
+   "bbUpper": "line",
+   "bbLower": "line"
+  }
+ },
+ "adl": {
+  "inputs": {
+   "color": "color"
+  },
+  "plots": {
+   "adl": "line"
+  }
+ },
+ "alma": {
+  "inputs": {
+   "length": "number",
+   "offset": "number",
+   "sigma": "number",
+   "color": "color"
+  },
+  "plots": {
+   "alma": "line"
+  }
+ },
+ "dema": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "dema": "line"
+  }
+ },
+ "hma": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "hma": "line"
+  }
+ },
+ "envelope": {
+  "inputs": {
+   "length": "number",
+   "percent": "number",
+   "source": "source",
+   "exponential": "boolean",
+   "basisColor": "color",
+   "bandColor": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "upper": "line",
+   "basis": "line",
+   "lower": "line"
+  }
+ },
+ "donchian": {
+  "inputs": {
+   "length": "number",
+   "offset": "number",
+   "basisColor": "color",
+   "bandColor": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "upper": "line",
+   "basis": "line",
+   "lower": "line"
+  }
+ },
+ "chande-kroll-stop": {
+  "inputs": {
+   "p": "number",
+   "x": "number",
+   "q": "number",
+   "longColor": "color",
+   "shortColor": "color"
+  },
+  "plots": {
+   "stopLong": "line",
+   "stopShort": "line"
+  }
+ },
+ "chandelier-exit": {
+  "inputs": {
+   "length": "number",
+   "atrLength": "number",
+   "atrMultiplier": "number",
+   "longColor": "color",
+   "shortColor": "color"
+  },
+  "plots": {
+   "longExit": "line",
+   "shortExit": "line"
+  }
+ },
+ "standard-error-bands": {
+  "inputs": {
+   "periods": "number",
+   "errors": "number",
+   "method": "select",
+   "averagePeriods": "number",
+   "basisColor": "color",
+   "bandColor": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "upper": "line",
+   "basis": "line",
+   "lower": "line"
+  }
+ },
+ "ma-channel": {
+  "inputs": {
+   "upperLength": "number",
+   "lowerLength": "number",
+   "upperOffset": "number",
+   "lowerOffset": "number",
+   "upperColor": "color",
+   "lowerColor": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "upper": "line",
+   "lower": "line"
+  }
+ },
+ "hull-suite": {
+  "inputs": {
+   "source": "source",
+   "mode": "select",
+   "length": "number",
+   "lengthMult": "number",
+   "switchColor": "boolean",
+   "candleCol": "boolean",
+   "visualSwitch": "boolean",
+   "bullishColor": "color",
+   "bearishColor": "color",
+   "neutralColor": "color"
+  },
+  "plots": {
+   "mhull": "line",
+   "shull": "line"
+  }
+ },
+ "aroon": {
+  "inputs": {
+   "length": "number",
+   "upColor": "color",
+   "downColor": "color"
+  },
+  "plots": {
+   "up": "line",
+   "down": "line"
+  }
+ },
+ "aroon-oscillator": {
+  "inputs": {
+   "length": "number",
+   "upColor": "color",
+   "downColor": "color"
+  },
+  "plots": {
+   "osc": "line"
+  }
+ },
+ "awesome-oscillator": {
+  "inputs": {
+   "upColor": "color",
+   "downColor": "color"
+  },
+  "plots": {
+   "ao": "column"
+  }
+ },
+ "balance-of-power": {
+  "inputs": {
+   "color": "color"
+  },
+  "plots": {
+   "bop": "line"
+  }
+ },
+ "chande-momentum": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "cmo": "line"
+  }
+ },
+ "coppock-curve": {
+  "inputs": {
+   "wmaLength": "number",
+   "longRoCLength": "number",
+   "shortRoCLength": "number",
+   "color": "color"
+  },
+  "plots": {
+   "curve": "line"
+  }
+ },
+ "dpo": {
+  "inputs": {
+   "period": "number",
+   "isCentered": "boolean",
+   "color": "color"
+  },
+  "plots": {
+   "dpo": "line"
+  }
+ },
+ "fisher-transform": {
+  "inputs": {
+   "length": "number",
+   "fisherColor": "color",
+   "triggerColor": "color"
+  },
+  "plots": {
+   "fisher": "line",
+   "trigger": "line"
+  }
+ },
+ "connors-rsi": {
+  "inputs": {
+   "lenrsi": "number",
+   "lenupdown": "number",
+   "lenroc": "number",
+   "color": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "crsi": "line"
+  }
+ },
+ "bollinger-percent-b": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "mult": "number",
+   "color": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "percentB": "line"
+  }
+ },
+ "bollinger-bandwidth": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "mult": "number",
+   "expansionLength": "number",
+   "contractionLength": "number",
+   "color": "color",
+   "expansionColor": "color",
+   "contractionColor": "color"
+  },
+  "plots": {
+   "bandwidth": "line",
+   "expansion": "line",
+   "contraction": "line"
+  }
+ },
+ "bb-trend": {
+  "inputs": {
+   "shortLength": "number",
+   "longLength": "number",
+   "stdDevMult": "number",
+   "posColor": "color",
+   "negColor": "color"
+  },
+  "plots": {
+   "bbtrend": "column"
+  }
+ },
+ "choppiness-index": {
+  "inputs": {
+   "length": "number",
+   "offset": "number",
+   "color": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "chop": "line"
+  }
+ },
+ "historical-volatility": {
+  "inputs": {
+   "length": "number",
+   "per": "number",
+   "color": "color"
+  },
+  "plots": {
+   "hv": "line"
+  }
+ },
+ "average-daily-range": {
+  "inputs": {
+   "length": "number",
+   "color": "color"
+  },
+  "plots": {
+   "adr": "line"
+  }
+ },
+ "chop-zone": {
+  "inputs": {
+   "turquoiseColor": "color",
+   "darkGreenColor": "color",
+   "paleGreenColor": "color",
+   "limeColor": "color",
+   "yellowColor": "color",
+   "lightOrangeColor": "color",
+   "orangeColor": "color",
+   "redColor": "color",
+   "darkRedColor": "color"
+  },
+  "plots": {
+   "chopZone": "column"
+  }
+ },
+ "chaikin-volatility": {
+  "inputs": {
+   "periods": "number",
+   "rocLookback": "number",
+   "color": "color"
+  },
+  "plots": {
+   "chaikinVolatility": "line"
+  }
+ },
+ "standard-deviation": {
+  "inputs": {
+   "periods": "number",
+   "deviations": "number",
+   "color": "color"
+  },
+  "plots": {
+   "stdDev": "line"
+  }
+ },
+ "standard-error": {
+  "inputs": {
+   "length": "number",
+   "color": "color"
+  },
+  "plots": {
+   "stdErr": "line"
+  }
+ },
+ "chaikin-money-flow": {
+  "inputs": {
+   "length": "number",
+   "color": "color"
+  },
+  "plots": {
+   "cmf": "line"
+  }
+ },
+ "chaikin-oscillator": {
+  "inputs": {
+   "short": "number",
+   "long": "number",
+   "color": "color"
+  },
+  "plots": {
+   "osc": "line"
+  }
+ },
+ "ease-of-movement": {
+  "inputs": {
+   "length": "number",
+   "divisor": "number",
+   "color": "color"
+  },
+  "plots": {
+   "eom": "line"
+  }
+ },
+ "elder-force-index": {
+  "inputs": {
+   "length": "number",
+   "color": "color"
+  },
+  "plots": {
+   "efi": "line"
+  }
+ },
+ "net-volume": {
+  "inputs": {
+   "color": "color"
+  },
+  "plots": {
+   "net": "histogram"
+  }
+ },
+ "kama": {
+  "inputs": {
+   "erLength": "number",
+   "fastLength": "number",
+   "slowLength": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "kama": "line"
+  }
+ },
+ "keltner-channel": {
+  "inputs": {
+   "length": "number",
+   "mult": "number",
+   "source": "source",
+   "exp": "boolean",
+   "bandsStyle": "select",
+   "atrlength": "number",
+   "basisColor": "color",
+   "bandColor": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "upper": "line",
+   "basis": "line",
+   "lower": "line"
+  }
+ },
+ "lsma": {
+  "inputs": {
+   "length": "number",
+   "offset": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "lsma": "line"
+  }
+ },
+ "klinger-oscillator": {
+  "inputs": {
+   "kvoColor": "color",
+   "signalColor": "color"
+  },
+  "plots": {
+   "kvo": "line",
+   "signal": "line"
+  }
+ },
+ "know-sure-thing": {
+  "inputs": {
+   "roclen1": "number",
+   "roclen2": "number",
+   "roclen3": "number",
+   "roclen4": "number",
+   "smalen1": "number",
+   "smalen2": "number",
+   "smalen3": "number",
+   "smalen4": "number",
+   "siglen": "number",
+   "kstColor": "color",
+   "signalColor": "color"
+  },
+  "plots": {
+   "kst": "line",
+   "signal": "line"
+  }
+ },
+ "linreg-slope": {
+  "inputs": {
+   "periods": "number",
+   "color": "color"
+  },
+  "plots": {
+   "slope": "line"
+  }
+ },
+ "ma-cross": {
+  "inputs": {
+   "shortLength": "number",
+   "longLength": "number",
+   "shortColor": "color",
+   "longColor": "color",
+   "crossColor": "color"
+  },
+  "plots": {
+   "short": "line",
+   "long": "line",
+   "cross": "line"
+  }
+ },
+ "mcginley-dynamic": {
+  "inputs": {
+   "length": "number",
+   "color": "color"
+  },
+  "plots": {
+   "mg": "line"
+  }
+ },
+ "median": {
+  "inputs": {
+   "source": "source",
+   "length": "number",
+   "atrLength": "number",
+   "atrMult": "number",
+   "medianColor": "color",
+   "upperColor": "color",
+   "lowerColor": "color",
+   "emaColor": "color"
+  },
+  "plots": {
+   "median": "line",
+   "upper": "line",
+   "lower": "line",
+   "medianEma": "line"
+  }
+ },
+ "ma-ribbon": {
+  "inputs": {
+   "showMa1": "boolean",
+   "ma1Type": "select",
+   "ma1Source": "source",
+   "ma1Length": "number",
+   "ma1Color": "color",
+   "showMa2": "boolean",
+   "ma2Type": "select",
+   "ma2Source": "source",
+   "ma2Length": "number",
+   "ma2Color": "color",
+   "showMa3": "boolean",
+   "ma3Type": "select",
+   "ma3Source": "source",
+   "ma3Length": "number",
+   "ma3Color": "color",
+   "showMa4": "boolean",
+   "ma4Type": "select",
+   "ma4Source": "source",
+   "ma4Length": "number",
+   "ma4Color": "color"
+  },
+  "plots": {
+   "ma1": "line",
+   "ma2": "line",
+   "ma3": "line",
+   "ma4": "line"
+  }
+ },
+ "tema": {
+  "inputs": {
+   "length": "number",
+   "color": "color"
+  },
+  "plots": {
+   "tema": "line"
+  }
+ },
+ "twap": {
+  "inputs": {
+   "anchor": "select",
+   "source": "source",
+   "offset": "number",
+   "color": "color"
+  },
+  "plots": {
+   "twap": "line"
+  }
+ },
+ "vwma": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "offset": "number",
+   "color": "color"
+  },
+  "plots": {
+   "vwma": "line"
+  }
+ },
+ "alligator": {
+  "inputs": {
+   "jawLength": "number",
+   "teethLength": "number",
+   "lipsLength": "number",
+   "jawOffset": "number",
+   "teethOffset": "number",
+   "lipsOffset": "number",
+   "jawColor": "color",
+   "teethColor": "color",
+   "lipsColor": "color"
+  },
+  "plots": {
+   "jaw": "line",
+   "teeth": "line",
+   "lips": "line"
+  }
+ },
+ "smma": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "smma": "line"
+  }
+ },
+ "t3": {
+  "inputs": {
+   "length": "number",
+   "factor": "number",
+   "highlightMovements": "boolean",
+   "source": "source",
+   "upColor": "color",
+   "downColor": "color",
+   "neutralColor": "color"
+  },
+  "plots": {
+   "t3": "line"
+  }
+ },
+ "momentum": {
+  "inputs": {
+   "len": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "mom": "line"
+  }
+ },
+ "roc": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color"
+  },
+  "plots": {
+   "roc": "line"
+  }
+ },
+ "ppo": {
+  "inputs": {
+   "source": "source",
+   "fastLength": "number",
+   "slowLength": "number",
+   "signalLength": "number",
+   "oscType": "select",
+   "sigType": "select",
+   "histUpColor": "color",
+   "histUpFadeColor": "color",
+   "histDownFadeColor": "color",
+   "histDownColor": "color",
+   "ppoColor": "color",
+   "signalColor": "color"
+  },
+  "plots": {
+   "hist": "column",
+   "ppo": "line",
+   "signal": "line"
+  }
+ },
+ "trix": {
+  "inputs": {
+   "length": "number",
+   "color": "color"
+  },
+  "plots": {
+   "trix": "line"
+  }
+ },
+ "tsi": {
+  "inputs": {
+   "long": "number",
+   "short": "number",
+   "signal": "number",
+   "color": "color",
+   "signalColor": "color"
+  },
+  "plots": {
+   "tsi": "line",
+   "signal": "line"
+  }
+ },
+ "smi-ergodic-indicator": {
+  "inputs": {
+   "longlen": "number",
+   "shortlen": "number",
+   "siglen": "number",
+   "color": "color",
+   "signalColor": "color"
+  },
+  "plots": {
+   "erg": "line",
+   "sig": "line"
+  }
+ },
+ "smi-ergodic-oscillator": {
+  "inputs": {
+   "longlen": "number",
+   "shortlen": "number",
+   "siglen": "number",
+   "color": "color"
+  },
+  "plots": {
+   "osc": "histogram"
+  }
+ },
+ "smi": {
+  "inputs": {
+   "lengthK": "number",
+   "lengthD": "number",
+   "lengthEMA": "number",
+   "color": "color",
+   "emaColor": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "smi": "line",
+   "ema": "line"
+  }
+ },
+ "nvi": {
+  "inputs": {
+   "maLength": "number",
+   "color": "color",
+   "emaColor": "color"
+  },
+  "plots": {
+   "nvi": "line",
+   "ema": "line"
+  }
+ },
+ "pvi": {
+  "inputs": {
+   "maLength": "number",
+   "color": "color",
+   "emaColor": "color"
+  },
+  "plots": {
+   "pvi": "line",
+   "ema": "line"
+  }
+ },
+ "pvt": {
+  "inputs": {
+   "color": "color"
+  },
+  "plots": {
+   "pvt": "line"
+  }
+ },
+ "pvo": {
+  "inputs": {
+   "fastLength": "number",
+   "slowLength": "number",
+   "signalLength": "number",
+   "oscType": "select",
+   "sigType": "select",
+   "histUpColor": "color",
+   "histUpFadeColor": "color",
+   "histDownFadeColor": "color",
+   "histDownColor": "color",
+   "color": "color",
+   "signalColor": "color"
+  },
+  "plots": {
+   "hist": "column",
+   "pvo": "line",
+   "signal": "line"
+  }
+ },
+ "mass-index": {
+  "inputs": {
+   "length": "number",
+   "color": "color"
+  },
+  "plots": {
+   "mi": "line"
+  }
+ },
+ "ulcer-index": {
+  "inputs": {
+   "source": "source",
+   "length": "number",
+   "color": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "ui": "line"
+  }
+ },
+ "stochastic-rsi": {
+  "inputs": {
+   "smoothK": "number",
+   "smoothD": "number",
+   "lengthRSI": "number",
+   "lengthStoch": "number",
+   "source": "source",
+   "kColor": "color",
+   "dColor": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "k": "line",
+   "d": "line"
+  }
+ },
+ "williams-percent-r": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "color": "color",
+   "fillColor": "color"
+  },
+  "plots": {
+   "percentR": "line"
+  }
+ },
+ "ultimate-oscillator": {
+  "inputs": {
+   "length1": "number",
+   "length2": "number",
+   "length3": "number",
+   "color": "color"
+  },
+  "plots": {
+   "uo": "line"
+  }
+ },
+ "relative-vigor-index": {
+  "inputs": {
+   "length": "number",
+   "offset": "number",
+   "rvgiColor": "color",
+   "signalColor": "color"
+  },
+  "plots": {
+   "rvgi": "line",
+   "signal": "line"
+  }
+ },
+ "relative-volatility-index": {
+  "inputs": {
+   "length": "number",
+   "offset": "number",
+   "color": "color",
+   "fillColor": "color",
+   "maType": "select",
+   "maLength": "number",
+   "bbMult": "number",
+   "maColor": "color",
+   "bbUpperColor": "color",
+   "bbLowerColor": "color"
+  },
+  "plots": {
+   "rvi": "line",
+   "ma": "line",
+   "bbUpper": "line",
+   "bbLower": "line"
+  }
+ },
+ "woodies-cci": {
+  "inputs": {
+   "cciTurboLength": "number",
+   "cci14Length": "number",
+   "upColor": "color",
+   "downColor": "color",
+   "turboColor": "color",
+   "cciColor": "color"
+  },
+  "plots": {
+   "hist": "histogram",
+   "turbo": "line",
+   "cci14": "line"
+  }
+ },
+ "special-k": {
+  "inputs": {
+   "source": "source",
+   "length1": "number",
+   "length2": "number",
+   "color": "color",
+   "signalColor": "color"
+  },
+  "plots": {
+   "specialK": "line",
+   "signal": "line"
+  }
+ },
+ "vortex": {
+  "inputs": {
+   "length": "number",
+   "upColor": "color",
+   "downColor": "color"
+  },
+  "plots": {
+   "vip": "line",
+   "vim": "line"
+  }
+ },
+ "volatility-stop": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "factor": "number",
+   "upColor": "color",
+   "downColor": "color"
+  },
+  "plots": {
+   "up": "line",
+   "down": "line"
+  }
+ },
+ "trend-strength-index": {
+  "inputs": {
+   "length": "number",
+   "color": "color",
+   "bullishColor": "color",
+   "bearishColor": "color"
+  },
+  "plots": {
+   "tsi": "line"
+  }
+ },
+ "williams-fractals": {
+  "inputs": {
+   "periods": "number",
+   "showUp": "boolean",
+   "showDown": "boolean",
+   "upColor": "color",
+   "downColor": "color"
+  },
+  "plots": {
+   "fractals": "line"
+  }
+ },
+ "rsi-divergence": {
+  "inputs": {
+   "length": "number",
+   "source": "source",
+   "lbR": "number",
+   "lbL": "number",
+   "rangeUpper": "number",
+   "rangeLower": "number",
+   "plotBull": "boolean",
+   "plotHiddenBull": "boolean",
+   "plotBear": "boolean",
+   "plotHiddenBear": "boolean",
+   "color": "color",
+   "bullColor": "color",
+   "bearColor": "color"
+  },
+  "plots": {
+   "rsi": "line"
+  }
+ },
+ "consolidation-breakout": {
+  "inputs": {
+   "markbreakout": "boolean",
+   "colorinside": "boolean",
+   "bullBreakColor": "color",
+   "bearBreakColor": "color",
+   "insideColor": "color",
+   "highlowColor": "color"
+  },
+  "plots": {
+   "rangeHigh": "line",
+   "rangeLow": "line"
+  }
+ },
+ "cpr": {
+  "inputs": {
+   "pivotMode": "select",
+   "showDaily": "boolean",
+   "showWeekly": "boolean",
+   "showMonthly": "boolean",
+   "displaypivots": "boolean",
+   "displaysupport": "boolean",
+   "displayresistance": "boolean",
+   "displaycpr": "boolean",
+   "displayS1R1": "boolean",
+   "dPivotColor": "color",
+   "dSupportColor": "color",
+   "dResistanceColor": "color",
+   "dCprColor": "color",
+   "dFillColor": "color",
+   "wPivotColor": "color",
+   "wSupportColor": "color",
+   "wResistanceColor": "color",
+   "wCprColor": "color",
+   "wFillColor": "color",
+   "mPivotColor": "color",
+   "mSupportColor": "color",
+   "mResistanceColor": "color",
+   "mCprColor": "color",
+   "mFillColor": "color"
+  },
+  "plots": {
+   "dPivot": "line",
+   "dS1": "line",
+   "dS2": "line",
+   "dS3": "line",
+   "dR1": "line",
+   "dR2": "line",
+   "dR3": "line",
+   "dBc": "line",
+   "dTc": "line",
+   "wPivot": "line",
+   "wS1": "line",
+   "wS2": "line",
+   "wS3": "line",
+   "wR1": "line",
+   "wR2": "line",
+   "wR3": "line",
+   "wBc": "line",
+   "wTc": "line",
+   "mPivot": "line",
+   "mS1": "line",
+   "mS2": "line",
+   "mS3": "line",
+   "mR1": "line",
+   "mR2": "line",
+   "mR3": "line",
+   "mBc": "line",
+   "mTc": "line"
+  }
+ },
+ "alphatrend": {
+  "inputs": {
+   "coeff": "number",
+   "AP": "number",
+   "source": "source",
+   "showsignalsk": "boolean",
+   "novolumedata": "boolean",
+   "color": "color",
+   "lagColor": "color",
+   "risingFillColor": "color",
+   "fallingFillColor": "color",
+   "buyColor": "color",
+   "sellColor": "color"
+  },
+  "plots": {
+   "alphatrend": "line",
+   "lagged": "line"
+  }
+ },
+ "range-analysis": {
+  "inputs": {
+   "showAverage": "boolean",
+   "avgLength": "number",
+   "color": "color",
+   "avgColor": "color"
+  },
+  "plots": {
+   "range": "histogram",
+   "avgRange": "line"
+  }
+ },
+ "wavetrend": {
+  "inputs": {
+   "source": "source",
+   "n1": "number",
+   "n2": "number",
+   "sigLen": "number",
+   "wt1Color": "color",
+   "wt2Color": "color",
+   "fillUpColor": "color",
+   "fillDownColor": "color",
+   "obLevel1": "number",
+   "obLevel2": "number",
+   "osLevel1": "number",
+   "osLevel2": "number",
+   "obBandColor": "color",
+   "osBandColor": "color",
+   "filterZone": "boolean",
+   "useInner": "boolean",
+   "showMom": "boolean",
+   "momUpColor": "color",
+   "momDownColor": "color",
+   "buyColor": "color",
+   "sellColor": "color",
+   "showRegDiv": "boolean",
+   "showHidDiv": "boolean",
+   "lbL": "number",
+   "lbR": "number",
+   "rangeUpper": "number",
+   "rangeLower": "number",
+   "bullColor": "color",
+   "bearColor": "color"
+  },
+  "plots": {
+   "mom": "histogram",
+   "wt1": "line",
+   "wt2": "line"
+  }
+ },
+ "seasonality": {
+  "inputs": {
+   "startYear": "number",
+   "posColor": "color",
+   "negColor": "color",
+   "cutoffPercent": "number",
+   "tablePosition": "select",
+   "tableWidth": "number",
+   "tableHeight": "number",
+   "showAvg": "boolean",
+   "showStDev": "boolean",
+   "showPos": "boolean",
+   "ignoredMonths": "text"
+  },
+  "plots": {
+   "seasonality": "line"
+  }
+ }
+}

@@ -153,6 +153,33 @@ PARAM_MAP = {
         "pd": "pd", "bbl": "bbl", "mult": "mult", "lb": "lb", "ph": "ph", "pl": "pl",
     },
     "wavetrend": {"n1": "n1", "n2": "n2", "sigLen": "sig_len"},
+    "smma": {"length": "length", "source": "source"},
+    "t3": {"length": "length", "factor": "factor", "source": "source"},
+    "linreg-slope": {"periods": "periods"},
+    "hull-suite": {
+        "source": "source", "mode": "mode", "length": "length",
+        "lengthMult": "lengthMult", "visualSwitch": "visualSwitch",
+    },
+    "standard-deviation": {"periods": "periods", "deviations": "deviations"},
+    "standard-error": {"length": "length"},
+    "standard-error-bands": {
+        "periods": "periods", "errors": "errors", "method": "method",
+        "averagePeriods": "averagePeriods",
+    },
+    "ma-channel": {
+        "upperLength": "upperLength", "lowerLength": "lowerLength",
+        "upperOffset": "upperOffset", "lowerOffset": "lowerOffset",
+    },
+    "chaikin-volatility": {"periods": "periods", "rocLookback": "rocLookback"},
+    "net-volume": {},
+    "consolidation-breakout": {"markbreakout": "markbreakout", "colorinside": "colorinside"},
+    "seasonality": {
+        "startYear": "startYear", "cutoffPercent": "cutoffPercent",
+        "tablePosition": "tablePosition", "tableWidth": "tableWidth",
+        "tableHeight": "tableHeight", "showAvg": "showAvg",
+        "showStDev": "showStDev", "showPos": "showPos",
+        "ignoredMonths": "ignoredMonths",
+    },
 }
 
 # backend plot key -> TS golden plot key (identity when absent).

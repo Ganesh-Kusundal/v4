@@ -32,6 +32,7 @@ from tradex_trading.analytics import (
     total_return,
     win_rate,
 )
+from tradex_trading.analytics.indicators import _ema_of_gapped, _sma_seeded_ema
 from tradex_trading.analytics.indicators import compute_indicator
 
 # Shared closes for standalone MACD checks (linear ramp).
@@ -223,19 +224,22 @@ class TestIndicators:
 
     def test_macd_line_is_fast_minus_slow_ema(self) -> None:
         result = macd(CLOSES)
-        fast, slow = ema(CLOSES, 12), ema(CLOSES, 26)
-        expected = [f - s for f, s in zip(fast, slow)]
-        assert result["macd"] == pytest.approx(expected)
+        fast, slow = _sma_seeded_ema(CLOSES, 12), _sma_seeded_ema(CLOSES, 26)
+        expected = [
+            None if f is None or s is None else f - s for f, s in zip(fast, slow)
+        ]
+        assert result["macd"] == expected
 
     def test_macd_signal_is_ema_of_macd_line(self) -> None:
         result = macd(CLOSES)
-        assert result["signal"] == pytest.approx(ema(result["macd"], 9))
+        assert result["signal"] == _ema_of_gapped(result["macd"], 9)
 
     def test_macd_histogram_is_line_minus_signal(self) -> None:
         result = macd(CLOSES)
-        assert result["histogram"] == pytest.approx(
-            [m - s for m, s in zip(result["macd"], result["signal"])]
-        )
+        assert result["histogram"] == [
+            None if m is None or s is None else m - s
+            for m, s in zip(result["macd"], result["signal"])
+        ]
 
     def test_macd_rejects_nonpositive_periods(self) -> None:
         with pytest.raises(ValueError):
