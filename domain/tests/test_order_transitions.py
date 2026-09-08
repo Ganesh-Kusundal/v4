@@ -120,3 +120,21 @@ class TestCancelledFillAfterCancel:
         for target in (OrderStatus.NEW, OrderStatus.PENDING, OrderStatus.ACK, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.SUBMITTED, OrderStatus.UNKNOWN):
             with pytest.raises(SessionStateError):
                 order.transition_to(target)
+
+
+class TestFillQuantityValidation:
+    def test_transition_rejects_negative_filled_quantity(self):
+        order = _make_order(OrderStatus.ACK)
+        with pytest.raises(ValueError, match="filled_quantity must be non-negative"):
+            order.transition_to(
+                OrderStatus.PARTIALLY_FILLED,
+                filled_quantity=Quantity(Decimal("-1")),
+            )
+
+    def test_transition_rejects_filled_quantity_above_order_quantity(self):
+        order = _make_order(OrderStatus.ACK)
+        with pytest.raises(ValueError, match="filled_quantity cannot exceed quantity"):
+            order.transition_to(
+                OrderStatus.FILLED,
+                filled_quantity=Quantity(Decimal("11")),
+            )

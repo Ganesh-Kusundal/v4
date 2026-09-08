@@ -16,7 +16,7 @@ from duck_analytics.catalog import DuckDBCatalog, default_config_for
 from duck_analytics.query import QueryService
 from duck_analytics.scanners import breadth, scan_screener
 
-_REPO_HINT = Path(__file__).resolve().parents[3]  # .../v4
+_REPO_HINT = Path(__file__).resolve().parents[4]  # .../v4
 
 
 def _build_registry() -> dict:

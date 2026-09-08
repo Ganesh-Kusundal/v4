@@ -34,12 +34,29 @@ def apply_split(position: Position, ratio: Decimal) -> Position:
         # Flat position (kept in the cache for history) — no shares to scale,
         # and re-basing a stale average would be meaningless. Return unchanged.
         return position
+    adjusted_mark = (
+        Price(value=q2(position.mark_price.value / ratio))
+        if position.mark_price is not None
+        else None
+    )
+    adjusted_unrealized = position.unrealized_pnl
+    if adjusted_mark is not None:
+        adjusted_unrealized = Money(
+            amount=q2(
+                (adjusted_mark.value - position.avg_price.value / ratio)
+                * position.quantity.value
+                * ratio
+            )
+        )
     return Position(
         instrument=position.instrument,
         quantity=Quantity(value=position.quantity.value * ratio),
         avg_price=Price(value=q2(position.avg_price.value / ratio)),
         realized_pnl=position.realized_pnl,
-        unrealized_pnl=position.unrealized_pnl,
+        unrealized_pnl=adjusted_unrealized,
+        mark_price=adjusted_mark,
+        marked_at=position.marked_at,
+        mark_source=position.mark_source,
     )
 
 
@@ -61,6 +78,9 @@ def apply_dividend(position: Position, per_share: Decimal) -> Position:
             )
         ),
         unrealized_pnl=position.unrealized_pnl,
+        mark_price=position.mark_price,
+        marked_at=position.marked_at,
+        mark_source=position.mark_source,
     )
 
 
@@ -84,6 +104,9 @@ def apply_fill(position: Position | None, fill: Fill) -> Position:
             avg_price=fill.price,
             realized_pnl=Money(amount=Decimal("0")),
             unrealized_pnl=Money(amount=Decimal("0")),
+            mark_price=None,
+            marked_at=None,
+            mark_source=None,
         )
 
     old_qty = position.quantity.value
@@ -113,7 +136,12 @@ def apply_fill(position: Position | None, fill: Fill) -> Position:
         quantity=Quantity(value=new_qty),
         avg_price=Price(value=new_avg),
         realized_pnl=Money(amount=q2(realized)),
-        unrealized_pnl=Money(amount=Decimal("0")),  # updated when quotes arrive
+        # A fill changes the exposure and invalidates the previous mark until
+        # the quote-driven MTM service observes a quote at/after this fill.
+        unrealized_pnl=Money(amount=Decimal("0")),
+        mark_price=None,
+        marked_at=None,
+        mark_source=None,
     )
 
 

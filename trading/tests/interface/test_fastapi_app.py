@@ -100,14 +100,22 @@ def test_get_order_no_session():
 def test_place_order_no_session():
     app = create_app()
     client = TestClient(app)
-    r = client.post("/orders", json={"symbol": "RELIANCE"})
+    r = client.post(
+        "/orders",
+        json={"symbol": "RELIANCE"},
+        headers={"Idempotency-Key": "no-session-post"},
+    )
     assert r.status_code == 503
 
 
 def test_modify_order_no_session():
     app = create_app()
     client = TestClient(app)
-    r = client.put("/orders/abc123", json={"quantity": 10})
+    r = client.put(
+        "/orders/abc123",
+        json={"quantity": 10},
+        headers={"Idempotency-Key": "no-session-modify"},
+    )
     assert r.status_code == 400
 
 
@@ -120,6 +128,7 @@ def test_modify_order_end_to_end_paper_session():
     from tradex_domain.execution import Order
     from tradex_domain.instruments import Equity
     from tradex_domain.value_objects import OrderId, Price, Quantity
+
     from tradex_trading.sdk.session import TradingSession
 
     session = TradingSession.paper()
@@ -151,6 +160,7 @@ def test_modify_order_end_to_end_paper_session():
                 "quantity": 7,
                 "price": "2450.00",
             },
+            headers={"Idempotency-Key": "modify-e2e-1"},
         )
         assert r.status_code == 200, r.text
         body = r.json()
@@ -166,7 +176,10 @@ def test_modify_order_end_to_end_paper_session():
 def test_cancel_order_no_session():
     app = create_app()
     client = TestClient(app)
-    r = client.delete("/orders/abc123")
+    r = client.delete(
+        "/orders/abc123",
+        headers={"Idempotency-Key": "no-session-cancel"},
+    )
     assert r.status_code == 400
 
 
@@ -239,7 +252,9 @@ def test_error_response_model():
     from tradex_trading.interface.models import ErrorDetail
 
     resp = ErrorResponse(error=ErrorDetail(code="bad_request", message="something went wrong"))
-    assert resp.model_dump() == {"error": {"code": "bad_request", "message": "something went wrong"}}
+    assert resp.model_dump() == {
+        "error": {"code": "bad_request", "message": "something went wrong"},
+    }
 
 
 def test_account_response_model():
@@ -258,8 +273,11 @@ def test_auth_no_key_configured():
     """When no api_key is set, POST should succeed (no auth required)."""
     app = create_app()
     client = TestClient(app)
-    r = client.post("/orders", json={"symbol": "RELIANCE"})
-    # 503 because no session, not 403
+    r = client.post(
+        "/orders",
+        json={"symbol": "RELIANCE"},
+        headers={"Idempotency-Key": "post-missing-session-auth-test"},
+    )
     assert r.status_code == 503
 
 
@@ -275,7 +293,12 @@ def test_auth_key_configured_rejects_wrong():
     """When api_key is set, wrong key should be rejected."""
     app = create_app(api_key="secret-key")
     client = TestClient(app)
-    r = client.post("/orders", json={"symbol": "RELIANCE"}, headers={"X-API-Key": "wrong"})
+    r = client.post(
+        "/orders",
+        json={"symbol": "RELIANCE"},
+        headers={"X-API-Key": "wrong", "Idempotency-Key": "post-auth-wrong"},
+    )
+    assert r.status_code == 403
     assert r.status_code == 403
 
 
@@ -283,8 +306,11 @@ def test_auth_key_configured_accepts_correct():
     """When api_key is set, correct key should pass auth."""
     app = create_app(api_key="secret-key")
     client = TestClient(app)
-    r = client.post("/orders", json={"symbol": "RELIANCE"}, headers={"X-API-Key": "secret-key"})
-    # 503 because no session, not 403 — auth passed
+    r = client.post(
+        "/orders",
+        json={"symbol": "RELIANCE"},
+        headers={"X-API-Key": "secret-key", "Idempotency-Key": "post-auth-ok"},
+    )
     assert r.status_code == 503
 
 
@@ -304,7 +330,10 @@ def test_auth_delete_requires_key():
     """DELETE should require API key when configured."""
     app = create_app(api_key="secret-key")
     client = TestClient(app)
-    r = client.delete("/orders/abc")
+    r = client.delete(
+        "/orders/abc",
+        headers={"Idempotency-Key": "auth-delete"},
+    )
     assert r.status_code == 403
 
 
@@ -312,7 +341,11 @@ def test_auth_put_requires_key():
     """PUT should require API key when configured."""
     app = create_app(api_key="secret-key")
     client = TestClient(app)
-    r = client.put("/orders/abc", json={"qty": 1})
+    r = client.put(
+        "/orders/abc",
+        json={"qty": 1},
+        headers={"Idempotency-Key": "auth-put"},
+    )
     assert r.status_code == 403
 
 
@@ -596,12 +629,18 @@ def test_post_order_with_session():
         "quantity": 10,
         "order_type": "MARKET",
     }
-    r = client.post("/orders", json=body)
+    r = client.post(
+        "/orders",
+        json=body,
+        headers={"Idempotency-Key": "post-session-1"},
+    )
     assert r.status_code == 200
     data = r.json()
     assert data["order_id"] == "ORD-001"
     assert data["status"] == "SUBMITTED"
     assert data["message"] == "submitted"
+    submitted = session.engine.submit.call_args.args[0]
+    assert submitted.correlation_id.value == "post-session-1"
     session.engine.submit.assert_called_once()
 
 
@@ -615,7 +654,11 @@ def test_post_order_with_instrument_id():
         "side": "SELL",
         "quantity": 5,
     }
-    r = client.post("/orders", json=body)
+    r = client.post(
+        "/orders",
+        json=body,
+        headers={"Idempotency-Key": "post-instrument-1"},
+    )
     assert r.status_code == 200
     assert r.json()["order_id"] == "ORD-001"
 
@@ -626,7 +669,11 @@ def test_post_order_missing_fields():
     client = TestClient(app)
 
     body = {"exchange": "NSE", "symbol": "REL"}
-    r = client.post("/orders", json=body)
+    r = client.post(
+        "/orders",
+        json=body,
+        headers={"Idempotency-Key": "post-missing-fields"},
+    )
     assert r.status_code == 422
 
 
@@ -636,13 +683,59 @@ def test_post_order_missing_instrument():
     client = TestClient(app)
 
     body = {"side": "BUY", "quantity": 1}
-    r = client.post("/orders", json=body)
+    r = client.post(
+        "/orders",
+        json=body,
+        headers={"Idempotency-Key": "post-missing-instrument"},
+    )
     assert r.status_code == 422
 
 
-# ---------------------------------------------------------------------------
-# WebSocket — ReactiveBus bridge
-# ---------------------------------------------------------------------------
+def test_post_order_same_key_reaches_engine_with_same_correlation_id():
+    session = _make_mock_session()
+    client = TestClient(create_app(session=session))
+    body = {
+        "exchange": "NSE",
+        "symbol": "RELIANCE",
+        "side": "BUY",
+        "quantity": 1,
+    }
+    headers = {"Idempotency-Key": "same-key"}
+    first = client.post("/orders", json=body, headers=headers)
+    second = client.post("/orders", json=body, headers=headers)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert session.engine.submit.call_count == 2
+    first_request = session.engine.submit.call_args_list[0].args[0]
+    second_request = session.engine.submit.call_args_list[1].args[0]
+    assert first_request.correlation_id == second_request.correlation_id
+
+
+def test_post_order_http_retry_is_deduplicated_by_engine():
+    """The same HTTP idempotency key produces one paper order and one ID."""
+    from tradex_trading.sdk.session import TradingSession
+
+    session = TradingSession.paper()
+    try:
+        client = TestClient(create_app(session=session))
+        body = {
+            "exchange": "NSE",
+            "symbol": "RELIANCE",
+            "side": "BUY",
+            "quantity": 1,
+            "order_type": "LIMIT",
+            "price": "100",
+        }
+        headers = {"Idempotency-Key": "http-retry-1"}
+        first = client.post("/orders", json=body, headers=headers)
+        second = client.post("/orders", json=body, headers=headers)
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        assert first.json()["order_id"] == second.json()["order_id"]
+        assert len(session.engine.all_orders()) == 1
+    finally:
+        session.stop()
+
 
 
 def test_websocket_no_session():
@@ -1424,6 +1517,7 @@ class TestPaperSessionEndToEnd:
                 "quantity": 10,
                 "order_type": "MARKET",
             },
+            headers={"Idempotency-Key": "paper-e2e-place-1"},
         )
         assert r.status_code == 200
         order_id = r.json()["order_id"]
@@ -1451,6 +1545,7 @@ class TestPaperSessionEndToEnd:
                 "order_type": "LIMIT",
                 "price": 100,
             },
+            headers={"Idempotency-Key": "paper-e2e-fill-1"},
         )
         assert r.status_code == 200
 

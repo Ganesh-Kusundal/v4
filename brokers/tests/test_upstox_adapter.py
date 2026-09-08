@@ -787,6 +787,7 @@ class TestDepthStreamWiring:
 
 def test_upstox_broker_exposes_rate_limiter():
     from unittest.mock import MagicMock
+
     from tradex_brokers.upstox.adapter import UpstoxBroker
 
     limiter = MultiBucketRateLimiter(default=RateLimitConfig())

@@ -24,8 +24,16 @@ class FillModel:
     ValueError-on-zero-price guard, and deterministic Fill construction here.
     """
 
-    def __init__(self, slippage_model: object | None = None) -> None:
+    def __init__(
+        self,
+        slippage_model: object | None = None,
+        *,
+        clock: object | None = None,
+        require_reference_timestamp: bool = False,
+    ) -> None:
         self._slippage_model = slippage_model
+        self._clock = clock
+        self._require_reference_timestamp = require_reference_timestamp
 
     def resolve_fill_price(
         self,
@@ -64,9 +72,20 @@ class FillModel:
         return price
 
     def fill_timestamp(self, request: OrderRequest) -> datetime:
-        """Deterministic fill timestamp — the request's market-data reference
-        timestamp, or ``now(UTC)``. Reproducible event logs across runs."""
-        return request.reference_timestamp or datetime.now(UTC)
+        """Resolve the fill timestamp.
+
+        Deterministic simulation may require the market-data reference time;
+        live receipt paths intentionally retain a clock fallback.
+        """
+        if request.reference_timestamp is not None:
+            return request.reference_timestamp
+        if self._require_reference_timestamp:
+            raise ValueError(
+                "deterministic fill requires OrderRequest.reference_timestamp"
+            )
+        if self._clock is not None and hasattr(self._clock, "now"):
+            return self._clock.now()
+        return datetime.now(UTC)
 
     def make_fill(
         self,

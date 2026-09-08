@@ -25,6 +25,10 @@ class RiskConfig:
     reject_unknown_market_value: bool = False
     max_daily_loss_amt: Decimal | None = None
     max_drawdown_pct: Decimal | None = None
+    #: Live opening exposure requires a quote-derived mark no older than this
+    #: many seconds. The live composition root enables this fail-closed gate.
+    require_fresh_marks: bool = False
+    max_mark_age_seconds: float = 5.0
     #: Optional zero-arg callable returning available cash (Decimal).
     #: When set, ``boot()`` binds it to the engine's ``RiskManager`` so
     #: every BUY in :meth:`RiskManager.check` is rejected if its incoming
@@ -57,6 +61,8 @@ class RiskConfig:
                 "max_drawdown_pct",
                 Decimal(str(self.max_drawdown_pct)),
             )
+        if self.max_mark_age_seconds < 0:
+            raise ValueError("max_mark_age_seconds must be non-negative")
 
 
 @dataclass(frozen=True, slots=True)

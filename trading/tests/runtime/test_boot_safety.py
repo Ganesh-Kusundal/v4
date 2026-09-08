@@ -5,10 +5,11 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from tradex_domain import BrokerId
 from tradex_brokers.common.capabilities import dhan_capabilities
+from tradex_domain import BrokerId
 
 from tradex_trading.config.schema import AppConfig
+from tradex_trading.config.schema import PersistenceConfig
 from tradex_trading.runtime.startup import boot
 
 
@@ -77,14 +78,15 @@ class TestBootStreamBackendWiring:
         broker.stream_backend.return_value = backend or MagicMock()
         return broker
 
-    def test_live_boot_wires_stream_backend(self, monkeypatch) -> None:
+    def test_live_boot_wires_stream_backend(self, monkeypatch, tmp_path) -> None:
         from tradex_trading.runtime import live as live_mod
 
         backend = MagicMock()
         broker = self._fake_broker(backend)
         monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
 
-        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True)
+        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
+                        persistence=PersistenceConfig(path=str(tmp_path / "orders.db")))
         session = boot(cfg)
         try:
             assert session._stream_backend is backend
@@ -92,19 +94,29 @@ class TestBootStreamBackendWiring:
         finally:
             session.stop()
 
-    def test_live_boot_degrades_when_backend_fails(self, monkeypatch) -> None:
+    def test_live_boot_refuses_when_order_stream_backend_fails(self, monkeypatch, tmp_path) -> None:
         from tradex_trading.runtime import live as live_mod
 
         broker = self._fake_broker()
         broker.stream_backend.side_effect = RuntimeError("no ws transport")
         monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
 
-        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True)
-        session = boot(cfg)  # must not raise
-        try:
-            assert session._stream_backend is None
-        finally:
-            session.stop()
+        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
+                        persistence=PersistenceConfig(path=str(tmp_path / "orders.db")))
+        with pytest.raises(RuntimeError, match="order-stream backend"):
+            boot(cfg)
+
+    def test_live_boot_refuses_without_order_stream_backend(self, monkeypatch, tmp_path) -> None:
+        from tradex_trading.runtime import live as live_mod
+
+        broker = self._fake_broker()
+        broker.stream_backend.return_value = None
+        monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
+
+        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
+                        persistence=PersistenceConfig(path=str(tmp_path / "orders.db")))
+        with pytest.raises(ValueError, match="order-stream backend"):
+            boot(cfg)
 
     def test_paper_boot_has_no_stream_backend(self) -> None:
         cfg = AppConfig(mode="paper")
@@ -133,10 +145,25 @@ class TestBootPersistenceWiring:
         finally:
             session.stop()
 
-    def test_no_persistence_keeps_no_guard(self) -> None:
-        """Default boot stays unchanged: idempotency is opt-in."""
+    def test_default_boot_wires_in_memory_idempotency_guard(self) -> None:
+        """Every order endpoint has a guard, even without SQLite durability."""
+        from tradex_trading.execution.engine import MemoryIdempotencyGuard
+
         session = boot(AppConfig(mode="paper"))
         try:
-            assert session.engine._guard is None  # noqa: SLF001 – wiring probe
+            assert isinstance(session.engine._guard, MemoryIdempotencyGuard)  # noqa: SLF001
         finally:
             session.stop()
+
+    def test_live_boot_requires_persistence_path(self, monkeypatch, tmp_path) -> None:
+        from tradex_trading.runtime import live as live_mod
+
+        broker = MagicMock()
+        broker.capabilities = dhan_capabilities()
+        backend = MagicMock()
+        broker.stream_backend.return_value = backend
+        monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
+
+        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True)
+        with pytest.raises(ValueError, match="persistence"):
+            boot(cfg)

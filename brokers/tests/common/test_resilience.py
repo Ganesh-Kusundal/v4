@@ -329,9 +329,12 @@ def test_bucket_for_path_classifies() -> None:
 def test_table_defaults_match_broker_standards() -> None:
     dhan = table_for_provider("dhan")
     upstox = table_for_provider("upstox")
-    # Dhan: orders 10/s·250/min·1000/hr·7000/day; data 5/s; quotes 1/s; option chain 1-per-3s; non-trading 20/s
+    # Dhan: orders 10/s·250/min·1000/hr·7000/day; data 5/s; quotes 1/s;
+    # option chain 1-per-3s; non-trading 20/s
     assert dhan["orders"]["rate_per_second"] == 10.0
-    assert dhan["orders"]["extra_windows"] == ((250, 60.0), (1000, 3600.0), (7000, 86400.0))
+    assert dhan["orders"]["extra_windows"] == (
+        (250, 60.0), (1000, 3600.0), (7000, 86400.0)
+    )
     assert dhan["quotes"]["rate_per_second"] == 1.0
     assert dhan["historical"]["rate_per_second"] == 5.0
     assert dhan["option_chain"]["rate_per_second"] == 0.34

@@ -10,9 +10,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from tradex_domain.execution import Fill, Order, OrderRequest
+from tradex_domain.execution import Fill, Order, OrderRequest, Position
 from tradex_domain.instruments import Instrument
-from tradex_domain.market import Candle
+from tradex_domain.market import Quote
 from tradex_domain.value_objects import CorrelationId
 
 
@@ -38,6 +38,14 @@ class OrderFilled(DomainEvent):
 class OrderRejected(DomainEvent):
     order: Order
     reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PositionUpdated(DomainEvent):
+    """Position accounting or mark-to-market state changed."""
+
+    position: Position
+    quote: Quote | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,5 +90,6 @@ __all__ = [
     "OrderPlaced",
     "OrderRejected",
     "PlaceOrderCommand",
+    "PositionUpdated",
     "StaleFeed",
 ]

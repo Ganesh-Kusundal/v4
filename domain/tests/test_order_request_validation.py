@@ -7,6 +7,7 @@ from decimal import Decimal
 import pytest
 
 from tradex_domain import (
+    BracketOrderRequest,
     Equity,
     OrderRequest,
     Price,
@@ -61,3 +62,59 @@ class TestOrderRequestValidation:
         assert order.quantity.value == Decimal("10")
         assert order.price is not None
         assert order.price.value == Decimal("1500")
+
+
+class TestBracketOrderRequestValidation:
+    """BracketOrderRequest is an OrderRequest with side-aware protective legs."""
+
+    @staticmethod
+    def _bracket(side: OrderSide, entry: str, stop: str, target: str) -> BracketOrderRequest:
+        return BracketOrderRequest(
+            instrument=Equity.of("NSE", "RELIANCE"),
+            side=side,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity(Decimal("10")),
+            price=Price(Decimal(entry)),
+            stop_loss_price=Price(Decimal(stop)),
+            target_price=Price(Decimal(target)),
+        )
+
+    def test_is_an_order_request(self) -> None:
+        bracket = self._bracket(OrderSide.BUY, "100", "95", "110")
+        assert isinstance(bracket, OrderRequest)
+
+    def test_valid_buy_bracket(self) -> None:
+        bracket = self._bracket(OrderSide.BUY, "100", "95", "110")
+        assert bracket.price is not None
+        assert bracket.price.value == Decimal("100")
+
+    def test_valid_sell_bracket(self) -> None:
+        bracket = self._bracket(OrderSide.SELL, "100", "105", "90")
+        assert bracket.stop_loss_price is not None
+        assert bracket.stop_loss_price.value == Decimal("105")
+
+    def test_buy_requires_stop_below_entry(self) -> None:
+        with pytest.raises(ValueError, match="protective prices are invalid"):
+            self._bracket(OrderSide.BUY, "100", "110", "120")
+
+    def test_buy_requires_target_above_entry(self) -> None:
+        with pytest.raises(ValueError, match="protective prices are invalid"):
+            self._bracket(OrderSide.BUY, "100", "95", "90")
+
+    def test_sell_requires_target_below_entry(self) -> None:
+        with pytest.raises(ValueError, match="protective prices are invalid"):
+            self._bracket(OrderSide.SELL, "100", "95", "90")
+
+    def test_sell_requires_stop_above_entry(self) -> None:
+        with pytest.raises(ValueError, match="protective prices are invalid"):
+            self._bracket(OrderSide.SELL, "100", "95", "120")
+
+    def test_missing_protective_legs_raises(self) -> None:
+        with pytest.raises(ValueError, match="requires price, stop_loss_price, and target_price"):
+            BracketOrderRequest(
+                instrument=Equity.of("NSE", "RELIANCE"),
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Quantity(Decimal("10")),
+                price=Price(Decimal("100")),
+            )

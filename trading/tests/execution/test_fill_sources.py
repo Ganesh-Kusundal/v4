@@ -7,9 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
-from tradex_domain.execution import OrderRequest
+from tradex_domain.errors import OrderRejectedError
+from tradex_domain.execution import BracketOrderRequest, OrderRequest
 from tradex_domain.instruments import Equity
-from tradex_domain.value_objects import Price, Quantity
+from tradex_domain.value_objects import OrderId, Price, Quantity
 
 from tradex_trading.execution.fill_sources import (
     BrokerFillSource,
@@ -123,3 +124,101 @@ class TestBrokerFillSource:
         order, fill = fill_source.submit(req)
         assert order.status == OrderStatus.ACK
         assert fill is None
+
+    def test_bracket_request_calls_submit_super_order(self) -> None:
+        """A BracketOrderRequest must hit the broker's super-order endpoint,
+        never the plain submit_order (a bracket submitted as a bare entry
+        would silently lose its protective legs)."""
+        mock_broker = MagicMock()
+        mock_broker.submit_super_order.return_value = "super-1"
+        fill_source = BrokerFillSource(mock_broker)
+
+        req = BracketOrderRequest(
+            instrument=Equity.of("NSE", "RELIANCE"),
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity(value=Decimal("10")),
+            price=Price(value=Decimal("2500.00")),
+            stop_loss_price=Price(value=Decimal("2450.00")),
+            target_price=Price(value=Decimal("2600.00")),
+            time_in_force=TimeInForce.DAY,
+        )
+        order, fill = fill_source.submit(req)
+
+        mock_broker.submit_super_order.assert_called_once_with(req)
+        mock_broker.submit_order.assert_not_called()
+        assert order.status == OrderStatus.ACK
+        assert order.order_id.value == "super-1"
+        assert fill is None
+
+    def test_bracket_request_rejected_when_broker_lacks_super_orders(self) -> None:
+        """A broker with no super-order endpoint must fail loudly, not degrade
+        to an unprotected entry submission."""
+        mock_broker = MagicMock()
+        del mock_broker.submit_super_order  # broker without the method
+        fill_source = BrokerFillSource(mock_broker)
+
+        req = BracketOrderRequest(
+            instrument=Equity.of("NSE", "RELIANCE"),
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity(value=Decimal("10")),
+            price=Price(value=Decimal("2500.00")),
+            stop_loss_price=Price(value=Decimal("2450.00")),
+            target_price=Price(value=Decimal("2600.00")),
+            time_in_force=TimeInForce.DAY,
+        )
+        with pytest.raises(ValueError, match="does not support super orders"):
+            fill_source.submit(req)
+        mock_broker.submit_order.assert_not_called()
+
+    def test_bracket_modify_calls_submit_super_order_sibling(self) -> None:
+        """Modifying a bracket must reach modify_super_order — sending the
+        composite id to the plain modify endpoint would drop its legs."""
+        mock_broker = MagicMock()
+        fill_source = BrokerFillSource(mock_broker)
+        req = BracketOrderRequest(
+            instrument=Equity.of("NSE", "RELIANCE"),
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity(value=Decimal("10")),
+            price=Price(value=Decimal("2500.00")),
+            stop_loss_price=Price(value=Decimal("2450.00")),
+            target_price=Price(value=Decimal("2600.00")),
+            time_in_force=TimeInForce.DAY,
+        )
+        oid = OrderId(value="super-1")
+        fill_source.modify(oid, req)
+
+        mock_broker.modify_super_order.assert_called_once_with(oid, req)
+        mock_broker.modify_order.assert_not_called()
+
+    def test_bracket_modify_plain_order_uses_plain_endpoint(self) -> None:
+        """A non-bracket modification keeps using modify_order."""
+        mock_broker = MagicMock()
+        fill_source = BrokerFillSource(mock_broker)
+        req = _make_request(price=Decimal("2500.00"))
+        oid = OrderId(value="o-1")
+        fill_source.modify(oid, req)
+
+        mock_broker.modify_order.assert_called_once_with(oid, req)
+
+    def test_broker_cancel_super_order(self) -> None:
+        """cancel_super_order delegates to the broker's super endpoint."""
+        mock_broker = MagicMock()
+        fill_source = BrokerFillSource(mock_broker)
+        oid = OrderId(value="super-1")
+        fill_source.cancel_super_order(oid)
+
+        mock_broker.cancel_super_order.assert_called_once_with(oid)
+
+    def test_broker_cancel_super_order_fails_loudly_without_endpoint(self) -> None:
+        """A broker without super-order cancellation must raise, never fall
+        back to a plain cancel on the composite id."""
+        mock_broker = MagicMock()
+        del mock_broker.cancel_super_order
+        fill_source = BrokerFillSource(mock_broker)
+
+        with pytest.raises(OrderRejectedError, match="does not support super-order"):
+            fill_source.cancel_super_order(OrderId(value="super-1"))
+        mock_broker.cancel_order.assert_not_called()

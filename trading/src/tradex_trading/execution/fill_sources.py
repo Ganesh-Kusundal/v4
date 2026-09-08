@@ -71,6 +71,12 @@ def _make_order(
         trigger_price=request.trigger_price,
         product_type=request.product_type,
         tag=request.tag,
+        # A bracket (super) order must retain its protective legs in the OMS
+        # so later lifecycle mutations (cancel/modify) can be dispatched to
+        # the venue's super-order endpoints instead of the plain ones.
+        target_price=request.target_price,
+        stop_loss_price=request.stop_loss_price,
+        trailing_jump=request.trailing_jump,
     )
 
 
@@ -92,8 +98,15 @@ class SimulatedFillSource(FillModel):
         self,
         portfolio_state: object | None = None,
         slippage_model: object | None = None,
+        *,
+        clock: object | None = None,
+        require_reference_timestamp: bool = False,
     ) -> None:
-        super().__init__(slippage_model=slippage_model)
+        super().__init__(
+            slippage_model=slippage_model,
+            clock=clock,
+            require_reference_timestamp=require_reference_timestamp,
+        )
         self._portfolio_state = portfolio_state
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
@@ -137,8 +150,24 @@ class PaperFillSource(FillModel):
         self,
         cache: object | None = None,
         slippage_model: object | None = None,
+        *,
+        clock: object | None = None,
+        require_reference_timestamp: bool = False,
     ) -> None:
-        super().__init__(slippage_model=slippage_model)
+        super().__init__(
+            slippage_model=slippage_model,
+            clock=clock,
+            require_reference_timestamp=require_reference_timestamp,
+        )
+        self._cache = cache
+
+    def bind_cache(self, cache: object) -> None:
+        """Attach the OMS cache after engine construction.
+
+        The composition root creates the fill source before the execution
+        engine (which owns the cache), so paper mode binds the shared cache
+        through this declared seam once the engine exists.
+        """
         self._cache = cache
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
@@ -205,6 +234,22 @@ class BrokerFillSource(FillModel):
         return getattr(self._broker, "trading_cache", None)
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
+        from tradex_domain.execution import BracketOrderRequest
+
+        if isinstance(request, BracketOrderRequest):
+            # A bracket is a *composite* submission: entry + protective legs
+            # are placed together by the venue's super-order endpoint. The
+            # adapter's capability gate is the backstop (the route preflights
+            # the capability before reaching the engine), and the returned
+            # id is the venue's super-order id — the OMS records it as the
+            # entry order so dedup/replay and later lifecycle events join.
+            submit = getattr(self._broker, "submit_super_order", None)
+            if submit is None:
+                raise ValueError("broker does not support super orders")
+            self._submission_boundary_crossed = True
+            broker_order_id = submit(request)
+            order = _make_order(request, status=OrderStatus.ACK, order_id=broker_order_id)
+            return order, None
         # Delegate to broker adapter's submit_order method
         if hasattr(self._broker, "submit_order"):
             self._submission_boundary_crossed = True
@@ -220,8 +265,42 @@ class BrokerFillSource(FillModel):
         if hasattr(self._broker, "cancel_order"):
             self._broker.cancel_order(order_id)
 
+    def cancel_super_order(self, order_id: OrderId) -> None:
+        """Cancel a bracket (super) order at the broker.
+
+        The venue cancels the whole composite — entry plus protective legs —
+        via its super-order endpoint (``leg="ENTRY"`` default on the broker
+        adapters). Reaching this method means the order is a bracket; a broker
+        without super-order cancellation must fail loudly, never silently
+        fall back to a plain cancel on the composite id.
+        """
+        if hasattr(self._broker, "cancel_super_order"):
+            self._broker.cancel_super_order(order_id)
+        else:
+            from tradex_domain.errors import OrderRejectedError
+            raise OrderRejectedError(
+                "broker does not support super-order cancellation"
+            )
+
     def modify(self, order_id: OrderId, request: OrderRequest) -> None:
-        """Modify order at broker."""
+        """Modify order at broker.
+
+        A bracket modification carries the full composite (entry + protective
+        legs) and must reach ``modify_super_order`` — a bracket sent through
+        the plain modify endpoint would lose its legs. The engine refuses
+        plain requests on bracket orders before this dispatch runs.
+        """
+        from tradex_domain.execution import BracketOrderRequest
+
+        if isinstance(request, BracketOrderRequest):
+            if hasattr(self._broker, "modify_super_order"):
+                self._broker.modify_super_order(order_id, request)
+            else:
+                from tradex_domain.errors import OrderRejectedError
+                raise OrderRejectedError(
+                    "broker does not support super orders"
+                )
+            return
         if hasattr(self._broker, "modify_order"):
             self._broker.modify_order(order_id, request)
 

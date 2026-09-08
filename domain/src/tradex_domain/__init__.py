@@ -40,9 +40,11 @@ from tradex_domain.events import (
     OrderPlaced,
     OrderRejected,
     PlaceOrderCommand,
+    PositionUpdated,
 )
 from tradex_domain.execution import (
     Account,
+    BracketOrderRequest,
     Fill,
     Order,
     OrderReceipt,
@@ -134,6 +136,7 @@ __all__ = [
     "OptionPair",
     # execution
     "Account",
+    "BracketOrderRequest",
     "Fill",
     "Order",
     "OrderReceipt",
@@ -177,4 +180,5 @@ __all__ = [
     "OrderPlaced",
     "OrderRejected",
     "PlaceOrderCommand",
+    "PositionUpdated",
 ]

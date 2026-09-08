@@ -5,9 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
+from support.fetch_pipeline import FetchResiliencePipeline
 from tradex_domain import OrderSubmissionUnknownError
 
-from support.fetch_pipeline import FetchResiliencePipeline
 from tradex_brokers.common.provider_client import (
     AuthRetryPolicy,
     ProviderHttpClient,

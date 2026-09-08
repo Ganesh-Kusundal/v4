@@ -14,9 +14,9 @@ naive ``TIME``/``TIMESTAMP`` literals. Never introduce TIMESTAMPTZ.
 
 from __future__ import annotations
 
-from datetime import datetime
 import hashlib
 import threading
+from datetime import datetime
 from pathlib import Path
 
 import duckdb

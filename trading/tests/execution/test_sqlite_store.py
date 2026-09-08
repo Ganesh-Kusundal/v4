@@ -75,6 +75,73 @@ class TestSQLiteOrderStoreGet:
         store = SQLiteOrderStore()
         assert store.get("missing") is None
 
+    def test_bracket_legs_survive_close_and_reopen(self, tmp_path) -> None:
+        """Protective legs are durable: a bracket recovered from SQLite keeps
+        stop/target/trailing so the engine still recognizes it as a bracket."""
+        db = str(tmp_path / "bracket-orders.db")
+        bracket = Order(
+            order_id=OrderId(value="super-1"),
+            instrument=_eq(),
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity(value=Decimal("10")),
+            price=Price(value=Decimal("2500.00")),
+            time_in_force=TimeInForce.DAY,
+            status=OrderStatus.ACK,
+            stop_loss_price=Price(value=Decimal("2450.00")),
+            target_price=Price(value=Decimal("2600.00")),
+            trailing_jump=Price(value=Decimal("5")),
+        )
+
+        store = SQLiteOrderStore(db)
+        try:
+            store.upsert(bracket)
+        finally:
+            store.close()
+
+        reopened = SQLiteOrderStore(db)
+        try:
+            order = reopened.get("super-1")
+            assert order is not None
+            assert order.stop_loss_price == Price(value=Decimal("2450.00"))
+            assert order.target_price == Price(value=Decimal("2600.00"))
+            assert order.trailing_jump == Price(value=Decimal("5"))
+        finally:
+            reopened.close()
+
+    def test_legacy_database_without_leg_columns_is_migrated(self, tmp_path) -> None:
+        """A DB created before the leg columns existed opens cleanly: the new
+        columns are added and existing rows load with legs as None."""
+        import sqlite3
+
+        db = str(tmp_path / "legacy-orders.db")
+        conn = sqlite3.connect(db)
+        conn.execute(
+            """CREATE TABLE orders (
+                order_id TEXT PRIMARY KEY, symbol TEXT, exchange TEXT,
+                asset_class TEXT, side TEXT, order_type TEXT, quantity TEXT,
+                price TEXT, time_in_force TEXT, status TEXT,
+                filled_quantity TEXT, product_type TEXT, tag TEXT,
+                correlation_id TEXT)"""
+        )
+        conn.execute(
+            "INSERT INTO orders VALUES ('o-1', 'RELIANCE', 'NSE', 'EQUITY', "
+            "'BUY', 'LIMIT', '10', '100', 'DAY', 'ACK', '0', 'INTRADAY', "
+            "NULL, NULL)"
+        )
+        conn.commit()
+        conn.close()
+
+        store = SQLiteOrderStore(db)
+        try:
+            order = store.get("o-1")
+            assert order is not None
+            assert order.stop_loss_price is None
+            assert order.target_price is None
+            assert order.trailing_jump is None
+        finally:
+            store.close()
+
     def test_close(self) -> None:
         store = SQLiteOrderStore()
         store.close()
@@ -121,7 +188,7 @@ class TestSQLiteIdempotencyGuardCrossEngine:
             # Second engine, same DB file, same correlation id — no new order.
             second = engine2.submit(request)
             assert len(engine2.cache.all_orders()) == 0
-            assert second is not None  # replayed duplicate, not a fresh receipt
+            assert second == OrderId(value="" + engine1.all_orders()[0].order_id.value)
         finally:
             engine1.shutdown()
             engine2.shutdown()

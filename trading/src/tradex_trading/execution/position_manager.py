@@ -80,6 +80,9 @@ class PositionManager:
                 avg_price=existing.avg_price,
                 realized_pnl=Money(amount=q2(existing.realized_pnl.amount - fee.amount)),
                 unrealized_pnl=existing.unrealized_pnl,
+                mark_price=existing.mark_price,
+                marked_at=existing.marked_at,
+                mark_source=existing.mark_source,
             )
             self._cache.update_position(pos)
         log.info(

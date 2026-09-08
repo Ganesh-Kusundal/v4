@@ -59,6 +59,42 @@ Every item below has a test pin and a commit. Suite at completion: **2808 passed
 
 ## Pending — what remains
 
+### 2026-09-04 — Refactoring-plan Phase 1 (Safety: C1 + C2) — in working tree
+
+Status: implemented in the uncommitted working tree (branch `refactor/execution-state`);
+companion docs: `docs/design/tradex-target-architecture-and-refactoring-plan-2026-09-04.md`
+and `docs/reviews/principal-architecture-review-2026-09-04.md`.
+
+- ✅ **C1 end-to-end idempotency** — `frontend/src/trade-feed.ts` forwards
+  `clientToken`/generated keys as `Idempotency-Key` on POST/PUT/DELETE;
+  `routes/orders.py` requires the header (422 when absent) on place/modify/
+  cancel/bracket and builds `OrderRequest.correlation_id`; `boot()` now always
+  wires a guard (`MemoryIdempotencyGuard`, SQLite when a persistence path is
+  set); the ACK-only submit path records the result durably so a client retry
+  replays the original order id instead of double-submitting a live order
+  (`engine.py` + `SQLiteIdempotencyGuard.result` column). Tests: route
+  missing-key 422, same-key one-order, HTTP-retry dedupe, cross-engine SQLite
+  replay, cancel-does-not-leak reservation.
+- ✅ **C2 live mark-to-market** — new `execution/mark_to_market.py`
+  (`MarkToMarketService`) subscribed to the canonical `Quote` lane;
+  `Position` gains `mark_price/marked_at/mark_source`; `position_math`/
+  `position_manager` preserve or reset marks; `RiskManager` gains
+  `require_fresh_marks`/`max_mark_age_seconds` fail-closed gate (opening
+  exposure needs fresh bid/ask/LTP marks; reductions stay free); `boot()`
+  enables the gate for `mode=live`, binds the cache quote provider, and wires
+  the service into the session lifecycle; `PositionUpdated` events drive
+  `position` frames with mark fields on `/ws/stream`; `/positions` API
+  serializes mark metadata + `mark_stale`.
+- ✅ Phase-1 repair pass — fixed a mangled `stream.py` edit (orphaned
+  `_send_fill` body + dropped `bus = session.bus`), replaced a
+  foreign-private-write in `startup.py` with `PaperFillSource.bind_cache()`
+  (repo meta test `test_no_foreign_private_writes` green), aligned stale
+  interface tests with the mandatory-key contract, and fixed pre-existing
+  frontend typecheck debt (`feed.ts`, `trade.ts`, `http.test.ts`, test files).
+- ✅ Frontend typecheck (`tsc --noEmit`) clean; vitest 144 passed.
+- ✅ Suite at working tree: domain 299, brokers 770+2 skipped, trading 1901,
+  repo meta 4 — **2974 passed, 2 skipped**.
+
 ### Sprint 0 — pre-flight (CLOSED)
 - ✅ **G17** `ec6c288` + `fd57963` — root `pyproject.toml` is a uv workspace manifest with `[tool.uv.workspace]` + `[tool.uv.sources]` for the three members and a `[dependency-groups].dev` listing ruff, mypy, pytest, pytest-cov, pytest-timeout, and the three workspace members. `uv lock` regenerates the lockfile (1393 lines). `uv sync --frozen` is now idempotent. `tradex-trading[datalake,api,full]` is requested so the parity and replay tests can collect. mypy on the domain kernel is clean.
 

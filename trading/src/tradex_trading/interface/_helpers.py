@@ -23,6 +23,10 @@ def serialize_position(pos: Any) -> PositionResponse:
         total_pnl=str(pos.total_pnl.amount),
         is_long=pos.is_long,
         is_short=pos.is_short,
+        mark_price=(str(pos.mark_price.value) if pos.mark_price is not None else None),
+        marked_at=(pos.marked_at.isoformat() if pos.marked_at is not None else None),
+        mark_source=pos.mark_source,
+        mark_stale=(pos.mark_price is None or pos.marked_at is None),
     )
 
 

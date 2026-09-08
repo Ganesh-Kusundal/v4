@@ -28,6 +28,10 @@ class PositionResponse(BaseModel):
     total_pnl: str
     is_long: bool
     is_short: bool
+    mark_price: str | None = None
+    marked_at: str | None = None
+    mark_source: str | None = None
+    mark_stale: bool = False
 
 
 class AccountResponse(BaseModel):

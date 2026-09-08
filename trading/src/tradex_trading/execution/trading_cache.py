@@ -90,7 +90,11 @@ class TradingCache(TradingCacheProtocol):
         self._orders: dict[str, Order] = {}
         self._positions: dict[str, Position] = {}
         self._quotes: dict[str, Quote] = {}
-        self._lock = _ReadWriteLock()
+        self._rw_lock = _ReadWriteLock()
+        self._orders_lock = threading.Lock()
+        self._positions_lock = threading.Lock()
+        self._quotes_lock = threading.Lock()
+        self._sync_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Orders
@@ -98,23 +102,23 @@ class TradingCache(TradingCacheProtocol):
 
     def update_order(self, order: Order) -> None:
         """Insert or update an order keyed by order_id."""
-        with self._lock.writer():
+        with self._orders_lock:
             self._orders[order.order_id.value] = order
 
     def set_order(self, order: Order) -> None:
         """Insert or update an order (alias for ``update_order``)."""
-        with self._lock.writer():
+        with self._orders_lock:
             self._orders[order.order_id.value] = order
 
     def get_order(self, order_id: OrderId | str) -> Order | None:
         """Return the order with the given id, or None."""
         key = order_id.value if isinstance(order_id, OrderId) else order_id
-        with self._lock.reader():
+        with self._sync_lock:
             return self._orders.get(key)
 
     def all_orders(self) -> list[Order]:
         """Return a snapshot list of all cached orders."""
-        with self._lock.reader():
+        with self._sync_lock:
             return list(self._orders.values())
 
     # ------------------------------------------------------------------
@@ -132,23 +136,23 @@ class TradingCache(TradingCacheProtocol):
 
     def update_position(self, position: Position) -> None:
         """Insert or update a position keyed by instrument id."""
-        with self._lock.writer():
+        with self._positions_lock:
             self._positions[self._instrument_key(position.instrument)] = position
 
     def set_position(self, position: Position) -> None:
         """Insert or update a position keyed by instrument id."""
-        with self._lock.writer():
+        with self._positions_lock:
             self._positions[self._instrument_key(position.instrument)] = position
 
     def get_position(self, instrument: Instrument | InstrumentId | str) -> Position | None:
         """Return the position for the given instrument, or None."""
         key = self._instrument_key(instrument)
-        with self._lock.reader():
+        with self._sync_lock:
             return self._positions.get(key)
 
     def all_positions(self) -> list[Position]:
         """Return a snapshot list of all cached positions."""
-        with self._lock.reader():
+        with self._sync_lock:
             return list(self._positions.values())
 
     # ------------------------------------------------------------------
@@ -157,18 +161,18 @@ class TradingCache(TradingCacheProtocol):
 
     def update_quote(self, quote: Quote) -> None:
         """Insert or update the latest quote keyed by instrument id."""
-        with self._lock.writer():
+        with self._quotes_lock:
             self._quotes[self._instrument_key(quote.instrument)] = quote
 
     def set_quote(self, quote: Quote) -> None:
         """Insert or update the latest quote keyed by instrument id."""
-        with self._lock.writer():
+        with self._quotes_lock:
             self._quotes[self._instrument_key(quote.instrument)] = quote
 
     def get_quote(self, instrument: Instrument | InstrumentId | str) -> Quote | None:
         """Return the latest quote for the given instrument, or None."""
         key = self._instrument_key(instrument)
-        with self._lock.reader():
+        with self._sync_lock:
             return self._quotes.get(key)
 
     # ------------------------------------------------------------------
@@ -185,7 +189,7 @@ class TradingCache(TradingCacheProtocol):
         snapshot (the cache itself is single-process; mutating returned
         references would bypass the lock contract).
         """
-        with self._lock.reader():
+        with self._sync_lock:
             return {
                 "orders": dict(self._orders),
                 "positions": dict(self._positions),
@@ -194,7 +198,7 @@ class TradingCache(TradingCacheProtocol):
 
     def restore(self, snapshot: dict[str, dict]) -> None:
         """Replace internal state from a previous ``snapshot()``."""
-        with self._lock.writer():
+        with self._sync_lock:
             self._orders = dict(snapshot.get("orders", {}))
             self._positions = dict(snapshot.get("positions", {}))
             self._quotes = dict(snapshot.get("quotes", {}))
@@ -205,9 +209,11 @@ class TradingCache(TradingCacheProtocol):
 
     def clear(self) -> None:
         """Drop all cached data."""
-        with self._lock.writer():
+        with self._orders_lock:
             self._orders.clear()
+        with self._positions_lock:
             self._positions.clear()
+        with self._quotes_lock:
             self._quotes.clear()
 
 

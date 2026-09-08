@@ -45,27 +45,27 @@ log = logging.getLogger(__name__)
 _FILL_STATUSES = frozenset({OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED})
 
 
-class TradeBookFillIdResolver:
-    """Hand out distinct exchange trade ids per order from a broker's REST
-    trade book, so genuine equal-lot partial fills get distinguishable
-    ``fill_id`` values (closes the Dhan ``tradeId`` → ``Fill.fill_id`` gap).
+class LiveFillIdentityUnavailable(RuntimeError):
+    """A live fill cannot be safely identified from the provider trade book."""
 
-    The engine's live-fill dedup fingerprints a fill by ``fill_id`` when one
-    is present; without it, two equal-lot, same-price partials of one order
-    are indistinguishable from a re-publish and the second is silently
-    skipped — under-counting the position. Each new delta's fill is stamped
-    with the next unseen trade id for that order from the trade book; a
-    re-published delta reuses the same id (so the engine skips it) and a
-    network failure yields ``None`` (caller falls back to the composite
-    fingerprint — current behavior).
+
+class TradeBookFillIdResolver:
+    """Resolve exchange trade ids for cumulative live-order deltas.
+
+    Provider field aliases are normalized here rather than in the execution
+    engine: Dhan uses ``orderId``/``tradeId`` while Upstox uses
+    ``order_id``/``trade_id``. In strict mode, a missing/unavailable trade
+    identity raises instead of allowing the engine's lossy composite
+    fingerprint to under-count equal-lot partial fills.
     """
 
     def __init__(
         self,
         trade_book: Callable[[], list[dict]],
         *,
-        order_id_key: str = "orderId",
-        trade_id_key: str = "tradeId",
+        order_id_key: str | tuple[str, ...] = ("orderId", "order_id"),
+        trade_id_key: str | tuple[str, ...] = ("tradeId", "trade_id"),
+        strict: bool = False,
     ) -> None:
         """
         Parameters
@@ -75,8 +75,13 @@ class TradeBookFillIdResolver:
             (e.g. ``DhanClientFacade.trade_book`` → ``GET /trades``).
         """
         self._trade_book = trade_book
-        self._order_id_key = order_id_key
-        self._trade_id_key = trade_id_key
+        self._order_id_keys = (
+            (order_id_key,) if isinstance(order_id_key, str) else tuple(order_id_key)
+        )
+        self._trade_id_keys = (
+            (trade_id_key,) if isinstance(trade_id_key, str) else tuple(trade_id_key)
+        )
+        self._strict = strict
         self._given: dict[str, set[str]] = {}
         self._lock = threading.Lock()
         self._last_fetch_time: float = 0.0
@@ -99,18 +104,26 @@ class TradeBookFillIdResolver:
             else:
                 try:
                     rows = self._trade_book()
-                except Exception:  # noqa: BLE001 – network hiccup: degrade to composite fingerprint
+                except Exception as exc:  # noqa: BLE001 – network hiccup
+                    if self._strict:
+                        raise LiveFillIdentityUnavailable(
+                            "live trade book unavailable; refusing an unidentified fill"
+                        ) from exc
                     return None
                 self._last_rows = rows
                 self._last_fetch_time = now
             for row in rows:
-                oid = row.get(self._order_id_key)
-                tid = row.get(self._trade_id_key)
+                oid = next((row.get(key) for key in self._order_id_keys if key in row), None)
+                tid = next((row.get(key) for key in self._trade_id_keys if key in row), None)
                 # str-normalize the row's order id: a numeric orderId from a
                 # broker must still match (and never silently drop the benefit).
                 if str(oid) == order_id and tid is not None and str(tid) not in given:
                     given.add(str(tid))
                     return str(tid)
+            if self._strict:
+                raise LiveFillIdentityUnavailable(
+                    f"live trade book has no unused trade id for order {order_id}"
+                )
             return None
 
 
@@ -262,4 +275,9 @@ class LiveFillBridge:
                 pass
 
 
-__all__ = ["LiveFillBridge", "TradeBookFillIdResolver"]
+__all__ = [
+    "LiveFillBridge",
+    "LiveFillIdentityUnavailable",
+    "TradeBookFillIdResolver",
+]
+

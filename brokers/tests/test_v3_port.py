@@ -720,8 +720,9 @@ class TestPaperBroker:
         assert broker.get_order(oid).status == OrderStatus.FILLED
 
     def test_require_connected(self) -> None:
-        from tradex_brokers.paper.adapter import PaperBroker
         from tradex_domain import BrokerUnavailableError
+
+        from tradex_brokers.paper.adapter import PaperBroker
 
         broker = PaperBroker()
         broker.close()

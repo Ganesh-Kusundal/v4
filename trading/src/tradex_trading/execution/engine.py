@@ -33,7 +33,15 @@ from tradex_domain.events import (
     OrderRejected,
     PlaceOrderCommand,
 )
-from tradex_domain.execution import Fill, Order, OrderReceipt, OrderRequest, Position
+from tradex_domain.execution import (
+    BracketOrderRequest,
+    Fill,
+    Order,
+    OrderReceipt,
+    OrderRequest,
+    Position,
+)
+from tradex_domain.protocols import Clock
 from tradex_domain.value_objects import CorrelationId, OrderId
 
 from tradex_trading.execution.fees import FeeCalculator
@@ -54,6 +62,77 @@ _TERMINAL_STATUSES = frozenset({
     OrderStatus.REJECTED,
     OrderStatus.UNKNOWN,
 })
+
+
+def _is_bracket_order(order: Order) -> bool:
+    """True when *order* is a bracket (super) order in the OMS.
+
+    Bracket submissions carry protective legs (``stop_loss_price`` +
+    ``target_price``), and the fill sources persist those legs onto the
+    created ``Order`` — the legs are the OMS-side marker that later
+    lifecycle mutations must use the venue's super-order endpoints.
+    """
+    return order.stop_loss_price is not None and order.target_price is not None
+
+
+def _canonical_decimal(value: Decimal | None) -> str:
+    """Return one stable textual representation for a Decimal value."""
+    if value is None:
+        return ""
+    normalized = value.normalize()
+    return "0" if normalized == 0 else format(normalized, "f")
+
+
+def _request_fingerprint(
+    request: OrderRequest,
+    *,
+    operation: str = "submit",
+    target: str | None = None,
+) -> str:
+    """Canonical, operation-scoped fingerprint for an order mutation.
+
+    The idempotency key identifies a *mutation*, not merely a correlation
+    string.  Binding the operation and target prevents a submit key from
+    being replayed as a modify/cancel key, while canonical Decimal rendering
+    makes economically equivalent values (``10``, ``10.0``) hash alike.
+    """
+    instrument_id = getattr(request.instrument, "instrument_id", request.instrument)
+    reference = request.reference_timestamp
+    return "|".join([
+        operation,
+        target or "",
+        str(instrument_id),
+        request.side.value,
+        request.order_type.value,
+        _canonical_decimal(request.quantity.value),
+        _canonical_decimal(request.price.value if request.price is not None else None),
+        _canonical_decimal(
+            request.trigger_price.value if request.trigger_price is not None else None
+        ),
+        getattr(request.time_in_force, "value", request.time_in_force),
+        getattr(request.product_type, "value", request.product_type),
+        str(request.disclosed_quantity),
+        str(request.market_protection),
+        request.tag or "",
+        reference.isoformat() if reference is not None else "",
+        _canonical_decimal(
+            request.stop_loss_price.value
+            if getattr(request, "stop_loss_price", None) is not None else None
+        ),
+        _canonical_decimal(
+            request.target_price.value
+            if getattr(request, "target_price", None) is not None else None
+        ),
+        _canonical_decimal(
+            request.trailing_jump.value
+            if getattr(request, "trailing_jump", None) is not None else None
+        ),
+    ])
+
+
+def _cancel_fingerprint(order_id: OrderId) -> str:
+    """Canonical fingerprint for a cancel mutation."""
+    return f"cancel|{order_id.value}"
 
 # ---------------------------------------------------------------------------
 # Risk gate
@@ -128,10 +207,33 @@ class IdempotencyDuplicate:
     result: Any
 
 
+class IdempotencyKeyReuseMismatch(RuntimeError):
+    """A completed/reserved idempotency key reused with a different request.
+
+    Raised by guards when ``check_and_reserve`` is called with a
+    ``request_hash`` that differs from the hash bound to the key at its
+    original reservation. The caller maps this to a 409 Conflict — never
+    to a silent replay or a second mutation (N2, principal review).
+    """
+
+
+class IdempotencyInflight(RuntimeError):
+    """A key is reserved but not yet completed — the original request is
+    still processing (or a crash left residue).
+
+    A subclass of ``RuntimeError`` so pre-existing "already reserved"
+    assertions keep passing; callers that want the deterministic response
+    catch this type. The reservation must NOT be released — the original
+    request owns it (N5, principal review).
+    """
+
+
 @runtime_checkable
 class IdempotencyGuard(Protocol):
     def check_and_reserve(
-        self, correlation_id: CorrelationId,
+        self,
+        correlation_id: CorrelationId,
+        request_hash: str | None = None,
     ) -> IdempotencyDuplicate | None: ...
     def record_result(
         self, correlation_id: CorrelationId, result: Any,
@@ -145,20 +247,43 @@ class MemoryIdempotencyGuard:
     def __init__(self) -> None:
         self._reserved: set[str] = set()
         self._completed: dict[str, Any] = {}
+        #: Request-hash binding (N2): the hash recorded at reservation time
+        #: (or at completion when the reservation never bound one).
+        self._pending_hash: dict[str, str] = {}
+        self._completed_hash: dict[str, str] = {}
         self._lock = threading.RLock()
 
+    def _hash_mismatch(
+        self, stored: str | None, incoming: str | None, key: str,
+    ) -> None:
+        if incoming is not None and stored is not None and stored != incoming:
+            raise IdempotencyKeyReuseMismatch(
+                f"idempotency key {key} was already used with a different "
+                "request (request-hash mismatch)"
+            )
+
     def check_and_reserve(
-        self, correlation_id: CorrelationId,
+        self,
+        correlation_id: CorrelationId,
+        request_hash: str | None = None,
     ) -> IdempotencyDuplicate | None:
         key = str(correlation_id.value)
         with self._lock:
             if key in self._completed:
+                self._hash_mismatch(
+                    self._completed_hash.get(key), request_hash, key,
+                )
                 return IdempotencyDuplicate(result=self._completed[key])
             if key in self._reserved:
-                raise RuntimeError(
+                self._hash_mismatch(
+                    self._pending_hash.get(key), request_hash, key,
+                )
+                raise IdempotencyInflight(
                     f"idempotency key is already reserved: {key}",
                 )
             self._reserved.add(key)
+            if request_hash is not None:
+                self._pending_hash[key] = request_hash
             return None
 
     def record_result(
@@ -167,11 +292,15 @@ class MemoryIdempotencyGuard:
         key = str(correlation_id.value)
         with self._lock:
             self._completed[key] = result
+            if key in self._pending_hash:
+                self._completed_hash[key] = self._pending_hash.pop(key)
             self._reserved.discard(key)
 
     def release(self, correlation_id: CorrelationId) -> None:
         with self._lock:
-            self._reserved.discard(str(correlation_id.value))
+            key = str(correlation_id.value)
+            self._reserved.discard(key)
+            self._pending_hash.pop(key, None)
 
 
 class RiskManager:
@@ -187,9 +316,12 @@ class RiskManager:
         positions_provider: Any | None = None,
         price_provider: Any | None = None,
         reject_unknown_market_value: bool = False,
+        require_fresh_marks: bool = False,
+        max_mark_age_seconds: float = 5.0,
         max_daily_loss_amt: Decimal | None = None,
         max_drawdown_pct: Decimal | None = None,
-        budgets: dict[str, "RiskBudget"] | None = None,
+        budgets: dict[str, RiskBudget] | None = None,
+        clock: Clock | None = None,
     ) -> None:
         self._max_order_value = max_order_value
         self._max_position_value = max_position_value
@@ -201,6 +333,12 @@ class RiskManager:
         #: denied (fail-closed for live); when False it preserves the legacy
         #: behaviour of skipping the order-value gate (dev/paper).
         self._reject_unknown_market_value = reject_unknown_market_value
+        #: Live safety gate: opening/increasing exposure requires fresh
+        #: quote-derived marks for the cached position book.
+        self._require_fresh_marks = require_fresh_marks
+        self._max_mark_age_seconds = float(max_mark_age_seconds)
+        if self._max_mark_age_seconds < 0:
+            raise ValueError("max_mark_age_seconds must be non-negative")
         #: Daily-loss and drawdown limits. Guards only get tighter as the day
         #: progresses; they always allow reductions/flattening.
         self._max_daily_loss_amt = max_daily_loss_amt
@@ -224,6 +362,7 @@ class RiskManager:
         #: already stamps ``strategy_id@version`` into tag). A request with
         #: no matching budget falls back to the global caps above.
         self._budgets: dict[str, RiskBudget] = dict(budgets or {})
+        self._clock = clock
         #: Count of orders denied by ``check()`` (any gate). Read by
         #: BacktestEngine to populate ``BacktestResult.num_rejected`` without
         #: re-implementing rejection bookkeeping in its own loop.
@@ -281,7 +420,10 @@ class RiskManager:
             return None
         if quote is None:
             return None
-        value = getattr(quote, "value", quote)
+        if hasattr(quote, "ltp"):
+            value = getattr(quote.ltp, "value", quote.ltp)
+        else:
+            value = getattr(quote, "value", quote)
         try:
             value = Decimal(str(value))
         except Exception:
@@ -296,6 +438,16 @@ class RiskManager:
         collapses to zero and the order-value gate is silently bypassed.
         """
         price = request.price
+        if request.side is OrderSide.SELL and self._price_provider is not None:
+            try:
+                quote = self._price_provider(request.instrument)
+                bid = getattr(quote, "bid", None) if quote is not None else None
+                bid = getattr(bid, "value", bid)
+                bid = Decimal(str(bid)) if bid is not None else None
+                if bid is not None and bid > 0:
+                    return max(price.value, bid) if price is not None and price.value > 0 else bid
+            except Exception:
+                pass
         if price is not None and price.value > 0:
             return price.value
         return self._mark_price(request.instrument)
@@ -334,14 +486,75 @@ class RiskManager:
         """
         self._price_provider = provider
 
+    def set_mark_policy(
+        self, *, require_fresh_marks: bool, max_mark_age_seconds: float = 5.0
+    ) -> None:
+        """Configure the fail-closed live mark dependency."""
+        if max_mark_age_seconds < 0:
+            raise ValueError("max_mark_age_seconds must be non-negative")
+        self._require_fresh_marks = require_fresh_marks
+        self._max_mark_age_seconds = float(max_mark_age_seconds)
+
+    def _now(self, value: datetime | None = None) -> datetime:
+        """Resolve an evaluation instant through the injected clock seam."""
+        if value is not None:
+            return value
+        if self._clock is not None:
+            return self._clock.now()
+        return datetime.now(UTC)
+
+    def _fresh_marks_available(
+        self, request: OrderRequest, now: datetime | None,
+    ) -> bool:
+        """Return whether live opening risk has a trustworthy mark snapshot."""
+        if not self._require_fresh_marks:
+            return True
+        if self._positions_provider is None:
+            return False
+        instant = self._now(now)
+        if instant.tzinfo is None:
+            instant = instant.replace(tzinfo=UTC)
+
+        for position in self._positions_provider():
+            if position.quantity.value == 0:
+                continue
+            marked_at = position.marked_at
+            if marked_at is None:
+                return False
+            if marked_at.tzinfo is None:
+                marked_at = marked_at.replace(tzinfo=UTC)
+            if (instant - marked_at).total_seconds() > self._max_mark_age_seconds:
+                return False
+            if position.mark_price is None or position.mark_price.value <= 0:
+                return False
+
+        # Existing positions and the incoming instrument both need a fresh,
+        # positive quote. A request price is not a market mark: accepting a
+        # limit order without current market data would make live exposure and
+        # daily-loss controls operate on an unverified snapshot.
+        if self._price_provider is None:
+            return False
+        try:
+            quote = self._price_provider(request.instrument)
+        except Exception:
+            return False
+        timestamp = getattr(quote, "timestamp", None) if quote is not None else None
+        if timestamp is None:
+            return False
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        age = (instant - timestamp).total_seconds()
+        if age < 0 or age > self._max_mark_age_seconds:
+            return False
+        if self._mark_price(request.instrument) is None:
+            return False
+        return True
+
     def bind_cash_provider(self, provider: Any) -> None:
         """Bind a zero-arg callable returning available cash (Decimal).
 
-        When bound, every BUY in :meth:`check` is rejected if its
-        incoming notional exceeds the returned cash. SELLs are never
-        cash-gated (a sell is a credit, not a debit). When unset, the
-        cash gate is skipped — backward-compatible with risk configs that
-        do not track cash.
+        When bound, every BUY in :meth:`check` is rejected if its incoming
+        notional exceeds the returned cash. SELLs are never cash-gated.
         """
         self._cash_provider = provider
 
@@ -410,6 +623,12 @@ class RiskManager:
             if not self._live_orders_enabled:
                 return self._deny()
 
+            # Live opening risk fails closed until the quote-driven MTM
+            # service has produced fresh marks for the cached book.
+            if self._require_fresh_marks and self._increases_exposure(request):
+                if not self._fresh_marks_available(request, now):
+                    return self._deny()
+
             # Order value check (per-strategy or global)
             if max_order_value is not None:
                 mark = self._mark_for_trade(request)
@@ -463,7 +682,8 @@ class RiskManager:
 
             # Rate limit check
             if self._max_orders_per_minute is not None:
-                now = now if now is not None else datetime.now(UTC)
+                now = self._now(now)
+
                 # Purge old entries
                 while self._recent_orders and (now - self._recent_orders[0]).total_seconds() > 60:
                     self._recent_orders.popleft()
@@ -497,7 +717,8 @@ class RiskManager:
         day's running peak. Rolls the baseline forward on a date change so
         yesterday's losses never leak into today's limit.
         """
-        today = (now if now is not None else datetime.now(UTC)).date()
+        today = self._now(now).date()
+
         if self._session_date != today:
             self._session_date = today
             self._base_pnl = self._equity_pnl()
@@ -514,25 +735,22 @@ class RiskManager:
         return (self._peak_pnl - net) / self._peak_pnl
 
     def _increases_exposure(self, request: OrderRequest) -> bool:
-        """True when the order grows the existing position (or opens a new one),
-        as opposed to reducing/flattening it.
-
-        Reduction is always allowed so a breached daily limit never *locks* a
-        position onto the book — exits stay free.
-        """
+        """True when the order grows the existing position or opens one."""
         signed = (
             request.quantity.value
             if request.side is OrderSide.BUY
             else -request.quantity.value
         )
         if self._positions_provider is None:
-            return False
+            # Without a position book we cannot prove this is a reduction.
+            # This is intentionally conservative when the fresh-mark gate is
+            # enabled; legacy daily-loss checks remain inert without a book.
+            return self._require_fresh_marks
         for pos in self._positions_provider():
             if pos.instrument == request.instrument:
                 existing = pos.quantity.value
                 new_signed = existing + signed
                 return new_signed * new_signed > existing * existing
-        # No existing position -> the order is a fresh open / increase.
         return True
 
     @property
@@ -579,6 +797,7 @@ class ExecutionEngine:
         metrics: MetricsRegistry | None = None,
         fee_calculator: FeeCalculator | None = None,
         applied_fills_max: int = 50_000,
+        clock: Clock | None = None,
     ) -> None:
         """
         fee_calculator:
@@ -597,6 +816,8 @@ class ExecutionEngine:
         self._guard = idempotency_guard
         self._cache = cache or TradingCache()
         self._metrics = metrics
+        self._clock = clock
+        self._guard_lock = threading.Lock()
         self._fee_calculator = fee_calculator
         self._order_manager = OrderManager(self._cache)
         self._position_manager = PositionManager(self._cache)
@@ -735,8 +956,25 @@ class ExecutionEngine:
 
         # 1. Idempotency check
         cid = request.correlation_id
+        reserved_cid: CorrelationId | None = None
         if self._guard is not None and cid is not None:
-            dup = self._guard.check_and_reserve(cid)
+            try:
+                dup = self._guard.check_and_reserve(
+                    cid, request_hash=_request_fingerprint(
+                        request, operation="submit", target=None,
+                    ),
+                )
+            except IdempotencyInflight:
+                # The original request still owns the key. Answer
+                # deterministically instead of leaking a 500 (N5): the
+                # reservation is NOT released here.
+                if sync:
+                    return OrderReceipt(
+                        order_id=OrderId(value="pending"),
+                        status=OrderStatus.PENDING,
+                        message="idempotency_in_flight",
+                    )
+                return None
             if dup is not None:
                 # v3 parity: silently replay — original events were already published
                 log.info("Idempotency replay for correlation %s", cid)
@@ -747,22 +985,29 @@ class ExecutionEngine:
             # so a later cancel() can release it. The order_id is unknown
             # yet (it comes from the fill source below); record after the
             # fill step where the order is created.
+            reserved_cid = cid
 
         # 2. Risk check
+        risk_rejected = False
         if self._risk is not None and not self._risk.check(request):
             log.warning("Risk check failed for order")
+            risk_rejected = True
             order = self._make_order(request, OrderStatus.REJECTED)
             self._order_manager.on_order_created(order)
             self._bus.publish(OrderRejected(order=order, reason="risk_check_failed"))
             if self._metrics is not None:
                 self._metrics.counter("orders.rejected").inc()
                 self._metrics.counter("risk.rejected").inc()
-            # M2: release the reservation on risk-reject so the cid is
-            # immediately reusable. Risk rejection is a terminal state for
+            # M2: release the reservation on risk-reject so the cid is            # immediately reusable. Risk rejection is a terminal state for
             # the request — the order never reaches the cancel path and
             # would otherwise leak the cid forever.
-            if self._guard is not None and cid is not None:
-                self._guard.release(cid)
+            if reserved_cid is not None:
+                with self._guard_lock:
+                    self._guard.release(reserved_cid)
+
+        if risk_rejected:
+            if order is None:
+                order = self._make_order(request, OrderStatus.REJECTED)
             return (
                 OrderReceipt(
                     order_id=order.order_id,
@@ -785,8 +1030,10 @@ class ExecutionEngine:
                 raise OrderSubmissionUnknownError(
                     f"Order submission failed after crossing broker boundary: {exc}"
                 ) from exc
-            if self._guard is not None and cid is not None:
-                self._guard.release(cid)
+            if reserved_cid is not None:
+                with self._guard_lock:
+                    self._guard.release(reserved_cid)
+            reserved_cid = None
             order = self._make_order(request, OrderStatus.REJECTED)
             self._order_manager.on_order_created(order)
             self._bus.publish(OrderRejected(order=order, reason=str(exc)))
@@ -804,13 +1051,16 @@ class ExecutionEngine:
 
         # 4. OMS update
         self._order_manager.on_order_created(order)
+        if reserved_cid is not None:
+            with self._guard_lock:
+                self._guard.record_result(reserved_cid, order.order_id)
         # M2: stamp the order_id → cid mapping so cancel() can release
         # the reservation. The order has just been created; from here
-        # forward the cid is owned by this order. record_result() below
+        # forward the cid is owned by this order. record_result() above
         # removes the entry from the reserved set but does not clear the
         # side-table — cancel() needs the cid even after record_result.
-        if self._guard is not None and cid is not None:
-            self._cid_for_order[order.order_id] = cid
+        if reserved_cid is not None:
+            self._cid_for_order[order.order_id] = reserved_cid
         self._bus.publish(OrderPlaced(order=order))
 
         if fill is not None:
@@ -838,6 +1088,13 @@ class ExecutionEngine:
                 self._metrics.counter("orders.submitted").inc()
                 self._metrics.counter("orders.filled").inc()
         else:
+            # An ACK-only broker submission is still a completed idempotent
+            # request. Persist the provider order id before returning so a
+            # client retry cannot submit a second live order while waiting for
+            # the asynchronous fill stream.
+            if reserved_cid is not None:
+                with self._guard_lock:
+                    self._guard.record_result(reserved_cid, order.order_id)
             if self._metrics is not None:
                 self._metrics.counter("orders.submitted").inc()
 
@@ -922,6 +1179,11 @@ class ExecutionEngine:
             trigger_price=request.trigger_price,
             product_type=request.product_type,
             tag=request.tag,
+            # Preserve protective legs so bracket identity survives on
+            # rejected/OMS records (see ``_is_bracket_order``).
+            target_price=request.target_price,
+            stop_loss_price=request.stop_loss_price,
+            trailing_jump=request.trailing_jump,
         )
 
     def _record_applied_fill(self, fill: Any) -> bool:
@@ -1067,10 +1329,11 @@ class ExecutionEngine:
         for order in self._cache.all_orders():
             if order.status not in _TERMINAL_STATUSES:
                 try:
+                    # engine.cancel dispatches the venue first for plain
+                    # orders (fill_source.cancel) and brackets
+                    # (cancel_super_order) — no separate venue call here,
+                    # or the venue would be cancelled twice.
                     self.cancel(order.order_id)
-                    # Also cancel at broker via fill source
-                    if hasattr(self._fill, "cancel"):
-                        self._fill.cancel(order.order_id)
                 except Exception as exc:
                     log.error("kill-switch cancel failed for %s: %s", order.order_id, exc)
                     failures.append(order.order_id.value)
@@ -1100,8 +1363,18 @@ class ExecutionEngine:
             )
         return drifts
 
-    def cancel(self, order_id: OrderId) -> Order:
+    def cancel(
+        self,
+        order_id: OrderId,
+        correlation_id: CorrelationId | None = None,
+    ) -> Order:
         """Cancel an order and publish ``OrderCancelled`` on the bus.
+
+        ``correlation_id`` (optional) is the cancel mutation's own
+        idempotency key (N2): reserved before the venue dispatch, recorded
+        on success, released on venue failure, replayed on duplicate
+        retries. When omitted (e.g. the kill switch), no reservation is
+        made and the previous behavior applies.
 
         M2: also release the idempotency reservation that was made for
         this order in ``_run_pipeline``. Without this, every cancelled
@@ -1112,10 +1385,55 @@ class ExecutionEngine:
         not in the table and the lookup is a no-op.
         """
         log.info("Cancelling order %s", order_id)
-        order = self._cache.get_order(order_id.value)
-        if order is None:
-            raise OrderRejectedError(f"Order {order_id.value} not found")
-        cancelled = order.transition_to(OrderStatus.CANCELLED)
+        # N2: reserve the cancel's own idempotency key first. A completed
+        # key replays the cancelled Order — no second venue cancel. The
+        # replay is answered from the guard alone, so a rebuilt engine
+        # (restart with a durable guard) replays without the local cache.
+        cid = correlation_id
+        if self._guard is not None and cid is not None:
+            dup = self._guard.check_and_reserve(
+                cid, request_hash=_cancel_fingerprint(order_id),
+            )
+            if dup is not None:
+                log.info("Idempotency replay for cancel correlation %s", cid)
+                return dup.result
+        try:
+            order = self._cache.get_order(order_id.value)
+            if order is None:
+                raise OrderRejectedError(f"Order {order_id.value} not found")
+            # transition_to raises for terminal/illegal states before any
+            # venue or OMS write happens.
+            cancelled = order.transition_to(OrderStatus.CANCELLED)
+            if _is_bracket_order(order):
+                # A bracket is a composite at the venue: cancel the whole
+                # super order (entry + protective legs) through the fill
+                # source's super-order seam. Venue-first — if the venue
+                # rejects, the OMS stays untouched and the error propagates.
+                cancel = getattr(self._fill, "cancel_super_order", None)
+                if not callable(cancel):
+                    raise OrderRejectedError(
+                        f"Order {order_id.value} is a bracket and the execution "
+                        "source does not support super-order cancellation"
+                    )
+                cancel(order_id)
+            else:
+                # Plain live orders: the venue cancel goes through the fill
+                # source BEFORE the OMS flips (N1, principal review). Without
+                # this, DELETE /orders left the venue order working and the
+                # "cancelled" order could still fill. Paper/simulated sources
+                # expose a no-op cancel, so OMS-local semantics are unchanged
+                # for them. On venue rejection the exception propagates and
+                # the OMS cache stays at its pre-cancel status.
+                cancel = getattr(self._fill, "cancel", None)
+                if callable(cancel):
+                    cancel(order_id)
+        except Exception:
+            # Any failure — unknown order, illegal transition, venue refusal
+            # — frees the key for a genuinely new attempt. Never leave the
+            # reservation stuck in "reserved".
+            if self._guard is not None and cid is not None:
+                self._guard.release(cid)
+            raise
         self._cache.update_order(cancelled)
         self._bus.publish(OrderCancelled(order=cancelled))
         # M2: release the idempotency reservation that was made for
@@ -1124,9 +1442,12 @@ class ExecutionEngine:
         # the cid (e.g. on risk rejection before the side-table was
         # populated, or on a non-boundary fill-source error). Pop the
         # side-table so the mapping doesn't outlive the order.
-        cid = self._cid_for_order.pop(order_id, None)
+        submit_cid = self._cid_for_order.pop(order_id, None)
+        if self._guard is not None and submit_cid is not None:
+            self._guard.release(submit_cid)
+        # N2: the cancel itself is a completed idempotent request.
         if self._guard is not None and cid is not None:
-            self._guard.release(cid)
+            self._guard.record_result(cid, cancelled)
         return cancelled
 
     def modify(self, order_id: OrderId, request: OrderRequest) -> Order:
@@ -1138,49 +1459,89 @@ class ExecutionEngine:
         venue agree — previously modifications went straight to the broker
         and silently desynced the engine cache.
 
-        H5: also re-runs ``RiskManager.check()`` on the modified request.
-        An order within limits at entry could be modified to exceed
-        ``max_position_value``; without this guard the position can
-        grow past the configured cap.
+        H5: re-runs ``RiskManager.check()`` on the modified request
+        *before* the broker-side dispatch. An order within limits at entry
+        could be modified to exceed ``max_position_value``; without this
+        guard the position can grow past the configured cap. The gate
+        precedes the venue call so a request risk would deny is never
+        sent to the broker (a post-hoc denial would desync the OMS from
+        the venue for real money).
         """
         log.info("Modifying order %s", order_id)
-        order = self._cache.get_order(order_id.value)
-        if order is None:
-            raise OrderRejectedError(f"Order {order_id.value} not found")
-        if order.status in _TERMINAL_STATUSES:
-            raise OrderRejectedError(
-                f"Order {order_id.value} is {order.status.value} and cannot be modified"
+        # N2: reserve the modification's idempotency key (bound to the
+        # request hash) first. A completed key replays the original
+        # modified Order — no second venue dispatch; a key reused with a
+        # different payload raises IdempotencyKeyReuseMismatch. The replay
+        # is answered from the guard alone, so a rebuilt engine (restart
+        # with a durable guard) replays without the local cache.
+        cid = request.correlation_id
+        if self._guard is not None and cid is not None:
+            dup = self._guard.check_and_reserve(
+                cid, request_hash=_request_fingerprint(
+                    request, operation="modify", target=order_id.value,
+                ),
             )
-        if request.quantity.value <= order.filled_quantity.value:
-            raise OrderRejectedError(
-                f"Order {order_id.value}: modified quantity "
-                f"{request.quantity.value} must exceed already-filled "
-                f"quantity {order.filled_quantity.value}"
+            if dup is not None:
+                log.info("Idempotency replay for modify correlation %s", cid)
+                return dup.result
+        try:
+            order = self._cache.get_order(order_id.value)
+            if order is None:
+                raise OrderRejectedError(f"Order {order_id.value} not found")
+            if order.status in _TERMINAL_STATUSES:
+                raise OrderRejectedError(
+                    f"Order {order_id.value} is {order.status.value} and cannot be modified"
+                )
+            if request.quantity.value <= order.filled_quantity.value:
+                raise OrderRejectedError(
+                    f"Order {order_id.value}: modified quantity "
+                    f"{request.quantity.value} must exceed already-filled "
+                    f"quantity {order.filled_quantity.value}"
+                )
+            # A bracket modification must carry the full composite so the venue
+            # dispatch reaches modify_super_order — never the plain endpoint.
+            if _is_bracket_order(order) and not isinstance(request, BracketOrderRequest):
+                raise OrderRejectedError(
+                    f"Order {order_id.value} is a bracket: modification must carry "
+                    "price, stop_loss_price, and target_price"
+                )
+            # H5: re-run risk on the modified request BEFORE the broker-side
+            # dispatch. Rejecting after the venue accepted the modify would
+            # leave the OMS rolled back while the venue already changed — a
+            # real-money cache/venue desync. Risk first: a denied request
+            # never reaches the broker (simulated/paper/replay sources' no-op
+            # modify is moot when the request never gets that far).
+            if self._risk is not None and not self._risk.check(request):
+                raise OrderRejectedError(
+                    f"Order {order_id.value}: modified request rejected by risk check"
+                )
+            modify_fn = getattr(self._fill, "modify", None)
+            if callable(modify_fn):
+                modify_fn(order_id, request)
+            modified = replace(
+                order,
+                order_type=request.order_type,
+                quantity=request.quantity,
+                price=request.price,
+                trigger_price=request.trigger_price,
+                time_in_force=request.time_in_force,
+                # Protective legs project onto the OMS record so a modified
+                # bracket keeps its identity and reflects the new stop/target.
+                stop_loss_price=request.stop_loss_price,
+                target_price=request.target_price,
+                trailing_jump=request.trailing_jump,
             )
-        # H5: re-run risk on the modified request. Reject (and roll back
-        # the cache) if the modified notional exceeds the configured cap.
-        # The broker-side modify is called *before* this check because
-        # simulated/paper/replay fill sources have a no-op modify that
-        # must not raise; the check is the source of truth.
-        modify_fn = getattr(self._fill, "modify", None)
-        if callable(modify_fn):
-            modify_fn(order_id, request)
-        if self._risk is not None and not self._risk.check(request):
-            # Roll back the cache to the pre-modify state.
-            self._cache.update_order(order)
-            raise OrderRejectedError(
-                f"Order {order_id.value}: modified request rejected by risk check"
-            )
-        modified = replace(
-            order,
-            order_type=request.order_type,
-            quantity=request.quantity,
-            price=request.price,
-            trigger_price=request.trigger_price,
-            time_in_force=request.time_in_force,
-        )
-        self._cache.update_order(modified)
-        self._bus.publish(OrderModified(order=modified))
+            self._cache.update_order(modified)
+            self._bus.publish(OrderModified(order=modified))
+        except Exception:
+            # Any failure — unknown order, terminal order, risk denial, venue
+            # refusal — frees the key for a genuinely new attempt. Never leave
+            # the reservation stuck in "reserved".
+            if self._guard is not None and cid is not None:
+                self._guard.release(cid)
+            raise
+        if self._guard is not None and cid is not None:
+            self._guard.record_result(cid, modified)
         return modified
 
     @property

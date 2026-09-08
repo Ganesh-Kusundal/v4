@@ -79,6 +79,7 @@ class TradingSession:
         fill_bridge: object | None = None,
         market_feed: object | None = None,
         master_scheduler: object | None = None,
+        mark_to_market: object | None = None,
         metrics: object | None = None,
     ) -> None:
         self._broker = broker
@@ -107,6 +108,9 @@ class TradingSession:
         #: master loader; stopped here so a long-running session re-downloads
         #: the master (new option series post monthly expiry) without leaking.
         self._master_scheduler = master_scheduler
+        #: Quote-driven position marking service. The composition root owns
+        #: construction; the session owns lifecycle teardown.
+        self._mark_to_market = mark_to_market
 
     def start(self) -> None:
         """Transition to READY state. Idempotent: no-op if already READY."""
@@ -137,6 +141,11 @@ class TradingSession:
                 self._market_feed.stop()
             except Exception:  # pragma: no cover – defensive teardown
                 log.warning("market feed stop failed", exc_info=True)
+        if self._mark_to_market is not None:
+            try:
+                self._mark_to_market.close()  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover – defensive teardown
+                log.warning("mark-to-market stop failed", exc_info=True)
         self._bus.dispose()
         if self._fill_bridge is not None:
             try:

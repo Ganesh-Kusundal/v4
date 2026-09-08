@@ -218,7 +218,20 @@ class MarketDataMixin(Protocol):
         timeframe: Timeframe | str,
         start: datetime,
         end: datetime) -> HistoricalSeries:
-        """Historical candles via V3 GET /historical-candle/:key/:unit/:interval/:to/:from."""
+        """Historical candles via V3 GET /historical-candle/:key/:unit/:interval/:to/:from.
+
+        Same-IST-day requests (start on today, IST) route to the
+        ``/historical-candle/intraday/`` endpoint: Upstox's historical
+        endpoint only publishes a day's candles after market close, so
+        calling it intraday returns 0 candles even though the intraday
+        endpoint serves them.
+        """
+        from tradex_domain.market_calendar import to_ist_naive
+
+        start_ist = to_ist_naive(start) if start.tzinfo is not None else start
+        today_ist = to_ist_naive(datetime.now(UTC)).date()
+        if start_ist.date() >= today_ist:
+            return self.intraday_candles(instrument, timeframe)
         key = provider_key(self._registry, instrument.instrument_id)
         value = timeframe.value if isinstance(timeframe, Timeframe) else str(timeframe)
         unit, interval = _unit_interval(value)

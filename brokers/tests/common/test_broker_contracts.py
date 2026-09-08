@@ -19,6 +19,7 @@ import pytest
 from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
 from tradex_domain.errors import (
+    AuthenticationError,
     BrokerUnavailableError,
     CapabilityNotSupportedError,
     OrderRejectedError,
@@ -203,6 +204,103 @@ def test_verify_connection_probes_account() -> None:
     bad_broker = DhanBroker(transport=_AccountTransport(False))
     bad_broker.connect()
     assert bad_broker.verify_connection() is False
+
+
+def test_verify_connection_probes_when_expired_token_can_be_minted() -> None:
+    """An expired cached token is not a failure for mint-capable managers.
+
+    Regression: ``verify_connection`` used to short-circuit to False whenever
+    the token manager reported its cached token expired — even though the
+    manager can mint a fresh token on demand and every real request would
+    authenticate. The probe must run (and pass) after the on-demand mint.
+    """
+
+    class _MintOnDemand:
+        def __init__(self) -> None:
+            self.ensure_calls = 0
+
+        def is_expired(self) -> bool:
+            return True
+
+        def ensure_token(self, **kwargs: Any) -> str:
+            self.ensure_calls += 1
+            return "fresh-token"
+
+    class _AccountTransport:
+        def __init__(self) -> None:
+            self.called = 0
+
+        def get_account(self) -> object:
+            self.called += 1
+            return object()
+
+    manager = _MintOnDemand()
+    transport = _AccountTransport()
+    broker = DhanBroker(transport=transport)
+    broker.set_token_manager(manager)  # type: ignore[arg-type]
+    broker.connect()
+
+    assert broker.verify_connection() is True
+    assert manager.ensure_calls == 1  # fresh token obtained on demand
+    assert transport.called == 1  # wire probe ran — no false negative
+
+
+def test_verify_connection_short_circuits_when_expired_token_cannot_refresh() -> None:
+    """Expired token with no way to obtain a replacement skips the probe.
+
+    The token manager already knows the token is dead and nothing can mint a
+    new one, so the wire probe is not worth the provider quota — and would
+    fail for the same reason.
+    """
+
+    class _StaleOnly:
+        def is_expired(self) -> bool:
+            return True
+        # No ensure_token: no mint/refresh strategy exists.
+
+    class _AccountTransport:
+        def __init__(self) -> None:
+            self.called = 0
+
+        def get_account(self) -> object:
+            self.called += 1
+            return object()
+
+    transport = _AccountTransport()
+    broker = DhanBroker(transport=transport)
+    broker.set_token_manager(_StaleOnly())  # type: ignore[arg-type]
+    broker.connect()
+
+    assert broker.verify_connection() is False
+    assert transport.called == 0  # probe was not spent
+
+
+def test_verify_connection_refuses_when_on_demand_mint_fails() -> None:
+    """A failed on-demand mint reports False without burning the probe."""
+
+    class _FailingMint:
+        def is_expired(self) -> bool:
+            return True
+
+        def ensure_token(self, **kwargs: Any) -> str:
+            raise AuthenticationError("mint rejected: Invalid TOTP")
+
+    class _AccountTransport:
+        def __init__(self) -> None:
+            self.called = 0
+
+        def get_account(self) -> object:
+            self.called += 1
+            return object()
+
+    transport = _AccountTransport()
+    broker = DhanBroker(transport=transport)
+    broker.set_token_manager(_FailingMint())  # type: ignore[arg-type]
+    broker.connect()
+
+    assert broker.verify_connection() is False
+    assert transport.called == 0
+
 
 
 def test_connect_runs_instrument_loader_once() -> None:

@@ -16,7 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tradex_trading.config.schema import AppConfig
+from tradex_trading.config.schema import AppConfig, PersistenceConfig
 from tradex_trading.runtime import startup as startup_mod
 from tradex_domain import BrokerId
 
@@ -70,7 +70,9 @@ def test_paper_boot_failure_uses_rollback(monkeypatch) -> None:
     broker.capabilities = MagicMock()
     broker.capabilities.max_stream_instruments = 1000
     broker.capabilities.depth_levels = 0
-    broker.stream_backend = MagicMock(return_value=None)
+    backend = MagicMock()
+    backend.subscribe_orders = MagicMock()
+    broker.stream_backend = MagicMock(return_value=backend)
     broker.master_loader = None
     broker.connect = MagicMock()
     broker.close = MagicMock()
@@ -95,13 +97,15 @@ def test_paper_boot_failure_uses_rollback(monkeypatch) -> None:
     # _safe_teardown actually being called, which is the green step.
 
 
-def test_live_boot_failure_still_releases_lock(monkeypatch) -> None:
+def test_live_boot_failure_still_releases_lock(monkeypatch, tmp_path) -> None:
     """Live-mode failure path (existing behavior) must keep working."""
     broker = MagicMock()
     broker.capabilities = MagicMock()
     broker.capabilities.max_stream_instruments = 1000
     broker.capabilities.depth_levels = 0
-    broker.stream_backend = MagicMock(return_value=None)
+    backend = MagicMock()
+    backend.subscribe_orders = MagicMock()
+    broker.stream_backend = MagicMock(return_value=backend)
     broker.master_loader = None
     broker.connect = MagicMock()
     broker.close = MagicMock()
@@ -119,7 +123,10 @@ def test_live_boot_failure_still_releases_lock(monkeypatch) -> None:
         fake_boot_tail,
     )
 
-    cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True)
+    cfg = AppConfig(
+        mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
+        persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+    )
 
     with pytest.raises(RuntimeError, match="simulated live boot failure"):
         startup_mod.boot(cfg)

@@ -81,6 +81,47 @@ class OrderRequest(Serializable):
             raise ValueError("OrderRequest disclosed_quantity must be non-negative")
 
 
+class BracketOrderRequest(OrderRequest):
+    """A bracket (super) order — one entry order with protective SL/TP legs.
+
+    Carries the same fields as :class:`OrderRequest`; the protective legs are
+    ``price`` (entry), ``stop_loss_price``, and ``target_price``. Marking the
+    intent explicitly lets the execution pipeline treat it as a *composite*
+    submission: the live fill source forwards it to the venue's super-order
+    endpoint (``submit_super_order``) instead of a plain ``submit_order``,
+    while idempotency and risk checks in the engine apply exactly once over
+    the composite (architecture review B2 — brackets must not bypass the
+    engine pipeline).
+
+    Constructing one validates the side-aware protective ordering the venue
+    would otherwise reject mid-flight, so an invalid composite is refused
+    before any reservation is made: BUY must satisfy ``SL < entry < target``
+    and SELL ``target < entry < SL``.
+    """
+
+    __slots__ = ()
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        entry = self.price
+        stop = self.stop_loss_price
+        target = self.target_price
+        if entry is None or stop is None or target is None:
+            raise ValueError(
+                "bracket order requires price, stop_loss_price, and target_price"
+            )
+        if self.side is OrderSide.BUY:
+            valid = stop.value < entry.value < target.value
+        else:
+            valid = target.value < entry.value < stop.value
+        if not valid:
+            raise ValueError(
+                "bracket protective prices are invalid for the order side "
+                f"({self.side.value}): stop={stop.value} entry={entry.value} "
+                f"target={target.value}"
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class Order(Serializable):
     """Durable order record. Status changes only via ``transition_to``."""
@@ -111,6 +152,14 @@ class Order(Serializable):
             raise SessionStateError(
                 f"illegal order transition {self.status} -> {new_status}"
             )
+        next_filled_quantity = (
+            filled_quantity if filled_quantity is not None
+            else self.filled_quantity
+        )
+        if next_filled_quantity.value < 0:
+            raise ValueError("filled_quantity must be non-negative")
+        if next_filled_quantity.value > self.quantity.value:
+            raise ValueError("filled_quantity cannot exceed quantity")
         return Order(
             order_id=self.order_id,
             instrument=self.instrument,
@@ -128,10 +177,7 @@ class Order(Serializable):
             stop_loss_price=self.stop_loss_price,
             trailing_jump=self.trailing_jump,
             avg_price_traded=self.avg_price_traded,
-            filled_quantity=(
-                filled_quantity if filled_quantity is not None
-                else self.filled_quantity
-            ),
+            filled_quantity=next_filled_quantity,
         )
 
     @property
@@ -199,6 +245,8 @@ class OrderResult(Serializable):
     message: str = ""
 
     def __post_init__(self) -> None:
+        if not self.order_id.value.strip():
+            raise ValueError("order_id must not be blank")
         # Coerce raw strings (from broker payloads) to OrderStatus.
         if isinstance(self.status, str) and not isinstance(self.status, OrderStatus):
             try:
@@ -228,6 +276,12 @@ class Position(Serializable):
     avg_price: Price
     realized_pnl: Money
     unrealized_pnl: Money
+    #: Conservative market mark used for unrealized PnL and live risk.
+    mark_price: Price | None = None
+    #: Exchange/quote timestamp that produced ``mark_price``.
+    marked_at: datetime | None = None
+    #: Domain mark policy name (for example ``BID`` or ``ASK``), never a broker name.
+    mark_source: str | None = None
 
     @property
     def total_pnl(self) -> Money:
@@ -310,6 +364,7 @@ class PortfolioSnapshot(Serializable):
 
 __all__ = [
     "Account",
+    "BracketOrderRequest",
     "Fill",
     "Order",
     "OrderReceipt",

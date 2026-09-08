@@ -203,13 +203,21 @@ class MarketDataMixin(Protocol):
             session_open = _SESSION_OPEN.get(segment, _DEFAULT_SESSION_OPEN)
             session_close = _SESSION_CLOSE.get(segment, _DEFAULT_SESSION_CLOSE)
             path = "/charts/intraday"
+            # During market hours, use the actual end time so we get bars
+            # up to "now" instead of waiting for session close.
+            now = datetime.now()
+            end_time = (
+                min(end.time(), now.time())
+                if end.date() == now.date()
+                else datetime.strptime(session_close, "%H:%M:%S").time()
+            )
             params: dict[str, object] = {
                 "securityId": security_id,
                 "exchangeSegment": segment,
                 "instrument": native_type,
                 "interval": dhan_int,
                 "fromDate": f"{start.date()} {session_open}",
-                "toDate": f"{end.date()} {session_close}",
+                "toDate": f"{end.date()} {end_time.strftime('%H:%M:%S')}",
             }
         else:
             path = "/charts/historical"

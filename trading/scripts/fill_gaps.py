@@ -21,22 +21,16 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("fill-gaps")
 
 from tradex_trading.config.env import load_env_file  # noqa: E402
+
 load_env_file(str(ROOT / ".env.local"))
 
-from tradex_domain import Timeframe  # noqa: E402
 from tradex_domain.market_calendar import NSE_HOLIDAYS_2026  # noqa: E402
-from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
+
 from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
-from tradex_trading.datalake.historical_sync import HistoricalSyncService, _series_to_frame  # noqa: E402
-from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402
-    ParallelHistoryFetcher,
-    _default_workers,
-    fetch_with_backoff,
-)
+from tradex_trading.datalake.historical_sync import SyncOrchestrator  # noqa: E402
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
 from tradex_trading.datalake.universe import load_universe  # noqa: E402
-
-import pandas as pd  # noqa: E402
+from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -49,7 +43,6 @@ def main(argv: list[str] | None = None) -> int:
     store = ParquetStorage(ROOT / "data")
     detector = GapDetector(store)
     instruments = load_universe("nifty500")
-    tf = Timeframe("1m")
     now = datetime.now().replace(second=0, microsecond=0)
     start = (now - timedelta(days=90)).replace(hour=0, minute=0,
                                                second=0, microsecond=0)
@@ -89,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
     log.info("%d gap clusters", len(clusters))
 
     # ---- broker: prefer whichever serves this span (same-day -> dhan) ----
+    from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
     brokers = {}
     for name in ("dhan", "upstox"):
         try:
@@ -100,39 +94,16 @@ def main(argv: list[str] | None = None) -> int:
     if not brokers:
         return 1
 
+    svc = SyncOrchestrator(store, ParallelHistoryFetcher(brokers), detector)
     total_written = 0
-    dead_symbols: set[str] = set()
     # Biggest clusters first: fills the most symbols earliest and pushes
     # dead singletons (permanent broker failures) to the very end.
     for (c_start, c_end), insts in sorted(
         clusters.items(), key=lambda kv: len(kv[1]), reverse=True
     ):
-        # same-day spans must go to a same-day-capable broker (dhan);
-        # older spans can use any (prefer upstox to spare dhan quota)
-        is_today = c_end.date() >= now.date()
-        pref = ["dhan"] if is_today else (
-            ["upstox"] if "upstox" in brokers else ["dhan"])
-        chosen = {n: brokers[n] for n in pref if n in brokers} or brokers
-        w = _default_workers(list(chosen.keys()))
-        fetcher = ParallelHistoryFetcher(chosen, max_workers=w)
-        log.info("cluster %s -> %s (%d symbols, broker=%s)",
-                 c_start.date(), c_end.date(), len(insts), list(chosen))
-
-        for i in range(0, len(insts), 20):
-            batch = insts[i:i + 20]
-            results = fetch_with_backoff(
-                fetcher, batch, tf, c_start, c_end,
-                dead_symbols=dead_symbols,
-            )
-            frames = []
-            for inst_id, series in results.items():
-                sym = inst_id.split(":")[-1] if ":" in inst_id else inst_id
-                f = _series_to_frame(series, sym)
-                if not f.empty:
-                    frames.append(f)
-            if frames:
-                total_written += store.upsert(
-                    pd.concat(frames, ignore_index=True))
+        log.info("cluster %s -> %s (%d symbols)", c_start.date(), c_end.date(), len(insts))
+        result = svc.sync(insts, "1m", c_start, c_end)
+        total_written += result.written
         log.info("cluster done; total written so far=%d", total_written)
 
     # ---- verify ----

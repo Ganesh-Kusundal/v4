@@ -18,11 +18,11 @@ from unittest.mock import MagicMock
 from tradex_domain import BrokerId
 from tradex_trading.execution.reconciliation import DriftItem, DriftSeverity
 from tradex_trading.runtime import startup as startup_mod
-from tradex_trading.config.schema import AppConfig
+from tradex_trading.config.schema import AppConfig, PersistenceConfig
 
 
 def _patched_boot_with_drift(
-    monkeypatch, drift_items: list[DriftItem]
+    monkeypatch, drift_items: list[DriftItem], tmp_path
 ):
     """Build a live-mode boot with a fake broker that returns a fixed drift.
 
@@ -34,7 +34,9 @@ def _patched_boot_with_drift(
     broker.capabilities.depth_levels = 0
     broker.get_orderbook.return_value = []
     broker.get_positions.return_value = []
-    broker.stream_backend = MagicMock(return_value=None)
+    backend = MagicMock()
+    backend.subscribe_orders = MagicMock()
+    broker.stream_backend = MagicMock(return_value=backend)
     broker.master_loader = None
     broker.connect = MagicMock()
 
@@ -49,11 +51,12 @@ def _patched_boot_with_drift(
         "tradex_trading.execution.engine.ReconciliationEngine.reconcile",
         fake_reconcile,
     )
-    cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True)
+    cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
+                    persistence=PersistenceConfig(path=str(tmp_path / "orders.db")))
     return cfg, broker
 
 
-def test_critical_drift_prevents_session_from_reaching_ready(monkeypatch) -> None:
+def test_critical_drift_prevents_session_from_reaching_ready(monkeypatch, tmp_path) -> None:
     """RED: a critical drift at startup must leave session.state != READY.
 
     Before the fix: session.start() runs first, then reconciliation
@@ -67,7 +70,7 @@ def test_critical_drift_prevents_session_from_reaching_ready(monkeypatch) -> Non
         severity=DriftSeverity.CRITICAL,
         reason="local 100 vs broker 0",
     )
-    cfg, _broker = _patched_boot_with_drift(monkeypatch, [drift])
+    cfg, _broker = _patched_boot_with_drift(monkeypatch, [drift], tmp_path)
 
     # Should not raise, but should not be READY either.
     session = startup_mod.boot(cfg)
@@ -85,9 +88,9 @@ def test_critical_drift_prevents_session_from_reaching_ready(monkeypatch) -> Non
             pass
 
 
-def test_no_drift_lets_session_reach_ready(monkeypatch) -> None:
+def test_no_drift_lets_session_reach_ready(monkeypatch, tmp_path) -> None:
     """With no drift, the session still reaches READY (regression guard)."""
-    cfg, _broker = _patched_boot_with_drift(monkeypatch, [])
+    cfg, _broker = _patched_boot_with_drift(monkeypatch, [], tmp_path)
 
     session = startup_mod.boot(cfg)
     try:
@@ -97,7 +100,7 @@ def test_no_drift_lets_session_reach_ready(monkeypatch) -> None:
         session.stop()
 
 
-def test_low_drift_does_not_block_ready(monkeypatch) -> None:
+def test_low_drift_does_not_block_ready(monkeypatch, tmp_path) -> None:
     """Only HIGH/CRITICAL drift must block; LOW/MEDIUM may proceed with a log."""
     drift = DriftItem(
         kind="position",
@@ -105,7 +108,7 @@ def test_low_drift_does_not_block_ready(monkeypatch) -> None:
         severity=DriftSeverity.LOW,
         reason="minor qty diff",
     )
-    cfg, _broker = _patched_boot_with_drift(monkeypatch, [drift])
+    cfg, _broker = _patched_boot_with_drift(monkeypatch, [drift], tmp_path)
 
     session = startup_mod.boot(cfg)
     try:

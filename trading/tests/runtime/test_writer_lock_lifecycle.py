@@ -26,13 +26,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from tradex_domain import BrokerId
-from tradex_trading.config.schema import AppConfig
+from tradex_trading.config.schema import AppConfig, PersistenceConfig
 from tradex_trading.runtime import startup as startup_mod
 from tradex_trading.runtime.startup import RuntimeContext
 from tradex_trading.runtime.writer_lock import SingleWriterLock
 
 
-def test_first_lock_leaks_after_second_close(monkeypatch) -> None:
+def test_first_lock_leaks_after_second_close(monkeypatch, tmp_path) -> None:
     """RED: each RuntimeContext owns its writer_lock. Closing the
     second context does NOT release the first's lock (no shared
     global). The pre-fix code's _ACTIVE_WRITER_LOCK clobber meant
@@ -70,7 +70,9 @@ def test_first_lock_leaks_after_second_close(monkeypatch) -> None:
         broker.capabilities = MagicMock()
         broker.capabilities.max_stream_instruments = 1000
         broker.capabilities.depth_levels = 0
-        broker.stream_backend.return_value = None
+        backend = MagicMock()
+        backend.subscribe_orders = MagicMock()
+        broker.stream_backend.return_value = backend
         broker.master_loader = None
         broker.connect = MagicMock()
         broker.close = MagicMock()
@@ -81,7 +83,8 @@ def test_first_lock_leaks_after_second_close(monkeypatch) -> None:
             "tradex_trading.runtime.live.build_broker_from_env",
             lambda _pid, **_kw: broker,
         )
-        cfg = AppConfig(mode="live", broker_id=broker_id, live_enabled=True)
+        cfg = AppConfig(mode="live", broker_id=broker_id, live_enabled=True,
+                        persistence=PersistenceConfig(path=f"{tmp_path}/test-orders-{broker_id.value}.db"))
         return startup_mod.boot_context(cfg)
 
     rc1 = _boot_with(BrokerId.DHAN)
@@ -108,7 +111,7 @@ def test_first_lock_leaks_after_second_close(monkeypatch) -> None:
     )
 
 
-def test_runtime_context_carries_its_own_writer_lock(monkeypatch) -> None:
+def test_runtime_context_carries_its_own_writer_lock(monkeypatch, tmp_path) -> None:
     """M7: each RuntimeContext holds a local writer_lock reference, not the
     module global. After the second boot, the first RuntimeContext's
     ``self.writer_lock`` still points to the first lock (not the second).
@@ -137,7 +140,9 @@ def test_runtime_context_carries_its_own_writer_lock(monkeypatch) -> None:
         broker.capabilities = MagicMock()
         broker.capabilities.max_stream_instruments = 1000
         broker.capabilities.depth_levels = 0
-        broker.stream_backend.return_value = None
+        backend = MagicMock()
+        backend.subscribe_orders = MagicMock()
+        broker.stream_backend.return_value = backend
         broker.master_loader = None
         broker.connect = MagicMock()
         broker.close = MagicMock()
@@ -148,7 +153,8 @@ def test_runtime_context_carries_its_own_writer_lock(monkeypatch) -> None:
             "tradex_trading.runtime.live.build_broker_from_env",
             lambda _pid, **_kw: broker,
         )
-        cfg = AppConfig(mode="live", broker_id=broker_id, live_enabled=True)
+        cfg = AppConfig(mode="live", broker_id=broker_id, live_enabled=True,
+                        persistence=PersistenceConfig(path=f"{tmp_path}/test-orders-{broker_id.value}.db"))
         return startup_mod.boot_context(cfg)
 
     rc1 = _boot_with(BrokerId.DHAN)
@@ -162,4 +168,3 @@ def test_runtime_context_carries_its_own_writer_lock(monkeypatch) -> None:
 
     rc1.close()
     rc2.close()
-

@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import uuid
 from decimal import Decimal
-from unittest.mock import MagicMock
 
 import pytest
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
@@ -38,11 +37,10 @@ from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
 from tradex_trading.execution.engine import (
     ExecutionEngine,
+    IdempotencyDuplicate,
     MemoryIdempotencyGuard,
 )
-from tradex_trading.execution.fill_sources import SimulatedFillSource
 from tradex_trading.reactive.bus import ReactiveBus
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -61,8 +59,8 @@ class _AckOnlyFillSource:
         self.submission_boundary_crossed = True
 
     def submit(self, request):
-        from tradex_domain.value_objects import OrderId
         from tradex_domain.execution import Order
+        from tradex_domain.value_objects import OrderId
         return (
             Order(
                 order_id=OrderId(value=str(uuid.uuid4())),
@@ -149,14 +147,23 @@ def test_cancel_releases_idempotency_reservation() -> None:
     order_id = receipt.order_id
     engine.cancel(order_id)
 
-    # The cid must be released (idempotently: discard does not raise on a
-    # missing key). Reserve again to confirm the cid is no longer
-    # in the guard's reserved set.
+    # The reservation was *completed* at ACK time (the pipeline records the
+    # result before returning so a client retry can never double-submit a
+    # live order). Cancel therefore must not leak a reserved entry: the cid
+    # is no longer in the reserved set, and the guard has no incomplete
+    # reservation blocking reuse.
+    assert cid.value not in guard._reserved
+
+    # A retry of the original request with the same key must NOT create a
+    # second order — it replays the original receipt, even after the order
+    # was cancelled. That is the server-owned dedupe guarantee.
+    order_count = len(engine.cache.all_orders())
+    replay = engine.submit(_request(cid=cid.value))
+    assert len(engine.cache.all_orders()) == order_count
+    assert replay == order_id
     dup = guard.check_and_reserve(cid)
-    assert dup is None, (
-        "M2: cancel() must release the cid reservation so the guard does "
-        "not leak. Expected check_and_reserve to succeed (return None)."
-    )
+    assert isinstance(dup, IdempotencyDuplicate)
+    assert dup.result == order_id
 
 
 def test_cancel_unknown_order_does_not_raise_silently() -> None:

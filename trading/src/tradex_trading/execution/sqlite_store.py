@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import base64
+import json
+import pickle
 import sqlite3
+
+#: Marker prefix for pickle-encoded idempotency results (Order objects).
+_PICKLE_PREFIX = "__tradex_pickle__:"
 import threading
 from pathlib import Path
 from typing import Any
@@ -12,6 +18,12 @@ from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
+
+#: Extra ``orders`` columns carrying bracket protective legs. Stored as
+#: TEXT (the same convention as ``price``) so a bracket order recovered from
+#: SQLite keeps its identity and engine cancel/modify still dispatch to the
+#: venue's super-order endpoints (see ``engine._is_bracket_order``).
+_ORDER_LEG_COLUMNS = ("stop_loss_price", "target_price", "trailing_jump")
 
 
 def _order_to_row(order: Order) -> tuple:
@@ -31,6 +43,9 @@ def _order_to_row(order: Order) -> tuple:
         order.product_type.value,
         order.tag,
         str(order.correlation_id.value) if order.correlation_id else None,
+        str(order.stop_loss_price.value) if order.stop_loss_price else None,
+        str(order.target_price.value) if order.target_price else None,
+        str(order.trailing_jump.value) if order.trailing_jump else None,
     )
 
 
@@ -45,8 +60,9 @@ def _row_to_order(row: tuple) -> Order:
     (
         order_id, symbol, exchange, asset_class, side, order_type,
         quantity, price, time_in_force, status, filled_qty,
-        product_type, tag, correlation_id,
+        product_type, tag, correlation_id, *legs,
     ) = row
+    stop_loss_price, target_price, trailing_jump = (legs + [None] * 3)[:3]
 
     # Reconstruct instrument
     inst_map = {
@@ -79,6 +95,9 @@ def _row_to_order(row: tuple) -> Order:
         product_type=ProductType(product_type),
         tag=tag,
         correlation_id=CorrelationId(value=correlation_id) if correlation_id else None,
+        stop_loss_price=Price(value=Decimal(stop_loss_price)) if stop_loss_price else None,
+        target_price=Price(value=Decimal(target_price)) if target_price else None,
+        trailing_jump=Price(value=Decimal(trailing_jump)) if trailing_jump else None,
     )
 
 
@@ -100,9 +119,16 @@ class SQLiteOrderStore:
         filled_quantity TEXT NOT NULL,
         product_type TEXT NOT NULL,
         tag TEXT,
-        correlation_id TEXT
+        correlation_id TEXT,
+        stop_loss_price TEXT,
+        target_price TEXT,
+        trailing_jump TEXT
     )
     """
+
+    _LEG_MIGRATION_SQL = {
+        col: f"ALTER TABLE orders ADD COLUMN {col} TEXT" for col in _ORDER_LEG_COLUMNS
+    }
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
         self._conn = sqlite3.connect(str(db_path) if db_path != ":memory:" else ":memory:")
@@ -112,6 +138,14 @@ class SQLiteOrderStore:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute(self._CREATE_TABLE)
+        # In-place migration: databases created before the leg columns existed
+        # get them added as nullable TEXT (NULL = no bracket legs).
+        existing_cols = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(orders)")
+        }
+        for col, ddl in self._LEG_MIGRATION_SQL.items():
+            if col not in existing_cols:
+                self._conn.execute(ddl)
         self._conn.commit()
 
     def save_order(self, order: Order) -> None:
@@ -121,8 +155,9 @@ class SQLiteOrderStore:
             """INSERT OR REPLACE INTO orders
                (order_id, symbol, exchange, asset_class, side, order_type,
                 quantity, price, time_in_force, status, filled_quantity,
-                product_type, tag, correlation_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                product_type, tag, correlation_id,
+                stop_loss_price, target_price, trailing_jump)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             row,
         )
         self._conn.commit()
@@ -144,7 +179,8 @@ class SQLiteOrderStore:
         cursor = self._conn.execute(
             "SELECT order_id, symbol, exchange, asset_class, side, order_type, "
             "quantity, price, time_in_force, status, filled_quantity, "
-            "product_type, tag, correlation_id FROM orders WHERE order_id = ?",
+            "product_type, tag, correlation_id, stop_loss_price, target_price, "
+            "trailing_jump FROM orders WHERE order_id = ?",
             (order_id,),
         )
         row = cursor.fetchone()
@@ -157,7 +193,8 @@ class SQLiteOrderStore:
         cursor = self._conn.execute(
             "SELECT order_id, symbol, exchange, asset_class, side, order_type, "
             "quantity, price, time_in_force, status, filled_quantity, "
-            "product_type, tag, correlation_id FROM orders"
+            "product_type, tag, correlation_id, stop_loss_price, target_price, "
+            "trailing_jump FROM orders"
         )
         return [_row_to_order(row) for row in cursor.fetchall()]
 
@@ -176,8 +213,8 @@ class SQLiteOrderStore:
         cursor = self._conn.execute(
             "SELECT order_id, symbol, exchange, asset_class, side, order_type, "
             "quantity, price, time_in_force, status, filled_quantity, "
-            "product_type, tag, correlation_id FROM orders "
-            "ORDER BY order_id DESC LIMIT ?",
+            "product_type, tag, correlation_id, stop_loss_price, target_price, "
+            "trailing_jump FROM orders ORDER BY order_id DESC LIMIT ?",
             (int(limit),),
         )
         return [_row_to_order(row) for row in cursor.fetchall()]
@@ -244,6 +281,12 @@ class SQLiteOrderStore:
                 product_type=existing.product_type,
                 tag=existing.tag,
                 correlation_id=existing.correlation_id,
+                # Keep the bracket's protective legs when a fill lands on an
+                # existing bracket — losing them would turn the recovered
+                # order into a plain order.
+                stop_loss_price=existing.stop_loss_price,
+                target_price=existing.target_price,
+                trailing_jump=existing.trailing_jump,
             )
         self.upsert(order)
 
@@ -274,6 +317,8 @@ class SQLiteIdempotencyGuard:
     CREATE TABLE IF NOT EXISTS idempotency (
         correlation_id TEXT PRIMARY KEY,
         status TEXT NOT NULL DEFAULT 'reserved',
+        result TEXT,
+        request_hash TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """
@@ -288,28 +333,53 @@ class SQLiteIdempotencyGuard:
             self._conn.execute("PRAGMA busy_timeout=5000")
         self._write_lock = threading.Lock()
         self._conn.execute(self._CREATE_TABLE)
+        columns = {
+            row[1] for row in self._conn.execute("PRAGMA table_info(idempotency)")
+        }
+        if "result" not in columns:
+            self._conn.execute("ALTER TABLE idempotency ADD COLUMN result TEXT")
+        if "request_hash" not in columns:
+            self._conn.execute(
+                "ALTER TABLE idempotency ADD COLUMN request_hash TEXT"
+            )
         self._conn.commit()
 
     def check_and_reserve(
-        self, correlation_id: CorrelationId,
+        self,
+        correlation_id: CorrelationId,
+        request_hash: str | None = None,
     ) -> object | None:
         """Reserve a correlation id atomically.
 
         Returns ``None`` when *new*, or an ``IdempotencyDuplicate``-compatible
-        object when already completed. The INSERT is attempted first and
-        relies on the PRIMARY KEY constraint — a concurrent duplicate insert
-        raises ``IntegrityError`` inside the same transaction, closing the
-        SELECT-then-INSERT race window.
+        object when already completed. ``request_hash``, when provided, is
+        bound to the key and compared on later lookups: a completed or
+        reserved key reused with a materially different hash raises
+        ``IdempotencyKeyReuseMismatch`` instead of replaying (N2). The
+        INSERT is attempted first and relies on the PRIMARY KEY constraint —
+        a concurrent duplicate insert raises ``IntegrityError`` inside the
+        same transaction, closing the SELECT-then-INSERT race window.
         """
-        from tradex_trading.execution.engine import IdempotencyDuplicate
+        from tradex_trading.execution.engine import (
+            IdempotencyDuplicate,
+            IdempotencyInflight,
+            IdempotencyKeyReuseMismatch,
+        )
 
         key = str(correlation_id.value)
         with self._write_lock:
             try:
-                self._conn.execute(
-                    "INSERT INTO idempotency (correlation_id, status) VALUES (?, 'reserved')",
-                    (key,),
-                )
+                if request_hash is not None:
+                    self._conn.execute(
+                        "INSERT INTO idempotency (correlation_id, status, request_hash) "
+                        "VALUES (?, 'reserved', ?)",
+                        (key, request_hash),
+                    )
+                else:
+                    self._conn.execute(
+                        "INSERT INTO idempotency (correlation_id, status) VALUES (?, 'reserved')",
+                        (key,),
+                    )
                 self._conn.commit()
                 return None  # fresh reservation
             except sqlite3.IntegrityError:
@@ -318,12 +388,49 @@ class SQLiteIdempotencyGuard:
                 # NOT allow a duplicate through: fail loud so the caller can
                 # reconcile instead of silently double-submitting.
                 row = self._conn.execute(
-                    "SELECT status FROM idempotency WHERE correlation_id = ?",
+                    "SELECT status, result, request_hash FROM idempotency "
+                    "WHERE correlation_id = ?",
                     (key,),
                 ).fetchone()
+                if row is not None:
+                    stored_hash = row[2] if len(row) > 2 else None
+                    if (
+                        request_hash is not None
+                        and stored_hash is not None
+                        and stored_hash != request_hash
+                    ):
+                        raise IdempotencyKeyReuseMismatch(
+                            f"idempotency key {key} was already used with a "
+                            "different request (request-hash mismatch)"
+                        )
                 if row is not None and row[0] == "completed":
-                    return IdempotencyDuplicate(result=key)
-                raise RuntimeError(
+                    if row[1] is None:
+                        raise RuntimeError(
+                            f"idempotency key {key} is completed without a "
+                            "durable result; refusing to submit or replay"
+                        )
+                    if isinstance(row[1], str) and row[1].startswith(_PICKLE_PREFIX):
+                        # Full domain-object results (Order for modify/cancel)
+                        # are pickled with a marker; anything else is legacy
+                        # JSON (a scalar, a dict, or an OrderId marker).
+                        try:
+                            decoded = pickle.loads(
+                                base64.b64decode(row[1][len(_PICKLE_PREFIX):])
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            raise RuntimeError(
+                                f"idempotency key {key} holds an unserializable "
+                                f"result; refusing to replay"
+                            ) from exc
+                        return IdempotencyDuplicate(result=decoded)
+                    try:
+                        decoded = json.loads(row[1])
+                    except (TypeError, json.JSONDecodeError):
+                        decoded = row[1]
+                    if isinstance(decoded, dict) and "__tradex_order_id__" in decoded:
+                        decoded = OrderId(value=str(decoded["__tradex_order_id__"]))
+                    return IdempotencyDuplicate(result=decoded)
+                raise IdempotencyInflight(
                     f"idempotency key {key} is reserved but incomplete "
                     f"(crash between reserve and record?) — refusing to "
                     f"duplicate-submit; release() or reconcile manually"
@@ -332,10 +439,22 @@ class SQLiteIdempotencyGuard:
     def record_result(self, correlation_id: CorrelationId, result: object) -> None:
         """Mark a reserved correlation id as completed."""
         key = str(correlation_id.value)
+        if isinstance(result, OrderId):
+            encoded = json.dumps({"__tradex_order_id__": result.value})
+        elif isinstance(result, Order):
+            # Full fidelity for modify/cancel replays: the domain Order is
+            # pickled (local trusted store) so a restart replays the exact
+            # post-mutation record, not a stringified shell.
+            encoded = _PICKLE_PREFIX + base64.b64encode(
+                pickle.dumps(result)
+            ).decode("ascii")
+        else:
+            encoded = json.dumps(result, default=str)
         with self._write_lock:
             self._conn.execute(
-                "UPDATE idempotency SET status = 'completed' WHERE correlation_id = ?",
-                (key,),
+                "UPDATE idempotency SET status = 'completed', result = ? "
+                "WHERE correlation_id = ?",
+                (encoded, key),
             )
             self._conn.commit()
 

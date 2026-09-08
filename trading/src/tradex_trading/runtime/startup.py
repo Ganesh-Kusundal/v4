@@ -22,7 +22,11 @@ from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
 from tradex_domain import BrokerId
 
 from tradex_trading.config.schema import AppConfig
-from tradex_trading.execution.engine import ExecutionEngine, RiskManager
+from tradex_trading.execution.engine import (
+    ExecutionEngine,
+    MemoryIdempotencyGuard,
+    RiskManager,
+)
 from tradex_trading.execution.fees import FeeCalculator
 from tradex_trading.execution.fill_sources import (
     BrokerFillSource,
@@ -161,6 +165,8 @@ def boot(
         raise ValueError("live mode requires a non-paper broker")
     if cfg.mode == "live" and not cfg.live_enabled:
         raise ValueError("live mode requires live_enabled=true in config")
+    if cfg.mode == "live" and not cfg.persistence.path:
+        raise ValueError("live mode requires persistence path")
 
     # 1. Create broker. Live brokers bind a real transport via the standard
     # interface (build_broker_from_env); paper/backtest/replay construct the
@@ -221,7 +227,7 @@ def boot(
     #   - SQLiteOrderStore: every order lifecycle event mirrors the OMS state
     #     into SQLite; on boot the store is restored into the cache BEFORE the
     #     session starts, then reconciled against the broker book post-start.
-    guard: Any = None
+    guard: Any = MemoryIdempotencyGuard()
     order_store: Any = None
     if cfg.persistence.path:
         from tradex_trading.execution.sqlite_store import (
@@ -337,6 +343,9 @@ def _boot_tail(
         reject_unknown_market_value=cfg.risk.reject_unknown_market_value,
         max_daily_loss_amt=cfg.risk.max_daily_loss_amt,
         max_drawdown_pct=cfg.risk.max_drawdown_pct,
+        # Live risk is never allowed to silently operate on an unmarked book.
+        require_fresh_marks=(cfg.mode == "live" or cfg.risk.require_fresh_marks),
+        max_mark_age_seconds=cfg.risk.max_mark_age_seconds,
     )
 
     # 6. Create execution engine
@@ -347,7 +356,17 @@ def _boot_tail(
     # Bind the OMS cache as the position source so ``max_position_value`` is
     # enforced against live cumulative exposure (qty * avg_price + incoming).
     risk_manager.set_positions_provider(engine.cache.all_positions)
-    # C1 follow-up: bind the cash provider from config when set. Paper/live
+    risk_manager.set_price_provider(engine.cache.get_quote)
+    # Quote-driven MTM is attached before the session is exposed. This keeps
+    # the cache, risk gate, API, and stream projections on one position book.
+    from tradex_trading.execution.mark_to_market import MarkToMarketService
+
+    mark_to_market = MarkToMarketService(engine.cache, bus)
+    # Keep the service on the session so shutdown can detach its subscription.
+    # Paper MARKET fills reference the same cache quotes that drive MTM, so
+    # paper fills and marks share one market reference.
+    if cfg.mode == "paper":
+        fill_source.bind_cache(engine.cache)
     # sessions without a cash_provider see the gate off (backward-compat);
     # backtest/replay own their own CashLedger and bypass the engine gate.
     if cfg.risk.cash_provider is not None and cfg.mode in ("paper", "live"):
@@ -405,11 +424,11 @@ def _boot_tail(
             sb = getattr(broker, "stream_backend", None)
             if callable(sb):
                 stream_backend = sb()
-        except Exception as exc:  # noqa: BLE001 – degrade, don't fail boot
-            log.warning("stream backend unavailable at boot: %s", exc)
+        except Exception as exc:  # noqa: BLE001 — live must fail closed
+            raise RuntimeError("live order-stream backend unavailable") from exc
         # Live fill bridge: translate broker order-stream updates into bus
-        # OrderFilled events so live fills reach the OMS (HIGH-4). Best-effort
-        # — without it boot still succeeds, but live fills never apply.
+        # OrderFilled events so live fills reach the OMS (HIGH-4). Live boot
+        # fails closed if this safety-critical bridge cannot be installed.
         if stream_backend is not None and hasattr(
             stream_backend, "subscribe_orders"
         ):
@@ -419,33 +438,37 @@ def _boot_tail(
                     TradeBookFillIdResolver,
                 )
 
-                # Stamp live delta fills with the broker's exchange trade ids
-                # (Dhan ``tradeId`` from GET /trades) so equal-lot partials
-                # dedup exactly instead of under-counting (parity review area
-                # #10 — duplicate-event safety). Brokers without a REST trade
-                # book fall back to the composite fingerprint.
+                # Every live provider must expose a trade-book identity seam.
+                # Dhan calls it ``trade_book``; Upstox calls it
+                # ``get_trade_book``. The resolver normalizes their row keys
+                # and strict mode fails closed if identity is unavailable.
+                # When the broker does not expose one, fall back to a non-strict
+                # resolver so live fills can still land through the bridge (they
+                # will be stamped with no fill_id and rely on the engine's
+                # composite fingerprint, which is the documented backward-
+                # compatible behavior until all live adapters ship a seam).
                 trade_book = getattr(broker, "trade_book", None)
-                resolver = (
-                    TradeBookFillIdResolver(trade_book)
-                    if callable(trade_book) else None
-                )
+                if not callable(trade_book):
+                    trade_book = getattr(broker, "get_trade_book", None)
+                resolver = None
+                if callable(trade_book):
+                    resolver = TradeBookFillIdResolver(trade_book, strict=False)
+                else:
+                    log.warning(
+                        "live broker does not expose an executed-trade identity seam; "
+                        "live fills will use the engine's composite dedup fingerprint"
+                    )
                 fill_bridge = LiveFillBridge(
                     bus, engine, stream_backend.subscribe_orders,
                     trade_id_resolver=resolver,
                     unsubscribe=getattr(stream_backend, "unsubscribe", None),
                 )
-            except Exception as exc:  # noqa: BLE001 – degrade, don't fail boot
-                log.warning("live fill bridge unavailable at boot: %s", exc)
-                fill_bridge = None
+            except Exception as exc:  # noqa: BLE001 — live must fail closed
+                raise RuntimeError("live fill bridge unavailable at boot") from exc
         else:
             # Live mode with no order-stream backend: broker fills can never
-            # reach the OMS (no OrderFilled events) — the local book will
-            # silently diverge from the venue. Loud, but not fatal.
-            log.warning(
-                "LIVE MODE WITHOUT ORDER-STREAM BACKEND: broker order/fill "
-                "updates will NOT reach the OMS; local order state will "
-                "diverge from the venue until reconciliation runs."
-            )
+            # reach the OMS. Fail closed rather than run a diverging book.
+            raise ValueError("live mode requires order-stream backend")
 
     # 7c. Scanner engine — bind the market provider so the session can run
     # every auto-discovered extension scanner. Backtest/replay modes scan
@@ -512,6 +535,7 @@ def _boot_tail(
         market_feed=market_feed,
         master_scheduler=master_scheduler,
         metrics=metrics,
+        mark_to_market=mark_to_market,
     )
 
     # 8b. Live single-writer lock releases when the session stops (composition

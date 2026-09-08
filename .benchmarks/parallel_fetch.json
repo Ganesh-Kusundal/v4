@@ -1,35 +1,58 @@
 [
   {
     "scenario": "latency_bound",
-    "n_instruments": 25,
+    "n_instruments": 10,
     "days": 7,
-    "latency_ms": 200.0,
-    "sequential_s": 5.174,
-    "single_parallel_s": 1.427,
-    "dual_parallel_s": 1.445,
-    "dual_speedup": 3.58,
-    "dhan_calls": 13,
-    "upstox_calls": 12
+    "latency_ms": 50.0,
+    "sequential_s": 0.543,
+    "single_parallel_s": 0.165,
+    "dual_parallel_s": 0.162,
+    "dual_speedup": 3.34,
+    "dhan_calls": 5,
+    "upstox_calls": 5
   },
   {
     "scenario": "latency_bound",
-    "n_instruments": 25,
+    "n_instruments": 10,
     "days": 90,
-    "latency_ms": 200.0,
-    "sequential_s": 5.151,
-    "dual_parallel_s": 1.441,
-    "dual_speedup": 3.57,
-    "dhan_calls": 13,
-    "upstox_calls": 12
+    "latency_ms": 50.0,
+    "sequential_s": 0.546,
+    "dual_parallel_s": 0.16,
+    "dual_speedup": 3.4,
+    "dhan_calls": 5,
+    "upstox_calls": 5
+  },
+  {
+    "scenario": "latency_bound",
+    "n_instruments": 50,
+    "days": 7,
+    "latency_ms": 50.0,
+    "sequential_s": 2.733,
+    "single_parallel_s": 0.752,
+    "dual_parallel_s": 0.701,
+    "dual_speedup": 3.9,
+    "dhan_calls": 25,
+    "upstox_calls": 25
+  },
+  {
+    "scenario": "latency_bound",
+    "n_instruments": 50,
+    "days": 90,
+    "latency_ms": 50.0,
+    "sequential_s": 2.683,
+    "dual_parallel_s": 0.709,
+    "dual_speedup": 3.78,
+    "dhan_calls": 25,
+    "upstox_calls": 25
   },
   {
     "scenario": "quota_bound",
     "n_instruments": 40,
     "days": 7,
     "latency_ms": 2,
-    "single_parallel_s": 0.032,
-    "dual_parallel_s": 0.028,
-    "dual_speedup": 1.14,
+    "single_parallel_s": 0.052,
+    "dual_parallel_s": 0.038,
+    "dual_speedup": 1.38,
     "dhan_calls": 20,
     "upstox_calls": 20
   }

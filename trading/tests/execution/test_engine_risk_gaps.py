@@ -398,3 +398,97 @@ def test_applied_fills_bounded_to_prevent_memory_leak() -> None:
     # After 150 unique fills with max=100, the set should have been cleared
     # at some point and only contain a subset.
     assert len(engine._applied_fills) <= 100
+
+
+# ---------------------------------------------------------------------------
+# N7 — conservative SELL notional (side-aware marks on the order-value gate)
+# ---------------------------------------------------------------------------
+
+
+def _quote_provider(ltp: str, bid: str, ask: str):
+    """Quote-shaped provider: ltp/bid/ask as Price objects."""
+    from types import SimpleNamespace
+
+    def _p(v: str) -> Price:
+        return Price(value=Decimal(v))
+
+    def provider(instrument: object) -> object:
+        return SimpleNamespace(ltp=_p(ltp), bid=_p(bid), ask=_p(ask))
+
+    return provider
+
+
+def _sell_request(price: str | None = None, quantity: str = "10") -> OrderRequest:
+    return OrderRequest(
+        instrument=Equity.of("NSE", "TEST"),
+        side=OrderSide.SELL,
+        order_type=OrderType.MARKET if price is None else OrderType.LIMIT,
+        quantity=Quantity(Decimal(quantity)),
+        price=Price(Decimal(price)) if price is not None else None,
+        time_in_force=TimeInForce.DAY,
+    )
+
+
+def test_sell_limit_below_bid_is_marked_at_bid() -> None:
+    """N7: a short limit under the market must not understate the notional.
+
+    Limit-only notional is 100 * 10 = 1000, which would pass a 1040 cap;
+    the bid-side mark (105 * 10 = 1050) trips it.
+    """
+    rm = RiskManager(
+        max_order_value=Decimal("1040"),
+        price_provider=_quote_provider(ltp="104", bid="105", ask="106"),
+    )
+    req = _sell_request(price="100", quantity="10")
+    assert rm._incoming_exposure(req) == Decimal("1050")
+    assert rm.check(req) is False
+    # Sanity: the naive limit-only notional would have passed the gate.
+    assert Decimal("100") * req.quantity.value <= Decimal("1040")
+
+
+def test_sell_limit_above_bid_keeps_limit_notional() -> None:
+    """N7: a short limit above the bid uses the limit (max)."""
+    rm = RiskManager(
+        max_order_value=Decimal("10000"),
+        price_provider=_quote_provider(ltp="104", bid="105", ask="106"),
+    )
+    req = _sell_request(price="110", quantity="10")
+    assert rm._incoming_exposure(req) == Decimal("1100")
+    assert rm.check(req) is True
+
+
+def test_buy_notional_unchanged_limit_first() -> None:
+    """N7: BUY keeps limit-first notional (already conservative)."""
+    rm = RiskManager(
+        max_order_value=Decimal("10000"),
+        price_provider=_quote_provider(ltp="104", bid="105", ask="106"),
+    )
+    req = OrderRequest(
+        instrument=Equity.of("NSE", "TEST"),
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Quantity(Decimal("10")),
+        price=Price(Decimal("100")),
+        time_in_force=TimeInForce.DAY,
+    )
+    assert rm._incoming_exposure(req) == Decimal("1000")
+    assert rm.check(req) is True
+
+
+def test_sell_market_notional_uses_bid() -> None:
+    """N7: unpriced SELL market is notional-marked at the bid side."""
+    rm = RiskManager(
+        max_order_value=Decimal("500"),
+        price_provider=_quote_provider(ltp="104", bid="105", ask="106"),
+    )
+    req = _sell_request(price=None, quantity="10")
+    assert rm._incoming_exposure(req) == Decimal("1050")
+    assert rm.check(req) is False
+
+
+def test_sell_falls_back_to_limit_without_quote() -> None:
+    """N7: no quote → the limit price still gates (no regression)."""
+    rm = RiskManager(max_order_value=Decimal("10000"))
+    req = _sell_request(price="100", quantity="10")
+    assert rm._incoming_exposure(req) == Decimal("1000")
+    assert rm.check(req) is True

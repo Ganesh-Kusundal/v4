@@ -674,6 +674,23 @@ class TestMarketData:
         iid = InstrumentId.equity("NSE", "RELIANCE")
         assert iid in result
 
+    def test_history_intraday_same_day_future_end_is_capped_at_now(self, monkeypatch):
+        from tradex_brokers.dhan import _marketdata
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return cls(2026, 8, 5, 12, 30, tzinfo=tz)
+
+        monkeypatch.setattr(_marketdata, "datetime", FrozenDateTime)
+        client, fake, _ = _make_client([{"data": {}}])
+        start = datetime(2026, 8, 5, 9, 15, tzinfo=UTC)
+        end = datetime(2026, 8, 5, 15, 30, tzinfo=UTC)
+
+        client.history(_equity(), Timeframe.M1, start, end)
+
+        assert fake.last_payload("json")["toDate"] == "2026-08-05 12:30:00"
+
     def test_history_daily(self):
         response = {
             "data": {

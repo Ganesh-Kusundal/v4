@@ -900,6 +900,7 @@ class TestDepthStreamWiring:
 def test_dhan_broker_exposes_rate_limiter():
     """DhanBroker.rate_limiter is the same instance its transport holds."""
     from unittest.mock import MagicMock
+
     from tradex_brokers.dhan.adapter import DhanBroker
 
     limiter = MultiBucketRateLimiter(default=RateLimitConfig())

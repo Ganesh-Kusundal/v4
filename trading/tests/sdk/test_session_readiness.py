@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 import pytest
 from tradex_domain import BrokerId
 
-from tradex_trading.config.schema import AppConfig
+from tradex_trading.config.schema import AppConfig, PersistenceConfig
 from tradex_trading.sdk.session import SessionState, TradingSession
 
 
@@ -35,7 +35,11 @@ def _fake_live_broker() -> MagicMock:
     via ``broker.__class__.capabilities = ...`` — that mutates the global
     MagicMock class and contaminates every other test in the process.
     """
-    return MagicMock()
+    broker = MagicMock()
+    backend = MagicMock()
+    backend.subscribe_orders = MagicMock()
+    broker.stream_backend.return_value = backend
+    return broker
 
 
 def test_paper_factory_returns_ready() -> None:
@@ -46,11 +50,19 @@ def test_paper_factory_returns_ready() -> None:
     session.stop()
 
 
-def test_live_factory_returns_ready(monkeypatch) -> None:
+def test_live_factory_returns_ready(monkeypatch, tmp_path) -> None:
     from tradex_trading import runtime
+    import tradex_trading.sdk.session as session_mod
 
     monkeypatch.setattr(
         runtime.live, "build_broker_from_env", lambda _provider: _fake_live_broker()
+    )
+    monkeypatch.setattr(
+        session_mod,
+        "AppConfig",
+        lambda **kwargs: AppConfig(
+            **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
+        ),
     )
     session = TradingSession.live(BrokerId.DHAN, confirm=True)
     assert session.state == SessionState.READY
@@ -81,7 +93,7 @@ def test_boot_backtest_returns_ready() -> None:
     session.stop()
 
 
-def test_boot_live_returns_ready(monkeypatch) -> None:
+def test_boot_live_returns_ready(monkeypatch, tmp_path) -> None:
     """boot(live) returns READY without touching the network.
 
     ``startup.boot`` builds the live broker through
@@ -100,9 +112,21 @@ def test_boot_live_returns_ready(monkeypatch) -> None:
             return fake
 
     monkeypatch.setattr(live_mod, "build_broker_from_env", _FakeFactory.build_broker_from_env)
+    monkeypatch.setattr(
+        startup,
+        "AppConfig",
+        lambda **kwargs: AppConfig(
+            **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
+        ),
+    )
 
     session = startup.boot(
-        AppConfig(broker_id=BrokerId.DHAN, mode="live", live_enabled=True)
+        AppConfig(
+            broker_id=BrokerId.DHAN,
+            mode="live",
+            live_enabled=True,
+            persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+        )
     )
     assert session.state == SessionState.READY
     assert session.broker is not None

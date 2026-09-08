@@ -35,18 +35,33 @@ class TestErrorEnvelope:
         assert isinstance(body["error"]["message"], str)
 
     def test_503_no_session_place(self):
-        r = _client().post("/orders", json={"symbol": "RELIANCE"})
+        r = _client().post(
+            "/orders",
+            json={"symbol": "RELIANCE"},
+            headers={"Idempotency-Key": "no-session-place"},
+        )
         assert r.status_code == 503
         body = r.json()
         assert body["error"]["code"] == "no_session"
         assert isinstance(body["error"]["message"], str)
 
     def test_400_bad_request_modify(self):
-        r = _client().put("/orders/abc123", json={"quantity": 10})
+        r = _client().put(
+            "/orders/abc123",
+            json={"quantity": 10},
+            headers={"Idempotency-Key": "no-session-modify"},
+        )
         assert r.status_code == 400
         body = r.json()
         assert body["error"]["code"] == "bad_request"
         assert isinstance(body["error"]["message"], str)
+
+    def test_422_missing_idempotency_key_place(self):
+        """A mutation without Idempotency-Key is rejected before any engine call."""
+        r = _client().post("/orders", json={"symbol": "RELIANCE"})
+        assert r.status_code == 422
+        body = r.json()
+        assert body["error"]["code"] == "validation"
 
     def test_422_validation(self):
         """POST /orders with missing required fields triggers validation error."""

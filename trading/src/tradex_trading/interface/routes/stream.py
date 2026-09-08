@@ -139,7 +139,7 @@ async def ws_stream(
 
     try:
         from tradex_brokers.common.provider_common import instrument_from_id
-        from tradex_domain.events import OrderFilled
+        from tradex_domain.events import OrderFilled, PositionUpdated
         from tradex_domain.market import Depth, Quote
         from tradex_domain.value_objects import InstrumentId
 
@@ -184,15 +184,24 @@ async def ws_stream(
                 "quantity": str(fill.quantity.value),
             })
 
-        def _send_order(payload: Any) -> None:
-            """Forward a broker order-update onto the control (priority) queue.
+        def _send_position(event: PositionUpdated) -> None:
+            position = event.position
+            if position.instrument.instrument_id not in wanted:
+                return
+            dropped[0] += _enqueue_control_drop_oldest(control, {
+                "type": "position",
+                "instrument": str(position.instrument.instrument_id),
+                "quantity": str(position.quantity.value),
+                "avg_price": str(position.avg_price.value),
+                "realized_pnl": str(position.realized_pnl.amount),
+                "unrealized_pnl": str(position.unrealized_pnl.amount),
+                "mark_price": str(position.mark_price.value) if position.mark_price else None,
+                "marked_at": position.marked_at.isoformat() if position.marked_at else None,
+                "mark_source": position.mark_source,
+            })
 
-            Accepts either a domain ``Order`` (wired broker backend) or an
-            ``OrderPlaced`` bus event (backend-less fallback) — the event
-            is unwrapped to its ``.order``. Order events ride the same
-            dedicated control queue as acks/fills, so they are delivered
-            ahead of market ticks and never evicted by them.
-            """
+        def _send_order(payload: Any) -> None:
+            """Forward a broker order update onto the priority control queue."""
             order = getattr(payload, "order", payload)
             dropped[0] += _enqueue_control_drop_oldest(control, {
                 "type": "order",
@@ -664,7 +673,10 @@ async def ws_stream(
         d_quote = bus.of_type(Quote).subscribe(_on_quote)
         d_depth = bus.of_type(Depth).subscribe(_on_depth)
         d_fill = bus.of_type(OrderFilled).subscribe(_on_fill)
-        disposables.extend([d_quote, d_depth, d_fill])
+        d_position = bus.of_type(PositionUpdated).subscribe(
+            lambda event: loop.call_soon_threadsafe(_send_position, event)
+        )
+        disposables.extend([d_quote, d_depth, d_fill, d_position])
 
         while True:
             text = await ws.receive_text()

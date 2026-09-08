@@ -155,7 +155,10 @@ def order_result_from_dict(
     """
     if not isinstance(raw, dict):
         raw = {}
-    order_id_raw = raw.get("order_id", raw.get("orderId"))
+    order_id_raw = raw.get(
+        "order_id",
+        raw.get("orderId", raw.get("superOrderId", raw.get("foreverOrderId"))),
+    )
     if order_id_raw:
         order_id = OrderId(value=str(order_id_raw))
     elif fallback_id is not None:

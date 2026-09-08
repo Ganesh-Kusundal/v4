@@ -9,12 +9,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from support.fetch_pipeline import FetchResiliencePipeline
 from tradex_domain.value_objects import CorrelationId
 
-from support.fetch_pipeline import FetchResiliencePipeline
 from tradex_brokers.common.client_shared import (
     build_provider_client,
     correlation_id,
+    order_result_from_dict,
     parse_timestamp_fallback,
 )
 
@@ -69,6 +70,15 @@ class TestCorrelationId:
         cid = correlation_id(None, fallback_seed="seed-only")
         assert isinstance(cid, CorrelationId)
         assert cid.value is not None
+
+
+class TestOrderResultFromDict:
+    def test_accepts_dhan_super_and_forever_order_ids(self) -> None:
+        super_result = order_result_from_dict({"superOrderId": "SO-1", "status": "SUCCESS"})
+        forever_result = order_result_from_dict({"foreverOrderId": "FO-1", "status": "SUCCESS"})
+
+        assert super_result.order_id.value == "SO-1"
+        assert forever_result.order_id.value == "FO-1"
 
 
 class TestFetchResiliencePipeline:

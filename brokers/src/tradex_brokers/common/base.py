@@ -40,14 +40,6 @@ from typing import Any
 
 from tradex_domain.capabilities import BrokerCapabilities, require_capability
 from tradex_domain.errors import BrokerUnavailableError, OrderRejectedError
-from tradex_domain.execution import (
-    Account,
-    Order,
-    OrderRequest,
-    OrderResult,
-    PortfolioSnapshot,
-    Position,
-)
 from tradex_domain.instruments import Equity, Index, Instrument
 from tradex_domain.market import Depth, HistoricalSeries, Quote, require_depth_supported
 from tradex_domain.protocols import (
@@ -55,7 +47,7 @@ from tradex_domain.protocols import (
     MarketStreamPort,
     OrderStreamPort,
 )
-from tradex_domain.value_objects import InstrumentId, OrderId, Price
+from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.provider_common import (
@@ -237,18 +229,33 @@ class BaseBroker:
         can reach the provider account endpoint.  Does NOT invalidate the
         read cache — verification must not mutate state.
 
-        A locally-expired token short-circuits the network probe: no point
-        spending provider quota to learn what the token manager already knows.
+        A locally-expired token is NOT by itself a failure. Mint/refresh-
+        capable managers (TOTP/refresh ``MintTokenManager``) can produce a
+        fresh token on demand, so verification obtains one and then runs the
+        wire probe — otherwise the probe would report False for a connection
+        that every real request would authenticate. The probe is skipped only
+        when the manager reports the token expired AND cannot obtain a
+        replacement (no ``ensure_token``, or the on-demand mint/refresh
+        fails): no point spending provider quota to learn what the manager
+        already knows.
         """
         if self._transport is None or not self._connected:
             return False
+        expired = False
         is_expired = getattr(self._token_manager, "is_expired", None)
         if callable(is_expired):
             try:
-                if is_expired():
-                    return False
-            except Exception:  # noqa: BLE001 — a broken local clock must not fail verification
-                pass
+                expired = bool(is_expired())
+            except Exception:  # noqa: BLE001 — broken local clock ⇒ assume stale; probe anyway
+                expired = False
+        if expired:
+            ensure = getattr(self._token_manager, "ensure_token", None)
+            if not callable(ensure):
+                return False
+            try:
+                ensure()
+            except Exception:  # noqa: BLE001 — mint/refresh failed ⇒ cannot verify
+                return False
         try:
             self._transport.get_account()
             return True
