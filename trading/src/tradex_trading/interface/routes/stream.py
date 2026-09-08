@@ -145,9 +145,12 @@ async def ws_stream(
 
         bus = session.bus
 
+        last_ltp: dict[Any, float] = {}
+
         def _send_quote(quote: Quote) -> None:
             if quote.instrument.instrument_id not in wanted:
                 return
+            last_ltp[quote.instrument.instrument_id] = float(quote.ltp.value)
             dropped[0] += _enqueue_drop_oldest(ticks, {
                 "type": "quote",
                 "instrument": str(quote.instrument.instrument_id),
@@ -157,21 +160,29 @@ async def ws_stream(
             })
 
         def _send_depth(depth: Depth) -> None:
+            # Engine MarketDepth contract (openalgo-charts src/feed/types.ts:28):
+            # object levels, numeric values, ltp required. LTP falls back to the
+            # best bid (openalgo-ws.ts:363 does the same for its own adapter).
             iid = depth.instrument.instrument_id
             if iid not in wanted or depth_mode.get(iid) == "off":
                 return
+            bids = [
+                {"price": float(price.value), "qty": float(qty.value)}
+                for price, qty in depth.bids
+            ]
+            asks = [
+                {"price": float(price.value), "qty": float(qty.value)}
+                for price, qty in depth.asks
+            ]
+            ltp = last_ltp.get(iid)
+            if ltp is None:
+                ltp = bids[0]["price"] if bids else (asks[0]["price"] if asks else 0.0)
             dropped[0] += _enqueue_drop_oldest(ticks, {
                 "type": "depth",
                 "instrument": str(iid),
-                "bids": [
-                    [str(price.value), str(qty.value)]
-                    for price, qty in depth.bids
-                ],
-                "asks": [
-                    [str(price.value), str(qty.value)]
-                    for price, qty in depth.asks
-                ],
-                "levels": len(depth.bids) + len(depth.asks),
+                "bids": bids,
+                "asks": asks,
+                "ltp": ltp,
             })
 
         def _send_fill(event: OrderFilled) -> None:

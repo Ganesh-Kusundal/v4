@@ -799,9 +799,11 @@ def test_websocket_forwards_depth():
         msg = ws.receive_json()
         assert msg["type"] == "depth"
         assert msg["instrument"] == "NSE:RELIANCE"
-        assert msg["bids"] == [["1319.0", "10"]]
-        assert msg["asks"] == [["1319.5", "5"]]
-        assert msg["levels"] == 2
+        # Engine MarketDepth shape (openalgo-charts src/feed/types.ts:28):
+        # object levels, numeric values, ltp required (best-bid fallback).
+        assert msg["bids"] == [{"price": 1319.0, "qty": 10.0}]
+        assert msg["asks"] == [{"price": 1319.5, "qty": 5.0}]
+        assert msg["ltp"] == 1319.0
 
 
 def test_websocket_depth_gates_non_nse():
