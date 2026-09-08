@@ -20,13 +20,21 @@ Parity notes (openalgo-charts ``src/indicators/momentum.ts`` / ``oscillators.ts`
   via ``100*(offset+length)/length``; Aroon-Osc = 100*(upBars-downBars)/length.
 - AO: SMA(hl2,5) - SMA(hl2,34), fixed periods.
 - CCI: (TP - SMA(TP,period)) / (k * meanDev), meanDev = mean(|TP - SMA|);
-  zero when meanDev == 0; only the base ``cci`` column is required for the
-  golden (smoothing block omitted).
+  zero when meanDev == 0; ``ma`` is the maType kernel over the CCI line
+  (fromFirstValue) with Bollinger companions only for that kernel.
 """
 
 from __future__ import annotations
 
-from tradex_trading.analytics.indicators import IndicatorSpec, _to_float, sma, true_ranges
+from tradex_trading.analytics.indicators import (
+    IndicatorSpec,
+    _from_first_value,
+    _smoothing_ma,
+    _stdev,
+    _to_float,
+    sma,
+    true_ranges,
+)
 
 __all__ = [
     "SPEC_ADX",
@@ -262,18 +270,26 @@ def cci(
     candles: list,
     period: int = 20,
     constant: float = 0.015,
+    ma_type: str = "SMA",
+    ma_length: int = 20,
+    bb_mult: float = 2.0,
 ) -> dict[str, list]:
-    """Commodity Channel Index — base ``cci`` only.
+    """Commodity Channel Index plus its engine smoothing companions.
 
-    Matches ``momentum.ts::CCI`` without the optional smoothing block:
-    ``(TP - SMA(TP)) / (k * meanDev)`` where ``meanDev = mean(|TP - SMA|)``.
-    Zero when meanDev == 0. Returns dict keyed ``cci``.
+    Base ``cci`` matches ``momentum.ts::CCI`` without the optional smoothing
+    block: ``(TP - SMA(TP)) / (k * meanDev)`` where ``meanDev =
+    mean(|TP - SMA|)``. Zero when meanDev == 0. ``ma`` is the ``ma_type``
+    kernel over the CCI line (all-None when ``ma_type`` is ``'None'``);
+    ``bbUpper``/``bbLower`` exist only for the ``'SMA + Bollinger Bands'``
+    kernel (``fromFirstValue`` stdev offset scaled by ``bb_mult``),
+    otherwise all-None. Returns dict keyed ``cci``/``ma``/``bbUpper``/
+    ``bbLower``.
     """
     if period <= 0:
         raise ValueError("period must be positive")
     n = len(candles)
     if n == 0:
-        return {"cci": []}
+        return {"cci": [], "ma": [], "bbUpper": [], "bbLower": []}
     tp = [
         (_to_float(c.ohlc.high.value) + _to_float(c.ohlc.low.value) + _to_float(c.ohlc.close.value)) / 3.0
         for c in candles
@@ -293,7 +309,35 @@ def cci(
             out[i] = 0.0
         else:
             out[i] = (tp[i] - a) / (k * md) if k != 0 else 0.0
-    return {"cci": out}
+    mt = str(ma_type)
+    length = max(1, int(ma_length))
+    vols = [float(c.volume.value) for c in candles]
+    if mt == "None":
+        ma: list[float | None] = [None] * n
+    else:
+        ma = _smoothing_ma(mt, out, vols, length)
+    if mt == "SMA + Bollinger Bands":
+        mult = float(bb_mult)
+        band: list[float | None] = _from_first_value(
+            out,
+            lambda tail, _s: [
+                None if v is None else v * mult for v in _stdev(tail, length)
+            ],
+        )
+    else:
+        band = [None] * n
+    return {
+        "cci": out,
+        "ma": ma,
+        "bbUpper": [
+            None if a is None or b is None else a + b
+            for a, b in zip(ma, band, strict=True)
+        ],
+        "bbLower": [
+            None if a is None or b is None else a - b
+            for a, b in zip(ma, band, strict=True)
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -316,8 +360,8 @@ def _fn_awesome(candles):
     return awesome_oscillator(candles)
 
 
-def _fn_cci(candles, period, constant):
-    return cci(candles, int(period), float(constant))
+def _fn_cci(candles, period, constant, ma_type, ma_length, bb_mult):
+    return cci(candles, int(period), float(constant), str(ma_type), int(ma_length), float(bb_mult))
 
 
 SPEC_ADX = IndicatorSpec(
@@ -375,8 +419,19 @@ SPEC_CCI = IndicatorSpec(
     name="CCI",
     category="Momentum",
     placement="pane",
-    params=(("period", "int", 20), ("constant", "float", 0.015)),
-    plots=(("cci", "line", "CCI"),),
+    params=(
+        ("period", "int", 20),
+        ("constant", "float", 0.015),
+        ("ma_type", "select", "SMA"),
+        ("ma_length", "int", 20),
+        ("bb_mult", "float", 2.0),
+    ),
+    plots=(
+        ("cci", "line", "CCI"),
+        ("ma", "line", "CCI-based MA"),
+        ("bbUpper", "line", "Upper Bollinger Band"),
+        ("bbLower", "line", "Lower Bollinger Band"),
+    ),
     levels=({"value": 100}, {"value": 0}, {"value": -100}),
     fn=_fn_cci,
 )

@@ -13,19 +13,19 @@ GOLDENS = Path(__file__).parent / "goldens"
 
 # TS descriptor id -> {TS settings key: backend param name}
 PARAM_MAP = {
-    "sma": {"length": "period"},
-    "ema": {"length": "period"},
-    "rsi": {"length": "period"},
+    "sma": {"length": "period", "source": "source"},
+    "ema": {"length": "period", "source": "source"},
+    "rsi": {"length": "period", "source": "source"},
     "roc": {"length": "period"},
-    "macd": {"fastPeriod": "fast", "slowPeriod": "slow", "signalPeriod": "signal"},
-    "bollinger": {"length": "period", "stdDev": "num_std"},
+    "macd": {"fastPeriod": "fast", "slowPeriod": "slow", "signalPeriod": "signal", "source": "source"},
+    "bollinger": {"length": "period", "stdDev": "num_std", "source": "source"},
     "atr": {},
-    "obv": {},
-    "vwap": {},
+    "obv": {"maType": "ma_type", "maLength": "ma_length", "bbMult": "bb_mult"},
+    "vwap": {"anchor": "anchor", "source": "source", "offset": "offset", "calcMode": "calcMode", "showBand1": "showBand1", "bandMult1": "bandMult1", "showBand2": "showBand2", "bandMult2": "bandMult2", "showBand3": "showBand3", "bandMult3": "bandMult3"},
     "stochastic": {"kPeriod": "k_period", "kSmoothing": "smooth_k", "dPeriod": "d_period"},
     "supertrend": {},
     "wma": {"length": "period"},
-    "hma": {"length": "period"},
+    "hma": {"length": "period", "source": "source"},
     "dema": {"length": "period"},
     "tema": {"length": "period"},
     "alma": {"length": "period", "offset": "offset", "sigma": "sigma"},
@@ -41,7 +41,7 @@ PARAM_MAP = {
     "aroon": {"length": "length"},
     "aroon-oscillator": {"length": "length"},
     "awesome-oscillator": {},
-    "cci": {"period": "period", "constant": "constant"},
+    "cci": {"period": "period", "constant": "constant", "maType": "ma_type", "maLength": "ma_length", "bbMult": "bb_mult"},
     "mfi": {"period": "period"},
     "ppo": {
         "fastLength": "fast_length",
@@ -194,8 +194,8 @@ PLOT_MAP = {
     "rsi": {"value": "rsi"},
     "roc": {"value": "roc"},
     "atr": {"value": "atr"},
-    "obv": {"value": "obv"},
-    "vwap": {"value": "vwap"},
+    "obv": {"value": "obv", "ma": "ma", "bbUpper": "bbUpper", "bbLower": "bbLower"},
+    "vwap": {"value": "vwap", "upper1": "upper1", "lower1": "lower1", "upper2": "upper2", "lower2": "lower2", "upper3": "upper3", "lower3": "lower3"},
     "wma": {"value": "ma"},
     "hma": {"value": "hma"},
     "dema": {"value": "dema"},
@@ -218,7 +218,7 @@ PLOT_MAP = {
     "aroon": {"up": "up", "down": "down"},
     "aroon-oscillator": {"osc": "osc"},
     "awesome-oscillator": {"ao": "ao"},
-    "cci": {"cci": "cci"},
+    "cci": {"cci": "cci", "ma": "ma", "bbUpper": "bbUpper", "bbLower": "bbLower"},
     "mfi": {"value": "mfi"},
     "ppo": {"ppo": "ppo", "signal": "signal", "hist": "hist"},
     "trix": {"value": "trix"},
@@ -358,10 +358,13 @@ def test_parity_against_ts_source(ts_id):
     got = compute_indicator(ts_id, CANDLES, params)
 
     if ts_id == "supertrend":
-        # TS splits the line into up/down by direction; backend emits one line.
+        # TS splits the line into up/down by direction; backend emits one line
+        # plus native up/down companions.
         up, down, direction = golden["plots"]["up"], golden["plots"]["down"], got["direction"]
         expected = [u if d == 1 else w for u, w, d in zip(up, down, direction)]
         _compare("line", got["line"], expected)
+        _compare("up", got["up"], golden["plots"]["up"])
+        _compare("down", got["down"], golden["plots"]["down"])
         return
 
     for bk, gk in PLOT_MAP.get(ts_id, {k: k for k in got}).items():

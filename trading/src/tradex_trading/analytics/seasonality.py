@@ -287,6 +287,71 @@ def compute_seasonality(bars: list[dict[str, Any]], params: dict[str, Any]) -> d
     return _build_table(bars, settings)
 
 
+#: Engine camelCase key (plus its snake_case twin) -> ``compute_seasonality`` param.
+_ENGINE_SEASONALITY_KEYS: dict[str, str] = {
+    "startYear": "start_year",
+    "start_year": "start_year",
+    "ignoredMonths": "ignored_months",
+    "ignored_months": "ignored_months",
+    "cutoffPercent": "cutoff_percent",
+    "cutoff_percent": "cutoff_percent",
+    "posColor": "pos_color",
+    "pos_color": "pos_color",
+    "negColor": "neg_color",
+    "neg_color": "neg_color",
+    "showAvg": "show_avg",
+    "show_avg": "show_avg",
+    "showStDev": "show_st_dev",
+    "show_st_dev": "show_st_dev",
+    "showPos": "show_pos",
+    "show_pos": "show_pos",
+    "tablePosition": "table_position",
+    "table_position": "table_position",
+    "tableWidth": "table_width",
+    "table_width": "table_width",
+    "tableHeight": "table_height",
+    "table_height": "table_height",
+}
+
+_INT_KEYS = frozenset({"start_year"})
+_FLOAT_KEYS = frozenset({"cutoff_percent", "table_width", "table_height"})
+_BOOL_KEYS = frozenset({"show_avg", "show_st_dev", "show_pos"})
+
+
+def normalize_seasonality_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Map engine camelCase (or snake_case) settings to ``compute_seasonality`` params.
+
+    The engine descriptor (openalgo-charts ``seasonality.ts``) speaks
+    ``startYear``/``cutoffPercent``/``showAvg``/... while
+    ``compute_seasonality`` reads ``start_year``/``cutoff_percent``/
+    ``show_avg``/... Both spellings are accepted here. Unknown keys are
+    ignored so newer engine settings never break this seam; mistyped known
+    values raise ``ValueError`` (routes surface it as 422) instead of
+    failing inside ``float()``/``int()`` coercions deep in the table
+    builder. Only supplied keys are returned, so defaults still apply.
+    """
+    if not isinstance(params, dict):
+        raise ValueError("'params' must be an object")
+    normalized: dict[str, Any] = {}
+    for key, value in params.items():
+        snake = _ENGINE_SEASONALITY_KEYS.get(key)
+        if snake is None:
+            continue
+        if snake in _INT_KEYS:
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{key!r} must be an integer")
+        elif snake in _FLOAT_KEYS:
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"{key!r} must be a number")
+        elif snake in _BOOL_KEYS:
+            if not isinstance(value, bool):
+                raise ValueError(f"{key!r} must be a boolean")
+        elif not isinstance(value, str):
+            raise ValueError(f"{key!r} must be a string")
+        normalized[snake] = value
+    return normalized
+
+
 def _fn_seasonality(
     candles: list,
     startYear: int = 2015,
@@ -298,6 +363,8 @@ def _fn_seasonality(
     showStDev: bool = True,
     showPos: bool = True,
     ignoredMonths: str = "",
+    posColor: str = POS_DEFAULT,
+    negColor: str = NEG_DEFAULT,
 ) -> dict[str, list]:
     """Seasonality line — all-None by engine design (openalgo-charts parity).
 
@@ -316,6 +383,8 @@ SPEC_SEASONALITY = IndicatorSpec(
     placement="pane",
     params=(
         ("startYear", "int", 2015),
+        ("posColor", "text", POS_DEFAULT),
+        ("negColor", "text", NEG_DEFAULT),
         ("cutoffPercent", "float", 10.0),
         ("tablePosition", "select", "Center"),
         ("tableWidth", "int", 100),

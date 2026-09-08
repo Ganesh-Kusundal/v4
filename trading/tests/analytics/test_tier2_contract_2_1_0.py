@@ -79,16 +79,10 @@ def test_native_ports_accept_engine_input_keys():
 def test_every_engine_plot_key_reachable():
     _, PLOT_MAP = _parity_maps()
 
-    # Known companion-plot gaps (pre-existing scope, not regressions):
-    # engine descriptors bundle optional overlays the backend never computed
-    # (VWAP stdev bands, Supertrend up/down split, CCI/OBV MA+BB overlays).
-    # Tracked for a follow-up spec; the core lines all verify green.
-    KNOWN_GAPS = {
-        "vwap": {"upper1", "lower1", "upper2", "lower2", "upper3", "lower3"},
-        "supertrend": {"up", "down"},
-        "cci": {"ma", "bbUpper", "bbLower"},
-        "obv": {"ma", "bbUpper", "bbLower"},
-    }
+    # All former companion-plot gaps are now covered (VWAP stdev bands,
+    # Supertrend up/down split, CCI/OBV MA+BB overlays). The allowlist stays
+    # as the seam for any future engine-side companion plot.
+    KNOWN_GAPS: dict[str, set[str]] = {}
     gaps = {}
     for tid, desc in ENGINE.items():
         spec = get_indicator_spec(tid)

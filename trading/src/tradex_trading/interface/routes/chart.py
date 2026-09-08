@@ -428,6 +428,83 @@ def create_chart_router(session: Any | None) -> APIRouter:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"id": profile_id, "result": result}
 
+    @router.post("/seasonality")
+    async def compute_seasonality_endpoint(
+        body: dict,
+        startYear: int | None = Query(default=None),
+        ignoredMonths: str | None = Query(default=None),
+        cutoffPercent: float | None = Query(default=None),
+        tablePosition: str | None = Query(default=None),
+        tableWidth: float | None = Query(default=None),
+        tableHeight: float | None = Query(default=None),
+        showAvg: bool | None = Query(default=None),
+        showStDev: bool | None = Query(default=None),
+        showPos: bool | None = Query(default=None),
+    ) -> dict:
+        """Monthly seasonality heatmap over a datalake bar window.
+
+        Body: {exchange, symbol, interval, from?, to?, params?}. ``params``
+        accepts the engine's camelCase settings (startYear, cutoffPercent,
+        ...) or snake_case; the query params above override the same keys
+        when present. Bars come from the parquet datalake (offline, like
+        the compute endpoint) already in the {time, close} shape
+        ``compute_seasonality`` tabulates. An unknown symbol yields an
+        empty table, never a 500.
+        """
+        from tradex_trading.analytics.seasonality import (
+            compute_seasonality,
+            normalize_seasonality_params,
+        )
+
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=422, detail="body must be an object")
+        raw_params = body.get("params") or {}
+        if not isinstance(raw_params, dict):
+            raise HTTPException(status_code=422, detail="'params' must be an object")
+        merged_raw = dict(raw_params)
+        for _key, _val in (
+            ("startYear", startYear),
+            ("ignoredMonths", ignoredMonths),
+            ("cutoffPercent", cutoffPercent),
+            ("tablePosition", tablePosition),
+            ("tableWidth", tableWidth),
+            ("tableHeight", tableHeight),
+            ("showAvg", showAvg),
+            ("showStDev", showStDev),
+            ("showPos", showPos),
+        ):
+            if _val is not None:
+                merged_raw[_key] = _val
+        try:
+            params = normalize_seasonality_params(merged_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        tf = INTERVAL_TIMEFRAME.get(str(body.get("interval", "D")))
+        if tf is None:
+            raise HTTPException(status_code=422, detail="unsupported interval")
+        instrument = _resolve_instrument(
+            str(body.get("exchange", "NSE")), str(body.get("symbol", ""))
+        )
+        from_raw, to_raw = body.get("from"), body.get("to")
+        for _name, _t in (("from", from_raw), ("to", to_raw)):
+            if _t is not None and (isinstance(_t, bool) or not isinstance(_t, (int, float))):
+                raise HTTPException(
+                    status_code=422, detail=f"{_name!r} must be UTC seconds"
+                )
+        start, end = _window(from_raw, to_raw)
+
+        bars, _ = _bars_from_datalake(instrument, tf, start, end, limit=20000)
+        if not bars:
+            return {
+                "table": {"rows": [], "options": {}},
+                "meta": {"source": "none", "params": params},
+            }
+        try:
+            table = compute_seasonality(bars, params)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"table": table, "meta": {"source": "datalake", "params": params}}
+
     # ------------------------------------------------------------------ trading
 
     @router.get("/book")

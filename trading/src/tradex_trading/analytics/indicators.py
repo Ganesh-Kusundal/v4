@@ -633,6 +633,52 @@ def obv(candles: list) -> list[float]:
     return out
 
 
+def _fn_obv(
+    candles: list,
+    ma_type: str = "None",
+    ma_length: int = 9,
+    bb_mult: float = 2.0,
+) -> dict[str, list]:
+    """OBV plus its engine smoothing companions (volume.ts ``OBV`` calc).
+
+    ``ma`` is the ``ma_type`` kernel over OBV (all-None when ``ma_type`` is
+    ``'None'``); ``bbUpper``/``bbLower`` exist only for the
+    ``'SMA + Bollinger Bands'`` kernel (plain ``stdev`` offset scaled by
+    ``bb_mult``), otherwise all-None. ``value`` aliases ``obv`` for
+    backward compat with the pre-companion ``compute_indicator`` shape.
+    """
+    base = obv(candles)
+    n = len(base)
+    if n == 0:
+        return {"value": [], "obv": [], "ma": [], "bbUpper": [], "bbLower": []}
+    vols = [float(c.volume.value) for c in candles]
+    mt = str(ma_type)
+    length = max(1, int(ma_length))
+    if mt == "None":
+        ma: list[float | None] = [None] * n
+    else:
+        ma = _smoothing_ma(mt, base, vols, length)
+    if mt == "SMA + Bollinger Bands":
+        mult = float(bb_mult)
+        sd = _stdev(base, length)
+        band: list[float | None] = [None if v is None else v * mult for v in sd]
+    else:
+        band = [None] * n
+    return {
+        "value": base,
+        "obv": base,
+        "ma": ma,
+        "bbUpper": [
+            None if a is None or b is None else a + b
+            for a, b in zip(ma, band, strict=True)
+        ],
+        "bbLower": [
+            None if a is None or b is None else a - b
+            for a, b in zip(ma, band, strict=True)
+        ],
+    }
+
+
 def _rolling_sma(values: list[float | None], period: int) -> list[float | None]:
     """SMA that yields None unless ALL window entries are finite (TS calc.ts semantics)."""
     n = len(values)
@@ -734,6 +780,162 @@ def _sma_skip_none(values: list[float | None], period: int) -> list[float | None
     return out
 
 
+def _is_gap(v: float | None) -> bool:
+    """True when *v* is a warmup gap (None or non-finite, i.e. engine NaN)."""
+    return v is None or (isinstance(v, float) and not math.isfinite(v))
+
+
+def _from_first_value(values: list, fn: Callable) -> list[float | None]:
+    """Run ``fn`` over the tail from the first finite value, re-pad the front.
+
+    Matches openalgo-charts ``fromFirstValue`` (momentum.ts): a smoother
+    chained onto a gapped series starts counting at the series' first real
+    value instead of treating warmup holes as bars.
+    """
+    n = len(values)
+    out: list[float | None] = [None] * n
+    start = 0
+    while start < n and _is_gap(values[start]):
+        start += 1
+    if start >= n:
+        return out
+    for j, v in enumerate(fn(list(values[start:]), start)):
+        if start + j < n:
+            out[start + j] = v
+    return out
+
+
+def _stdev(values: list, period: int) -> list[float | None]:
+    """Rolling population standard deviation (openalgo-charts calc.ts parity).
+
+    Mean is the gap-aware SMA; any window containing a gap yields None.
+    """
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 0 or n < period:
+        return out
+    clean = [None if v is None else _to_float(v) for v in values]
+    means = _sma_skip_none(clean, period)
+    for i in range(period - 1, n):
+        m = means[i]
+        window = clean[i - period + 1 : i + 1]
+        if m is None or any(v is None for v in window):
+            continue
+        out[i] = (sum((x - m) ** 2 for x in window) / period) ** 0.5
+    return out
+
+
+def _sma_seeded_ema_gapped(values: list, period: int) -> list[float | None]:
+    """SMA-seeded EMA with engine NaN propagation: a gap poisons it forward."""
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 0 or n < period:
+        return out
+    head = values[:period]
+    if any(_is_gap(v) for v in head):
+        return out
+    prev = sum(_to_float(v) for v in head) / period
+    out[period - 1] = prev
+    k = 2.0 / (period + 1)
+    for i in range(period, n):
+        v = values[i]
+        if _is_gap(v):
+            break  # rest stays None, mirroring NaN carry-through
+        prev = _to_float(v) * k + prev * (1.0 - k)
+        out[i] = prev
+    return out
+
+
+def _rma_gapped(values: list, period: int) -> list[float | None]:
+    """Wilder RMA with engine NaN propagation (seed = SMA, gaps poison forward)."""
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 0 or n < period:
+        return out
+    head = values[:period]
+    if any(_is_gap(v) for v in head):
+        return out
+    prev = sum(_to_float(v) for v in head) / period
+    out[period - 1] = prev
+    for i in range(period, n):
+        v = values[i]
+        if _is_gap(v):
+            break
+        prev = (prev * (period - 1) + _to_float(v)) / period
+        out[i] = prev
+    return out
+
+
+def _wma_gapped(values: list, period: int) -> list[float | None]:
+    """Gap-aware WMA (openalgo-charts calc.ts parity: recent bar weighs most)."""
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 0 or n < period:
+        return out
+    denom = period * (period + 1) / 2
+    for i in range(period - 1, n):
+        window = values[i - period + 1 : i + 1]
+        if any(_is_gap(v) for v in window):
+            continue
+        acc = sum(_to_float(v) * (period - k) for k, v in enumerate(reversed(window)))
+        out[i] = acc / denom
+    return out
+
+
+def _vwma_series(values: list, volumes: list, length: int) -> list[float | None]:
+    """VWMA = sma(src*vol, len) / sma(vol, len) (openalgo-charts calc.ts parity).
+
+    Zero-volume windows yield None, matching the engine's ``den == 0 -> NaN``.
+    """
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if length <= 0 or n < length:
+        return out
+    pv = [
+        None if _is_gap(v) or w is None else _to_float(v) * float(w)
+        for v, w in zip(values, volumes, strict=False)
+    ]
+    num = _sma_skip_none(pv, length)
+    den = _sma_skip_none(
+        [None if w is None else float(w) for w in volumes], length
+    )
+    for i in range(n):
+        a, d = num[i], den[i]
+        if a is None or d is None or d == 0:
+            continue
+        out[i] = a / d
+    return out
+
+
+def _smoothing_ma(
+    kind: str, values: list, volumes: list, length: int
+) -> list[float | None]:
+    """The engine "Smoothing" block kernel switch (momentum.ts / volume.ts).
+
+    ``None`` disables smoothing (all-None); ``EMA`` / ``SMMA (RMA)`` /
+    ``WMA`` / ``VWMA`` run from the series' first finite value
+    (``fromFirstValue``); ``SMA``, ``SMA + Bollinger Bands`` and anything
+    else fall back to SMA.
+    """
+    length = max(1, int(length))
+    if kind == "EMA":
+        return _from_first_value(values, lambda tail, _s: _sma_seeded_ema_gapped(tail, length))
+    if kind == "SMMA (RMA)":
+        return _from_first_value(values, lambda tail, _s: _rma_gapped(tail, length))
+    if kind == "WMA":
+        return _from_first_value(values, lambda tail, _s: _wma_gapped(tail, length))
+    if kind == "VWMA":
+        return _from_first_value(
+            values, lambda tail, s: _vwma_series(tail, list(volumes[s:]), length)
+        )
+    return _from_first_value(
+        values,
+        lambda tail, _s: _sma_skip_none(
+            [None if v is None else _to_float(v) for v in tail], length
+        ),
+    )
+
+
 def _bars_since(cond: list[bool]) -> list[float | None]:
     """Bars elapsed since ``cond`` was last true; None before the first."""
     n = len(cond)
@@ -830,7 +1032,11 @@ def supertrend(candles: list, period: int = 10, multiplier: float = 3.0) -> dict
     band (not by direction alone). TS convention is -1=uptrend/+1=downtrend;
     this backend emits the inverse (+1 up / -1 down) per its contract.
 
-    Returns dict keyed 'line'/'direction'. None-padded during ATR warmup.
+    Returns dict keyed 'line'/'direction' plus the engine's 'up'/'down'
+    split (supertrend.ts ``supertrendSeries``): 'up' carries the line only
+    while the backend direction is +1 (TS direction -1, uptrend), 'down'
+    only while it is -1 (TS direction +1, downtrend); the inactive side is
+    None so the renderer breaks across flips. None-padded during ATR warmup.
     """
     if period <= 0:
         raise ValueError("period must be positive")
@@ -877,7 +1083,123 @@ def supertrend(candles: list, period: int = 10, multiplier: float = 3.0) -> dict
         line[i] = st
         prev_upper, prev_lower, prev_line = final_upper, final_lower, st
         started = True
-    return {"line": line, "direction": direction}
+    # Engine up/down split (supertrend.ts::supertrendSeries): the active side
+    # carries the line, the inactive side carries None (backend +1 == TS -1).
+    up = [v if d == 1 else None for v, d in zip(line, direction, strict=True)]
+    down = [v if d == -1 else None for v, d in zip(line, direction, strict=True)]
+    return {"line": line, "direction": direction, "up": up, "down": down}
+
+
+def _vwap_anchor_key(ts: Any, anchor: str) -> Any:
+    """Reset-group key for one VWAP anchor (openalgo-charts trend.ts parity).
+
+    ``session`` restarts on the calendar-day boundary (the backend's
+    historical behaviour); coarser anchors restart on week (Monday-based,
+    ISO), month, quarter and year boundaries; ``continuous`` never resets.
+    Unknown anchors fall back to ``session``.
+    """
+    if anchor == "continuous":
+        return 0
+    if anchor == "week":
+        iso = ts.isocalendar()
+        return (iso[0], iso[1])
+    if anchor == "month":
+        return (ts.year, ts.month)
+    if anchor == "quarter":
+        return (ts.year, (ts.month - 1) // 3)
+    if anchor == "year":
+        return ts.year
+    return ts.date()
+
+
+def _vwap_columns(
+    candles: list, anchor: str = "session", source: str = "hlc3", percent_mode: bool = False
+) -> tuple[list, list]:
+    """VWAP accumulation plus the shared band half-width column.
+
+    Matches trend.ts ``VWAP`` calc: volume-weighted mean with the anchor
+    restarting the ``pv``/``vol``/``pv2`` accumulators, and ``basis`` as the
+    volume-weighted stdev (``sqrt(max(0, pv2/vol - mean^2))``), or
+    ``mean * 0.01`` in ``percent`` calcMode. None where volume is 0.
+    """
+    values = _source_values(candles, source)
+    n = len(candles)
+    vwap: list[float | None] = [None] * n
+    basis: list[float | None] = [None] * n
+    pv = 0.0
+    vol = 0.0
+    pv2 = 0.0
+    current_key = object()
+    for i, c in enumerate(candles):
+        key = _vwap_anchor_key(c.timestamp, anchor)
+        if key != current_key:
+            current_key = key
+            pv = 0.0
+            vol = 0.0
+            pv2 = 0.0
+        v = float(c.volume.value)
+        x = values[i]
+        pv += x * v
+        pv2 += x * x * v
+        vol += v
+        if vol <= 0:
+            continue
+        mean = pv / vol
+        vwap[i] = mean
+        basis[i] = mean * 0.01 if percent_mode else max(0.0, pv2 / vol - mean * mean) ** 0.5
+    return vwap, basis
+
+
+def _vwap_band(
+    vwap: list, basis: list, show: bool, mult: float, sign: float
+) -> list[float | None]:
+    """One VWAP band edge: ``vwap + sign * basis * mult`` (all-None if hidden)."""
+    n = len(vwap)
+    out: list[float | None] = [None] * n
+    if not show:
+        return out
+    m = float(mult)
+    for i in range(n):
+        v = vwap[i]
+        b = basis[i]
+        if v is not None and b is not None:
+            out[i] = v + sign * b * m
+    return out
+
+
+def _fn_vwap(
+    candles: list,
+    anchor: str = "session",
+    source: str = "hlc3",
+    offset: int = 0,
+    calcMode: str = "stdev",
+    showBand1: bool = True,
+    bandMult1: float = 1.0,
+    showBand2: bool = False,
+    bandMult2: float = 2.0,
+    showBand3: bool = False,
+    bandMult3: float = 3.0,
+) -> dict[str, list]:
+    """Session-anchored VWAP plus engine stdev band pairs (trend.ts ``VWAP``).
+
+    Every column is displaced by ``offset`` bars (engine ``shiftColumn``).
+    ``value`` aliases ``vwap`` for backward compat with the pre-band
+    ``compute_indicator`` shape.
+    """
+    percent = str(calcMode) == "percent"
+    vwap, basis = _vwap_columns(candles, str(anchor), str(source), percent)
+    off = int(round(float(offset)))
+    line = _shift(vwap, off)
+    return {
+        "value": line,
+        "vwap": line,
+        "upper1": _shift(_vwap_band(vwap, basis, bool(showBand1), bandMult1, 1.0), off),
+        "lower1": _shift(_vwap_band(vwap, basis, bool(showBand1), bandMult1, -1.0), off),
+        "upper2": _shift(_vwap_band(vwap, basis, bool(showBand2), bandMult2, 1.0), off),
+        "lower2": _shift(_vwap_band(vwap, basis, bool(showBand2), bandMult2, -1.0), off),
+        "upper3": _shift(_vwap_band(vwap, basis, bool(showBand3), bandMult3, 1.0), off),
+        "lower3": _shift(_vwap_band(vwap, basis, bool(showBand3), bandMult3, -1.0), off),
+    }
 
 
 def vwap_session(candles: list) -> list[float | None]:
@@ -886,27 +1208,7 @@ def vwap_session(candles: list) -> list[float | None]:
     Cumulative (typical price * volume) / cumulative volume, resetting at
     each new session day. Needs candles with volume; None where volume is 0.
     """
-    out: list[float | None] = []
-    cum_pv = 0.0
-    cum_v = 0.0
-    current_day = None
-    for c in candles:
-        ts = c.timestamp
-        day = ts.date()
-        if day != current_day:
-            current_day = day
-            cum_pv = 0.0
-            cum_v = 0.0
-        typical = (
-            _to_float(c.ohlc.high.value)
-            + _to_float(c.ohlc.low.value)
-            + _to_float(c.ohlc.close.value)
-        ) / 3.0
-        v = float(c.volume.value)
-        cum_pv += typical * v
-        cum_v += v
-        out.append(cum_pv / cum_v if cum_v > 0 else None)
-    return out
+    return _fn_vwap(candles)["value"]
 
 
 # ---------------------------------------------------------------------------
@@ -1034,17 +1336,17 @@ def compute_indicator(
 def _builtin_specs() -> list[IndicatorSpec]:
     closes_only = lambda candles: [_to_float(c.ohlc.close.value) for c in candles]  # noqa: E731
 
-    def _fn_sma(candles, period):
-        return sma(closes_only(candles), int(period))
+    def _fn_sma(candles, period, source="close"):
+        return sma(_source_values(candles, source), int(period))
 
-    def _fn_ema(candles, period):
-        return _sma_seeded_ema(closes_only(candles), int(period))
+    def _fn_ema(candles, period, source="close"):
+        return _sma_seeded_ema(_source_values(candles, source), int(period))
 
     def _fn_wma(candles, period):
         return wma(closes_only(candles), int(period))
 
-    def _fn_hma(candles, period):
-        return hma(closes_only(candles), int(period))
+    def _fn_hma(candles, period, source="close"):
+        return hma(_source_values(candles, source), int(period))
 
     def _fn_dema(candles, period):
         return dema(closes_only(candles), int(period))
@@ -1058,37 +1360,37 @@ def _builtin_specs() -> list[IndicatorSpec]:
     def _fn_smma(candles, length, source):
         return {"smma": smma(_source_values(candles, source), int(length))}
 
-    def _fn_t3(candles, length, factor, source):
+    def _fn_t3(candles, length, factor, source, highlightMovements=True):
         return {"t3": t3(_source_values(candles, source), int(length), float(factor))}
 
     def _fn_linreg_slope(candles, periods):
         return {"slope": linreg_slope(closes_only(candles), int(periods))}
 
-    def _fn_hull_suite(candles, source, mode, length, lengthMult, visualSwitch):
+    def _fn_hull_suite(candles, source, mode, length, lengthMult, visualSwitch, switchColor=True, candleCol=False):
         return hull_suite(
             _source_values(candles, source), str(mode), int(length),
             float(lengthMult), bool(visualSwitch),
         )
 
-    def _fn_rsi(candles, period):
-        return rsi(closes_only(candles), int(period))
+    def _fn_rsi(candles, period, source="close"):
+        return rsi(_source_values(candles, source), int(period))
 
     def _fn_roc(candles, period):
         return roc(closes_only(candles), int(period))
 
-    def _fn_macd(candles, fast, slow, signal):
-        return macd(closes_only(candles), int(fast), int(slow), int(signal))
+    def _fn_macd(candles, fast, slow, signal, source="close"):
+        return macd(_source_values(candles, source), int(fast), int(slow), int(signal))
 
     return [
         IndicatorSpec(
             id="sma", name="SMA", category="Trend", placement="overlay",
-            params=(("period", "int", 20),),
+            params=(("period", "int", 20), ("source", "source", "close")),
             plots=(("value", "line", "SMA"),),
             fn=_fn_sma,
         ),
         IndicatorSpec(
             id="ema", name="EMA", category="Trend", placement="overlay",
-            params=(("period", "int", 20),),
+            params=(("period", "int", 20), ("source", "source", "close")),
             plots=(("value", "line", "EMA"),),
             fn=_fn_ema,
         ),
@@ -1100,7 +1402,7 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="hma", name="HMA", category="Trend", placement="overlay",
-            params=(("period", "int", 9),),
+            params=(("period", "int", 9), ("source", "source", "close")),
             plots=(("value", "line", "HMA"),),
             fn=_fn_hma,
         ),
@@ -1130,7 +1432,7 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="t3", name="T3", category="Trend", placement="overlay",
-            params=(("length", "int", 5), ("factor", "float", 0.7), ("source", "source", "close")),
+            params=(("length", "int", 5), ("factor", "float", 0.7), ("source", "source", "close"), ("highlightMovements", "bool", True)),
             plots=(("t3", "line", "T3"),),
             fn=_fn_t3,
         ),
@@ -1149,13 +1451,15 @@ def _builtin_specs() -> list[IndicatorSpec]:
                 ("length", "int", 55),
                 ("lengthMult", "float", 1.0),
                 ("visualSwitch", "bool", True),
+                ("switchColor", "bool", True),
+                ("candleCol", "bool", False),
             ),
             plots=(("mhull", "line", "Hull"), ("shull", "line", "Hull Displaced")),
             fn=_fn_hull_suite,
         ),
         IndicatorSpec(
             id="rsi", name="RSI", category="Momentum", placement="pane",
-            params=(("period", "int", 14),),
+            params=(("period", "int", 14), ("source", "source", "close")),
             plots=(("value", "line", "RSI"),),
             levels=({"value": 70}, {"value": 30}),
             fn=_fn_rsi,
@@ -1169,7 +1473,7 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="macd", name="MACD", category="Momentum", placement="pane",
-            params=(("fast", "int", 12), ("slow", "int", 26), ("signal", "int", 9)),
+            params=(("fast", "int", 12), ("slow", "int", 26), ("signal", "int", 9), ("source", "source", "close")),
             plots=(
                 ("macd", "line", "MACD"),
                 ("signal", "line", "Signal"),
@@ -1181,14 +1485,14 @@ def _builtin_specs() -> list[IndicatorSpec]:
         IndicatorSpec(
             id="bollinger", name="Bollinger Bands", category="Volatility",
             placement="overlay",
-            params=(("period", "int", 20), ("num_std", "float", 2.0)),
+            params=(("period", "int", 20), ("num_std", "float", 2.0), ("source", "source", "close")),
             plots=(
                 ("upper", "line", "Upper"),
                 ("middle", "line", "Middle"),
                 ("lower", "line", "Lower"),
             ),
-            fn=lambda candles, period, num_std: bollinger(
-                closes_only(candles), int(period), float(num_std)
+            fn=lambda candles, period, num_std, source="close": bollinger(
+                _source_values(candles, source), int(period), float(num_std)
             ),
         ),
         IndicatorSpec(
@@ -1199,15 +1503,45 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="vwap", name="VWAP (session)", category="Volume", placement="overlay",
-            params=(),
-            plots=(("value", "line", "VWAP"),),
-            fn=vwap_session,
+            params=(
+                ("anchor", "select", "session"),
+                ("source", "source", "hlc3"),
+                ("offset", "int", 0),
+                ("calcMode", "select", "stdev"),
+                ("showBand1", "bool", True),
+                ("bandMult1", "float", 1.0),
+                ("showBand2", "bool", False),
+                ("bandMult2", "float", 2.0),
+                ("showBand3", "bool", False),
+                ("bandMult3", "float", 3.0),
+            ),
+            plots=(
+                ("value", "line", "VWAP"),
+                ("vwap", "line", "VWAP"),
+                ("upper1", "line", "Upper Band #1"),
+                ("lower1", "line", "Lower Band #1"),
+                ("upper2", "line", "Upper Band #2"),
+                ("lower2", "line", "Lower Band #2"),
+                ("upper3", "line", "Upper Band #3"),
+                ("lower3", "line", "Lower Band #3"),
+            ),
+            fn=_fn_vwap,
         ),
         IndicatorSpec(
             id="obv", name="OBV", category="Volume", placement="pane",
-            params=(),
-            plots=(("value", "line", "OBV"),),
-            fn=obv,
+            params=(
+                ("ma_type", "select", "None"),
+                ("ma_length", "int", 9),
+                ("bb_mult", "float", 2.0),
+            ),
+            plots=(
+                ("value", "line", "OBV"),
+                ("obv", "line", "OBV"),
+                ("ma", "line", "OBV-based MA"),
+                ("bbUpper", "line", "Upper Bollinger Band"),
+                ("bbLower", "line", "Lower Bollinger Band"),
+            ),
+            fn=_fn_obv,
         ),
         IndicatorSpec(
             id="stochastic", name="Stochastic", category="Momentum", placement="pane",
@@ -1219,7 +1553,11 @@ def _builtin_specs() -> list[IndicatorSpec]:
         IndicatorSpec(
             id="supertrend", name="Supertrend", category="Trend", placement="overlay",
             params=(("period", "int", 10), ("multiplier", "float", 3.0)),
-            plots=(("line", "line", "Supertrend"),),
+            plots=(
+                ("line", "line", "Supertrend"),
+                ("up", "line", "Supertrend Up"),
+                ("down", "line", "Supertrend Down"),
+            ),
             fn=supertrend,
         ),
     ]
