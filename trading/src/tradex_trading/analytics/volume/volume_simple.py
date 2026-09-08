@@ -100,11 +100,43 @@ SPEC_PVT = IndicatorSpec(
     fn=pvt,
 )
 
+
+def net_volume(candles: list) -> dict[str, list]:
+    """Net Volume — signed per-bar volume by close direction.
+
+    Matches openalgo-charts ``NETVOLUME`` (src/indicators/flow.ts): bar 0 is
+    0; ``+volume`` when close rose, ``-volume`` when it fell, else 0. No
+    warmup gap.
+    """
+    n = len(candles)
+    out: list[float] = [0.0] * n
+    for i in range(1, n):
+        moved = _to_float(candles[i].ohlc.close.value) - _to_float(candles[i - 1].ohlc.close.value)
+        v = float(candles[i].volume.value)
+        if moved > 0:
+            out[i] = v
+        elif moved < 0:
+            out[i] = -v
+    return {"net": out}
+
+
+SPEC_NET_VOLUME = IndicatorSpec(
+    id="net-volume",
+    name="Net Volume",
+    category="Volume",
+    placement="pane",
+    params=(),
+    plots=(("net", "histogram", "Net Volume"),),
+    fn=net_volume,
+)
+
 __all__ = [
     "adl",
+    "net_volume",
     "pvt",
     "volume_raw",
     "SPEC_ADL",
+    "SPEC_NET_VOLUME",
     "SPEC_PVT",
     "SPEC_VOLUME",
 ]

@@ -302,6 +302,167 @@ def tema(values: list, period: int) -> list[float | None]:
     ]
 
 
+def _source_values(candles: list, source: str = "close") -> list[float]:
+    """Extract an OHLC source series (openalgo-charts parity).
+
+    Matches ``sourceValues`` (src/model/indicator-registry.ts): open, high,
+    low, close direct; hl2, hlc3, ohlc4; volume (missing → 0); anything else
+    falls back to close.
+    """
+    out = []
+    for c in candles:
+        o = _to_float(c.ohlc.open.value)
+        h = _to_float(c.ohlc.high.value)
+        lo = _to_float(c.ohlc.low.value)
+        cl = _to_float(c.ohlc.close.value)
+        if source == "open":
+            out.append(o)
+        elif source == "high":
+            out.append(h)
+        elif source == "low":
+            out.append(lo)
+        elif source == "hl2":
+            out.append((h + lo) / 2.0)
+        elif source == "hlc3":
+            out.append((h + lo + cl) / 3.0)
+        elif source == "ohlc4":
+            out.append((o + h + lo + cl) / 4.0)
+        elif source == "volume":
+            out.append(float(c.volume.value))
+        else:
+            out.append(cl)
+    return out
+
+
+def smma(values: list, period: int) -> list[float | None]:
+    """Smoothed MA — Wilder's RMA (openalgo-charts parity).
+
+    Matches ``SMMA`` (src/indicators/averages.ts): alpha ``1/period`` (vs
+    EMA ``2/(period+1)``). None before index ``period - 1``.
+    """
+    if period <= 0:
+        raise ValueError("period must be positive")
+    floats = [_to_float(v) for v in values]
+    return _rma(floats, int(period))
+
+
+def _generalized_double(values: list[float | None], length: int, factor: float) -> list[float | None]:
+    """One T3 layer: ``e1*(1+f) - e2*f`` (openalgo-charts parity).
+
+    Matches ``generalizedDouble`` (src/indicators/averages.ts). At factor 0
+    the second pass is skipped so ``NaN*0`` cannot extend the warmup.
+    """
+    e1 = _ema_of_gapped(values, length)
+    if factor == 0:
+        return e1
+    e2 = _ema_of_gapped(e1, length)
+    return [
+        None if a is None or b is None else a * (1.0 + factor) - b * factor
+        for a, b in zip(e1, e2, strict=True)
+    ]
+
+
+def t3(values: list, length: int, factor: float = 0.7) -> list[float | None]:
+    """Tillson T3 — three generalized-double layers (openalgo-charts parity).
+
+    Matches ``T3`` (src/indicators/averages.ts): 6 chained averages, first
+    value at index ``6*(length-1)``.
+    """
+    if length <= 0:
+        raise ValueError("length must be positive")
+    floats = [_to_float(v) for v in values]
+    once = _generalized_double(floats, int(length), float(factor))
+    twice = _generalized_double(once, int(length), float(factor))
+    return _generalized_double(twice, int(length), float(factor))
+
+
+def linreg_slope(values: list, period: int) -> list[float | None]:
+    """Linear-regression slope, price per bar (openalgo-charts parity).
+
+    Matches ``LINREG_SLOPE`` (src/indicators/adaptive.ts): least squares over
+    ``x = 1..period`` with closed-form denominator ``p^2(p^2-1)/12``. None
+    before index ``period - 1``; flat windows yield 0.
+    """
+    if period <= 0:
+        raise ValueError("period must be positive")
+    period = max(2, int(period))
+    floats = [_to_float(v) for v in values]
+    n = len(floats)
+    out: list[float | None] = [None] * n
+    sum_x = (period * (period + 1)) / 2
+    denom = (period * period * (period * period - 1)) / 12
+    for i in range(period - 1, n):
+        sum_y = 0.0
+        sum_xy = 0.0
+        for k in range(period):
+            y = floats[i - k]
+            sum_y += y
+            sum_xy += y * (period - k)
+        out[i] = (period * sum_xy - sum_x * sum_y) / denom
+    return out
+
+
+def _hull_series(values: list[float], mode: str, length: int) -> list[float | None]:
+    """Hull core for one mode (openalgo-charts parity, overlay.ts)."""
+    n = len(values)
+    if mode == "Ehma":
+        span_len = max(1, math.floor(length / 2))
+        fast = _sma_seeded_ema(values, span_len)
+        slow = _sma_seeded_ema(values, length)
+        root = max(1, round(math.sqrt(length)))
+        raw = [
+            None if f is None or s is None else 2.0 * f - s
+            for f, s in zip(fast, slow, strict=True)
+        ]
+        return _ema_of_gapped(raw, root)
+    if mode == "Thma":
+        # The published definition hands THMA half the length the other two
+        # variations get (overlay.ts hullSeries).
+        th = max(1, math.floor(length / 2))
+        third = wma(values, max(1, math.floor(th / 3)))
+        half = wma(values, max(1, math.floor(th / 2)))
+        full = wma(values, th)
+        raw = [
+            None if a is None or b is None or c is None else 3.0 * a - b - c
+            for a, b, c in zip(third, half, full, strict=True)
+        ]
+        return wma(raw, th)
+    span_half = max(1, math.floor(length / 2))
+    fast = wma(values, span_half)
+    slow = wma(values, length)
+    root = max(1, round(math.sqrt(length)))
+    raw = [
+        None if f is None or s is None else 2.0 * f - s
+        for f, s in zip(fast, slow, strict=True)
+    ]
+    return wma(raw, root)
+
+
+def hull_suite(
+    values: list,
+    mode: str = "Hma",
+    length: int = 55,
+    length_mult: float = 1.0,
+    visual_switch: bool = True,
+) -> dict[str, list]:
+    """Hull Suite — Hull MA plus 2-bar displaced twin (openalgo-charts parity).
+
+    Matches ``HULL_SUITE`` (src/indicators/overlay.ts): effective length is
+    ``max(1, floor(round(length) * lengthMult))``; ``shull`` is ``mhull``
+    shifted +2, or all-None when the band is switched off.
+    """
+    floats = [_to_float(v) for v in values]
+    eff = max(1, math.floor(round(int(length)) * float(length_mult)))
+    hull = _hull_series(floats, str(mode), eff)
+    n = len(floats)
+    if not visual_switch:
+        return {"mhull": hull, "shull": [None] * n}
+    displaced: list[float | None] = [None] * n
+    for i in range(2, n):
+        displaced[i] = hull[i - 2]
+    return {"mhull": hull, "shull": displaced}
+
+
 def alma(
     values: list, period: int, offset: float = 0.85, sigma: float = 6.0
 ) -> list[float | None]:
@@ -894,6 +1055,21 @@ def _builtin_specs() -> list[IndicatorSpec]:
     def _fn_alma(candles, period, offset, sigma):
         return alma(closes_only(candles), int(period), float(offset), float(sigma))
 
+    def _fn_smma(candles, length, source):
+        return {"smma": smma(_source_values(candles, source), int(length))}
+
+    def _fn_t3(candles, length, factor, source):
+        return {"t3": t3(_source_values(candles, source), int(length), float(factor))}
+
+    def _fn_linreg_slope(candles, periods):
+        return {"slope": linreg_slope(closes_only(candles), int(periods))}
+
+    def _fn_hull_suite(candles, source, mode, length, lengthMult, visualSwitch):
+        return hull_suite(
+            _source_values(candles, source), str(mode), int(length),
+            float(lengthMult), bool(visualSwitch),
+        )
+
     def _fn_rsi(candles, period):
         return rsi(closes_only(candles), int(period))
 
@@ -945,6 +1121,37 @@ def _builtin_specs() -> list[IndicatorSpec]:
             params=(("period", "int", 9), ("offset", "float", 0.85), ("sigma", "float", 6.0)),
             plots=(("value", "line", "ALMA"),),
             fn=_fn_alma,
+        ),
+        IndicatorSpec(
+            id="smma", name="SMMA", category="Trend", placement="overlay",
+            params=(("length", "int", 7), ("source", "source", "close")),
+            plots=(("smma", "line", "SMMA"),),
+            fn=_fn_smma,
+        ),
+        IndicatorSpec(
+            id="t3", name="T3", category="Trend", placement="overlay",
+            params=(("length", "int", 5), ("factor", "float", 0.7), ("source", "source", "close")),
+            plots=(("t3", "line", "T3"),),
+            fn=_fn_t3,
+        ),
+        IndicatorSpec(
+            id="linreg-slope", name="Linear Regression Slope", category="Trend", placement="pane",
+            params=(("periods", "int", 14),),
+            plots=(("slope", "line", "Slope"),),
+            levels=({"value": 0},),
+            fn=_fn_linreg_slope,
+        ),
+        IndicatorSpec(
+            id="hull-suite", name="Hull Suite", category="Trend", placement="overlay",
+            params=(
+                ("source", "source", "close"),
+                ("mode", "select", "Hma"),
+                ("length", "int", 55),
+                ("lengthMult", "float", 1.0),
+                ("visualSwitch", "bool", True),
+            ),
+            plots=(("mhull", "line", "Hull"), ("shull", "line", "Hull Displaced")),
+            fn=_fn_hull_suite,
         ),
         IndicatorSpec(
             id="rsi", name="RSI", category="Momentum", placement="pane",
@@ -1083,12 +1290,17 @@ from .volatility.volatility_bands import (  # noqa: E402
     SPEC_BOLLINGER_BANDWIDTH,
     SPEC_BOLLINGER_PERCENT_B,
     SPEC_KAMA,
+    SPEC_MA_CHANNEL,
+    SPEC_STANDARD_ERROR_BANDS,
 )
 from .volatility.volatility_chop import (  # noqa: E402
     SPEC_AVERAGE_DAILY_RANGE,
+    SPEC_CHAIKIN_VOLATILITY,
     SPEC_CHOP_ZONE,
     SPEC_CHOPPINESS_INDEX,
     SPEC_HISTORICAL_VOLATILITY,
+    SPEC_STANDARD_DEVIATION,
+    SPEC_STANDARD_ERROR,
 )
 from .volatility.volatility_stops import (  # noqa: E402
     SPEC_CHANDE_KROLL_STOP,
@@ -1112,6 +1324,7 @@ from .volume.volume_indices import (  # noqa: E402
 )
 from .volume.volume_simple import (  # noqa: E402
     SPEC_ADL,
+    SPEC_NET_VOLUME,
     SPEC_PVT,
     SPEC_VOLUME,
 )
@@ -1142,6 +1355,11 @@ for _spec in (
     SPEC_BOLLINGER_BANDWIDTH,
     SPEC_BB_TREND,
     SPEC_KAMA,
+    SPEC_MA_CHANNEL,
+    SPEC_STANDARD_ERROR_BANDS,
+    SPEC_CHAIKIN_VOLATILITY,
+    SPEC_STANDARD_DEVIATION,
+    SPEC_STANDARD_ERROR,
     SPEC_CHOPPINESS_INDEX,
     SPEC_HISTORICAL_VOLATILITY,
     SPEC_AVERAGE_DAILY_RANGE,
@@ -1150,6 +1368,7 @@ for _spec in (
     SPEC_CHANDELIER_EXIT,
     SPEC_CHANDE_KROLL_STOP,
     SPEC_ADL,
+    SPEC_NET_VOLUME,
     SPEC_VOLUME,
     SPEC_PVT,
     SPEC_CHAIKIN_MONEY_FLOW,
@@ -1175,6 +1394,7 @@ from .studies.studies_complex import (  # noqa: E402
     SPEC_VORTEX,
 )
 from .studies.studies_signals import (  # noqa: E402
+    SPEC_CONSOLIDATION_BREAKOUT,
     SPEC_RSI_DIVERGENCE,
     SPEC_TREND_STRENGTH_INDEX,
     SPEC_WAVETREND,
@@ -1195,6 +1415,7 @@ from .studies.studies_trend import (  # noqa: E402
     SPEC_ICHIMOKU,
     SPEC_PARABOLIC_SAR,
 )
+from .seasonality import SPEC_SEASONALITY  # noqa: E402
 
 for _spec in (
     SPEC_MOMENTUM,
@@ -1213,10 +1434,12 @@ for _spec in (
     SPEC_RELATIVE_VIGOR_INDEX,
     SPEC_RELATIVE_VOLATILITY_INDEX,
     SPEC_RSI_DIVERGENCE,
+    SPEC_CONSOLIDATION_BREAKOUT,
     SPEC_TREND_STRENGTH_INDEX,
     SPEC_WILLIAMS_FRACTALS,
     SPEC_WILLIAMS_VIX_FIX,
     SPEC_WAVETREND,
+    SPEC_SEASONALITY,
 ):
     register_indicator(_spec)
 

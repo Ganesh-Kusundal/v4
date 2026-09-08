@@ -12,6 +12,8 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from tradex_trading.analytics.indicators import IndicatorSpec
+
 DEFAULT_TIMEZONE = "Asia/Kolkata"
 POS_DEFAULT = "#089981"
 NEG_DEFAULT = "#F23745"
@@ -283,3 +285,46 @@ def compute_seasonality(bars: list[dict[str, Any]], params: dict[str, Any]) -> d
         "tableHeight": float(params.get("table_height", 95)),
     }
     return _build_table(bars, settings)
+
+
+def _fn_seasonality(
+    candles: list,
+    startYear: int = 2015,
+    cutoffPercent: float = 10.0,
+    tablePosition: str = "Center",
+    tableWidth: int = 100,
+    tableHeight: int = 95,
+    showAvg: bool = True,
+    showStDev: bool = True,
+    showPos: bool = True,
+    ignoredMonths: str = "",
+) -> dict[str, list]:
+    """Seasonality line — all-None by engine design (openalgo-charts parity).
+
+    Matches ``SEASONALITY.calc`` (src/indicators/seasonality.ts): the plot
+    draws nothing and only owns the pane; the heatmap matrix ships through
+    the table hook (see ``compute_seasonality`` above). Params mirror the
+    engine inputs so the catalogue exposes the same settings surface.
+    """
+    return {"seasonality": [None] * len(candles)}
+
+
+SPEC_SEASONALITY = IndicatorSpec(
+    id="seasonality",
+    name="Seasonality",
+    category="Trend",
+    placement="pane",
+    params=(
+        ("startYear", "int", 2015),
+        ("cutoffPercent", "float", 10.0),
+        ("tablePosition", "select", "Center"),
+        ("tableWidth", "int", 100),
+        ("tableHeight", "int", 95),
+        ("showAvg", "bool", True),
+        ("showStDev", "bool", True),
+        ("showPos", "bool", True),
+        ("ignoredMonths", "text", ""),
+    ),
+    plots=(("seasonality", "line", "Seasonality"),),
+    fn=_fn_seasonality,
+)

@@ -46,9 +46,14 @@ import math
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
     _change,
+    _ema_of_gapped,
     _rolling_sum,
+    _shift,
+    _sma_seeded_ema,
+    _sma_skip_none,
     _to_float,
     sma,
+    wma,
 )
 
 
@@ -387,8 +392,177 @@ __all__ = [
     "bollinger_bandwidth",
     "bollinger_percent_b",
     "kama",
+    "ma_channel",
+    "standard_error_bands",
     "SPEC_BB_TREND",
     "SPEC_BOLLINGER_BANDWIDTH",
     "SPEC_BOLLINGER_PERCENT_B",
     "SPEC_KAMA",
+    "SPEC_MA_CHANNEL",
+    "SPEC_STANDARD_ERROR_BANDS",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Standard Error Bands / MA Channel
+# ---------------------------------------------------------------------------
+
+
+def _closes(candles: list) -> list[float]:
+    return [_to_float(c.ohlc.close.value) for c in candles]
+
+
+def _linreg_endpoint(values: list[float], period: int) -> list[float | None]:
+    """Least-squares endpoint value (openalgo-charts parity, calc.ts linreg).
+
+    ``out[i] = intercept + slope*(period-1)`` over ``x = 0..period-1``.
+    None before index ``period - 1``; None when ``period <= 1`` or the
+    denominator is 0.
+    """
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period <= 1 or n < period:
+        return out
+    sum_x = period * (period - 1) / 2
+    sum_x2 = (period - 1) * period * (2 * period - 1) / 6
+    denom = period * sum_x2 - sum_x * sum_x
+    if denom == 0:
+        return out
+    for i in range(period - 1, n):
+        window = values[i - period + 1 : i + 1]
+        sum_y = sum(window)
+        sum_xy = sum(k * v for k, v in enumerate(window))
+        slope = (period * sum_xy - sum_x * sum_y) / denom
+        intercept = (sum_y - slope * sum_x) / period
+        out[i] = intercept + slope * (period - 1)
+    return out
+
+
+def _standard_error(values: list[float], period: int) -> list[float | None]:
+    """Standard error of the regression fit (openalgo-charts parity).
+
+    Matches ``standardError`` (src/indicators/overlay.ts):
+    ``sqrt((Syy - Sxy^2/Sxx)/(period-2))``. All-None when ``period < 3``.
+    """
+    n = len(values)
+    out: list[float | None] = [None] * n
+    if period < 3 or n < period:
+        return out
+    mean_x = (period + 1) / 2
+    for i in range(period - 1, n):
+        window = values[i - period + 1 : i + 1]
+        mean_y = sum(window) / period
+        syy = 0.0
+        sxy = 0.0
+        sxx = 0.0
+        for k in range(period):
+            dy = mean_y - window[period - 1 - k]
+            dx = mean_x - k - 1
+            syy += dy * dy
+            sxy += dx * dy
+            sxx += dx * dx
+        out[i] = math.sqrt(max(0.0, (syy - (sxy * sxy) / sxx) / (period - 2)))
+    return out
+
+
+def _smooth(values: list[float | None], method: str, average_periods: int) -> list[float | None]:
+    if method == "Exponential":
+        return _ema_of_gapped(values, average_periods)
+    if method == "Weighted":
+        return wma(values, average_periods)
+    return _sma_skip_none(values, average_periods)
+
+
+def standard_error_bands(
+    candles: list,
+    periods: int = 21,
+    errors: float = 2.0,
+    method: str = "Simple",
+    average_periods: int = 3,
+) -> dict[str, list]:
+    """Standard Error Bands (openalgo-charts parity, overlay.ts).
+
+    Regression endpoint ± errors×standard-error, each leg smoothed with the
+    selected method. Source fixed to close. First print at
+    ``(periods-1) + (average_periods-1)``.
+    """
+    periods = max(3, int(periods))
+    avg = max(1, int(average_periods))
+    mult = float(errors)
+    closes = _closes(candles)
+    se = _standard_error(closes, periods)
+    mid = _linreg_endpoint(closes, periods)
+    upper_raw = [None if m is None or s is None else m + mult * s for m, s in zip(mid, se)]
+    lower_raw = [None if m is None or s is None else m - mult * s for m, s in zip(mid, se)]
+    return {
+        "upper": _smooth(upper_raw, str(method), avg),
+        "basis": _smooth(mid, str(method), avg),
+        "lower": _smooth(lower_raw, str(method), avg),
+    }
+
+
+def ma_channel(
+    candles: list,
+    upper_length: int = 20,
+    lower_length: int = 20,
+    upper_offset: int = 0,
+    lower_offset: int = 0,
+) -> dict[str, list]:
+    """MA Channel — displaced SMAs of highs/lows (openalgo-charts parity).
+
+    Matches ``MA_CHANNEL`` (src/indicators/overlay.ts): ``upper =
+    shift(sma(high, upperLength), upperOffset)`` and mirror for lows.
+    """
+    n = len(candles)
+    highs = [_to_float(c.ohlc.high.value) for c in candles]
+    lows = [_to_float(c.ohlc.low.value) for c in candles]
+    return {
+        "upper": _shift(sma(highs, int(upper_length)), int(upper_offset)),
+        "lower": _shift(sma(lows, int(lower_length)), int(lower_offset)),
+    }
+
+
+def _fn_standard_error_bands(candles, periods, errors, method, averagePeriods):
+    return standard_error_bands(candles, int(periods), float(errors), str(method), int(averagePeriods))
+
+
+def _fn_ma_channel(candles, upperLength, lowerLength, upperOffset, lowerOffset):
+    return ma_channel(candles, int(upperLength), int(lowerLength), int(upperOffset), int(lowerOffset))
+
+
+SPEC_STANDARD_ERROR_BANDS = IndicatorSpec(
+    id="standard-error-bands",
+    name="Standard Error Bands",
+    category="Volatility",
+    placement="overlay",
+    params=(
+        ("periods", "int", 21),
+        ("errors", "float", 2.0),
+        ("method", "select", "Simple"),
+        ("averagePeriods", "int", 3),
+    ),
+    plots=(
+        ("upper", "line", "SEB Upper"),
+        ("basis", "line", "SEB Basis"),
+        ("lower", "line", "SEB Lower"),
+    ),
+    fn=_fn_standard_error_bands,
+)
+
+SPEC_MA_CHANNEL = IndicatorSpec(
+    id="ma-channel",
+    name="MA Channel",
+    category="Volatility",
+    placement="overlay",
+    params=(
+        ("upperLength", "int", 20),
+        ("lowerLength", "int", 20),
+        ("upperOffset", "int", 0),
+        ("lowerOffset", "int", 0),
+    ),
+    plots=(
+        ("upper", "line", "MAC Upper"),
+        ("lower", "line", "MAC Lower"),
+    ),
+    fn=_fn_ma_channel,
+)

@@ -584,6 +584,88 @@ def _fn_wavetrend(candles: list, n1: int, n2: int, sig_len: int) -> dict[str, li
     return wavetrend(candles, int(n1), int(n2), int(sig_len))
 
 
+# ---------------------------------------------------------------------------
+# Consolidation Breakout
+# ---------------------------------------------------------------------------
+
+
+def consolidation_breakout(candles: list) -> dict[str, list]:
+    """Inside-range rails with body-breakout signals (openalgo-charts parity).
+
+    Matches ``CONSOLIDATION_BREAKOUT`` (src/indicators/signals.ts): the range
+    mother is the most recent non-inside bar; a bar is inside when its whole
+    body sits inside the mother's high/low; breakouts need age > 1 and <=
+    250 and trigger on body extremes beyond the rail. Rails print on held
+    bars only (None on breakout bars so the renderer breaks the line); bar 0
+    seeds its own range. Hidden ``insideAge`` supports the tint hook.
+    """
+    from tradex_trading.analytics.indicators import _to_float
+
+    n = len(candles)
+    opens = [_to_float(c.ohlc.open.value) for c in candles]
+    highs = [_to_float(c.ohlc.high.value) for c in candles]
+    lows = [_to_float(c.ohlc.low.value) for c in candles]
+    closes = [_to_float(c.ohlc.close.value) for c in candles]
+    range_high: list[float | None] = [None] * n
+    range_low: list[float | None] = [None] * n
+    break_up: list[float | None] = [None] * n
+    break_down: list[float | None] = [None] * n
+    inside_age: list[float | None] = [None] * n
+    main = 0
+    for i in range(n):
+        body_top = max(opens[i], closes[i])
+        body_bottom = min(opens[i], closes[i])
+        mother_high = highs[main]
+        mother_low = lows[main]
+        age = i - main
+        if age > 1 and age <= 250:
+            if body_top > mother_high:
+                break_up[i] = mother_high
+            if body_bottom < mother_low:
+                break_down[i] = mother_low
+        inside = (
+            i > 1
+            and mother_low <= body_bottom <= mother_high
+            and mother_low <= body_top <= mother_high
+        )
+        prev = main
+        main = main if inside else i
+        if main == prev:
+            range_high[i] = highs[main]
+            range_low[i] = lows[main]
+        held = i - main
+        if held > 0:
+            inside_age[i] = float(held)
+    return {
+        "rangeHigh": range_high,
+        "rangeLow": range_low,
+        "breakUp": break_up,
+        "breakDown": break_down,
+        "insideAge": inside_age,
+    }
+
+
+def _fn_consolidation_breakout(candles: list) -> dict[str, list]:
+    return consolidation_breakout(candles)
+
+
+SPEC_CONSOLIDATION_BREAKOUT = IndicatorSpec(
+    id="consolidation-breakout",
+    name="Consolidation Breakout",
+    category="Trend",
+    placement="overlay",
+    params=(),
+    plots=(
+        ("rangeHigh", "line", "Range High"),
+        ("rangeLow", "line", "Range Low"),
+        ("breakUp", "line", "Break Up"),
+        ("breakDown", "line", "Break Down"),
+        ("insideAge", "line", "Inside Age"),
+    ),
+    fn=_fn_consolidation_breakout,
+)
+
+
 SPEC_RSI_DIVERGENCE = IndicatorSpec(
     id="rsi-divergence",
     name="RSI Divergence Indicator",
@@ -667,14 +749,17 @@ SPECS = [
     SPEC_WILLIAMS_FRACTALS,
     SPEC_WILLIAMS_VIX_FIX,
     SPEC_WAVETREND,
+    SPEC_CONSOLIDATION_BREAKOUT,
 ]
 
 __all__ = [
+    "consolidation_breakout",
     "rsi_divergence",
     "trend_strength_index",
     "williams_fractals",
     "williams_vix_fix",
     "wavetrend",
+    "SPEC_CONSOLIDATION_BREAKOUT",
     "SPEC_RSI_DIVERGENCE",
     "SPEC_TREND_STRENGTH_INDEX",
     "SPEC_WILLIAMS_FRACTALS",

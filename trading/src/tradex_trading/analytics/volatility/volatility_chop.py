@@ -240,6 +240,114 @@ def _fn_chop_zone(candles):
     return chop_zone(candles)
 
 
+# ---------------------------------------------------------------------------
+# Standard Deviation / Standard Error / Chaikin Volatility
+# ---------------------------------------------------------------------------
+
+
+def standard_deviation(candles: list, periods: int = 5, deviations: float = 1.0) -> dict[str, list]:
+    """Population stdev of closes × multiplier (openalgo-charts parity).
+
+    Matches ``STDDEV`` (src/indicators/volatility.ts): same band width a
+    Bollinger set would draw. None before index ``periods - 1``.
+    """
+    closes = _closes(candles)
+    return {"stdDev": [None if v is None else v * float(deviations) for v in _stdev_gapped(closes, int(periods))]}
+
+
+def standard_error(candles: list, length: int = 14) -> dict[str, list]:
+    """Standard error of the linear-regression fit (openalgo-charts parity).
+
+    Matches ``STDERR`` (src/indicators/volatility.ts):
+    ``sqrt((Syy - Sxy^2/Sxx)/(len-2))`` with ``x = 1..len`` spacing,
+    ``xBar = (len+1)/2``, ``Sxx`` loop-invariant. Length clamped to >= 3.
+    None before index ``len - 1``.
+    """
+    length = max(3, int(length))
+    closes = _closes(candles)
+    n = len(closes)
+    out: list[float | None] = [None] * n
+    x_bar = (length + 1) / 2
+    sxx = sum((x_bar - k - 1) ** 2 for k in range(length))
+    for i in range(length - 1, n):
+        mean = sum(closes[i - k] for k in range(length)) / length
+        syy = 0.0
+        sxy = 0.0
+        for k in range(length):
+            dy = mean - closes[i - k]
+            syy += dy * dy
+            sxy += (x_bar - k - 1) * dy
+        radicand = (syy - (sxy * sxy) / sxx) / (length - 2)
+        out[i] = math.sqrt(max(0.0, radicand))
+    return {"stdErr": out}
+
+
+def chaikin_volatility(candles: list, periods: int = 10, roc_lookback: int = 10) -> dict[str, list]:
+    """Chaikin Volatility — ROC of the EMA-smoothed high-low range.
+
+    Matches ``CHAIKINVOL`` (src/indicators/volatility.ts): SMA-seeded EMA of
+    ``high - low``, then ``100*(em[i]-em[i-lookback])/em[i-lookback]`` with a
+    zero denominator yielding None (never ±Inf). Total warmup
+    ``(periods-1) + lookback`` Nones.
+    """
+    periods = int(periods)
+    lookback = int(roc_lookback)
+    hl = [_highs(candles)[i] - _lows(candles)[i] for i in range(len(candles))]
+    em = _sma_seeded_ema(hl, periods)
+    n = len(hl)
+    out: list[float | None] = [None] * n
+    for i in range(n):
+        cur, base = em[i], em[i - lookback] if i - lookback >= 0 else None
+        if cur is None or base is None or base == 0:
+            continue
+        out[i] = 100.0 * (cur - base) / base
+    return {"chaikinVolatility": out}
+
+
+def _fn_stddev(candles, periods, deviations):
+    return standard_deviation(candles, int(periods), float(deviations))
+
+
+def _fn_stderr(candles, length):
+    return standard_error(candles, int(length))
+
+
+def _fn_chaikin_vol(candles, periods, rocLookback):
+    return chaikin_volatility(candles, int(periods), int(rocLookback))
+
+
+SPEC_STANDARD_DEVIATION = IndicatorSpec(
+    id="standard-deviation",
+    name="Standard Deviation",
+    category="Volatility",
+    placement="pane",
+    params=(("periods", "int", 5), ("deviations", "float", 1.0)),
+    plots=(("stdDev", "line", "StdDev"),),
+    fn=_fn_stddev,
+)
+
+SPEC_STANDARD_ERROR = IndicatorSpec(
+    id="standard-error",
+    name="Standard Error",
+    category="Volatility",
+    placement="pane",
+    params=(("length", "int", 14),),
+    plots=(("stdErr", "line", "StdErr"),),
+    fn=_fn_stderr,
+)
+
+SPEC_CHAIKIN_VOLATILITY = IndicatorSpec(
+    id="chaikin-volatility",
+    name="Chaikin Volatility",
+    category="Volatility",
+    placement="pane",
+    params=(("periods", "int", 10), ("rocLookback", "int", 10)),
+    plots=(("chaikinVolatility", "line", "Chaikin Volatility"),),
+    levels=({"value": 0},),
+    fn=_fn_chaikin_vol,
+)
+
+
 SPEC_CHOPPINESS_INDEX = IndicatorSpec(
     id="choppiness-index",
     name="Choppiness Index",
@@ -286,11 +394,17 @@ SPEC_CHOP_ZONE = IndicatorSpec(
 
 __all__ = [
     "average_daily_range",
+    "chaikin_volatility",
     "choppiness_index",
     "chop_zone",
     "historical_volatility",
+    "standard_deviation",
+    "standard_error",
     "SPEC_AVERAGE_DAILY_RANGE",
+    "SPEC_CHAIKIN_VOLATILITY",
     "SPEC_CHOPPINESS_INDEX",
     "SPEC_CHOP_ZONE",
     "SPEC_HISTORICAL_VOLATILITY",
+    "SPEC_STANDARD_DEVIATION",
+    "SPEC_STANDARD_ERROR",
 ]
