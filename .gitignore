@@ -59,3 +59,13 @@ data/ohlcv/
 # only source, package.json and the lockfile are tracked.
 frontend/node_modules/
 frontend/dist/
+
+# Nested engine clone (independent repo; build via npm ci + npm run build)
+openalgo-charts/
+
+# Time-series model experiment scratch
+poc/
+
+# Runtime state (tokens, instrument dumps; regenerate via broker connect)
+trading/runtime/
+trading/data/
