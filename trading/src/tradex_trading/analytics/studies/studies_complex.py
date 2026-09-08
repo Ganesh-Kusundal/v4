@@ -51,6 +51,7 @@ from typing import Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    LEGACY_PARAM_ALIASES,
     _change,
     _rma,
     _rolling_sum,
@@ -60,6 +61,27 @@ from tradex_trading.analytics.indicators import (
 )
 from tradex_trading.analytics.studies.studies_simple import _src_val, _vwma
 from tradex_trading.analytics.volume.volume_flow import _sma_skip_none
+
+LEGACY_PARAM_ALIASES["cpr"] = {
+    "pivot_mode": "pivotMode",
+    "show_daily": "showDaily",
+    "show_weekly": "showWeekly",
+    "show_monthly": "showMonthly",
+    "display_pivots": "displaypivots",
+    "display_support": "displaysupport",
+    "display_resistance": "displayresistance",
+    "display_cpr": "displaycpr",
+    "display_s1r1": "displayS1R1",
+}
+LEGACY_PARAM_ALIASES["range-analysis"] = {
+    "show_average": "showAverage",
+    "avg_length": "avgLength",
+}
+LEGACY_PARAM_ALIASES["relative-volatility-index"] = {
+    "ma_type": "maType",
+    "ma_length": "maLength",
+    "bb_mult": "bbMult",
+}
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -628,32 +650,32 @@ def relative_volatility_index(
 
 def _fn_cpr(
     candles: list,
-    pivot_mode: str,
-    show_daily: bool,
-    show_weekly: bool,
-    show_monthly: bool,
-    display_pivots: bool,
-    display_support: bool,
-    display_resistance: bool,
-    display_cpr: bool,
-    display_s1r1: bool,
+    pivotMode: str,
+    showDaily: bool,
+    showWeekly: bool,
+    showMonthly: bool,
+    displaypivots: bool,
+    displaysupport: bool,
+    displayresistance: bool,
+    displaycpr: bool,
+    displayS1R1: bool,
 ) -> dict[str, list]:
     return cpr(
         candles,
-        pivot_mode=pivot_mode,
-        show_daily=bool(show_daily),
-        show_weekly=bool(show_weekly),
-        show_monthly=bool(show_monthly),
-        display_pivots=bool(display_pivots),
-        display_support=bool(display_support),
-        display_resistance=bool(display_resistance),
-        display_cpr=bool(display_cpr),
-        display_s1r1=bool(display_s1r1),
+        pivot_mode=pivotMode,
+        show_daily=bool(showDaily),
+        show_weekly=bool(showWeekly),
+        show_monthly=bool(showMonthly),
+        display_pivots=bool(displaypivots),
+        display_support=bool(displaysupport),
+        display_resistance=bool(displayresistance),
+        display_cpr=bool(displaycpr),
+        display_s1r1=bool(displayS1R1),
     )
 
 
-def _fn_range_analysis(candles: list, show_average: bool, avg_length: int) -> dict[str, list]:
-    return range_analysis(candles, bool(show_average), int(avg_length))
+def _fn_range_analysis(candles: list, showAverage: bool, avgLength: int) -> dict[str, list]:
+    return range_analysis(candles, bool(showAverage), int(avgLength))
 
 
 def _fn_vortex(candles: list, length: int) -> dict[str, list]:
@@ -668,12 +690,12 @@ def _fn_relative_volatility_index(
     candles: list,
     length: int,
     offset: int,
-    ma_type: str,
-    ma_length: int,
-    bb_mult: float,
+    maType: str,
+    maLength: int,
+    bbMult: float,
 ) -> dict[str, list]:
     return relative_volatility_index(
-        candles, int(length), int(offset), ma_type, int(ma_length), float(bb_mult)
+        candles, int(length), int(offset), maType, int(maLength), float(bbMult)
     )
 
 
@@ -689,15 +711,15 @@ SPEC_CPR = IndicatorSpec(
     category="Trend",
     placement="overlay",
     params=(
-        ("pivot_mode", "select", "auto"),
-        ("show_daily", "bool", True),
-        ("show_weekly", "bool", False),
-        ("show_monthly", "bool", False),
-        ("display_pivots", "bool", True),
-        ("display_support", "bool", True),
-        ("display_resistance", "bool", True),
-        ("display_cpr", "bool", True),
-        ("display_s1r1", "bool", False),
+        ("pivotMode", "select", "auto"),
+        ("showDaily", "bool", True),
+        ("showWeekly", "bool", False),
+        ("showMonthly", "bool", False),
+        ("displaypivots", "bool", True),
+        ("displaysupport", "bool", True),
+        ("displayresistance", "bool", True),
+        ("displaycpr", "bool", True),
+        ("displayS1R1", "bool", False),
     ),
     plots=_CPR_PLOTS,
     fn=_fn_cpr,
@@ -709,8 +731,8 @@ SPEC_RANGE_ANALYSIS = IndicatorSpec(
     category="Volatility",
     placement="pane",
     params=(
-        ("show_average", "bool", False),
-        ("avg_length", "int", 3),
+        ("showAverage", "bool", False),
+        ("avgLength", "int", 3),
     ),
     plots=(
         ("range", "histogram", "Range"),
@@ -758,9 +780,9 @@ SPEC_RELATIVE_VOLATILITY_INDEX = IndicatorSpec(
     params=(
         ("length", "int", 10),
         ("offset", "int", 0),
-        ("ma_type", "select", "SMA"),
-        ("ma_length", "int", 14),
-        ("bb_mult", "float", 2),
+        ("maType", "select", "SMA"),
+        ("maLength", "int", 14),
+        ("bbMult", "float", 2),
     ),
     plots=(
         ("rvi", "line", "RVI"),

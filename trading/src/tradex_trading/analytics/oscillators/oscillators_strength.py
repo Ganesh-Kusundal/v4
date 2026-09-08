@@ -13,11 +13,41 @@ from typing import Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    LEGACY_PARAM_ALIASES,
     _change,
     _ema_of_gapped,
     _highest,
     _lowest,
 )
+
+LEGACY_PARAM_ALIASES["ppo"] = {
+    "fast_length": "fastLength",
+    "slow_length": "slowLength",
+    "signal_length": "signalLength",
+    "osc_type": "oscType",
+    "sig_type": "sigType",
+}
+LEGACY_PARAM_ALIASES["trix"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["tsi"] = {
+    "long_length": "long",
+    "short_length": "short",
+    "signal_length": "signal",
+}
+LEGACY_PARAM_ALIASES["smi"] = {
+    "length_k": "lengthK",
+    "length_d": "lengthD",
+    "length_ema": "lengthEMA",
+}
+LEGACY_PARAM_ALIASES["smi-ergodic-indicator"] = {
+    "long_length": "longlen",
+    "short_length": "shortlen",
+    "signal_length": "siglen",
+}
+LEGACY_PARAM_ALIASES["smi-ergodic-oscillator"] = {
+    "long_length": "longlen",
+    "short_length": "shortlen",
+    "signal_length": "siglen",
+}
 
 __all__ = [
     "mfi",
@@ -334,28 +364,28 @@ def _fn_mfi(candles, period):
     return mfi(candles, int(period))
 
 
-def _fn_ppo(candles, fast_length, slow_length, signal_length, osc_type, sig_type):
-    return ppo(candles, int(fast_length), int(slow_length), int(signal_length), str(osc_type), str(sig_type))
+def _fn_ppo(candles, fastLength, slowLength, signalLength, oscType, sigType):
+    return ppo(candles, int(fastLength), int(slowLength), int(signalLength), str(oscType), str(sigType))
 
 
-def _fn_trix(candles, period):
-    return trix(candles, int(period))
+def _fn_trix(candles, length):
+    return trix(candles, int(length))
 
 
-def _fn_tsi(candles, long_length, short_length, signal_length):
-    return tsi(candles, int(long_length), int(short_length), int(signal_length))
+def _fn_tsi(candles, long, short, signal):
+    return tsi(candles, int(long), int(short), int(signal))
 
 
-def _fn_smi(candles, length_k, length_d, length_ema):
-    return smi(candles, int(length_k), int(length_d), int(length_ema))
+def _fn_smi(candles, lengthK, lengthD, lengthEMA):
+    return smi(candles, int(lengthK), int(lengthD), int(lengthEMA))
 
 
-def _fn_smi_ergodic_indicator(candles, long_length, short_length, signal_length):
-    return smi_ergodic_indicator(candles, int(long_length), int(short_length), int(signal_length))
+def _fn_smi_ergodic_indicator(candles, longlen, shortlen, siglen):
+    return smi_ergodic_indicator(candles, int(longlen), int(shortlen), int(siglen))
 
 
-def _fn_smi_ergodic_oscillator(candles, long_length, short_length, signal_length):
-    return smi_ergodic_oscillator(candles, int(long_length), int(short_length), int(signal_length))
+def _fn_smi_ergodic_oscillator(candles, longlen, shortlen, siglen):
+    return smi_ergodic_oscillator(candles, int(longlen), int(shortlen), int(siglen))
 
 
 SPEC_MFI = IndicatorSpec(
@@ -375,11 +405,11 @@ SPEC_PPO = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("fast_length", "int", 12),
-        ("slow_length", "int", 26),
-        ("signal_length", "int", 9),
-        ("osc_type", "string", "EMA"),
-        ("sig_type", "string", "EMA"),
+        ("fastLength", "int", 12),
+        ("slowLength", "int", 26),
+        ("signalLength", "int", 9),
+        ("oscType", "string", "EMA"),
+        ("sigType", "string", "EMA"),
     ),
     plots=(
         ("ppo", "line", "PPO"),
@@ -395,7 +425,7 @@ SPEC_TRIX = IndicatorSpec(
     name="TRIX",
     category="Momentum",
     placement="pane",
-    params=(("period", "int", 18),),
+    params=(("length", "int", 18),),
     plots=(("value", "line", "TRIX"),),
     levels=({"value": 0},),
     fn=_fn_trix,
@@ -407,9 +437,9 @@ SPEC_TSI = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("long_length", "int", 25),
-        ("short_length", "int", 13),
-        ("signal_length", "int", 13),
+        ("long", "int", 25),
+        ("short", "int", 13),
+        ("signal", "int", 13),
     ),
     plots=(
         ("tsi", "line", "TSI"),
@@ -425,9 +455,9 @@ SPEC_SMI = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("length_k", "int", 10),
-        ("length_d", "int", 3),
-        ("length_ema", "int", 3),
+        ("lengthK", "int", 10),
+        ("lengthD", "int", 3),
+        ("lengthEMA", "int", 3),
     ),
     plots=(
         ("smi", "line", "SMI"),
@@ -443,9 +473,9 @@ SPEC_SMI_ERGODIC_INDICATOR = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("long_length", "int", 20),
-        ("short_length", "int", 5),
-        ("signal_length", "int", 5),
+        ("longlen", "int", 20),
+        ("shortlen", "int", 5),
+        ("siglen", "int", 5),
     ),
     plots=(
         ("erg", "line", "SMI"),
@@ -460,9 +490,9 @@ SPEC_SMI_ERGODIC_OSCILLATOR = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("long_length", "int", 20),
-        ("short_length", "int", 5),
-        ("signal_length", "int", 5),
+        ("longlen", "int", 20),
+        ("shortlen", "int", 5),
+        ("siglen", "int", 5),
     ),
     plots=(("osc", "histogram", "Oscillator"),),
     fn=_fn_smi_ergodic_oscillator,

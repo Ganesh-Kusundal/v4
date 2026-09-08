@@ -38,6 +38,7 @@ import math
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    LEGACY_PARAM_ALIASES,
     _bars_since,
     _ema_of_gapped,
     _shift,
@@ -45,6 +46,9 @@ from tradex_trading.analytics.indicators import (
     _to_float,
     rsi,
 )
+
+LEGACY_PARAM_ALIASES["rsi-divergence"] = {"lb_r": "lbR", "lb_l": "lbL"}
+LEGACY_PARAM_ALIASES["wavetrend"] = {"sig_len": "sigLen"}
 
 # ---------------------------------------------------------------------------
 # Reference calc.ts primitives (never exported; module-private by convention)
@@ -562,8 +566,8 @@ def wavetrend(
 # ---------------------------------------------------------------------------
 
 
-def _fn_rsi_divergence(candles: list, length: int, lb_r: int, lb_l: int) -> dict[str, list]:
-    return rsi_divergence(candles, int(length), int(lb_r), int(lb_l))
+def _fn_rsi_divergence(candles: list, length: int, lbR: int, lbL: int) -> dict[str, list]:
+    return rsi_divergence(candles, int(length), int(lbR), int(lbL))
 
 
 def _fn_trend_strength_index(candles: list, length: int) -> dict[str, list]:
@@ -580,8 +584,8 @@ def _fn_williams_vix_fix(
     return williams_vix_fix(candles, int(pd), int(bbl), float(mult), int(lb), float(ph), float(pl))
 
 
-def _fn_wavetrend(candles: list, n1: int, n2: int, sig_len: int) -> dict[str, list]:
-    return wavetrend(candles, int(n1), int(n2), int(sig_len))
+def _fn_wavetrend(candles: list, n1: int, n2: int, sigLen: int) -> dict[str, list]:
+    return wavetrend(candles, int(n1), int(n2), int(sigLen))
 
 
 # ---------------------------------------------------------------------------
@@ -645,7 +649,9 @@ def consolidation_breakout(candles: list) -> dict[str, list]:
     }
 
 
-def _fn_consolidation_breakout(candles: list) -> dict[str, list]:
+def _fn_consolidation_breakout(candles: list, markbreakout: bool = True, colorinside: bool = True) -> dict[str, list]:
+    # markbreakout/colorinside drive markers/barColors hooks in the engine;
+    # the backend always computes the full signal set (presentation-only).
     return consolidation_breakout(candles)
 
 
@@ -654,7 +660,7 @@ SPEC_CONSOLIDATION_BREAKOUT = IndicatorSpec(
     name="Consolidation Breakout",
     category="Trend",
     placement="overlay",
-    params=(),
+    params=(("markbreakout", "bool", True), ("colorinside", "bool", True)),
     plots=(
         ("rangeHigh", "line", "Range High"),
         ("rangeLow", "line", "Range Low"),
@@ -673,8 +679,8 @@ SPEC_RSI_DIVERGENCE = IndicatorSpec(
     placement="pane",
     params=(
         ("length", "int", 14),
-        ("lb_r", "int", 5),
-        ("lb_l", "int", 5),
+        ("lbR", "int", 5),
+        ("lbL", "int", 5),
     ),
     plots=(("rsi", "line", "RSI"),),
     levels=({"value": 70}, {"value": 50}, {"value": 30}),
@@ -732,7 +738,7 @@ SPEC_WAVETREND = IndicatorSpec(
     params=(
         ("n1", "int", 10),
         ("n2", "int", 21),
-        ("sig_len", "int", 4),
+        ("sigLen", "int", 4),
     ),
     plots=(
         ("mom", "histogram", "Momentum"),

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import math
 
-from tradex_trading.analytics.indicators import IndicatorSpec, _to_float, atr, true_ranges
+from tradex_trading.analytics.indicators import IndicatorSpec, LEGACY_PARAM_ALIASES, _to_float, atr, true_ranges
 
 __all__ = [
     "SPEC_CHANDE_KROLL_STOP",
@@ -268,8 +268,8 @@ def _fn_volatility_stop(candles, length=20, factor=2, source="close"):
     return volatility_stop(candles, int(length), float(factor), str(source))
 
 
-def _fn_chandelier(candles, length=22, atr_length=22, atr_multiplier=3):
-    return chandelier_exit(candles, int(length), int(atr_length), float(atr_multiplier))
+def _fn_chandelier(candles, length=22, atrLength=22, atrMultiplier=3):
+    return chandelier_exit(candles, int(length), int(atrLength), float(atrMultiplier))
 
 
 def _fn_chande_kroll(candles, p=10, x=1, q=9):
@@ -300,8 +300,8 @@ SPEC_CHANDELIER_EXIT = IndicatorSpec(
     placement="overlay",
     params=(
         ("length", "int", 22),
-        ("atr_length", "int", 22),
-        ("atr_multiplier", "float", 3.0),
+        ("atrLength", "int", 22),
+        ("atrMultiplier", "float", 3.0),
     ),
     plots=(
         ("long", "line", "Long"),
@@ -328,3 +328,9 @@ SPEC_CHANDE_KROLL_STOP = IndicatorSpec(
     ),
     fn=_fn_chande_kroll,
 )
+
+
+LEGACY_PARAM_ALIASES["chandelier-exit"] = {
+    "atr_length": "atrLength",
+    "atr_multiplier": "atrMultiplier",
+}

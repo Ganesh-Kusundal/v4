@@ -635,9 +635,9 @@ def obv(candles: list) -> list[float]:
 
 def _fn_obv(
     candles: list,
-    ma_type: str = "None",
-    ma_length: int = 9,
-    bb_mult: float = 2.0,
+    maType: str = "None",
+    maLength: int = 9,
+    bbMult: float = 2.0,
 ) -> dict[str, list]:
     """OBV plus its engine smoothing companions (volume.ts ``OBV`` calc).
 
@@ -652,14 +652,14 @@ def _fn_obv(
     if n == 0:
         return {"value": [], "obv": [], "ma": [], "bbUpper": [], "bbLower": []}
     vols = [float(c.volume.value) for c in candles]
-    mt = str(ma_type)
-    length = max(1, int(ma_length))
+    mt = str(maType)
+    length = max(1, int(maLength))
     if mt == "None":
         ma: list[float | None] = [None] * n
     else:
         ma = _smoothing_ma(mt, base, vols, length)
     if mt == "SMA + Bollinger Bands":
-        mult = float(bb_mult)
+        mult = float(bbMult)
         sd = _stdev(base, length)
         band: list[float | None] = [None if v is None else v * mult for v in sd]
     else:
@@ -1278,6 +1278,14 @@ def indicator_catalogue() -> list[dict[str, Any]]:
     ]
 
 
+# Legacy backend param names, accepted as aliases for the canonical engine
+# keys. Each entry maps indicator id -> {legacy_name: engine_name}.
+# Family modules add entries as they migrate their specs to engine keys;
+# _resolve_indicator_params translates before validation so old callers
+# keep working while new callers use engine keys.
+LEGACY_PARAM_ALIASES: dict[str, dict[str, str]] = {}
+
+
 def _resolve_indicator_params(
     indicator_id: str, params: dict[str, Any] | None
 ) -> dict[str, Any]:
@@ -1292,7 +1300,12 @@ def _resolve_indicator_params(
     except KeyError:
         raise ValueError(f"unknown indicator: {indicator_id!r}") from None
     supplied = dict(params or {})
+    # Legacy backend names translate to canonical engine keys first, so old
+    # callers keep working after a spec migrates. Canonical names always win:
+    # a supplied key already matching the spec is never rewritten.
     known = {p[0] for p in spec.params}
+    aliases = LEGACY_PARAM_ALIASES.get(indicator_id, {})
+    supplied = {aliases.get(k, k) if k not in known else k: v for k, v in supplied.items()}
     unknown = set(supplied) - known
     if unknown:
         raise ValueError(f"unknown params for {indicator_id}: {sorted(unknown)}")
@@ -1336,26 +1349,26 @@ def compute_indicator(
 def _builtin_specs() -> list[IndicatorSpec]:
     closes_only = lambda candles: [_to_float(c.ohlc.close.value) for c in candles]  # noqa: E731
 
-    def _fn_sma(candles, period, source="close"):
-        return sma(_source_values(candles, source), int(period))
+    def _fn_sma(candles, length, source="close"):
+        return sma(_source_values(candles, source), int(length))
 
-    def _fn_ema(candles, period, source="close"):
-        return _sma_seeded_ema(_source_values(candles, source), int(period))
+    def _fn_ema(candles, length, source="close"):
+        return _sma_seeded_ema(_source_values(candles, source), int(length))
 
-    def _fn_wma(candles, period):
-        return wma(closes_only(candles), int(period))
+    def _fn_wma(candles, length):
+        return wma(closes_only(candles), int(length))
 
-    def _fn_hma(candles, period, source="close"):
-        return hma(_source_values(candles, source), int(period))
+    def _fn_hma(candles, length, source="close"):
+        return hma(_source_values(candles, source), int(length))
 
-    def _fn_dema(candles, period):
-        return dema(closes_only(candles), int(period))
+    def _fn_dema(candles, length):
+        return dema(closes_only(candles), int(length))
 
-    def _fn_tema(candles, period):
-        return tema(closes_only(candles), int(period))
+    def _fn_tema(candles, length):
+        return tema(closes_only(candles), int(length))
 
-    def _fn_alma(candles, period, offset, sigma):
-        return alma(closes_only(candles), int(period), float(offset), float(sigma))
+    def _fn_alma(candles, length, offset, sigma):
+        return alma(closes_only(candles), int(length), float(offset), float(sigma))
 
     def _fn_smma(candles, length, source):
         return {"smma": smma(_source_values(candles, source), int(length))}
@@ -1372,55 +1385,58 @@ def _builtin_specs() -> list[IndicatorSpec]:
             float(lengthMult), bool(visualSwitch),
         )
 
-    def _fn_rsi(candles, period, source="close"):
-        return rsi(_source_values(candles, source), int(period))
+    def _fn_rsi(candles, length, source="close"):
+        return rsi(_source_values(candles, source), int(length))
 
-    def _fn_roc(candles, period):
-        return roc(closes_only(candles), int(period))
+    def _fn_roc(candles, length):
+        return roc(closes_only(candles), int(length))
 
-    def _fn_macd(candles, fast, slow, signal, source="close"):
-        return macd(_source_values(candles, source), int(fast), int(slow), int(signal))
+    def _fn_macd(candles, fastPeriod, slowPeriod, signalPeriod, source="close"):
+        return macd(_source_values(candles, source), int(fastPeriod), int(slowPeriod), int(signalPeriod))
+
+    def _fn_stochastic(candles, kPeriod=14, kSmoothing=3, dPeriod=3):
+        return stochastic(candles, int(kPeriod), int(kSmoothing), int(dPeriod))
 
     return [
         IndicatorSpec(
             id="sma", name="SMA", category="Trend", placement="overlay",
-            params=(("period", "int", 20), ("source", "source", "close")),
+            params=(("length", "int", 20), ("source", "source", "close")),
             plots=(("value", "line", "SMA"),),
             fn=_fn_sma,
         ),
         IndicatorSpec(
             id="ema", name="EMA", category="Trend", placement="overlay",
-            params=(("period", "int", 20), ("source", "source", "close")),
+            params=(("length", "int", 20), ("source", "source", "close")),
             plots=(("value", "line", "EMA"),),
             fn=_fn_ema,
         ),
         IndicatorSpec(
             id="wma", name="WMA", category="Trend", placement="overlay",
-            params=(("period", "int", 20),),
+            params=(("length", "int", 20),),
             plots=(("value", "line", "WMA"),),
             fn=_fn_wma,
         ),
         IndicatorSpec(
             id="hma", name="HMA", category="Trend", placement="overlay",
-            params=(("period", "int", 9), ("source", "source", "close")),
+            params=(("length", "int", 9), ("source", "source", "close")),
             plots=(("value", "line", "HMA"),),
             fn=_fn_hma,
         ),
         IndicatorSpec(
             id="dema", name="DEMA", category="Trend", placement="overlay",
-            params=(("period", "int", 9),),
+            params=(("length", "int", 9),),
             plots=(("value", "line", "DEMA"),),
             fn=_fn_dema,
         ),
         IndicatorSpec(
             id="tema", name="TEMA", category="Trend", placement="overlay",
-            params=(("period", "int", 9),),
+            params=(("length", "int", 9),),
             plots=(("value", "line", "TEMA"),),
             fn=_fn_tema,
         ),
         IndicatorSpec(
             id="alma", name="ALMA", category="Trend", placement="overlay",
-            params=(("period", "int", 9), ("offset", "float", 0.85), ("sigma", "float", 6.0)),
+            params=(("length", "int", 9), ("offset", "float", 0.85), ("sigma", "float", 6.0)),
             plots=(("value", "line", "ALMA"),),
             fn=_fn_alma,
         ),
@@ -1459,21 +1475,21 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="rsi", name="RSI", category="Momentum", placement="pane",
-            params=(("period", "int", 14), ("source", "source", "close")),
+            params=(("length", "int", 14), ("source", "source", "close")),
             plots=(("value", "line", "RSI"),),
             levels=({"value": 70}, {"value": 30}),
             fn=_fn_rsi,
         ),
         IndicatorSpec(
             id="roc", name="ROC", category="Momentum", placement="pane",
-            params=(("period", "int", 10),),
+            params=(("length", "int", 10),),
             plots=(("value", "line", "ROC"),),
             levels=({"value": 0}),
             fn=_fn_roc,
         ),
         IndicatorSpec(
             id="macd", name="MACD", category="Momentum", placement="pane",
-            params=(("fast", "int", 12), ("slow", "int", 26), ("signal", "int", 9), ("source", "source", "close")),
+            params=(("fastPeriod", "int", 12), ("slowPeriod", "int", 26), ("signalPeriod", "int", 9), ("source", "source", "close")),
             plots=(
                 ("macd", "line", "MACD"),
                 ("signal", "line", "Signal"),
@@ -1485,14 +1501,14 @@ def _builtin_specs() -> list[IndicatorSpec]:
         IndicatorSpec(
             id="bollinger", name="Bollinger Bands", category="Volatility",
             placement="overlay",
-            params=(("period", "int", 20), ("num_std", "float", 2.0), ("source", "source", "close")),
+            params=(("length", "int", 20), ("stdDev", "float", 2.0), ("source", "source", "close")),
             plots=(
                 ("upper", "line", "Upper"),
                 ("middle", "line", "Middle"),
                 ("lower", "line", "Lower"),
             ),
-            fn=lambda candles, period, num_std, source="close": bollinger(
-                _source_values(candles, source), int(period), float(num_std)
+            fn=lambda candles, length, stdDev, source="close": bollinger(
+                _source_values(candles, source), int(length), float(stdDev)
             ),
         ),
         IndicatorSpec(
@@ -1530,9 +1546,9 @@ def _builtin_specs() -> list[IndicatorSpec]:
         IndicatorSpec(
             id="obv", name="OBV", category="Volume", placement="pane",
             params=(
-                ("ma_type", "select", "None"),
-                ("ma_length", "int", 9),
-                ("bb_mult", "float", 2.0),
+                ("maType", "select", "None"),
+                ("maLength", "int", 9),
+                ("bbMult", "float", 2.0),
             ),
             plots=(
                 ("value", "line", "OBV"),
@@ -1545,10 +1561,10 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="stochastic", name="Stochastic", category="Momentum", placement="pane",
-            params=(("k_period", "int", 14), ("smooth_k", "int", 3), ("d_period", "int", 3)),
+            params=(("kPeriod", "int", 14), ("kSmoothing", "int", 3), ("dPeriod", "int", 3)),
             plots=(("k", "line", "%K"), ("d", "line", "%D"),),
             levels=({"value": 80}, {"value": 20}),
-            fn=stochastic,
+            fn=_fn_stochastic,
         ),
         IndicatorSpec(
             id="supertrend", name="Supertrend", category="Trend", placement="overlay",
@@ -1561,6 +1577,21 @@ def _builtin_specs() -> list[IndicatorSpec]:
             fn=supertrend,
         ),
     ]
+
+
+LEGACY_PARAM_ALIASES["sma"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["ema"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["wma"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["hma"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["dema"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["tema"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["alma"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["rsi"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["roc"] = {"period": "length"}
+LEGACY_PARAM_ALIASES["macd"] = {"fast": "fastPeriod", "slow": "slowPeriod", "signal": "signalPeriod"}
+LEGACY_PARAM_ALIASES["bollinger"] = {"period": "length", "num_std": "stdDev"}
+LEGACY_PARAM_ALIASES["stochastic"] = {"k_period": "kPeriod", "smooth_k": "kSmoothing", "d_period": "dPeriod"}
+LEGACY_PARAM_ALIASES["obv"] = {"ma_type": "maType", "ma_length": "maLength", "bb_mult": "bbMult"}
 
 
 for _spec in _builtin_specs():

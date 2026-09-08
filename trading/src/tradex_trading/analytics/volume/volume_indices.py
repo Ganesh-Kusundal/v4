@@ -16,6 +16,7 @@ from typing import Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    LEGACY_PARAM_ALIASES,
     _change,
     _ema_of_gapped,
     _isfinite,
@@ -361,21 +362,21 @@ def klinger_oscillator(
 # ---------------------------------------------------------------------------
 
 
-def _fn_nvi(candles: list, ma_length: int) -> dict[str, list]:
-    return nvi(candles, int(ma_length))
+def _fn_nvi(candles: list, maLength: int) -> dict[str, list]:
+    return nvi(candles, int(maLength))
 
 
-def _fn_pvi(candles: list, ma_length: int) -> dict[str, list]:
-    return pvi(candles, int(ma_length))
+def _fn_pvi(candles: list, maLength: int) -> dict[str, list]:
+    return pvi(candles, int(maLength))
 
 
 def _fn_pvo(
     candles: list,
-    fast_length: int,
-    slow_length: int,
-    signal_length: int,
+    fastLength: int,
+    slowLength: int,
+    signalLength: int,
 ) -> dict[str, list]:
-    return pvo(candles, int(fast_length), int(slow_length), int(signal_length))
+    return pvo(candles, int(fastLength), int(slowLength), int(signalLength))
 
 
 def _fn_mass_index(candles: list, length: int) -> dict[str, list]:
@@ -411,7 +412,7 @@ SPEC_NVI = IndicatorSpec(
     name="Negative Volume Index",
     category="Volume",
     placement="pane",
-    params=(("ma_length", "int", 255),),
+    params=(("maLength", "int", 255),),
     plots=(
         ("nvi", "line", "NVI"),
         ("ema", "line", "NVI EMA"),
@@ -425,7 +426,7 @@ SPEC_PVI = IndicatorSpec(
     name="Positive Volume Index",
     category="Volume",
     placement="pane",
-    params=(("ma_length", "int", 255),),
+    params=(("maLength", "int", 255),),
     plots=(
         ("pvi", "line", "PVI"),
         ("ema", "line", "PVI EMA"),
@@ -440,9 +441,9 @@ SPEC_PVO = IndicatorSpec(
     category="Volume",
     placement="pane",
     params=(
-        ("fast_length", "int", 12),
-        ("slow_length", "int", 26),
-        ("signal_length", "int", 9),
+        ("fastLength", "int", 12),
+        ("slowLength", "int", 26),
+        ("signalLength", "int", 9),
     ),
     plots=(
         ("hist", "histogram", "Histogram"),
@@ -515,3 +516,12 @@ __all__ = [
     "SPEC_PVI",
     "SPEC_PVO",
 ]
+
+
+LEGACY_PARAM_ALIASES["nvi"] = {"ma_length": "maLength"}
+LEGACY_PARAM_ALIASES["pvi"] = {"ma_length": "maLength"}
+LEGACY_PARAM_ALIASES["pvo"] = {
+    "fast_length": "fastLength",
+    "slow_length": "slowLength",
+    "signal_length": "signalLength",
+}

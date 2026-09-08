@@ -29,6 +29,7 @@ from typing import Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    LEGACY_PARAM_ALIASES,
     _bars_since,
     _highest,
     _isfinite,
@@ -39,6 +40,25 @@ from tradex_trading.analytics.indicators import (
     _to_float,
     sma,
 )
+
+LEGACY_PARAM_ALIASES["alligator"] = {
+    "jaw_length": "jawLength",
+    "teeth_length": "teethLength",
+    "lips_length": "lipsLength",
+    "jaw_offset": "jawOffset",
+    "teeth_offset": "teethOffset",
+    "lips_offset": "lipsOffset",
+}
+LEGACY_PARAM_ALIASES["ichimoku"] = {
+    "conversion": "conversionPeriod",
+    "base": "basePeriod",
+    "lagging": "laggingSpanPeriod",
+}
+LEGACY_PARAM_ALIASES["halftrend"] = {
+    "channel_deviation": "channelDeviation",
+    "atr_period": "atrPeriod",
+}
+LEGACY_PARAM_ALIASES["alphatrend"] = {"ap": "AP"}
 
 # ---------------------------------------------------------------------------
 # Candle access — the golden harness feeds candle objects (``.ohlc.*.value``);
@@ -512,21 +532,21 @@ def alphatrend(candles: list, coeff: float = 1, ap: int = 14) -> dict[str, list]
 
 def _fn_alligator(
     candles: list,
-    jaw_length: int,
-    jaw_offset: int,
-    teeth_length: int,
-    teeth_offset: int,
-    lips_length: int,
-    lips_offset: int,
+    jawLength: int,
+    jawOffset: int,
+    teethLength: int,
+    teethOffset: int,
+    lipsLength: int,
+    lipsOffset: int,
 ) -> dict[str, list]:
     return alligator(
         candles,
-        int(jaw_length),
-        int(jaw_offset),
-        int(teeth_length),
-        int(teeth_offset),
-        int(lips_length),
-        int(lips_offset),
+        int(jawLength),
+        int(jawOffset),
+        int(teethLength),
+        int(teethOffset),
+        int(lipsLength),
+        int(lipsOffset),
     )
 
 
@@ -538,16 +558,16 @@ def _fn_parabolic_sar(
 
 def _fn_ichimoku(
     candles: list,
-    conversion: int,
-    base: int,
-    lagging: int,
+    conversionPeriod: int,
+    basePeriod: int,
+    laggingSpanPeriod: int,
     displacement: int,
 ) -> dict[str, list]:
     return ichimoku(
         candles,
-        int(conversion),
-        int(base),
-        int(lagging),
+        int(conversionPeriod),
+        int(basePeriod),
+        int(laggingSpanPeriod),
         int(displacement),
     )
 
@@ -555,19 +575,19 @@ def _fn_ichimoku(
 def _fn_halftrend(
     candles: list,
     amplitude: int,
-    channel_deviation: float,
-    atr_period: int,
+    channelDeviation: float,
+    atrPeriod: int,
 ) -> dict[str, list]:
     return halftrend(
         candles,
         int(amplitude),
-        float(channel_deviation),
-        int(atr_period),
+        float(channelDeviation),
+        int(atrPeriod),
     )
 
 
-def _fn_alphatrend(candles: list, coeff: float, ap: int) -> dict[str, list]:
-    return alphatrend(candles, float(coeff), int(ap))
+def _fn_alphatrend(candles: list, coeff: float, AP: int) -> dict[str, list]:
+    return alphatrend(candles, float(coeff), int(AP))
 
 
 SPEC_ALLIGATOR = IndicatorSpec(
@@ -576,12 +596,12 @@ SPEC_ALLIGATOR = IndicatorSpec(
     category="Trend",
     placement="overlay",
     params=(
-        ("jaw_length", "int", 13),
-        ("jaw_offset", "int", 8),
-        ("teeth_length", "int", 8),
-        ("teeth_offset", "int", 5),
-        ("lips_length", "int", 5),
-        ("lips_offset", "int", 3),
+        ("jawLength", "int", 13),
+        ("jawOffset", "int", 8),
+        ("teethLength", "int", 8),
+        ("teethOffset", "int", 5),
+        ("lipsLength", "int", 5),
+        ("lipsOffset", "int", 3),
     ),
     plots=(
         ("jaw", "line", "Jaw"),
@@ -611,9 +631,9 @@ SPEC_ICHIMOKU = IndicatorSpec(
     category="Trend",
     placement="overlay",
     params=(
-        ("conversion", "int", 9),
-        ("base", "int", 26),
-        ("lagging", "int", 52),
+        ("conversionPeriod", "int", 9),
+        ("basePeriod", "int", 26),
+        ("laggingSpanPeriod", "int", 52),
         ("displacement", "int", 26),
     ),
     plots=(
@@ -633,8 +653,8 @@ SPEC_HALFTREND = IndicatorSpec(
     placement="overlay",
     params=(
         ("amplitude", "int", 2),
-        ("channel_deviation", "float", 2),
-        ("atr_period", "int", 100),
+        ("channelDeviation", "float", 2),
+        ("atrPeriod", "int", 100),
     ),
     plots=(
         ("up", "line", "HalfTrend Up"),
@@ -654,7 +674,7 @@ SPEC_ALPHATREND = IndicatorSpec(
     placement="overlay",
     params=(
         ("coeff", "float", 1),
-        ("ap", "int", 14),
+        ("AP", "int", 14),
     ),
     plots=(
         ("alphatrend", "line", "AlphaTrend"),

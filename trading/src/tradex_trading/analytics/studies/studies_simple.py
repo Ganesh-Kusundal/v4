@@ -30,6 +30,7 @@ from typing import Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    LEGACY_PARAM_ALIASES,
     _change,
     _rma,
     _sma_seeded_ema,
@@ -38,6 +39,26 @@ from tradex_trading.analytics.indicators import (
     wma,
 )
 from tradex_trading.analytics.volume.volume_flow import _sma_skip_none
+
+LEGACY_PARAM_ALIASES["ma-cross"] = {"short_length": "shortLength", "long_length": "longLength"}
+LEGACY_PARAM_ALIASES["ma-ribbon"] = {
+    "ma1_type": "ma1Type",
+    "ma1_source": "ma1Source",
+    "ma1_length": "ma1Length",
+    "ma2_type": "ma2Type",
+    "ma2_source": "ma2Source",
+    "ma2_length": "ma2Length",
+    "ma3_type": "ma3Type",
+    "ma3_source": "ma3Source",
+    "ma3_length": "ma3Length",
+    "ma4_type": "ma4Type",
+    "ma4_source": "ma4Source",
+    "ma4_length": "ma4Length",
+}
+LEGACY_PARAM_ALIASES["woodies-cci"] = {
+    "cci_turbo_length": "cciTurboLength",
+    "cci14_length": "cci14Length",
+}
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -340,28 +361,28 @@ def _fn_momentum(candles: list, len: int) -> dict[str, list]:
     return momentum(candles, int(len))
 
 
-def _fn_ma_cross(candles: list, short_length: int, long_length: int) -> dict[str, list]:
-    return ma_cross(candles, int(short_length), int(long_length))
+def _fn_ma_cross(candles: list, shortLength: int, longLength: int) -> dict[str, list]:
+    return ma_cross(candles, int(shortLength), int(longLength))
 
 
 def _fn_ma_ribbon(
     candles,
-    ma1_type, ma1_source, ma1_length,
-    ma2_type, ma2_source, ma2_length,
-    ma3_type, ma3_source, ma3_length,
-    ma4_type, ma4_source, ma4_length,
+    ma1Type, ma1Source, ma1Length,
+    ma2Type, ma2Source, ma2Length,
+    ma3Type, ma3Source, ma3Length,
+    ma4Type, ma4Source, ma4Length,
 ):
     return ma_ribbon(
         candles,
-        ma1_type, ma1_source, int(ma1_length),
-        ma2_type, ma2_source, int(ma2_length),
-        ma3_type, ma3_source, int(ma3_length),
-        ma4_type, ma4_source, int(ma4_length),
+        ma1Type, ma1Source, int(ma1Length),
+        ma2Type, ma2Source, int(ma2Length),
+        ma3Type, ma3Source, int(ma3Length),
+        ma4Type, ma4Source, int(ma4Length),
     )
 
 
-def _fn_woodies_cci(candles: list, cci_turbo_length: int, cci14_length: int) -> dict[str, list]:
-    return woodies_cci(candles, int(cci_turbo_length), int(cci14_length))
+def _fn_woodies_cci(candles: list, cciTurboLength: int, cci14Length: int) -> dict[str, list]:
+    return woodies_cci(candles, int(cciTurboLength), int(cci14Length))
 
 
 def _fn_special_k(candles: list, length1: int, length2: int) -> dict[str, list]:
@@ -385,8 +406,8 @@ SPEC_MA_CROSS = IndicatorSpec(
     category="Trend",
     placement="overlay",
     params=(
-        ("short_length", "int", 9),
-        ("long_length", "int", 21),
+        ("shortLength", "int", 9),
+        ("longLength", "int", 21),
     ),
     plots=(
         ("short", "line", "Short MA"),
@@ -402,18 +423,18 @@ SPEC_MA_RIBBON = IndicatorSpec(
     category="Trend",
     placement="overlay",
     params=(
-        ("ma1_type", "select", "sma"),
-        ("ma1_source", "source", "close"),
-        ("ma1_length", "int", 20),
-        ("ma2_type", "select", "sma"),
-        ("ma2_source", "source", "close"),
-        ("ma2_length", "int", 50),
-        ("ma3_type", "select", "sma"),
-        ("ma3_source", "source", "close"),
-        ("ma3_length", "int", 100),
-        ("ma4_type", "select", "sma"),
-        ("ma4_source", "source", "close"),
-        ("ma4_length", "int", 200),
+        ("ma1Type", "select", "sma"),
+        ("ma1Source", "source", "close"),
+        ("ma1Length", "int", 20),
+        ("ma2Type", "select", "sma"),
+        ("ma2Source", "source", "close"),
+        ("ma2Length", "int", 50),
+        ("ma3Type", "select", "sma"),
+        ("ma3Source", "source", "close"),
+        ("ma3Length", "int", 100),
+        ("ma4Type", "select", "sma"),
+        ("ma4Source", "source", "close"),
+        ("ma4Length", "int", 200),
     ),
     plots=(
         ("ma1", "line", "MA #1"),
@@ -430,8 +451,8 @@ SPEC_WOODIES_CCI = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("cci_turbo_length", "int", 6),
-        ("cci14_length", "int", 14),
+        ("cciTurboLength", "int", 6),
+        ("cci14Length", "int", 14),
     ),
     plots=(
         ("hist", "histogram", "CCI Turbo Histogram"),

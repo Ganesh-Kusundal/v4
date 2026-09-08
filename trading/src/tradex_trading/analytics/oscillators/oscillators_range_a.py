@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    LEGACY_PARAM_ALIASES,
     _rolling_sma,
     _to_float,
     roc,
@@ -33,6 +34,19 @@ from tradex_trading.analytics.indicators import (
     sma,
     wma,
 )
+
+LEGACY_PARAM_ALIASES["stochastic-rsi"] = {
+    "length_rsi": "lengthRSI",
+    "length_stoch": "lengthStoch",
+    "smooth_k": "smoothK",
+    "smooth_d": "smoothD",
+}
+LEGACY_PARAM_ALIASES["coppock-curve"] = {
+    "wma_length": "wmaLength",
+    "long_roc_length": "longRoCLength",
+    "short_roc_length": "shortRoCLength",
+}
+LEGACY_PARAM_ALIASES["dpo"] = {"is_centered": "isCentered"}
 
 __all__ = [
     "SPEC_COPPOCK_CURVE",
@@ -334,8 +348,8 @@ def dpo(
 # ---------------------------------------------------------------------------
 
 
-def _fn_stochastic_rsi(candles, length_rsi=14, length_stoch=14, smooth_k=3, smooth_d=3):
-    return stochastic_rsi(candles, int(length_rsi), int(length_stoch), int(smooth_k), int(smooth_d))
+def _fn_stochastic_rsi(candles, lengthRSI=14, lengthStoch=14, smoothK=3, smoothD=3):
+    return stochastic_rsi(candles, int(lengthRSI), int(lengthStoch), int(smoothK), int(smoothD))
 
 
 def _fn_williams(candles, length=14):
@@ -346,12 +360,12 @@ def _fn_ultimate(candles, length1=7, length2=14, length3=28):
     return ultimate_oscillator(candles, int(length1), int(length2), int(length3))
 
 
-def _fn_coppock(candles, wma_length=10, long_roc_length=14, short_roc_length=11):
-    return coppock_curve(candles, int(wma_length), int(long_roc_length), int(short_roc_length))
+def _fn_coppock(candles, wmaLength=10, longRoCLength=14, shortRoCLength=11):
+    return coppock_curve(candles, int(wmaLength), int(longRoCLength), int(shortRoCLength))
 
 
-def _fn_dpo(candles, period=21, is_centered=False):
-    return dpo(candles, int(period), bool(is_centered))
+def _fn_dpo(candles, period=21, isCentered=False):
+    return dpo(candles, int(period), bool(isCentered))
 
 
 SPEC_STOCHASTIC_RSI = IndicatorSpec(
@@ -360,10 +374,10 @@ SPEC_STOCHASTIC_RSI = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("length_rsi", "int", 14),
-        ("length_stoch", "int", 14),
-        ("smooth_k", "int", 3),
-        ("smooth_d", "int", 3),
+        ("lengthRSI", "int", 14),
+        ("lengthStoch", "int", 14),
+        ("smoothK", "int", 3),
+        ("smoothD", "int", 3),
     ),
     plots=(
         ("k", "line", "K"),
@@ -412,9 +426,9 @@ SPEC_COPPOCK_CURVE = IndicatorSpec(
     category="Momentum",
     placement="pane",
     params=(
-        ("wma_length", "int", 10),
-        ("long_roc_length", "int", 14),
-        ("short_roc_length", "int", 11),
+        ("wmaLength", "int", 10),
+        ("longRoCLength", "int", 14),
+        ("shortRoCLength", "int", 11),
     ),
     plots=(("curve", "line", "Coppock"),),
     levels=({"value": 0},),
@@ -428,7 +442,7 @@ SPEC_DPO = IndicatorSpec(
     placement="pane",
     params=(
         ("period", "int", 21),
-        ("is_centered", "bool", False),
+        ("isCentered", "bool", False),
     ),
     plots=(("dpo", "line", "DPO"),),
     levels=({"value": 0},),

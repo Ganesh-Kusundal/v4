@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    LEGACY_PARAM_ALIASES,
     _from_first_value,
     _smoothing_ma,
     _stdev,
@@ -35,6 +36,13 @@ from tradex_trading.analytics.indicators import (
     sma,
     true_ranges,
 )
+
+LEGACY_PARAM_ALIASES["adx"] = {"adx_period": "adxPeriod"}
+LEGACY_PARAM_ALIASES["cci"] = {
+    "ma_type": "maType",
+    "ma_length": "maLength",
+    "bb_mult": "bbMult",
+}
 
 __all__ = [
     "SPEC_ADX",
@@ -344,8 +352,8 @@ def cci(
 # Specs — ready for registry import; NOT registered here (merge task wires them).
 # ---------------------------------------------------------------------------
 
-def _fn_adx(candles, period, adx_period):
-    return adx(candles, int(period), int(adx_period))
+def _fn_adx(candles, period, adxPeriod):
+    return adx(candles, int(period), int(adxPeriod))
 
 
 def _fn_aroon(candles, length):
@@ -360,8 +368,8 @@ def _fn_awesome(candles):
     return awesome_oscillator(candles)
 
 
-def _fn_cci(candles, period, constant, ma_type, ma_length, bb_mult):
-    return cci(candles, int(period), float(constant), str(ma_type), int(ma_length), float(bb_mult))
+def _fn_cci(candles, period, constant, maType, maLength, bbMult):
+    return cci(candles, int(period), float(constant), str(maType), int(maLength), float(bbMult))
 
 
 SPEC_ADX = IndicatorSpec(
@@ -369,7 +377,7 @@ SPEC_ADX = IndicatorSpec(
     name="ADX / DMI",
     category="Trend",
     placement="pane",
-    params=(("period", "int", 14), ("adx_period", "int", 14)),
+    params=(("period", "int", 14), ("adxPeriod", "int", 14)),
     plots=(
         ("plusDi", "line", "+DI"),
         ("minusDi", "line", "-DI"),
@@ -422,9 +430,9 @@ SPEC_CCI = IndicatorSpec(
     params=(
         ("period", "int", 20),
         ("constant", "float", 0.015),
-        ("ma_type", "select", "SMA"),
-        ("ma_length", "int", 20),
-        ("bb_mult", "float", 2.0),
+        ("maType", "select", "SMA"),
+        ("maLength", "int", 20),
+        ("bbMult", "float", 2.0),
     ),
     plots=(
         ("cci", "line", "CCI"),

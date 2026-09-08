@@ -45,6 +45,7 @@ import math
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
+    LEGACY_PARAM_ALIASES,
     _change,
     _ema_of_gapped,
     _rolling_sum,
@@ -311,18 +312,18 @@ def _fn_bollinger_percent_b(candles, length, mult):
     return bollinger_percent_b(candles, int(length), float(mult))
 
 
-def _fn_bollinger_bandwidth(candles, length, mult, expansion_length, contraction_length):
+def _fn_bollinger_bandwidth(candles, length, mult, expansionLength, contractionLength):
     return bollinger_bandwidth(
-        candles, int(length), float(mult), int(expansion_length), int(contraction_length)
+        candles, int(length), float(mult), int(expansionLength), int(contractionLength)
     )
 
 
-def _fn_bb_trend(candles, short_length, long_length, std_dev_mult):
-    return bb_trend(candles, int(short_length), int(long_length), float(std_dev_mult))
+def _fn_bb_trend(candles, shortLength, longLength, stdDevMult):
+    return bb_trend(candles, int(shortLength), int(longLength), float(stdDevMult))
 
 
-def _fn_kama(candles, er_length, fast_length, slow_length):
-    return kama(candles, int(er_length), int(fast_length), int(slow_length))
+def _fn_kama(candles, erLength, fastLength, slowLength):
+    return kama(candles, int(erLength), int(fastLength), int(slowLength))
 
 
 SPEC_BOLLINGER_PERCENT_B = IndicatorSpec(
@@ -347,8 +348,8 @@ SPEC_BOLLINGER_BANDWIDTH = IndicatorSpec(
     params=(
         ("length", "int", 20),
         ("mult", "float", 2.0),
-        ("expansion_length", "int", 125),
-        ("contraction_length", "int", 125),
+        ("expansionLength", "int", 125),
+        ("contractionLength", "int", 125),
     ),
     plots=(
         ("bandwidth", "line", "Bollinger BandWidth"),
@@ -364,9 +365,9 @@ SPEC_BB_TREND = IndicatorSpec(
     category="Volatility",
     placement="pane",
     params=(
-        ("short_length", "int", 20),
-        ("long_length", "int", 50),
-        ("std_dev_mult", "float", 2.0),
+        ("shortLength", "int", 20),
+        ("longLength", "int", 50),
+        ("stdDevMult", "float", 2.0),
     ),
     plots=(("value", "line", "BBTrend"),),
     levels=({"value": 0},),
@@ -379,9 +380,9 @@ SPEC_KAMA = IndicatorSpec(
     category="Trend",
     placement="overlay",
     params=(
-        ("er_length", "int", 10),
-        ("fast_length", "int", 2),
-        ("slow_length", "int", 30),
+        ("erLength", "int", 10),
+        ("fastLength", "int", 2),
+        ("slowLength", "int", 30),
     ),
     plots=(("value", "line", "KAMA"),),
     fn=_fn_kama,
@@ -566,3 +567,19 @@ SPEC_MA_CHANNEL = IndicatorSpec(
     ),
     fn=_fn_ma_channel,
 )
+
+
+LEGACY_PARAM_ALIASES["bollinger-bandwidth"] = {
+    "expansion_length": "expansionLength",
+    "contraction_length": "contractionLength",
+}
+LEGACY_PARAM_ALIASES["bb-trend"] = {
+    "short_length": "shortLength",
+    "long_length": "longLength",
+    "std_dev_mult": "stdDevMult",
+}
+LEGACY_PARAM_ALIASES["kama"] = {
+    "er_length": "erLength",
+    "fast_length": "fastLength",
+    "slow_length": "slowLength",
+}
