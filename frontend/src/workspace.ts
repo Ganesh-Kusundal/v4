@@ -19,6 +19,9 @@ export function mountWorkspace(widget: Widget): void {
   // earlier would PUT with `revision: null` and clobber the stored layout the
   // restore is about to hand back.
   let ready = false;
+  // Set when a change arrives while the startup restore is still in flight;
+  // one flush is re-scheduled once the restore's outcome is known.
+  let dirtyWhileRestoring = false;
 
   const layoutId = (): string => `${widget.exchange()}_${widget.symbol()}_${widget.interval()}_default`;
 
@@ -57,7 +60,10 @@ export function mountWorkspace(widget: Widget): void {
   };
 
   const save = (): void => {
-    if (!ready) return; // startup restore still in flight
+    if (!ready) {
+      dirtyWhileRestoring = true; // startup restore still in flight
+      return;
+    }
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
@@ -72,7 +78,7 @@ export function mountWorkspace(widget: Widget): void {
   // A debounce pending at tab close still holds the user's last 2s of work;
   // keepalive lets the request outlive the page.
   window.addEventListener('pagehide', () => {
-    if (timer === null) return;
+    if (!ready || timer === null) return;
     clearTimeout(timer);
     timer = null;
     void put({ keepalive: true }).catch(() => undefined);
@@ -101,6 +107,10 @@ export function mountWorkspace(widget: Widget): void {
       // The restore's outcome (and so `revision`) is now known either way;
       // saves from here carry the right concurrency token.
       ready = true;
+      if (dirtyWhileRestoring) {
+        dirtyWhileRestoring = false;
+        save();
+      }
     }
   })();
 }

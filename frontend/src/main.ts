@@ -57,7 +57,16 @@ const syncTier2Instrument = (inst: IndicatorApi): void => {
   const exchange = widget.exchange();
   const interval = widget.interval();
   const s = inst.settings();
-  if (s.symbol === symbol && s.exchange === exchange && s.interval === interval) return;
+  const mismatch = s.symbol !== symbol || s.exchange !== exchange || s.interval !== interval;
+  // A restored Tier-2 attaches before the history load, so its fetch runs on an
+  // empty window and the pane stays blank; the settings already match by then,
+  // so also re-arm when the study has computed no values off the loaded bars.
+  // setSettings re-runs attach, whose load() refetches while points are empty.
+  // Descriptors with no plots (e.g. the seasonality table) never count as
+  // empty: their values() is {} on purpose and must not re-arm on every event.
+  const arrays = Object.values(inst.values());
+  const empty = arrays.length > 0 && !arrays.some((arr) => arr.some((v) => v !== null && Number.isFinite(v)));
+  if (!mismatch && !empty) return;
   try {
     inst.setSettings({ symbol, exchange, interval });
   } catch (err) {
