@@ -92,6 +92,12 @@ class BarSocket {
   private readonly depthLevels = new Map<string, string>();
   private readonly handlers = new Map<string, Set<(msg: unknown) => void>>();
   private readonly openCbs = new Set<() => void>();
+  private readonly giveUpCbs = new Set<() => void>();
+  /** Consecutive failed connect attempts; reset on open and on fresh user demand. */
+  private attempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True while closing on purpose (last ref left) — no reconnect then. */
+  private intentionalClose = false;
 
   subscribe(instrument: string, interval: string, onBar: (bar: Bar) => void): UnsubscribeFn {
     const key = `${instrument}|${interval}`;
@@ -165,6 +171,12 @@ class BarSocket {
     return () => this.openCbs.delete(cb);
   }
 
+  /** Fired once when 10 consecutive reconnect attempts have failed. */
+  onGiveUp(cb: () => void): UnsubscribeFn {
+    this.giveUpCbs.add(cb);
+    return () => this.giveUpCbs.delete(cb);
+  }
+
   send(msg: object): void {
     try {
       this.ws?.send(JSON.stringify(msg));
@@ -175,15 +187,42 @@ class BarSocket {
 
   private acquire(): void {
     this.refs += 1;
+    // A new subscription after a give-up is a fresh chance to connect.
+    this.attempts = 0;
     if (this.ws === null || this.ws.readyState === WebSocket.CLOSED) this.connect();
   }
 
   private release(): void {
     this.refs -= 1;
     if (this.refs <= 0) {
+      this.intentionalClose = true;
+      this.cancelReconnect();
       this.ws?.close();
       this.ws = null;
     }
+  }
+
+  private cancelReconnect(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  /** Jittered exponential backoff: 1s base, 30s cap, ±30% jitter, ~10 tries. */
+  private scheduleReconnect(): void {
+    this.attempts += 1;
+    if (this.attempts > 10) {
+      console.error('bar socket: giving up after 10 consecutive failed reconnects');
+      for (const cb of this.giveUpCbs) cb();
+      return;
+    }
+    const base = Math.min(30_000, 1_000 * 2 ** (this.attempts - 1));
+    const delay = base * (1 + 0.3 * (Math.random() * 2 - 1));
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.refs > 0) this.connect();
+    }, delay);
   }
 
   /** Auth lives in the connect URL: the server checks ?api_key pre-accept (close 1008 on mismatch). */
@@ -193,8 +232,13 @@ class BarSocket {
   }
 
   private connect(): void {
+    this.cancelReconnect();
+    this.intentionalClose = false;
     this.ws = new WebSocket(this.url());
     this.ws.onopen = () => {
+      this.attempts = 0;
+      // Re-arm every live subscription server-side: bars, depth (at the
+      // remembered per-instrument levels) and orders (via openCbs).
       for (const key of this.subs.keys()) {
         const [instrument, interval] = key.split('|');
         this.send({ type: 'subscribe_bars', bars: [{ instrument, interval }] });
@@ -242,7 +286,11 @@ class BarSocket {
         for (const cb of this.handlers.get(frame.type) ?? []) cb(msg);
       }
     };
-    // # ponytail: add jittered reconnect when live reliability demands it
+    this.ws.onclose = () => {
+      this.ws = null;
+      if (this.intentionalClose || this.refs <= 0) return;
+      this.scheduleReconnect();
+    };
   }
 }
 

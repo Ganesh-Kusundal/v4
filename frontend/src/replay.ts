@@ -43,25 +43,50 @@ export function mountReplayBar(widget: Widget): void {
   };
   setRunning(false);
 
+  // Scopes error toasts to actual replay sessions (M-2): the shared socket
+  // delivers every server error frame, most of which are not replay's business.
+  let replaying = false;
+
   const frameMessage = (msg: unknown): string => {
     const m = msg as { message?: unknown };
     return typeof m.message === 'string' ? m.message : 'unknown error';
   };
   barSocket.on('replay_started', () => {
+    replaying = true;
     setRunning(true);
     widget.context.toast('Replay started');
   });
   barSocket.on('replay_paused', () => widget.context.toast('Replay paused'));
   barSocket.on('replay_resumed', () => widget.context.toast('Replay resumed'));
   barSocket.on('replay_done', () => {
+    replaying = false;
     setRunning(false);
     widget.context.toast('Replay finished');
   });
   barSocket.on('replay_stopped', () => {
+    replaying = false;
     setRunning(false);
     widget.context.toast('Replay stopped');
   });
-  barSocket.on('error', (msg) => widget.context.toast(`Replay: ${frameMessage(msg)}`, 'error'));
+  barSocket.on('error', (msg) => {
+    const message = frameMessage(msg);
+    if (replaying || /replay/i.test(message)) {
+      widget.context.toast(`Replay: ${message}`, 'error');
+    } else {
+      console.warn('replay bar: ignoring non-replay error frame', message);
+    }
+  });
+  // Connection dropped mid-replay: the server's replay state died with the
+  // socket. Clean it up defensively and reset the UI; we deliberately do NOT
+  // auto-restart replay on reconnect — the client's bar state has moved on
+  // and a blind replay_start would desync the chart.
+  barSocket.onOpen(() => {
+    if (!replaying) return;
+    replaying = false;
+    setRunning(false);
+    barSocket.send({ type: 'replay_stop' });
+    widget.context.toast('Replay aborted: connection lost');
+  });
 
   start.addEventListener('click', () => {
     barSocket.send({

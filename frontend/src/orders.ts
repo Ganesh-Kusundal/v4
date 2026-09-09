@@ -2,6 +2,7 @@ import type { TradingOrder, TradingPosition } from 'openalgo-charts';
 import type { OrderRequest, Widget } from 'openalgo-charts/widget';
 import { authHeaders } from './apikey';
 import { API_BASE, barSocket } from './feed';
+import { getOrderQty } from './trade-bar';
 
 /** GET /api/charts/book row shapes (backend chart vocabulary, numeric). */
 interface BookOrder {
@@ -97,8 +98,8 @@ export function mountOrders(widget: Widget): void {
 
 /**
  * Widget right-click order entry (context menu onOrder hook). Sends
- * POST /orders with an idempotency key; the context menu carries no quantity
- * control, so M3 places one unit per click.
+ * POST /orders with an idempotency key; quantity comes from the trade-bar
+ * input read at place-time (default 1, min 1).
  */
 /**
  * Engine context-menu type -> backend OrderType value. The menu emits
@@ -142,7 +143,7 @@ export function onOrderEntry(widget: Widget, order: OrderRequest): void {
     exchange: widget.exchange(),
     symbol: widget.symbol(),
     side: order.side,
-    quantity: 1,
+    quantity: getOrderQty(),
     ...mapped,
   };
   if (order.type === 'LIMIT') body.price = order.price;
