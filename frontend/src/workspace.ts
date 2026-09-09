@@ -15,13 +15,18 @@ export function mountWorkspace(widget: Widget): void {
   // Last revision seen for the layout we last wrote or read; null until the
   // first GET/PUT answers. The backend uses it for optimistic concurrency.
   let revision: number | null = null;
+  // False until the startup restore's outcome is known. A save that fires
+  // earlier would PUT with `revision: null` and clobber the stored layout the
+  // restore is about to hand back.
+  let ready = false;
 
   const layoutId = (): string => `${widget.exchange()}_${widget.symbol()}_${widget.interval()}_default`;
 
-  const put = async (): Promise<void> => {
+  const put = async (init: RequestInit = {}): Promise<void> => {
     const id = layoutId();
     const url = `${API_BASE}/api/charts/workspace/${id}`;
     const res = await fetch(url, {
+      ...init,
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ data: widget.getState(), revision, force: false }),
@@ -34,6 +39,7 @@ export function mountWorkspace(widget: Widget): void {
       revision = typeof blob.revision === 'number' ? blob.revision : null;
       widget.restoreState(blob.data);
       const retry = await fetch(url, {
+        ...init,
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ data: widget.getState(), revision, force: false }),
@@ -51,6 +57,7 @@ export function mountWorkspace(widget: Widget): void {
   };
 
   const save = (): void => {
+    if (!ready) return; // startup restore still in flight
     if (timer !== null) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
@@ -62,12 +69,13 @@ export function mountWorkspace(widget: Widget): void {
   widget.on('layout', () => save());
   widget.on('symbol', () => save());
   widget.on('interval', () => save());
-  // A debounce pending at tab close still holds the user's last 2s of work.
+  // A debounce pending at tab close still holds the user's last 2s of work;
+  // keepalive lets the request outlive the page.
   window.addEventListener('pagehide', () => {
     if (timer === null) return;
     clearTimeout(timer);
     timer = null;
-    void put().catch(() => undefined);
+    void put({ keepalive: true }).catch(() => undefined);
   });
 
   // Startup restore, after the widget's own localStorage pass. The list
@@ -89,6 +97,10 @@ export function mountWorkspace(widget: Widget): void {
       widget.restoreState(blob.data);
     } catch (err) {
       console.warn('workspace restore failed', err);
+    } finally {
+      // The restore's outcome (and so `revision`) is now known either way;
+      // saves from here carry the right concurrency token.
+      ready = true;
     }
   })();
 }

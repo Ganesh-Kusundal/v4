@@ -80,7 +80,11 @@ const marketProfile = createTier2Indicator({
   name: 'Market Profile',
   category: 'Backend',
   placement: 'onchart',
-  inputs: [],
+  // The fetch posts the visible bars, so no input changes what is computed;
+  // the inputs exist for the cache key only: the host syncs them on a symbol
+  // or interval change, and refetchOn then invalidates the stale profile.
+  inputs: instrumentInputs('1m'),
+  refetchOn: ['exchange', 'symbol', 'interval'],
   plots: [
     { key: 'poc', type: 'line', title: 'POC' },
     { key: 'vah', type: 'line', title: 'VAH' },

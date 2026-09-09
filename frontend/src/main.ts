@@ -1,5 +1,6 @@
 import 'openalgo-charts/indicators';
 import { createWidget } from 'openalgo-charts/widget';
+import type { IndicatorApi } from 'openalgo-charts';
 import { API_BASE, feed } from './feed';
 import { mountLadder } from './ladder';
 import { onOrderEntry, mountOrders } from './orders';
@@ -43,17 +44,49 @@ const syncVolume = (): void => {
 };
 widget.on('data', () => syncVolume());
 
-// A Tier-2 restored from saved state attaches before the first history load,
-// fetches an empty window and the engine never re-attaches on data alone.
-// Reapplying settings is the engine's own re-attach trigger, so every history
-// load re-arms the backend indicators (fetch is skipped while points exist).
-widget.on('data', () => {
-  for (const inst of widget.chart.indicators()) {
-    if (TIER2_IDS.has(inst.indicatorId)) {
-      try { inst.setSettings({}); } catch (err) { console.warn('tier2 re-arm failed', inst.indicatorId, err); }
-    }
+// Tier-2 backend studies learn the instrument from their own settings inputs,
+// so the host keeps them pointed at the chart's current one. The check runs on
+// 'data', not 'symbol': at symbol-event time the series still holds the
+// previous instrument's bars, so a fetch fired then would compute the old
+// symbol's values. Comparing settings instead of blindly re-applying them also
+// means a plain history reload matches and re-arms nothing: one fetch per
+// symbol/interval change, no refetch storm, no blank flash.
+const syncTier2Instrument = (inst: IndicatorApi): void => {
+  if (!TIER2_IDS.has(inst.indicatorId)) return;
+  const symbol = widget.symbol();
+  const exchange = widget.exchange();
+  const interval = widget.interval();
+  const s = inst.settings();
+  if (s.symbol === symbol && s.exchange === exchange && s.interval === interval) return;
+  try {
+    inst.setSettings({ symbol, exchange, interval });
+  } catch (err) {
+    console.warn('tier2 instrument sync failed', inst.indicatorId, err);
   }
+};
+widget.on('data', () => {
+  for (const inst of widget.chart.indicators()) syncTier2Instrument(inst);
 });
+
+// An indicator added through the picker carries the descriptor defaults
+// (NSE/RELIANCE and the input's interval), which can already be behind the
+// chart if the user switched first. There is no indicator-added event, so
+// intercept addIndicator and seed the instrument settings at construction —
+// not via setSettings afterwards, which would race the attach fetch that
+// started with the defaults (external.ts keeps an in-flight fetch and its
+// cache key). Restore is not intercepted on purpose: it carries its own saved
+// settings, and the 'data' sync above corrects a stale one.
+const addIndicator = widget.chart.addIndicator.bind(widget.chart);
+widget.chart.addIndicator = (indicatorId, settings = {}, options = {}) => {
+  if (!TIER2_IDS.has(indicatorId)) return addIndicator(indicatorId, settings, options);
+  const seeded: Record<string, unknown> = {
+    symbol: widget.symbol(),
+    exchange: widget.exchange(),
+    interval: widget.interval(),
+    ...settings,
+  };
+  return addIndicator(indicatorId, seeded, options);
+};
 
 // M3 trade/data surface: DOM ladder, replay transport bar, order/position lines.
 mountLadder(widget, feed, { symbol: widget.symbol(), exchange: widget.exchange(), interval: widget.interval() });
