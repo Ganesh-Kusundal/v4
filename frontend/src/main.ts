@@ -5,6 +5,7 @@ import { mountLadder } from './ladder';
 import { onOrderEntry, mountOrders } from './orders';
 import { mountReplayBar } from './replay';
 import { registerTier2, TIER2_IDS } from './tier2';
+import { mountWorkspace } from './workspace';
 
 const mount = document.getElementById('app');
 if (mount === null) throw new Error('frontend: no #app mount');
@@ -58,3 +59,7 @@ widget.on('data', () => {
 mountLadder(widget, feed, { symbol: widget.symbol(), exchange: widget.exchange(), interval: widget.interval() });
 mountReplayBar(widget);
 mountOrders(widget);
+
+// M4: chart-state persistence (debounced save on layout/symbol/interval,
+// startup restore after the widget's own localStorage pass).
+mountWorkspace(widget);
