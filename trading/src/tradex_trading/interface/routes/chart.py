@@ -240,35 +240,38 @@ def create_chart_router(
     # ---------------------------------------------------------------- symbols
 
     @router.get("/symbols")
-    async def list_symbols(q: str | None = None, universe: str = "nifty50") -> dict:
-        """Symbols available to chart: universe members plus optional search.
+    async def list_symbols(
+        q: str | None = None, source: str = "datalake", universe: str = "nifty50"
+    ) -> dict:
+        """Symbols available to chart, type-ahead ready.
 
-        Search hits the broker instrument master when a session is bound;
-        otherwise the universe listing stands alone (offline mode).
+        ``source=datalake`` (default): every symbol actually in the datalake —
+        the chart can only render what exists, so this is the honest list.
+        ``source=universe``: the universe CSV members (pre-datalake fallback).
+        Search (``q``) is a case-insensitive substring filter over the result.
         """
-        from tradex_trading.datalake.universe import load_universe
+        needle = (q or "").strip().upper()
+        if source == "universe":
+            from tradex_trading.datalake.universe import load_universe
 
-        members = [
-            {"symbol": i.symbol, "exchange": str(i.exchange.value)}
-            for i in load_universe(universe)
+            members = [
+                {"symbol": i.symbol, "exchange": str(i.exchange.value)}
+                for i in load_universe(universe)
+            ]
+            results = [
+                m for m in members if not needle or needle in m["symbol"].upper()
+            ]
+            return {"symbols": results[:200], "universe": universe, "source": "universe"}
+
+        from tradex_trading.datalake.paths import DATALAKE_ROOT
+
+        store = _get_store(DATALAKE_ROOT)
+        results = [
+            {"symbol": s, "exchange": "NSE"}
+            for s in store.symbols()
+            if not needle or needle in s.upper()
         ]
-        results = members
-        if q:
-            needle = q.strip().upper()
-            results = [m for m in members if needle in m["symbol"].upper()]
-            broker_search: list[dict] = []
-            if session is not None:
-                try:
-                    found = session.broker.search(q.strip())
-                    broker_search = [
-                        {"symbol": inst.symbol, "exchange": str(inst.exchange.value)}
-                        for inst in found
-                        if inst.symbol not in {m["symbol"] for m in results}
-                    ]
-                except Exception:  # noqa: BLE001 — search degrades to universe filter
-                    broker_search = []
-            results = results + broker_search
-        return {"symbols": results[:200], "universe": universe}
+        return {"symbols": results[:500], "source": "datalake"}
 
     # ---------------------------------------------------------------- history
 
