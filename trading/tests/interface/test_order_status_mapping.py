@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from tradex_domain.enums import OrderStatus
-from tradex_trading.interface.routes.chart import map_order_status
+from tradex_domain.enums import OrderStatus, OrderType
+from tradex_trading.interface.routes.chart import _map_order_type, map_order_status
 
 
 class TestExhaustiveMapping:
@@ -48,3 +48,46 @@ class TestExhaustiveMapping:
         chart_working = {"pending", "working", "partial"}
         ours = {map_order_status(s) for s in OrderStatus} & chart_working
         assert ours == chart_working
+
+
+class _FakeOrder:
+    def __init__(self, order_type):
+        self.order_type = order_type
+
+
+class TestOrderTypeMapping:
+    """One test per domain OrderType -> chart vocabulary ('SL'/'SL-M')."""
+
+    def test_market_maps_to_market(self):
+        assert _map_order_type(_FakeOrder(OrderType.MARKET)) == "MARKET"
+
+    def test_limit_maps_to_limit(self):
+        assert _map_order_type(_FakeOrder(OrderType.LIMIT)) == "LIMIT"
+
+    def test_stop_maps_to_sl(self):
+        assert _map_order_type(_FakeOrder(OrderType.STOP)) == "SL"
+
+    def test_stop_limit_maps_to_sl_m(self):
+        assert _map_order_type(_FakeOrder(OrderType.STOP_LIMIT)) == "SL-M"
+
+    def test_every_enum_member_maps(self):
+        """Iterate the enum itself so a new OrderType member fails here if
+        the mapping was not extended (mirrors the OrderStatus test above)."""
+        expected = {
+            "MARKET": "MARKET",
+            "LIMIT": "LIMIT",
+            "STOP": "SL",
+            "STOP_LIMIT": "SL-M",
+        }
+        for member in OrderType:
+            assert _map_order_type(_FakeOrder(member)) == expected[member.value], member
+
+    def test_unmapped_value_raises_loudly(self):
+        class FakeType:
+            value = "SOME_FUTURE_TYPE"
+
+        with pytest.raises(ValueError, match="unmapped OrderType"):
+            _map_order_type(_FakeOrder(FakeType()))
+
+    def test_plain_string_input_accepted(self):
+        assert _map_order_type(_FakeOrder("stop")) == "SL"

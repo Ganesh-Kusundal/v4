@@ -79,16 +79,24 @@ def map_order_status(status: Any) -> str:
     return mapped
 
 
+#: Domain OrderType -> chart order type. Exhaustive over the enum (MARKET,
+#: LIMIT, STOP, STOP_LIMIT): a future member must fail loudly here rather
+#: than render as a wrong 'LIMIT' line in the chart's book.
+_ORDER_TYPE_MAP: dict[str, str] = {
+    "MARKET": "MARKET",
+    "LIMIT": "LIMIT",
+    "STOP": "SL",
+    "STOP_LIMIT": "SL-M",
+}
+
+
 def _map_order_type(order: Any) -> str:
     """Domain OrderType -> chart order type ('MARKET'|'LIMIT'|'SL'|'SL-M')."""
     raw = getattr(order.order_type, "value", str(order.order_type)).upper()
-    if raw in {"MARKET", "LIMIT"}:
-        return raw
-    if raw in {"SL", "STOP_LOSS_LIMIT"}:
-        return "SL"
-    if raw in {"SL-M", "STOPLOSS_MARKET"}:
-        return "SL-M"
-    return "LIMIT"
+    mapped = _ORDER_TYPE_MAP.get(raw)
+    if mapped is None:
+        raise ValueError(f"unmapped OrderType: {raw!r}")
+    return mapped
 
 
 _STRATEGY_FACTORIES: dict[str, tuple[str, dict[str, str]]] = {
