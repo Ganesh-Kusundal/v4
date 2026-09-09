@@ -87,6 +87,8 @@ class BarSocket {
   private refs = 0;
   private readonly subs = new Map<string, Set<(bar: Bar) => void>>();
   private readonly depths = new Map<string, Set<(depth: MarketDepth) => void>>();
+  /** Caller-requested depth level per instrument, replayed on (re)open. */
+  private readonly depthLevels = new Map<string, string>();
   private readonly handlers = new Map<string, Set<(msg: unknown) => void>>();
   private readonly openCbs = new Set<() => void>();
 
@@ -121,6 +123,7 @@ class BarSocket {
       set = new Set();
       this.depths.set(instrument, set);
     }
+    this.depthLevels.set(instrument, String(depthLevel));
     set.add(onDepth);
     this.acquire();
     if (this.ws !== null && this.ws.readyState === WebSocket.OPEN) {
@@ -130,6 +133,7 @@ class BarSocket {
       const s = this.depths.get(instrument);
       if (s === undefined || !s.delete(onDepth) || s.size > 0) return;
       this.depths.delete(instrument);
+      this.depthLevels.delete(instrument);
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.send({ type: 'unsubscribe', instruments: [instrument] });
       }
@@ -189,7 +193,7 @@ class BarSocket {
         this.send({ type: 'subscribe_bars', bars: [{ instrument, interval }] });
       }
       for (const instrument of this.depths.keys()) {
-        this.send({ type: 'subscribe', instruments: [instrument], depth: '30', snapshot: true });
+        this.send({ type: 'subscribe', instruments: [instrument], depth: this.depthLevels.get(instrument) ?? '30', snapshot: true });
       }
       for (const cb of this.openCbs) cb();
     };

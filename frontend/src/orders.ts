@@ -28,14 +28,18 @@ const TERMINAL_STATUSES = new Set(['filled', 'cancelled', 'rejected']);
 
 function mapOrder(o: BookOrder): TradingOrder | null {
   if (TERMINAL_STATUSES.has(o.status)) return null;
+  // A working MARKET row carries neither price nor trigger — there is no
+  // level for its line to sit at, so it draws no line (instead of one at 0).
+  const price = o.price > 0 ? o.price : (o.triggerPrice ?? 0);
+  if (price <= 0) return null;
   return {
     id: o.id,
-    // Engine type union is limit|stop|stop_limit; SL-M (stop market) has no
-    // exact member, stop_limit is the nearest renderable line.
+    // Engine type union is limit|stop|stop_limit; backend SL (STOP, trigger
+    // only) -> 'stop', SL-M (STOP_LIMIT) -> 'stop_limit'.
     type: o.type === 'SL' ? 'stop' : o.type === 'SL-M' ? 'stop_limit' : 'limit',
     side: o.side.toLowerCase() === 'sell' ? 'sell' : 'buy',
-    price: o.price > 0 ? o.price : (o.triggerPrice ?? 0),
-    size: o.qty,
+    price,
+    size: Math.max(o.qty - o.filledQty, 0),
   };
 }
 
@@ -95,15 +99,52 @@ export function mountOrders(widget: Widget): void {
  * POST /orders with an idempotency key; the context menu carries no quantity
  * control, so M3 places one unit per click.
  */
+/**
+ * Engine context-menu type -> backend OrderType value. The menu emits
+ * MARKET (price null), LIMIT (price = pointer price) and SL (price =
+ * pointer price); the backend's paper broker accepts STOP with a
+ * trigger_price only, so 'SL' rides STOP with trigger_price set. LIMIT
+ * needs its price; anything else the menu may grow is suppressed here
+ * rather than sent as a broken request.
+ */
+function mapMenuType(order: OrderRequest): { order_type: string; trigger_price?: number } | null {
+  switch (order.type) {
+    case 'MARKET':
+      return { order_type: 'MARKET' };
+    case 'LIMIT':
+      return order.price === null ? null : { order_type: 'LIMIT' };
+    case 'SL':
+      return order.price === null ? null : { order_type: 'STOP', trigger_price: order.price };
+    default:
+      return null;
+  }
+}
+
+/** FastAPI error envelopes carry string or structured 422 `detail`. */
+function detailMessage(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string') return detail;
+  if (detail === undefined || detail === null) return fallback;
+  try {
+    return JSON.stringify(detail);
+  } catch {
+    return fallback;
+  }
+}
+
 export function onOrderEntry(widget: Widget, order: OrderRequest): void {
+  const mapped = mapMenuType(order);
+  if (mapped === null) {
+    widget.context.toast(`Order rejected: ${order.type} is not supported by the backend`, 'error');
+    return;
+  }
   const body: Record<string, unknown> = {
     exchange: widget.exchange(),
     symbol: widget.symbol(),
     side: order.side,
-    order_type: order.type,
     quantity: 1,
+    ...mapped,
   };
-  if (order.type !== 'MARKET' && order.price !== null) body.price = order.price;
+  if (order.type === 'LIMIT') body.price = order.price;
   void (async () => {
     const res = await fetch(`${API_BASE}/orders`, {
       method: 'POST',
@@ -117,8 +158,7 @@ export function onOrderEntry(widget: Widget, order: OrderRequest): void {
       widget.context.toast(`Order ${payload?.order_id ?? ''} ${payload?.status ?? 'submitted'}`.trim(), 'success');
       refreshBook?.();
     } else {
-      // FastAPI error envelope: {"detail": "..."}.
-      widget.context.toast(`Order rejected: ${String(payload?.detail ?? res.status)}`, 'error');
+      widget.context.toast(`Order rejected: ${detailMessage(payload?.detail, String(res.status))}`, 'error');
     }
   })().catch((err) =>
     widget.context.toast(`Order failed: ${err instanceof Error ? err.message : String(err)}`, 'error'),
