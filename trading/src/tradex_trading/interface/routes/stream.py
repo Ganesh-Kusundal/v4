@@ -605,6 +605,7 @@ async def ws_stream(
                                     ts_ist,
                                     quote.ltp.value,
                                     quote.volume.value if quote.volume is not None else None,
+                                    source="sim",
                                 )
                             except Exception:  # noqa: BLE001
                                 log.exception("sim bar aggregation failed for %s", iid)

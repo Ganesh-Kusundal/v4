@@ -38,6 +38,7 @@ class BarFrame:
     close: float
     volume: float
     closed: bool
+    source: str = "live"  # 'live' broker quotes vs 'sim' replay ticks
 
 
 def bucket_start(ts: datetime, seconds: int) -> datetime:
@@ -101,6 +102,7 @@ class BarAggregator:
         self._on_frame = on_frame
         self._now = now
         self._bucket: _Bucket | None = None
+        self._source = "live"
         # Negative infinity so the very first quote emits immediately no
         # matter what clock the caller injected (a test clock at zero would
         # otherwise swallow the first frame).
@@ -113,8 +115,13 @@ class BarAggregator:
         ts_ist: datetime,
         price: Decimal | float,
         volume: Decimal | float | None,
+        source: str = "live",
     ) -> None:
-        """Feed one trade print (IST-naive timestamp like the datalake)."""
+        """Feed one trade print (IST-naive timestamp like the datalake).
+
+        ``source`` rides on every frame this quote emits so a consumer can
+        tell broker ticks from synthetic replay ticks."""
+        self._source = source
         p = float(price)
         v = float(volume) if volume is not None else 0.0
         start = bucket_start(ts_ist, self._seconds)
@@ -163,6 +170,7 @@ class BarAggregator:
                 close=b.close,
                 volume=b.volume,
                 closed=closed,
+                source=self._source,
             )
         )
         if closed:
