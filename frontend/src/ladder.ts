@@ -27,4 +27,6 @@ export function mountLadder(widget: Widget, feed: DataFeed, req: BarsRequest): (
     unsubDepth?.();
     widget.chart.removePrimitive(ladder);
   };
+  // # ponytail: teardown — mountLadder already returns a full undo, but the host
+  // never calls widget.destroy, so nothing invokes it; wire it up if a destroy hook appears.
 }

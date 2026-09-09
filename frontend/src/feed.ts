@@ -323,9 +323,18 @@ export class V4DataFeed implements DataFeed {
   async getBars(req: BarsRequest): Promise<Bar[]> {
     const from = req.from === undefined ? '' : `&from=${req.from}`;
     const to = req.to === undefined ? '' : `&to=${req.to}`;
-    const res = await fetch(
-      `${API_BASE}/api/charts/history/${req.exchange}:${req.symbol}?interval=${mapInterval(req.interval)}${from}${to}`,
-    );
+    let res: Response;
+    try {
+      res = await fetch(
+        `${API_BASE}/api/charts/history/${req.exchange}:${req.symbol}?interval=${mapInterval(req.interval)}${from}${to}`,
+        { signal: AbortSignal.timeout(15_000) },
+      );
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+        throw new FeedError('history request timed out', 'timeout');
+      }
+      throw err;
+    }
     const body = (await res.json().catch(() => undefined)) as HistoryEnvelope | undefined;
     if (body?.error) {
       throw new FeedError(body.error.message ?? 'history failed', body.error.code ?? 'error');

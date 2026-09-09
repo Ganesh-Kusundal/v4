@@ -102,4 +102,6 @@ export function mountReplayBar(widget: Widget): void {
   speed.addEventListener('change', () =>
     barSocket.send({ type: 'replay_speed', speed: Number(speed.value) }),
   );
+  // # ponytail: teardown — the host never calls widget.destroy (page-lifetime app),
+  // so these barSocket handlers are never released; wire them up if a destroy hook appears.
 }

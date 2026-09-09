@@ -93,7 +93,9 @@ export function mountOrders(widget: Widget): void {
 
   void refresh();
   setInterval(refresh, 5000);
-  // Page-lifetime surface; the host has no teardown path.
+  // # ponytail: teardown — the host never calls widget.destroy (page-lifetime app),
+  // so the onOpen/order/fill handlers and this interval are never released;
+  // wire them up if a destroy hook appears.
 }
 
 /**
