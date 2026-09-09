@@ -1,5 +1,6 @@
 import type { TradingOrder, TradingPosition } from 'openalgo-charts';
 import type { OrderRequest, Widget } from 'openalgo-charts/widget';
+import { authHeaders } from './apikey';
 import { API_BASE, barSocket } from './feed';
 
 /** GET /api/charts/book row shapes (backend chart vocabulary, numeric). */
@@ -148,7 +149,12 @@ export function onOrderEntry(widget: Widget, order: OrderRequest): void {
   void (async () => {
     const res = await fetch(`${API_BASE}/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+      // POST /orders sits behind verify_api_key; keyless paper omits the header.
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': crypto.randomUUID(),
+        ...authHeaders(),
+      },
       body: JSON.stringify(body),
     });
     const payload = (await res.json().catch(() => undefined)) as

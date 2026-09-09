@@ -6,6 +6,7 @@ import {
   type MarketDepth,
   type UnsubscribeFn,
 } from 'openalgo-charts';
+import { getApiKey } from './apikey';
 
 // # ponytail: same-origin when FastAPI serves us, dev-server proxy target when vite runs on :5173
 export const API_BASE = typeof location === 'undefined' || location.port !== '5173' ? '' : 'http://127.0.0.1:8000';
@@ -185,8 +186,14 @@ class BarSocket {
     }
   }
 
+  /** Auth lives in the connect URL: the server checks ?api_key pre-accept (close 1008 on mismatch). */
+  private url(): string {
+    const key = getApiKey();
+    return `${WS_BASE}/ws/stream${key === '' ? '' : `?api_key=${encodeURIComponent(key)}`}`;
+  }
+
   private connect(): void {
-    this.ws = new WebSocket(`${WS_BASE}/ws/stream`);
+    this.ws = new WebSocket(this.url());
     this.ws.onopen = () => {
       for (const key of this.subs.keys()) {
         const [instrument, interval] = key.split('|');
