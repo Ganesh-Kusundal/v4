@@ -98,6 +98,8 @@ class BarSocket {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /** True while closing on purpose (last ref left) — no reconnect then. */
   private intentionalClose = false;
+  /** Frames sent while the handshake was still CONNECTING. */
+  private readonly pendingSends: object[] = [];
 
   subscribe(instrument: string, interval: string, onBar: (bar: Bar) => void): UnsubscribeFn {
     const key = `${instrument}|${interval}`;
@@ -177,7 +179,13 @@ class BarSocket {
     return () => this.giveUpCbs.delete(cb);
   }
 
+  // ponytail: frames sent while the socket is CONNECTING queue and flush on
+  // open — a send-during-handshake is normal ordering, not an error.
   send(msg: object): void {
+    if (this.ws !== null && this.ws.readyState === WebSocket.CONNECTING) {
+      this.pendingSends.push(msg);
+      return;
+    }
     try {
       this.ws?.send(JSON.stringify(msg));
     } catch (err) {
@@ -246,6 +254,8 @@ class BarSocket {
       for (const instrument of this.depths.keys()) {
         this.send({ type: 'subscribe', instruments: [instrument], depth: this.depthLevels.get(instrument) ?? '30', snapshot: true });
       }
+      // Frames queued during the handshake, then anything the re-arm pushed.
+      for (const msg of this.pendingSends.splice(0)) this.send(msg);
       for (const cb of this.openCbs) cb();
     };
     this.ws.onmessage = (ev) => {
@@ -288,6 +298,7 @@ class BarSocket {
     };
     this.ws.onclose = () => {
       this.ws = null;
+      this.pendingSends.length = 0;
       if (this.intentionalClose || this.refs <= 0) return;
       this.scheduleReconnect();
     };
