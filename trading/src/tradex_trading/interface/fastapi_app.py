@@ -105,9 +105,15 @@ def create_app(
     )
     # Chart data plane (closed-bar history, indicator compute, strategy
     # backtests): one router the openalgo-charts frontend is built against.
+    # Workspace persistence lives under runtime/ (gitignored state).
     from tradex_trading.interface.routes.chart import create_chart_router
 
-    app.include_router(create_chart_router(session))
+    workspace_db = os.environ.get("TRADEX_WORKSPACE_DB")
+    if workspace_db is None:
+        runtime_dir = os.environ.get("TRADEX_RUNTIME_DIR", "runtime")
+        os.makedirs(runtime_dir, exist_ok=True)
+        workspace_db = str(Path(runtime_dir) / "workspace.sqlite")
+    app.include_router(create_chart_router(session, workspace_db_path=workspace_db))
     app.state.session = session
     app.state.api_key = api_key
     # Per-app refcounting registry: shares the session's live MarketFeed

@@ -15,9 +15,11 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
 
@@ -209,7 +211,21 @@ def _resolve_instrument(exchange: str, symbol: str) -> Equity:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def create_chart_router(session: Any | None) -> APIRouter:
+class WorkspacePutBody(BaseModel):
+    """PUT /workspace body: opaque engine-state blob + optimistic revision."""
+    data: dict[str, Any]
+    revision: int | None = None
+    force: bool = False
+
+
+def _validate_layout_id(layout_id: str) -> None:
+    if not layout_id or len(layout_id) > 256:
+        raise HTTPException(status_code=422, detail="layout_id must be 1..256 chars")
+
+
+def create_chart_router(
+    session: Any | None, workspace_db_path: str | Path = ":memory:"
+) -> APIRouter:
     """Build the /api/charts router bound to an optional TradingSession."""
     router = APIRouter(prefix="/api/charts", tags=["charts"])
 
@@ -815,6 +831,47 @@ def create_chart_router(session: Any | None) -> APIRouter:
         except Exception:  # noqa: BLE001 — fallback must degrade, not error the chart
             return [], None
         return _serialize_series(series, limit)
+
+    # ------------------------------------------------------------- workspace
+
+    from tradex_trading.interface.workspace_store import WorkspaceStore
+
+    workspace = WorkspaceStore(workspace_db_path)
+
+    @router.get("/workspace")
+    async def list_workspaces() -> list[dict[str, Any]]:
+        """Workspace metadata (no blobs): layout ids with revision + updated_at."""
+        return workspace.list()
+
+    @router.get("/workspace/{layout_id}")
+    async def get_workspace(layout_id: str) -> dict[str, Any]:
+        _validate_layout_id(layout_id)
+        stored = workspace.get(layout_id)
+        if stored is None:
+            raise HTTPException(status_code=404, detail=f"no workspace {layout_id!r}")
+        return stored
+
+    @router.put("/workspace/{layout_id}")
+    async def put_workspace(layout_id: str, body: WorkspacePutBody) -> dict[str, Any]:
+        _validate_layout_id(layout_id)
+        new_revision, conflicted = workspace.put(
+            layout_id, body.data, body.revision, bool(body.force)
+        )
+        if conflicted:
+            raise HTTPException(
+                status_code=409,
+                detail={"message": "stale revision", "stored_revision": new_revision},
+            )
+        return {
+            "layout_id": layout_id,
+            "revision": new_revision,
+            "updated_at": workspace.get(layout_id)["updated_at"],
+        }
+
+    @router.delete("/workspace/{layout_id}", status_code=204)
+    async def delete_workspace(layout_id: str) -> None:
+        _validate_layout_id(layout_id)
+        workspace.delete(layout_id)
 
     return router
 
