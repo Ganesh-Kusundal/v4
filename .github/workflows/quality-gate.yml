@@ -1,6 +1,6 @@
 name: quality-gate
 
-# Quality gate: ruff lint + mypy (domain only) + full pytest suite with coverage.
+# Quality gate: ruff lint + mypy (all packages) + full pytest suite with coverage.
 # Runs on push to main/develop, on PRs, and can be triggered manually.
 on:
   push:
@@ -29,8 +29,15 @@ jobs:
       - name: Ruff lint
         run: ruff check
 
-      - name: Mypy (domain only)
+      - name: Mypy (domain)
         run: mypy domain/src/tradex_domain
+
+      - name: Mypy (brokers)
+        run: mypy brokers/src/tradex_brokers
+
+      - name: Mypy (trading)
+        continue-on-error: true  # PE-3: incremental typing — baseline 203 errors
+        run: mypy trading/src/tradex_trading
 
       - name: Pytest with coverage
         run: python -m pytest --cov=domain --cov=brokers --cov=trading --cov-report=term-missing -q
