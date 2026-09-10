@@ -64,7 +64,14 @@ frontend/dist/
 openalgo-charts/
 
 # Time-series model experiment scratch
-poc/
+poc/*
+!poc/
+!poc/README.md
+!poc/data/
+poc/data/*
+!poc/data/build_0950_dataset.py
+!poc/rank_0950.py
+!poc/timesfm_0950.py
 
 # Runtime state (tokens, instrument dumps; regenerate via broker connect)
 trading/runtime/
