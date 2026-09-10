@@ -107,7 +107,9 @@ def test_all_three_packages_present() -> None:
 _SINGLE_AUTHORITY_SYMBOLS: dict[str, set[str]] = {
     "trading/src/tradex_trading/execution/engine.py": {"ExecutionEngine"},
     "trading/src/tradex_trading/execution/position_manager.py": {"PositionManager"},
-    "trading/src/tradex_trading/execution/position_math.py": {"apply_fill"},
+    # M8 fix: apply_fill canonical authority moved to domain/position_math.py.
+    # trading/position_math.py now re-exports from domain.
+    "domain/src/tradex_domain/position_math.py": {"apply_fill"},
     "trading/src/tradex_trading/execution/trading_cache.py": {"TradingCache"},
 }
 
@@ -131,16 +133,18 @@ def test_single_execution_authority_in_active_spine() -> None:
     fail so the team can decide which authority owns the concern.
     """
     trading_src = _ROOT / "trading/src"
+    domain_src = _ROOT / "domain/src"
     executed: dict[str, set[str]] = {}
-    for path in sorted(trading_src.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        rel = str(path.relative_to(_ROOT))
-        names = _top_level_names(path)
-        if names:
-            executed[rel] = names
+    for src_root in (trading_src, domain_src):
+        for path in sorted(src_root.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            rel = str(path.relative_to(_ROOT))
+            names = _top_level_names(path)
+            if names:
+                executed[rel] = names
 
-    assert executed, "trading/src appears to contain no Python files"
+    assert executed, "trading/src + domain/src appear to contain no Python files"
 
     for path_text, expected in _SINGLE_AUTHORITY_SYMBOLS.items():
         owning = executed.get(path_text)
@@ -156,7 +160,7 @@ def test_single_execution_authority_in_active_spine() -> None:
     # apply_fill elsewhere; we forbid the authoritative one from being duplicated
     # in the active execution tree.
     authoritative_owner = (
-        "trading/src/tradex_trading/execution/position_math.py"
+        "domain/src/tradex_domain/position_math.py"
     )
     owners_of_apply_fill = sorted(
         rel for rel, names in executed.items()

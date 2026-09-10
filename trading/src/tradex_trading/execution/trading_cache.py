@@ -11,90 +11,22 @@ from tradex_domain.protocols import TradingCacheProtocol
 from tradex_domain.value_objects import InstrumentId, OrderId
 
 
-class _ReadWriteLock:
-    """Simple read-write lock built on a Condition and counters.
-
-    Multiple readers can hold the lock concurrently; a writer gets
-    exclusive access.  Acquired as a context manager::
-
-        with lock.reader():
-            # read-only access
-
-        with lock.writer():
-            # read-write access
-
-    # ponytail: Condition+counters, not stdlib RLock — readers don't block
-    # readers. For OMS read-heavy / write-rare this wins; if contention never
-    # shows, replace with RLock. Per-call inner classes are intentional (shortest diff).
-    """
-
-    def __init__(self) -> None:
-        self._cond = threading.Condition(threading.Lock())
-        self._readers = 0
-        self._writer = False
-
-    def acquire_write(self) -> None:
-        """Block until exclusive write access is granted."""
-        with self._cond:
-            while self._writer or self._readers > 0:
-                self._cond.wait()
-            self._writer = True
-
-    def release_write(self) -> None:
-        """Release exclusive write access and wake waiters."""
-        with self._cond:
-            self._writer = False
-            self._cond.notify_all()
-
-    def reader(self):
-        """Return a context manager for a read lock."""
-
-        class _Reader:
-            def __init__(self, lock: _ReadWriteLock) -> None:
-                self._lock = lock
-
-            def __enter__(self) -> None:
-                with self._lock._cond:
-                    while self._lock._writer:
-                        self._lock._cond.wait()
-                    self._lock._readers += 1
-
-            def __exit__(self, *exc: object) -> None:
-                with self._lock._cond:
-                    self._lock._readers -= 1
-                    if self._lock._readers == 0:
-                        self._lock._cond.notify_all()
-
-        return _Reader(self)
-
-    def writer(self):
-        """Return a context manager for a write lock."""
-
-        class _Writer:
-            def __init__(self, lock: _ReadWriteLock) -> None:
-                self._lock = lock
-
-            def __enter__(self) -> None:
-                self._lock.acquire_write()
-
-            def __exit__(self, *exc: object) -> None:
-                self._lock.release_write()
-
-        return _Writer(self)
-
-
 class TradingCache(TradingCacheProtocol):
-    """In-memory cache for orders, positions, and latest quotes."""
+    """In-memory cache for orders, positions, and latest quotes.
+
+    Each collection (orders, positions, quotes) is guarded by its own
+    ``RLock`` used for **both** reads and writes (H1 fix — previously
+    reads used a separate ``_sync_lock`` that did not exclude writers,
+    creating a data race under free-threaded Python).
+    """
 
     def __init__(self) -> None:
         self._orders: dict[str, Order] = {}
         self._positions: dict[str, Position] = {}
         self._quotes: dict[str, Quote] = {}
-        self._rw_lock = _ReadWriteLock()
-        self._orders_lock = threading.Lock()
-        self._positions_lock = threading.Lock()
-        self._quotes_lock = threading.Lock()
-        self._sync_lock = threading.Lock()
+        self._orders_lock = threading.RLock()
+        self._positions_lock = threading.RLock()
+        self._quotes_lock = threading.RLock()
 
     # ------------------------------------------------------------------
     # Orders
@@ -113,12 +45,12 @@ class TradingCache(TradingCacheProtocol):
     def get_order(self, order_id: OrderId | str) -> Order | None:
         """Return the order with the given id, or None."""
         key = order_id.value if isinstance(order_id, OrderId) else order_id
-        with self._sync_lock:
+        with self._orders_lock:
             return self._orders.get(key)
 
     def all_orders(self) -> list[Order]:
         """Return a snapshot list of all cached orders."""
-        with self._sync_lock:
+        with self._orders_lock:
             return list(self._orders.values())
 
     # ------------------------------------------------------------------
@@ -147,12 +79,12 @@ class TradingCache(TradingCacheProtocol):
     def get_position(self, instrument: Instrument | InstrumentId | str) -> Position | None:
         """Return the position for the given instrument, or None."""
         key = self._instrument_key(instrument)
-        with self._sync_lock:
+        with self._positions_lock:
             return self._positions.get(key)
 
     def all_positions(self) -> list[Position]:
         """Return a snapshot list of all cached positions."""
-        with self._sync_lock:
+        with self._positions_lock:
             return list(self._positions.values())
 
     # ------------------------------------------------------------------
@@ -172,7 +104,7 @@ class TradingCache(TradingCacheProtocol):
     def get_quote(self, instrument: Instrument | InstrumentId | str) -> Quote | None:
         """Return the latest quote for the given instrument, or None."""
         key = self._instrument_key(instrument)
-        with self._sync_lock:
+        with self._quotes_lock:
             return self._quotes.get(key)
 
     # ------------------------------------------------------------------
@@ -182,26 +114,27 @@ class TradingCache(TradingCacheProtocol):
     def snapshot(self) -> dict[str, dict]:
         """Return a deep-copy dict of all cached state.
 
-        The snapshot is taken under a single read lock so that all three
-        collections are consistent with one another.  The returned dicts
-        contain shallow copies of the stored objects — callers should not
-        mutate the cached Order/Position/Quote instances through the
-        snapshot (the cache itself is single-process; mutating returned
-        references would bypass the lock contract).
+        The snapshot acquires all three collection locks in a fixed
+        order (orders → positions → quotes) to prevent deadlocks and
+        ensure a consistent cross-collection view.
         """
-        with self._sync_lock:
-            return {
-                "orders": dict(self._orders),
-                "positions": dict(self._positions),
-                "quotes": dict(self._quotes),
-            }
+        with self._orders_lock:
+            with self._positions_lock:
+                with self._quotes_lock:
+                    return {
+                        "orders": dict(self._orders),
+                        "positions": dict(self._positions),
+                        "quotes": dict(self._quotes),
+                    }
 
     def restore(self, snapshot: dict[str, dict]) -> None:
         """Replace internal state from a previous ``snapshot()``."""
-        with self._sync_lock:
-            self._orders = dict(snapshot.get("orders", {}))
-            self._positions = dict(snapshot.get("positions", {}))
-            self._quotes = dict(snapshot.get("quotes", {}))
+        with self._orders_lock:
+            with self._positions_lock:
+                with self._quotes_lock:
+                    self._orders = dict(snapshot.get("orders", {}))
+                    self._positions = dict(snapshot.get("positions", {}))
+                    self._quotes = dict(snapshot.get("quotes", {}))
 
     # ------------------------------------------------------------------
     # Lifecycle

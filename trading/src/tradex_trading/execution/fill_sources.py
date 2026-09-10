@@ -144,6 +144,17 @@ class PaperFillSource(FillModel):
     to the request price. For MARKET orders without a price, uses a
     nominal value. Mirrors ``SimulatedFillSource``: optional slippage and
     deterministic fill timestamps from the request's reference timestamp.
+
+    **Intentional divergence from PaperBroker** (GAP-3):
+    ``PaperFillSource`` fills at LTP from the reactive cache (used by the
+    ``ExecutionEngine`` pipeline). ``PaperBroker`` fills at LTP, limit
+    price, or by walking a multi-level order book (used as a standalone
+    ``BrokerAdapter``). Both converge for MARKET orders with seeded LTP
+    quotes — the common case proven by
+    ``test_paper_fill_convergence.py``. The divergence is intentional:
+    ``PaperFillSource`` participates in the unified FillModel price
+    resolution (shared with backtest/replay), while ``PaperBroker``
+    simulates broker-specific order-book mechanics.
     """
 
     def __init__(

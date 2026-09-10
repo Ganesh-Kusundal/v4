@@ -384,7 +384,12 @@ class TestAccountingConvergence:
     def test_partial_sell_realized_pnl_matches_across_modes(self) -> None:
         """A BUY 2 / BUY 1 / SELL 1 / SELL 2 ladder books identical realized
         P&L in BacktestEngine (fills 110/120/130/140) and the reactive paper
-        session (fills 100/110/120/130): both close fully at +70."""
+        session (fills 100/110/120/130): both close fully at +70.
+
+        H4 fix: avg_price is now quantized to 2dp, so the weighted average
+        340/3 = 113.333… becomes 113.33. The realized P&L accumulates from
+        the quantized base: (130-113.33)*1 + (140-113.33)*2 = 16.67 + 53.34
+        = 70.01 (1 paisa above the unquantized 70)."""
         from tradex_trading.strategy import ReactiveStrategyEngine
 
         candles = self._ladder_candles()
@@ -412,14 +417,18 @@ class TestAccountingConvergence:
             closed = next(
                 p for p in session.engine.cache.all_positions() if p.quantity.value == 0
             )
-            assert closed.realized_pnl.amount == Decimal("70")
+            # Quantized avg: 340/3 → 113.33; realized = 16.67 + 53.34 = 70.01
+            assert closed.realized_pnl.amount == Decimal("70.01")
         finally:
             strategy_engine.dispose_all()
             sub.dispose()
             session.stop()
 
-        # Convergence: identical realized P&L across both accounting engines.
-        assert bt.equity_curve[-1] - 100000.0 == float(closed.realized_pnl.amount)
+        # Convergence: allow 1 paisa tolerance for quantized-avg rounding
+        # between the float-converted backtest equity curve and the reactive
+        # Decimal path. Use Decimal comparison to avoid float precision issues.
+        bt_pnl = Decimal(str(bt.equity_curve[-1])) - Decimal("100000")
+        assert abs(bt_pnl - closed.realized_pnl.amount) <= Decimal("0.01")
 
 
 class TestFillSourceParity:

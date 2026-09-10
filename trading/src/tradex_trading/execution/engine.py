@@ -363,6 +363,11 @@ class RiskManager:
         #: no matching budget falls back to the global caps above.
         self._budgets: dict[str, RiskBudget] = dict(budgets or {})
         self._clock = clock
+        #: Callable returning the current cash balance (Decimal). Bound
+        #: lazily via ``bind_cash_provider()`` so the engine can boot
+        #: without a cash ledger (backtest, unit tests). Initialized to
+        #: None explicitly (M9 fix — previously relied on getattr fallback).
+        self._cash_provider: Any | None = None
         #: Count of orders denied by ``check()`` (any gate). Read by
         #: BacktestEngine to populate ``BacktestResult.num_rejected`` without
         #: re-implementing rejection bookkeeping in its own loop.

@@ -131,9 +131,13 @@ class TestExecutionCostParity:
             strategy_engine.dispose_all()
             engine.shutdown()
 
-        # Equity curve is float-converted; quantize to paisa for exact compare.
+        # Equity curve is float-converted; quantize to paisa for compare.
+        # Allow 1 paisa tolerance for float→Decimal round-trip in the
+        # equity curve (H4 fix: avg_price is now quantized, so the
+        # reactive path and the float-converted backtest path may differ
+        # by at most 1 paisa on non-terminating averages).
         net_backtest = (Decimal(str(bt.equity_curve[-1])) - Decimal("100000"))
-        assert net == net_backtest.quantize(Decimal("0.01"))
+        assert abs(net - net_backtest.quantize(Decimal("0.01"))) <= Decimal("0.01")
         assert net < Decimal("70")  # fees shave the gross +70
 
     def test_slippage_parity_fill_prices_match(self) -> None:

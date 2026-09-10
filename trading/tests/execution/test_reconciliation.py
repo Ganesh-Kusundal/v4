@@ -49,7 +49,7 @@ def test_quantity_mismatch_produces_drift() -> None:
         [_position(quantity=15)],
     )
     assert len(drifts) == 1
-    assert drifts[0].symbol == "RELIANCE"
+    assert drifts[0].symbol == "NSE:RELIANCE"
     assert drifts[0].local_quantity == Decimal("10")
     assert drifts[0].broker_quantity == Decimal("15")
     assert drifts[0].diff == Decimal("-5")
@@ -92,4 +92,4 @@ def test_multiple_symbols_reconciled_independently() -> None:
     )
     # TCS is missing from broker → drift
     assert len(drifts) == 1
-    assert drifts[0].symbol == "TCS"
+    assert drifts[0].symbol == "NSE:TCS"

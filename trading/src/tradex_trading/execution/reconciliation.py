@@ -67,27 +67,32 @@ class ReconciliationEngine:
         local: list[Position],
         broker: list[Position],
     ) -> list[DriftItem]:
-        """Compare local and broker positions, returning drift items."""
+        """Compare local and broker positions, returning drift items.
+
+        Positions are keyed by full instrument_id (exchange + underlying +
+        derivative fields) so the same symbol on different exchanges
+        (e.g. RELIANCE on NSE vs BSE) does not collide (M7 fix).
+        """
         local_map: dict[str, Position] = {
-            p.instrument.symbol: p for p in local
+            str(p.instrument.instrument_id): p for p in local
         }
         broker_map: dict[str, Position] = {
-            p.instrument.symbol: p for p in broker
+            str(p.instrument.instrument_id): p for p in broker
         }
 
-        all_symbols = set(local_map) | set(broker_map)
+        all_keys = set(local_map) | set(broker_map)
         drifts: list[DriftItem] = []
 
-        for symbol in sorted(all_symbols):
-            lp = local_map.get(symbol)
-            bp = broker_map.get(symbol)
+        for inst_key in sorted(all_keys):
+            lp = local_map.get(inst_key)
+            bp = broker_map.get(inst_key)
             local_qty = lp.quantity.value if lp else Decimal("0")
             broker_qty = bp.quantity.value if bp else Decimal("0")
             diff = local_qty - broker_qty
             if diff != Decimal("0"):
                 drifts.append(
                     DriftItem(
-                        symbol=symbol,
+                        symbol=inst_key,
                         local_quantity=local_qty,
                         broker_quantity=broker_qty,
                         diff=diff,
@@ -107,7 +112,7 @@ class ReconciliationEngine:
                     drifts.append(
                         DriftItem(
                             kind="position",
-                            key=symbol,
+                            key=inst_key,
                             severity=DriftSeverity.MEDIUM,
                             reason="avg_price drift",
                             local=lp.avg_price.value,

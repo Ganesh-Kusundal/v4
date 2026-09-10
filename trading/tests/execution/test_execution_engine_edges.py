@@ -136,7 +136,7 @@ def test_reconcile_uses_cache_when_no_local_positions() -> None:
     engine = _make_engine(cache=cache)
     drifts = engine.reconcile(broker_positions=[])
     assert len(drifts) == 1
-    assert drifts[0].symbol == "RELIANCE"
+    assert drifts[0].symbol == "NSE:RELIANCE"
 
 
 # ---------------------------------------------------------------------------

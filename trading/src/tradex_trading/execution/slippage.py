@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from tradex_domain.enums import OrderSide
 from tradex_domain.execution import Fill, Order, OrderRequest
-from tradex_domain.value_objects import Price, Quantity
+from tradex_domain.value_objects import OrderId, Price, Quantity
 
 if TYPE_CHECKING:
     from tradex_trading.execution.fill_sources import FillSource
@@ -87,6 +87,16 @@ class SlippageAwareFillSource:
                 timestamp=fill.timestamp,
             )
         return order, fill
+
+    def cancel(self, order_id: OrderId) -> None:
+        """Pass cancel through to the inner fill source (L2 fix — previously
+        missing, so SlippageAwareFillSource didn't satisfy the FillSource
+        protocol's cancel/modify methods)."""
+        self._inner.cancel(order_id)
+
+    def modify(self, order_id: OrderId, request: OrderRequest) -> None:
+        """Pass modify through to the inner fill source."""
+        self._inner.modify(order_id, request)
 
 
 __all__ = [
