@@ -75,10 +75,15 @@ class PlaceOrderCommand(DomainEvent):
 
 
 @dataclass(frozen=True, slots=True)
-class StaleFeed:
+class StaleFeed(DomainEvent):
+    """Raised when a quote/depth feed has not been updated within the
+    configured staleness threshold. Inherits from ``DomainEvent`` so it
+    carries ``timestamp`` and ``correlation_id`` (L2 fix — previously
+    was a bare dataclass, inconsistent with other domain events)."""
+
     instrument: Instrument
     age_seconds: float
-    last_timestamp: datetime | None
+    last_timestamp: datetime | None = None
 
 
 __all__ = [

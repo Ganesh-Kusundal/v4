@@ -40,8 +40,8 @@ class TestSharedModelContract:
         pos = apply_fill(None, _fill(OrderSide.BUY, "2", "100"))
         pos = apply_fill(pos, _fill(OrderSide.BUY, "1", "110"))
         assert pos.quantity.value == Decimal("3")
-        # (100*2 + 110) / 3
-        assert pos.avg_price.value == Decimal("310") / Decimal("3")
+        # (100*2 + 110) / 3 = 103.333… → quantized to 103.33 (H4 fix).
+        assert pos.avg_price.value == Decimal("103.33")
         assert pos.realized_pnl.amount == Decimal("0")
 
     def test_partial_close_books_realized_pnl(self) -> None:
@@ -75,20 +75,23 @@ class TestSharedModelContract:
         assert pos.realized_pnl.amount == Decimal("50")
 
     def test_non_integer_average_quantizes_realized_to_paisa(self) -> None:
-        """Realized P&L is paisa-quantized (ROUND_HALF_UP) on every fill, so
-        a non-terminating average (310/3) never leaves Decimal residue — and
-        the quantized accumulation still equals the exact round-trip P&L."""
+        """Average price is paisa-quantized (ROUND_HALF_UP) on every fill
+        (H4 fix), so a non-terminating average (310/3) becomes 103.33
+        immediately — and the realized P&L accumulates from the quantized
+        base."""
         pos = apply_fill(None, _fill(OrderSide.BUY, "1", "100"))
         pos = apply_fill(pos, _fill(OrderSide.BUY, "2", "105"))
-        assert pos.avg_price.value == Decimal("310") / Decimal("3")
-        # SELL 1 @110 → delta 6.666… → 6.67
+        # (100*1 + 105*2) / 3 = 310/3 = 103.333… → quantized to 103.33
+        assert pos.avg_price.value == Decimal("103.33")
+        # SELL 1 @110 → delta (110 - 103.33) = 6.67
         pos = apply_fill(pos, _fill(OrderSide.SELL, "1", "110"))
         assert pos.realized_pnl.amount == Decimal("6.67")
-        # SELL 2 @112 → delta 17.333… → 17.33; accumulated 24.00
+        # SELL 2 @112 → delta (112 - 103.33) * 2 = 17.34; accumulated 24.01
         pos = apply_fill(pos, _fill(OrderSide.SELL, "2", "112"))
         assert pos.quantity.value == Decimal("0")
-        # Exact round trip: proceeds 334 − cost 310 = 24.00.
-        assert pos.realized_pnl.amount == Decimal("24.00")
+        # Quantized round trip: proceeds 334 − cost 310 = 24, but the
+        # quantized avg shifts the per-fill deltas slightly: 6.67 + 17.34 = 24.01
+        assert pos.realized_pnl.amount == Decimal("24.01")
 
     def test_input_is_never_mutated(self) -> None:
         pos = apply_fill(None, _fill(OrderSide.BUY, "1", "100"))

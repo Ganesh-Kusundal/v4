@@ -40,12 +40,17 @@ DHAN_SESSION_OPEN: dict[str, str] = {"MCX_COMM": "09:00:00", "NSE_COMM": "09:00:
 DHAN_SESSION_CLOSE: dict[str, str] = {"MCX_COMM": "23:30:00", "NSE_COMM": "23:30:00"}
 
 #: NSE cash-market trading holidays for 2026 (weekday sessions with no
-#: trading across the exchange).  Seeded empirically from the datalake store:
-#: weekday dates where every tracked symbol has zero bars even after a clean
-#: broker backfill.  Extend as new closures are confirmed — do not guess.
+#: trading across the exchange).  Sources: the official NSE 2026 holiday
+#: circular (Maharashtra Day, Ganesh Chaturthi, Gandhi Jayanti, Dussehra)
+#: plus empirical datalake confirmations (Bakri Id, Muharram).  Extend as
+#: new closures are confirmed — do not guess.
 NSE_HOLIDAYS_2026: frozenset = frozenset({
+    date(2026, 5, 1),
     date(2026, 5, 28),
     date(2026, 6, 26),
+    date(2026, 9, 14),
+    date(2026, 10, 2),
+    date(2026, 10, 20),
 })
 
 __all__ = [

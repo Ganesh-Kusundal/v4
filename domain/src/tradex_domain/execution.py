@@ -205,8 +205,13 @@ class Order(Serializable):
 
     @property
     def is_terminal(self) -> bool:
-        """True if order reached a final state (filled, cancelled, or rejected)."""
-        return self.status in {OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED}
+        """True if order reached a final state (filled, cancelled, rejected, or unknown)."""
+        return self.status in {
+            OrderStatus.FILLED,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+            OrderStatus.UNKNOWN,
+        }
 
     @property
     def is_rejected(self) -> bool:
