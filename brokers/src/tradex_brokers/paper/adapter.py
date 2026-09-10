@@ -25,6 +25,7 @@ from tradex_domain.errors import (
 )
 from tradex_domain.execution import (
     Account,
+    Fill,
     Order,
     OrderRequest,
     PortfolioSnapshot,
@@ -33,8 +34,8 @@ from tradex_domain.execution import (
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, HistoricalSeries, Quote, require_depth_supported
 from tradex_domain.options import OptionChain
+from tradex_domain.position_math import apply_fill as _domain_apply_fill
 from tradex_domain.protocols import TradingCacheProtocol
-from tradex_domain.utils import q2
 from tradex_domain.value_objects import AccountId, InstrumentId, Money, OrderId, Price, Quantity
 
 from tradex_brokers.common.capabilities import paper_capabilities
@@ -310,7 +311,13 @@ class PaperBroker:
             }
 
     def exit_all(self) -> dict[str, object]:
-        """Cancel all open orders and flatten all positions."""
+        """Cancel all open orders and flatten all positions.
+
+        Open positions are settled at the last known quote (mid-price
+        fallback to avg_price) so the cash ledger reflects the proceeds
+        of closing every position — previously the cash was left stale
+        and ``flattened_positions`` was hardcoded to 0.
+        """
         with self._state_lock:
             self._require_connected()
             cancelled_count = 0
@@ -319,10 +326,28 @@ class PaperBroker:
                     cancelled = order.transition_to(OrderStatus.CANCELLED)
                     self._orders[order.order_id.value] = cancelled
                     cancelled_count += 1
+            # Settle open positions into cash before clearing
+            flattened_count = 0
+            for pos in list(self._positions.values()):
+                if pos.quantity.value == 0:
+                    continue
+                inst_key = str(pos.instrument.instrument_id)
+                quote = self._quotes.get(inst_key)
+                if quote is not None:
+                    if pos.quantity.value > 0 and quote.bid is not None:
+                        settle_price = quote.bid.value
+                    elif pos.quantity.value < 0 and quote.ask is not None:
+                        settle_price = quote.ask.value
+                    else:
+                        settle_price = quote.ltp.value
+                else:
+                    settle_price = pos.avg_price.value
+                self._cash += pos.quantity.value * settle_price
+                flattened_count += 1
             self._positions.clear()
             return {
                 "cancelled_orders": cancelled_count,
-                "flattened_positions": 0,
+                "flattened_positions": flattened_count,
             }
 
     def mass_status(self) -> dict[str, object]:
@@ -657,16 +682,45 @@ class PaperBroker:
             )
         self._depths[inst_key] = new_depth
 
-        # Compute average fill price
-        avg_price = total_cost / filled_qty if filled_qty > Decimal("0") else Decimal("0")
+        # Marginal fill price for THIS increment (correct cash impact — C1 fix).
+        # The overall weighted average (across all fills) is tracked separately
+        # for position bookkeeping and stored in avg_price_traded.
+        marginal_price = total_cost / filled_qty if filled_qty > Decimal("0") else Decimal("0")
+
+        # Compute the overall weighted-average fill price across all fills.
+        # For subsequent partial fills the stored order's price is the original
+        # limit (M4 fix), so the previous average comes from avg_price_traded.
+        if order.status is OrderStatus.PARTIALLY_FILLED:
+            prev_avg = (
+                order.avg_price_traded.value
+                if order.avg_price_traded is not None
+                else (order.price.value if order.price is not None else Decimal("0"))
+            )
+            prev_qty = order.filled_quantity.value
+            overall_avg = (
+                (prev_avg * prev_qty + total_cost) / (prev_qty + filled_qty)
+                if (prev_qty + filled_qty) > Decimal("0")
+                else marginal_price
+            )
+        else:
+            overall_avg = marginal_price
 
         # Apply the fill
         if filled_qty >= order.quantity.value:
-            # Full fill
+            # Full fill — keep original limit price, record fill average
+            # separately (M4: limit price is never overwritten for LIMIT
+            # orders; MARKET orders have no limit so we stamp the fill price
+            # so _apply_fill can compute cash impact).
             filled = order.transition_to(OrderStatus.FILLED)
+            fill_price_for_order = (
+                Price(value=overall_avg)
+                if order.price is None
+                else order.price
+            )
             filled = replace(
                 filled,
-                price=Price(value=avg_price),
+                price=fill_price_for_order,
+                avg_price_traded=Price(value=overall_avg),
                 filled_quantity=order.quantity,
             )
             cash_before = self._cash
@@ -677,7 +731,11 @@ class PaperBroker:
                 raise
             self._orders[order.order_id.value] = filled
         else:
-            # Partial fill — apply only the incremental fill
+            # Partial fill — apply only the incremental fill.
+            # The incremental uses the marginal price so cash impact is
+            # correct (C1: marginal_price * filled_qty, not overall avg).
+            # Position math in _update_position re-derives the correct
+            # weighted average from (old_avg, old_qty, marginal_price, filled_qty).
             if order.status is OrderStatus.PARTIALLY_FILLED:
                 new_filled_qty = order.filled_quantity.value + filled_qty
             else:
@@ -685,15 +743,22 @@ class PaperBroker:
             partial = replace(
                 order,
                 status=OrderStatus.PARTIALLY_FILLED,
-                price=Price(value=avg_price),
+                # MARKET orders have no limit price; stamp the marginal fill
+                # price so subsequent partial fills can compute prev_avg.
+                price=(
+                    Price(value=marginal_price)
+                    if order.price is None
+                    else order.price
+                ),
+                avg_price_traded=Price(value=overall_avg),
                 filled_quantity=Quantity(value=new_filled_qty),
             )
             cash_before = self._cash
             try:
-                # Apply only the incremental fill to cash/position
                 incremental = replace(
                     order,
-                    price=Price(value=avg_price),
+                    price=Price(value=marginal_price),
+                    avg_price_traded=Price(value=overall_avg),
                     filled_quantity=Quantity(value=filled_qty),
                 )
                 self._apply_fill(incremental)
@@ -732,46 +797,22 @@ class PaperBroker:
     def _update_position(self, order: Order) -> None:
         """Update position for an instrument after a fill.
 
-        # ponytail: duplicated weighted-average from trading/position_math —
-        # brokers can't import trading (domain ← brokers ← trading). Keep in sync
-        # via domain/utils.q2 so rounding is single-source; extract to domain
-        # if a third copy appears.
+        Delegates to the canonical position-accounting function in
+        :mod:`tradex_domain.position_math` (M8 fix — no longer duplicates
+        the weighted-average math from trading/position_math).
         """
         instrument_id = str(order.instrument.instrument_id)
         current = self._positions.get(instrument_id)
 
-        old_qty = current.quantity.value if current is not None else Decimal("0")
-        signed_fill = (
-            order.filled_quantity.value
-            if order.side is OrderSide.BUY
-            else -order.filled_quantity.value
-        )
-        new_qty = old_qty + signed_fill
-        fill_price = order.price.value
-
-        if current is None or (
-            (old_qty >= 0 and signed_fill > 0) or (old_qty <= 0 and signed_fill < 0)
-        ):
-            old_avg = current.avg_price.value if current is not None else Decimal("0")
-            total_cost = old_avg * abs(old_qty) + fill_price * abs(signed_fill)
-            new_avg = total_cost / abs(new_qty) if new_qty != 0 else fill_price
-            realized = current.realized_pnl.amount if current is not None else Decimal("0")
-        else:
-            old_avg = current.avg_price.value
-            new_avg = old_avg if new_qty * old_qty >= 0 else fill_price
-            closed = min(abs(signed_fill), abs(old_qty))
-            pnl_diff = (fill_price - old_avg) * closed
-            if old_qty < 0:
-                pnl_diff = -pnl_diff
-            realized = current.realized_pnl.amount + pnl_diff
-
-        self._positions[instrument_id] = Position(
+        fill = Fill(
+            order_id=order.order_id,
             instrument=order.instrument,
-            quantity=Quantity(value=new_qty),
-            avg_price=Price(value=new_avg),
-            realized_pnl=Money(amount=q2(realized), currency=_CURRENCY),
-            unrealized_pnl=Money(amount=Decimal("0"), currency=_CURRENCY),
+            side=order.side,
+            quantity=order.filled_quantity,
+            price=order.price,
+            timestamp=datetime.now(UTC),
         )
+        self._positions[instrument_id] = _domain_apply_fill(current, fill)
 
     @property
     def synchronous_fill(self) -> bool:

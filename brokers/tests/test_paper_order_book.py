@@ -78,8 +78,12 @@ class TestPaperOrderBook:
         order = broker.get_order(oid)
         assert order.status is OrderStatus.FILLED
         assert order.filled_quantity.value == Decimal("40")
+        # M4 fix: order.price preserves the original limit price (100.10).
+        # The weighted-average fill price is in avg_price_traded.
         # Weighted avg: (20*100 + 20*100.10) / 40 = 100.05
-        assert order.price.value == Decimal("100.05")
+        assert order.price.value == Decimal("100.10")
+        assert order.avg_price_traded is not None
+        assert order.avg_price_traded.value == Decimal("100.05")
 
     def test_market_buy_walks_book(self) -> None:
         broker = PaperBroker(auto_fill=True, order_book=True)
