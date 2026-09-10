@@ -7,7 +7,7 @@ name = "tradex-domain"
 version = "0.1.0"
 description = "TradeX v4 shared domain kernel — enums, value objects, instruments, protocols, capabilities, wire mapping, events"
 requires-python = ">=3.12"
-dependencies = ["rx>=3.2,<4"]
+dependencies = []
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tradex_domain"]

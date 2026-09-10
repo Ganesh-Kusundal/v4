@@ -1356,12 +1356,6 @@ provides-extras = ["dhan", "ws", "full"]
 name = "tradex-domain"
 version = "0.1.0"
 source = { editable = "domain" }
-dependencies = [
-    { name = "rx" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "rx", specifier = ">=3.2,<4" }]
 
 [[package]]
 name = "tradex-trading"
