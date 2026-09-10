@@ -16,10 +16,14 @@ import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
 from tradex_domain import BrokerId
+from tradex_domain.protocols import BrokerAdapter
+
+if TYPE_CHECKING:
+    from tradex_trading.runtime.writer_lock import SingleWriterLock
 
 from tradex_trading.config.schema import AppConfig
 from tradex_trading.execution.engine import (
@@ -86,42 +90,44 @@ class RuntimeContext:
     config: AppConfig
     session: TradingSession
     engine: ExecutionEngine
-    strategy_engine: object | None
+    strategy_engine: ReactiveStrategyEngine | None
     bus: ReactiveBus | ThreadSafeReactiveBus
-    broker: Any
-    writer_lock: Any = None
+    broker: BrokerAdapter
+    writer_lock: SingleWriterLock | None = None
 
     def close(self) -> None:
         """Stop the session and release runtime resources.
 
-        M4: ``broker.close()`` is invoked exactly once — by
-        ``session.stop()`` below. The previous second call here
-        relied on broker idempotency, which is not part of the
-        ``BaseBroker`` contract. Removing the duplicate makes the
-        teardown order explicit and lets a non-idempotent broker
-        surface a real error.
+        PE-10: uses ShutdownCoordinator for ordered teardown — strategies
+        first (stop producing events), then engine (drain pipeline), then
+        session (release resources), then writer lock (last).
 
-        M7: releases the *local* ``self.writer_lock`` (not the
-        module global) so a second RuntimeContext that overwrote
-        the global cannot accidentally release the first context's
-        lock.
+        Each phase runs in its own try/except so one component's failure
+        does not prevent the remaining phases from executing.
         """
-        self.session.stop()
-        if self.writer_lock is not None:
-            try:
-                self.writer_lock.release()
-            except Exception:  # pragma: no cover
-                log.warning("writer lock release failed", exc_info=True)
-        if hasattr(self, "engine") and self.engine is not None:
-            try:
-                self.engine.shutdown()
-            except Exception as exc:  # pragma: no cover
-                log.error("Error shutting down engine: %s", exc)
+        from tradex_trading.runtime.shutdown import ShutdownCoordinator
+
+        coord = ShutdownCoordinator()
+
+        # Phase 1: strategies — stop producing new events
         if self.strategy_engine is not None:
-            try:
-                self.strategy_engine.dispose_all()  # type: ignore[attr-defined]
-            except Exception as exc:  # pragma: no cover
-                log.error("Error disposing strategy engine: %s", exc)
+            coord.register(
+                "strategies", priority=1,
+                action=self.strategy_engine.dispose_all,  # type: ignore[attr-defined]
+            )
+
+        # Phase 2: engine — drain the reactive pipeline
+        if hasattr(self, "engine") and self.engine is not None:
+            coord.register("engine", priority=2, action=self.engine.shutdown)
+
+        # Phase 3: session — release resources (includes broker.close)
+        coord.register("session", priority=3, action=self.session.stop)
+
+        # Phase 4: writer lock — last, after all I/O is done
+        if self.writer_lock is not None:
+            coord.register("writer_lock", priority=4, action=self.writer_lock.release)
+
+        coord.shutdown()
 
 
 def boot(
@@ -679,7 +685,7 @@ def boot_context(
         config=cfg,
         session=session,
         engine=session.engine,
-        strategy_engine=session.strategy_engine,
+        strategy_engine=cast("ReactiveStrategyEngine | None", session.strategy_engine),
         bus=session.bus,
         broker=session.broker,
         writer_lock=writer_lock,

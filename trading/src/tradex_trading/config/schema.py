@@ -174,10 +174,14 @@ class AppConfig:
             raise ValueError(f"unknown config sections: {sorted(unknown)}")
 
         broker_id_str = str(data.get("broker_id", "PAPER"))
+        valid_ids = [b.value for b in BrokerId]
         try:
             broker_id = BrokerId(broker_id_str)
         except ValueError:
-            broker_id = BrokerId.PAPER
+            raise ValueError(
+                f"invalid broker_id {broker_id_str!r}; "
+                f"valid values: {valid_ids}"
+            ) from None
 
         broker = _build(BrokerConfig, data.get("broker"))
         risk = _build(RiskConfig, data.get("risk"))

@@ -39,6 +39,23 @@ class TestBootModeValidation:
             boot(cfg)
 
 
+class TestAppConfigBrokerIdValidation:
+    """PE-14: AppConfig.from_dict rejects invalid broker_id instead of
+    silently defaulting to PAPER."""
+
+    def test_invalid_broker_id_raises(self) -> None:
+        with pytest.raises(ValueError, match="invalid broker_id.*DHA"):
+            AppConfig.from_dict({"broker_id": "DHA"})
+
+    def test_valid_broker_id_accepted(self) -> None:
+        cfg = AppConfig.from_dict({"broker_id": "DHAN"})
+        assert cfg.broker_id == BrokerId.DHAN
+
+    def test_default_broker_id_is_paper(self) -> None:
+        cfg = AppConfig.from_dict({})
+        assert cfg.broker_id == BrokerId.PAPER
+
+
 class TestBootLiveGates:
     """boot() enforces live-mode safety gates."""
 
