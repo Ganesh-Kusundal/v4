@@ -722,6 +722,41 @@ async def ws_stream(
                     quote = session.broker.get_quote(inst)
                 except Exception:  # noqa: BLE001 — best-effort snapshot
                     quote = None
+                if quote is None or (
+                    getattr(session, "mode", None) == "paper" and float(quote.ltp.value) == 100.0
+                ):
+                    try:
+                        from datetime import datetime, timedelta, timezone
+                        from decimal import Decimal
+
+                        from tradex_domain.market import Quote
+                        from tradex_domain.value_objects import Price
+                        from tradex_trading.datalake.parquet_storage import ParquetStorage
+                        from tradex_trading.datalake.paths import DATALAKE_ROOT
+
+                        store = ParquetStorage(DATALAKE_ROOT)
+                        sym = getattr(inst, "symbol", None) or str(iid).split(":")[-1]
+                        rng = store.date_range(sym)
+                        if rng and rng[1]:
+                            df = store.read(symbols=[sym], start=rng[1] - timedelta(days=2), end=rng[1])
+                            if not df.empty:
+                                last_c = Decimal(str(round(float(df["close"].iloc[-1]), 2)))
+                                p_ltp = Price(last_c)
+                                p_bid = Price(last_c - Decimal("0.05"))
+                                p_ask = Price(last_c + Decimal("0.05"))
+                                quote = Quote(
+                                    instrument=inst,
+                                    ltp=p_ltp,
+                                    bid=p_bid,
+                                    ask=p_ask,
+                                    timestamp=datetime.now(timezone.utc),
+                                    exchange=getattr(getattr(inst, "exchange", None), "value", "NSE"),
+                                    provider="paper",
+                                )
+                                if hasattr(session.broker, "set_quote"):
+                                    session.broker.set_quote(inst, ltp=p_ltp, bid=p_bid, ask=p_ask)
+                    except Exception:
+                        pass
                 if quote is not None and iid in wanted:
                     loop.call_soon_threadsafe(_send_quote, quote)
                 if depth_mode.get(iid, "off") != "off":
