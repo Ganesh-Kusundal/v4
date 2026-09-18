@@ -79,3 +79,6 @@ poc/data/*
 # Runtime state (tokens, instrument dumps; regenerate via broker connect)
 trading/runtime/
 trading/data/
+backups/
+data/logs/
+data/backfill_2025.json
