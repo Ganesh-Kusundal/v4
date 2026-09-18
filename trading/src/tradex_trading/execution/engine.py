@@ -51,6 +51,7 @@ from tradex_trading.execution.idempotency import (
     IdempotencyKeyReuseMismatch,
     MemoryIdempotencyGuard,
 )
+from tradex_trading.execution.kill_switch import KillSwitch
 from tradex_trading.execution.order_manager import OrderManager
 from tradex_trading.execution.order_store import InMemoryOrderStore, OrderStore
 from tradex_trading.execution.position_manager import PositionManager
@@ -201,7 +202,7 @@ class ExecutionEngine:
         self._fee_calculator = fee_calculator
         self._order_manager = OrderManager(self._cache)
         self._position_manager = PositionManager(self._cache)
-        self._kill_switch = threading.Event()
+        self._kill_switch = KillSwitch(metrics=metrics, risk=risk_manager, cache=self._cache)
         self._reconciler = ReconciliationEngine()
         self._brokerage_accrued: dict[str, Decimal] = {}
         self._brokerage_lock = threading.Lock()  # ponytail: unbounded, LRU 50k if needed
@@ -235,7 +236,7 @@ class ExecutionEngine:
         from rx import operators as ops
 
         self._pipeline_disposable = self._bus.of_type(OrderRequest).pipe(
-            ops.filter(lambda _: not self._kill_switch.is_set()),
+            ops.filter(lambda _: not self._kill_switch.active),
         ).subscribe(
             on_next=self._process_request,
             # Unexpected pipeline failures surface as ErrorOccurred. Per-request
@@ -324,7 +325,7 @@ class ExecutionEngine:
         )
 
         # 0. Kill switch (cheap — must precede any reservation)
-        if self._kill_switch.is_set():
+        if self._kill_switch.active:
             if sync:
                 return OrderReceipt(
                     order_id=OrderId(value="rejected"),
@@ -629,27 +630,12 @@ class ExecutionEngine:
         return receipt
 
     def trip_kill_switch(self, reason: str = "") -> list[str]:
-        """Halt new submissions and cancel every open order."""
-        log.critical("Kill switch tripped: %s", reason)
-        if self._metrics is not None:
-            self._metrics.counter("kill_switch.tripped").inc()
-        self._kill_switch.set()
-        # Propagate to risk manager master gate
-        if self._risk is not None:
-            self._risk.live_orders_enabled = False
-        failures: list[str] = []
-        for order in self._cache.all_orders():
-            if order.status not in _TERMINAL_STATUSES:
-                try:
-                    # engine.cancel dispatches the venue first for plain
-                    # orders (fill_source.cancel) and brackets
-                    # (cancel_super_order) — no separate venue call here,
-                    # or the venue would be cancelled twice.
-                    self.cancel(order.order_id)
-                except Exception as exc:
-                    log.error("kill-switch cancel failed for %s: %s", order.order_id, exc)
-                    failures.append(order.order_id.value)
-        return failures
+        """Halt new submissions and cancel every open order.
+
+        Delegates to :class:`KillSwitch`, which owns the halt logic; the cancel
+        callable is the engine's own ``cancel`` so venue dispatch stays here.
+        """
+        return self._kill_switch.trip(reason, cancel=self.cancel)
 
     def reconcile(
         self,
@@ -859,7 +845,7 @@ class ExecutionEngine:
     @property
     def kill_switch(self) -> bool:
         """Whether the kill switch is active."""
-        return self._kill_switch.is_set()
+        return self._kill_switch.active
 
     @kill_switch.setter
     def kill_switch(self, value: bool) -> None:

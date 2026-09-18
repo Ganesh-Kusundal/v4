@@ -131,6 +131,10 @@ def test_pipeline_error_publishes_error_occurred(monkeypatch) -> None:
     def _boom() -> bool:
         raise RuntimeError("pipeline blew up")
 
+    # The pipeline filter reads KillSwitch.active, which delegates to
+    # is_set(). Patching the method (not the property) means the filter's
+    # lambda raises, proving on_error publishes instead of fabricating an
+    # Order — the v3 bug this regression guard exists for.
     monkeypatch.setattr(engine._kill_switch, "is_set", _boom)
 
     bus.publish(_request())
