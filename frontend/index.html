@@ -11,12 +11,10 @@
   </head>
   <body>
     <div id="app">
-      <header class="topbar">
+        <header class="topbar">
         <div class="brand"><span class="brand-dot"></span> TradeX <em>LIVE</em></div>
         <div class="divider"></div>
-        <div class="group">
-          <input type="password" id="apikey" class="field field--key" placeholder="TradeX API key" autocomplete="off" spellcheck="false" title="Kept in memory for this session only. Never stored, never committed." />
-        </div>
+        <div class="legend" id="legend"></div>
         <div class="divider"></div>
         <div class="group">
           <div class="sym-wrap">
@@ -74,7 +72,6 @@
 
       <main class="stage">
         <div id="chart"></div>
-        <div class="legend" id="legend"></div>
       </main>
 
       <!-- right-click order menu (price under the cursor) -->

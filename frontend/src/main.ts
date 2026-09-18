@@ -579,8 +579,8 @@ function disconnect(): void {
 async function connect(): Promise<void> {
   disconnect();
 
-  const apiKeyInput = el<HTMLInputElement>('apikey');
-  const userKey = apiKeyInput.value.trim();
+  const apiKeyInput = document.getElementById('apikey') as HTMLInputElement | null;
+  const userKey = apiKeyInput ? apiKeyInput.value.trim() : '';
   if (userKey) {
     setApiKey(userKey);
   }
@@ -1113,7 +1113,7 @@ el('ctype').addEventListener('change', () => {
 // Seed API key if present in meta tag
 const seedKey = getApiKey();
 if (seedKey) {
-  const keyInput = el<HTMLInputElement>('apikey');
+  const keyInput = document.getElementById('apikey') as HTMLInputElement | null;
   if (keyInput) keyInput.value = seedKey;
 }
 

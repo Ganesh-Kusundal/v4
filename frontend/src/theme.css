@@ -51,13 +51,14 @@ body {
 .topbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 9px 14px;
+  gap: 8px;
+  flex-wrap: nowrap;
+  padding: 7px 14px;
   background: linear-gradient(180deg, var(--panel), #0c0f16);
   border-bottom: 1px solid var(--bd-soft);
   flex: none;
   z-index: 20;
+  overflow-x: auto;
 }
 
 .brand {
@@ -337,18 +338,18 @@ select.field {
 }
 
 .legend {
-  position: absolute;
-  top: 14px;
-  left: 16px;
-  z-index: 10;
-  pointer-events: none;
-  padding: 8px 12px;
-  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--h);
+  padding: 0 11px;
+  border-radius: 7px;
   font: 12px system-ui;
-  background: rgba(15,18,26,.72);
+  background: var(--elev);
   border: 1px solid var(--bd-soft);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  white-space: nowrap;
+  flex: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
 .legend:empty {
@@ -358,18 +359,23 @@ select.field {
 .legend b {
   color: #eef1f7;
   font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .2px;
 }
 
-.up {
+.legend .up {
   color: var(--buy);
+  font-weight: 500;
 }
 
-.dn {
+.legend .dn {
   color: var(--sell);
+  font-weight: 500;
 }
 
-.ltp {
+.legend .ltp {
   color: var(--amber);
+  font-weight: 600;
 }
 
 /* ── right-click order menu ─────────────────────────────────── */
