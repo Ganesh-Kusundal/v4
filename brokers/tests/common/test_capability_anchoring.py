@@ -113,6 +113,22 @@ _GATED_CALLS = {
     ),
 }
 
+#: The same calls, keyed by method name for the paper surface test. The ones
+#: with no zero-arg form take a real argument so the gate is reached, not a
+#: TypeError from a missing parameter.
+_GATED_CALLS_BY_METHOD = {
+    "list_super_orders": lambda b: b.list_super_orders(),
+    "submit_super_order": lambda b: b.submit_super_order(None),  # the gate fires before the argument is consulted
+    "list_forever_orders": lambda b: b.list_forever_orders(),
+    "submit_forever_order": lambda b: b.submit_forever_order(None),  # the gate fires before the argument is consulted
+    "status_kill_switch": lambda b: b.status_kill_switch(),
+    "kill_switch": lambda b: b.kill_switch(),
+    "submit_slice_order": lambda b: b.submit_slice_order(None, []),  # the gate fires before the args are consulted
+    "submit_edis": lambda b: b.submit_edis(None),  # the gate fires before the argument is consulted
+    "future_chain": lambda b: b.future_chain(Equity.of("NSE", "RELIANCE")),
+    "ltp_batch": lambda b: b.ltp_batch([Equity.of("NSE", "RELIANCE")]),
+}
+
 
 @pytest.mark.parametrize(
     "broker_cls, caps",
@@ -138,9 +154,16 @@ def test_every_false_flag_fails_loud(broker_cls: type, caps: BrokerCapabilities)
             assert not hasattr(broker, method)
 
 
-def test_paper_extension_surface_is_structurally_absent() -> None:
-    """Paper does not inherit the BaseBroker pass-through wall, so every
-    unsupported extension is absent entirely — it cannot even be called."""
+def test_paper_extension_surface_is_gated() -> None:
+    """Paper inherits the BaseBroker pass-through wall, so every unsupported
+    extension is present but *refuses to run* — the gate must fire.
+
+    Before candidate 4 PaperBroker was a standalone class, so these methods
+    were absent entirely. That was the stronger fail-closure, but it also meant
+    a fix to the shared wall never reached paper. Now the wall is shared and
+    the capability table is what keeps paper honest: a caller that reaches one
+    of these gets ``CapabilityNotSupportedError``, not a silent pass-through.
+    """
     broker = PaperBroker()
     broker.connect()
     for method in (
@@ -155,10 +178,15 @@ def test_paper_extension_surface_is_structurally_absent() -> None:
         "future_chain",
         "ltp_batch",
     ):
-        assert not hasattr(broker, method), (
-            f"PaperBroker unexpectedly exposes {method!r} while its "
-            f"capability table claims the feature is unsupported"
+        assert hasattr(broker, method), (
+            f"PaperBroker lost the shared surface for {method!r} — it should "
+            f"inherit the gate from BaseBroker, not drop the method"
         )
+        call = _GATED_CALLS_BY_METHOD.get(method)
+        if call is None:
+            continue
+        with pytest.raises(CapabilityNotSupportedError):
+            call(broker)
 
 
 def test_dhan_upstox_depth_levels_match_declared_backends() -> None:

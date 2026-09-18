@@ -38,6 +38,7 @@ from tradex_domain.position_math import apply_fill as _domain_apply_fill
 from tradex_domain.protocols import TradingCacheProtocol
 from tradex_domain.value_objects import AccountId, InstrumentId, Money, OrderId, Price, Quantity
 
+from tradex_brokers.common.base import BaseBroker
 from tradex_brokers.common.capabilities import paper_capabilities
 
 
@@ -112,8 +113,19 @@ _DEFAULT_BID = Price(value=Decimal("99.95"))
 _DEFAULT_ASK = Price(value=Decimal("100.05"))
 
 
-class PaperBroker:
-    """In-memory simulation broker satisfying the ``BrokerAdapter`` protocol."""
+class PaperBroker(BaseBroker):
+    """In-memory simulation broker, extending the same seam as the live ones.
+
+    Candidate 4 of the 2026-09-17 architecture review: PaperBroker used to be
+    a standalone class that manually re-implemented every protocol method, so
+    a fix to ``BaseBroker``'s lifecycle, instrument loading or order gates did
+    not propagate. It now inherits all of that and overrides only what makes
+    it a simulation: the fill engine, the cash ledger, and the market data
+    that would otherwise come from a venue.
+    """
+
+    #: No fallback universe — paper serves only what it was handed.
+    _fallback_equities: tuple[str, ...] = ()
 
     def __init__(
         self,
@@ -122,7 +134,7 @@ class PaperBroker:
         project_positions: bool = True,
         order_book: bool = False,
     ) -> None:
-        self.capabilities: BrokerCapabilities = paper_capabilities()
+        super().__init__(capabilities=paper_capabilities())
         self._auto_fill = auto_fill
         self._project_positions = project_positions
         self._order_book_enabled = order_book
@@ -132,7 +144,6 @@ class PaperBroker:
         self._instruments: dict[str, Instrument] = {}
         self._orders: dict[str, Order] = {}
         self._positions: dict[str, Position] = {}
-        self._connected = False
         self._state_lock = threading.RLock()
         self._cache: TradingCacheProtocol = _PaperCache()
         self.connect()  # paper broker is connected on construction
@@ -140,14 +151,17 @@ class PaperBroker:
     # ------------------------------------------------------------------
     # lifecycle
     # ------------------------------------------------------------------
+    # ``connect``/``close`` are inherited: they only flip ``_connected``.
+    # ``_require`` is the seam a pass-through gate calls before delegating to
+    # a transport — paper has no transport, so it refuses instead of handing
+    # back ``None`` and letting a caller dereference it.
 
-    def connect(self) -> None:
-        """Mark the broker as connected."""
-        self._connected = True
-
-    def close(self) -> None:
-        """Mark the broker as disconnected."""
-        self._connected = False
+    def _require(self) -> Any:
+        if not self._connected:
+            raise BrokerUnavailableError("paper broker not connected")
+        raise BrokerUnavailableError(
+            "paper broker has no transport — market data comes from its own sim"
+        )
 
     def _require_connected(self) -> None:
         if not self._connected:
