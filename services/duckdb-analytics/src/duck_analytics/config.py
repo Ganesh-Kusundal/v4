@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 MARKET_OPEN = "09:15:00"
-MARKET_CLOSE = "15:30:00"
+MARKET_CLOSE = "15:29:00"
 
 
 @dataclass(frozen=True, slots=True)

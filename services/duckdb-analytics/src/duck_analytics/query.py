@@ -30,6 +30,15 @@ _FORBIDDEN = (
     "PRAGMA", "SET", "VACUUM", "GRANT", "REVOKE", "CHECKPOINT",
 )
 
+# Table allowlist — only these views may appear in FROM / JOIN clauses.
+_ALLOWED_TABLES = frozenset({"ohlcv", "ohlcv_raw"})
+
+# File-read functions that must never appear anywhere in the SQL.
+_FILE_READ_PATTERNS = (
+    "READ_CSV", "READ_PARQUET", "READ_JSON", "READ_TEXT", "READ_BLOB",
+    "SNIFF_CSV", "GLOB(", "_SCAN(",
+)
+
 # Single-quoted literal (doubled quotes are escapes) — stripped before the
 # keyword scan so values are never mistaken for statements.
 _LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
@@ -97,6 +106,72 @@ class QueryService:
         forbidden = _contains_forbidden(sql)
         if forbidden is not None:
             raise QueryNotAllowedError(f"forbidden keyword: {forbidden}")
+        # Deny arbitrary file-read functions (Phase 0 security).
+        code_upper = _strip_literals(sql).upper()
+        for pattern in _FILE_READ_PATTERNS:
+            if pattern in code_upper:
+                raise QueryNotAllowedError(
+                    f"forbidden file-read pattern: {pattern}"
+                )
+        # Allowlist FROM/JOIN targets — only ohlcv / ohlcv_raw.
+        self._check_table_allowlist(sql)
+
+    def _check_table_allowlist(self, sql: str) -> None:
+        """Reject SQL that references tables outside the allowlist."""
+        code = _strip_literals(sql).upper()
+        # Collect CTE names so FROM <cte_alias> is not rejected.
+        cte_names: set[str] = set()
+        for m in re.finditer(r"\bWITH\b(?:\s+RECURSIVE)?\s+(\w+)(?:\s*\([^)]*\))?\s+AS\s*\(", code):
+            cte_names.add(m.group(1))
+        # Also match subsequent CTE definitions: , name AS (
+        for m in re.finditer(r",\s*(\w+)\s+AS\s*\(", code):
+            cte_names.add(m.group(1))
+
+        # Walk through tokens tracking paren depth.
+        # After FROM/JOIN at depth 0, the next real token is either:
+        # - '(' → subquery, skip until matching ')' then skip alias
+        # - a table name → must be in allowlist or a CTE name
+        tokens = re.split(r"([\s()]+)", code)  # keep parens; split on whitespace
+        expect_table = False
+        paren_depth = 0
+        in_subquery = False
+        for tok in tokens:
+            tok = tok.strip()
+            if not tok:
+                continue
+            if tok == "(":
+                if expect_table:
+                    # Subquery — skip until matching close paren
+                    paren_depth = 1
+                    expect_table = False
+                    in_subquery = True
+                else:
+                    paren_depth += 1
+                continue
+            if tok == ")":
+                if paren_depth > 0:
+                    paren_depth -= 1
+                if paren_depth == 0 and in_subquery:
+                    in_subquery = False
+                    # Next tokens may be AS <alias> — skip them
+                    expect_table = False  # consumed
+                continue
+            if paren_depth > 0:
+                continue  # inside a subquery
+            if tok in ("FROM", "JOIN"):
+                expect_table = True
+                continue
+            if expect_table:
+                expect_table = False
+                if tok == "AS":
+                    continue  # skip alias keyword + next token is alias name
+                table = tok.split(".")[-1] if "." in tok else tok
+                if table in cte_names:
+                    continue
+                if table and table.lower() not in _ALLOWED_TABLES:
+                    raise QueryNotAllowedError(
+                        f"table {table!r} not in allowlist {_ALLOWED_TABLES}"
+                    )
 
     def _apply_limit(self, sql: str, limit: int) -> tuple[str, bool]:
         """Wrap SQL so the service cap cannot be bypassed by caller SQL."""
@@ -152,18 +227,20 @@ class QueryService:
             if timer is not None:
                 timer.cancel()
 
-        elapsed_ms = (time.perf_counter() - start) * 1000.0
-        truncated = len(rows) >= cap
-        total: int | None = None
-        if truncated:
-            # Best-effort true count so callers know what they missed.
-            try:
-                count_sql = f"SELECT count(*) FROM ({sql.rstrip().rstrip(';')}) AS _q"
-                total = int(con.execute(count_sql, args).fetchone()[0])  # type: ignore[index]
-            except Exception:
-                total = None
-            if require_complete:
-                raise QueryNotAllowedError(f"query result truncated at {cap} rows")
+          elapsed_ms = (time.perf_counter() - start) * 1000.0
+          truncated = len(rows) >= cap
+          total: int | None = None
+          if truncated:
+              # Best-effort true count so callers know what they missed.
+              # Runs inside the lock to avoid racing with schema changes.
+              try:
+                  count_sql = f"SELECT count(*) FROM ({sql.rstrip().rstrip(';')}) AS _q"
+                  total = int(con.execute(count_sql, args).fetchone()[0])  # type: ignore[index]
+              except Exception:
+                  total = None
+          if truncated and require_complete:
+              raise QueryNotAllowedError(f"query result truncated at {cap} rows")
+
         return QueryResult(
             columns=col_names,
             rows=rows[:cap],

@@ -4,7 +4,7 @@ Two views over the same scan:
 
 - ``ohlcv_raw``: every stored bar, hive columns (``symbol``/``year``/``month``)
   extracted by ``hive_partitioning=true``. Includes phantom post-market bars.
-- ``ohlcv``: default analytical surface — bars inside the 09:15–15:30 IST
+- ``ohlcv``: default analytical surface — bars inside the 09:15–15:29 IST
   session only, matching ``ParquetStorage.read(strip_post_market=True)``.
 
 The store's ``timestamp`` column is tz-naive IST wall time
@@ -38,7 +38,6 @@ class DuckDBCatalog:
         self._config = config or AnalyticsConfig()
         self._con: duckdb.DuckDBPyConnection | None = None
         self._lock = threading.RLock()
-        self._fingerprint: str | None = None
 
     @property
     def execution_lock(self) -> threading.RLock:
@@ -46,16 +45,18 @@ class DuckDBCatalog:
 
     @property
     def dataset_fingerprint(self) -> str:
-        """Stable identity for the configured input files and policy."""
-        if self._fingerprint is None:
-            digest = hashlib.sha256()
-            digest.update(str(Path(self._config.glob).resolve()).encode())
-            digest.update(f"|{MARKET_OPEN}|{MARKET_CLOSE}|IST".encode())
-            for path in sorted(Path(self._config.base_path).glob("**/data.parquet")):
-                stat = path.stat()
-                digest.update(f"|{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}".encode())
-            self._fingerprint = digest.hexdigest()
-        return self._fingerprint
+        """Stable identity for the configured input files and policy.
+
+        Recomputed on every access (no permanent memoization) so that
+        file changes during a long-running session are detected.
+        """
+        digest = hashlib.sha256()
+        digest.update(str(Path(self._config.glob).resolve()).encode())
+        digest.update(f"|{MARKET_OPEN}|{MARKET_CLOSE}|IST".encode())
+        for path in sorted(Path(self._config.base_path).glob("**/data.parquet")):
+            stat = path.stat()
+            digest.update(f"|{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}".encode())
+        return digest.hexdigest()
 
     # ------------------------------------------------------------------ setup
 

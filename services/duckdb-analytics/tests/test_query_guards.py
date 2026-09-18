@@ -105,3 +105,27 @@ class TestPointInTimeFlag:
     def test_result_contains_dataset_provenance(self, service):
         res = service.execute("SELECT 1")
         assert res.dataset_fingerprint
+
+
+class TestFileReadGuard:
+    """Phase 0: arbitrary file-read hole must be closed."""
+
+    @pytest.mark.parametrize("sql", [
+        "SELECT * FROM read_csv_auto('/etc/passwd')",
+        "SELECT * FROM read_parquet('/etc/shadow')",
+        "SELECT * FROM read_json('/etc/passwd')",
+        "SELECT * FROM sniff_csv('/etc/passwd')",
+        "SELECT * FROM glob('/etc/*')",
+    ])
+    def test_file_read_functions_rejected(self, service, sql):
+        with pytest.raises(QueryNotAllowedError):
+            service.execute(sql)
+
+    def test_foreign_table_rejected(self, service):
+        with pytest.raises(QueryNotAllowedError, match="allowlist"):
+            service.execute("SELECT * FROM pg_tables")
+
+    def test_allowed_tables_accepted(self, service):
+        # ohlcv and ohlcv_raw must still work
+        res = service.execute("SELECT count(*) FROM ohlcv LIMIT 1")
+        assert res.rows[0][0] >= 0

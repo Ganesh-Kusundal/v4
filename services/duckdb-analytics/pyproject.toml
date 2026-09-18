@@ -15,6 +15,8 @@ dependencies = [
 [project.optional-dependencies]
 # mcp 2.0 removed mcp.server.fastmcp; stay on the stable 1.x line.
 mcp = ["mcp>=1.0,<2", "pydantic>=2"]
+analytics = ["pandas>=2", "numpy>=1.26"]
+test = ["pytest>=8"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/duck_analytics"]
