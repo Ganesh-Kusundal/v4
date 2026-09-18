@@ -4,8 +4,11 @@ import {
   CandleBuilder,
   intervalToSeconds,
   darkTheme,
+  registeredIndicators,
   type Bar,
+  type IndicatorDescriptor,
 } from 'openalgo-charts';
+import 'openalgo-charts/indicators';
 import {
   runTransform,
   HeikinAshiTransform,
@@ -498,7 +501,15 @@ function wireChart(): void {
 }
 
 function buildChart(): void {
-  if (chart) chart.destroy();
+  const savedIndicators: { indicatorId: string; settings: any }[] = [];
+  if (chart) {
+    try {
+      for (const i of chart.indicators()) {
+        savedIndicators.push({ indicatorId: i.indicatorId, settings: i.settings?.() || {} });
+      }
+    } catch (_) {}
+    chart.destroy();
+  }
   el('chart').innerHTML = '';
   chart = createChart(el('chart'), { theme: darkTheme, priceAxisWidth: 72 });
   const cfg = chartType() ?? { series: 'candlestick' };
@@ -510,6 +521,14 @@ function buildChart(): void {
   if (chart.timeScale && chart.timeScale.barSpacing > 6) {
     chart.timeScale.setBarSpacing(6);
   }
+
+  // Re-attach active indicators
+  for (const item of savedIndicators) {
+    try {
+      chart.addIndicator(item.indicatorId, item.settings);
+    } catch (_) {}
+  }
+  renderActiveChips();
 
   const lastBar = rawBars.length > 0 ? rawBars[rawBars.length - 1] : undefined;
   const lp = lastLtp != null ? lastLtp : lastBar ? lastBar.close : null;
@@ -785,8 +804,301 @@ ctxMenu.addEventListener('click', (e: MouseEvent) => {
   placeFromMenu(b.getAttribute('data-side') || 'BUY', b.getAttribute('data-type') || 'MARKET');
 });
 
-el('symbol').addEventListener('keydown', (e: KeyboardEvent) => {
-  if (e.key === 'Enter') connect();
+// ── Symbol Autocomplete / Datalake Type-ahead ────────────────
+const symInput = el<HTMLInputElement>('symbol');
+const symDropdown = el('sym-dropdown');
+let activeSymIndex = -1;
+let datalakeSymbols: { symbol: string; exchange: string }[] = [];
+let searchTimer: any = null;
+
+async function fetchDatalakeSymbols(q = ''): Promise<void> {
+  try {
+    const res = await fetch(`${API_BASE}/api/charts/symbols?source=datalake&q=${encodeURIComponent(q.trim())}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    datalakeSymbols = data.symbols || [];
+    renderSymDropdown();
+  } catch (_) {
+    // transient
+  }
+}
+
+function renderSymDropdown(): void {
+  activeSymIndex = -1;
+  if (!datalakeSymbols.length) {
+    symDropdown.innerHTML = `<div class="sym-empty">No datalake symbols found</div>`;
+    symDropdown.hidden = false;
+    return;
+  }
+  symDropdown.innerHTML = datalakeSymbols
+    .slice(0, 100)
+    .map(
+      (s, i) =>
+        `<div class="sym-item" data-index="${i}" data-sym="${esc(s.symbol)}" data-ex="${esc(s.exchange)}">
+          <b>${esc(s.symbol)}</b>
+          <span class="sym-meta">
+            <span class="sym-tag">${esc(s.exchange)}</span>
+            <span class="sym-tag" style="color:var(--acc);border-color:#1a423a">datalake</span>
+          </span>
+        </div>`,
+    )
+    .join('');
+  symDropdown.hidden = false;
+
+  symDropdown.querySelectorAll('.sym-item').forEach((item) => {
+    item.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // prevent blur before click
+      const sym = item.getAttribute('data-sym');
+      const ex = item.getAttribute('data-ex');
+      if (sym) {
+        selectSymbol(sym, ex || 'NSE');
+      }
+    });
+  });
+}
+
+function selectSymbol(sym: string, ex: string): void {
+  symInput.value = sym;
+  const exSelect = el<HTMLSelectElement>('exchange');
+  if (exSelect && ex) {
+    const opt = Array.from(exSelect.options).find((o) => o.value === ex);
+    if (opt) exSelect.value = ex;
+  }
+  symDropdown.hidden = true;
+  connect();
+}
+
+function highlightSymItem(index: number): void {
+  const items = symDropdown.querySelectorAll('.sym-item');
+  items.forEach((it, i) => {
+    it.classList.toggle('active', i === index);
+  });
+  if (index >= 0 && items[index]) {
+    (items[index] as HTMLElement).scrollIntoView({ block: 'nearest' });
+  }
+}
+
+symInput.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    fetchDatalakeSymbols(symInput.value);
+  }, 120);
+});
+
+symInput.addEventListener('focus', () => {
+  fetchDatalakeSymbols(symInput.value);
+});
+
+symInput.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (symDropdown.hidden) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      fetchDatalakeSymbols(symInput.value);
+    } else if (e.key === 'Enter') {
+      connect();
+    }
+    return;
+  }
+
+  const items = symDropdown.querySelectorAll('.sym-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (!items.length) return;
+    activeSymIndex = (activeSymIndex + 1) % items.length;
+    highlightSymItem(activeSymIndex);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (!items.length) return;
+    activeSymIndex = (activeSymIndex - 1 + items.length) % items.length;
+    highlightSymItem(activeSymIndex);
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (activeSymIndex >= 0) {
+      const activeItem = items[activeSymIndex];
+      if (activeItem) {
+        const sym = activeItem.getAttribute('data-sym');
+        const ex = activeItem.getAttribute('data-ex');
+        if (sym) {
+          selectSymbol(sym, ex || 'NSE');
+          return;
+        }
+      }
+    }
+    symDropdown.hidden = true;
+    connect();
+  } else if (e.key === 'Escape') {
+    symDropdown.hidden = true;
+  }
+});
+
+document.addEventListener('click', (e) => {
+  if (!symInput.contains(e.target as Node) && !symDropdown.contains(e.target as Node)) {
+    symDropdown.hidden = true;
+  }
+});
+
+// ── Indicators & Studies Modal ──────────────────────────────
+const indBtn = el('ind-btn');
+const indBackdrop = el('ind-backdrop');
+const indClose = el('ind-close');
+const indSearch = el<HTMLInputElement>('ind-search');
+const indTabs = el('ind-tabs');
+const indList = el('ind-list');
+const indCount = document.getElementById('ind-count');
+let currentCategory = 'all';
+
+function renderActiveChips(): void {
+  const bar = document.getElementById('ind-active-bar');
+  const chips = document.getElementById('ind-active-chips');
+  if (!bar || !chips) return;
+  if (!chart) {
+    bar.hidden = true;
+    return;
+  }
+  const current = chart.indicators();
+  if (!current.length) {
+    bar.hidden = true;
+    chips.innerHTML = '';
+    return;
+  }
+  bar.hidden = false;
+  chips.innerHTML = current
+    .map(
+      (inst: any) =>
+        `<span class="ind-active-chip">${esc(inst.name)} <button class="remove-btn" data-id="${esc(
+          inst.id,
+        )}" title="Remove ${esc(inst.name)}">✕</button></span>`,
+    )
+    .join('');
+  chips.querySelectorAll('.remove-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = (btn as HTMLElement).getAttribute('data-id');
+      if (id && chart) {
+        chart.removeIndicator(id);
+        renderActiveChips();
+      }
+    });
+  });
+}
+
+function openIndicatorDialog(): void {
+  indBackdrop.hidden = false;
+  indSearch.value = '';
+  renderActiveChips();
+  renderIndicatorCatalog();
+  setTimeout(() => indSearch.focus(), 50);
+}
+
+function closeIndicatorDialog(): void {
+  indBackdrop.hidden = true;
+}
+
+function renderIndicatorCatalog(): void {
+  const all = registeredIndicators();
+  if (indCount) indCount.textContent = `${all.length}`;
+  const needle = indSearch.value.trim().toLowerCase();
+
+  const filtered = all.filter((d) => {
+    if (currentCategory !== 'all') {
+      const cat = (d.category || 'General').toLowerCase();
+      if (cat !== currentCategory.toLowerCase()) return false;
+    }
+    if (!needle) return true;
+    return (
+      d.name.toLowerCase().includes(needle) ||
+      d.id.toLowerCase().includes(needle) ||
+      (d.category || '').toLowerCase().includes(needle)
+    );
+  });
+
+  if (!filtered.length) {
+    indList.innerHTML = `<div class="sym-empty" style="padding:32px">No indicators matching "${esc(needle)}"</div>`;
+    return;
+  }
+
+  indList.innerHTML = filtered
+    .map(
+      (d) =>
+        `<div class="ind-row" data-id="${esc(d.id)}">
+          <div class="ind-info">
+            <span class="ind-name">${esc(d.name)}</span>
+            <div class="ind-meta">
+              <span class="ind-cat">${esc(d.category || 'General')}</span>
+              <span class="ind-placement">${d.placement === 'onchart' ? 'Overlay' : 'Sub-Pane'}</span>
+            </div>
+          </div>
+          <button class="ind-add-btn">+ Add</button>
+        </div>`,
+    )
+    .join('');
+
+  indList.querySelectorAll('.ind-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const id = row.getAttribute('data-id');
+      if (!id || !chart) return;
+      try {
+        chart.addIndicator(id);
+        renderActiveChips();
+        setStatus(`Added ${id}`, true);
+      } catch (err: any) {
+        setStatus(`Indicator error: ${err?.message || 'failed'}`);
+      }
+    });
+  });
+}
+
+indBtn.addEventListener('click', openIndicatorDialog);
+indClose.addEventListener('click', closeIndicatorDialog);
+indBackdrop.addEventListener('click', (e) => {
+  if (e.target === indBackdrop) closeIndicatorDialog();
+});
+
+indSearch.addEventListener('input', () => {
+  renderIndicatorCatalog();
+});
+
+indTabs.querySelectorAll('.modal-tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    indTabs.querySelectorAll('.modal-tab').forEach((t) => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentCategory = tab.getAttribute('data-cat') || 'all';
+    renderIndicatorCatalog();
+  });
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !indBackdrop.hidden) {
+    closeIndicatorDialog();
+  }
+});
+
+// ── Chart Snapshot PNG ──────────────────────────────────────
+const snapBtn = el('snap-btn');
+snapBtn.addEventListener('click', () => {
+  if (!chart) return;
+  try {
+    const canvas = chart.takeScreenshot();
+    const sym = lastReq?.symbol || 'chart';
+    const intv = lastReq?.interval || '';
+    const filename = `tradex_${sym}_${intv}_${Date.now()}.png`;
+    const a = document.createElement('a');
+    a.download = filename;
+    a.href = canvas.toDataURL('image/png');
+    a.click();
+    setStatus(`Saved snapshot ${filename}`, true);
+  } catch (err: any) {
+    setStatus(`Snapshot error: ${err?.message || 'failed'}`);
+  }
+});
+
+// ── Toolbar Select Changes ──────────────────────────────────
+el('interval').addEventListener('change', () => {
+  connect();
+});
+
+el('exchange').addEventListener('change', () => {
+  connect();
 });
 
 el('ctype').addEventListener('change', () => {
@@ -814,3 +1126,4 @@ if (modeEl) {
 
 // Initial connection
 connect();
+

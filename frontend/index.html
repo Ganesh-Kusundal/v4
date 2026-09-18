@@ -19,7 +19,10 @@
         </div>
         <div class="divider"></div>
         <div class="group">
-          <input type="text" id="symbol" class="field field--sym" value="RELIANCE" title="instrument symbol" />
+          <div class="sym-wrap">
+            <input type="text" id="symbol" class="field field--sym" value="RELIANCE" placeholder="SEARCH SYMBOL" autocomplete="off" spellcheck="false" title="Instrument symbol (datalake)" />
+            <div id="sym-dropdown" class="sym-dropdown" hidden></div>
+          </div>
           <select id="exchange" class="field" title="exchange">
             <option>NSE</option><option>NFO</option><option>BSE</option><option>BFO</option><option>MCX</option><option>NSE_INDEX</option>
           </select>
@@ -46,9 +49,11 @@
         </div>
         <div class="divider"></div>
         <div class="group">
+          <button id="ind-btn" class="btn" title="Indicators & backend studies">📊 Indicators</button>
+          <button id="fit" class="btn" title="restore the default view (fit bars + auto price scale), same as double-click">Fit</button>
+          <button id="snap-btn" class="btn" title="Save snapshot PNG image">📷 PNG</button>
           <button id="connect" class="btn btn--primary">Connect</button>
           <button id="disconnect" class="btn btn--ghost">Disconnect</button>
-          <button id="fit" class="btn" title="restore the default view (fit bars + auto price scale), same as double-click">Fit</button>
         </div>
         <div class="status"><span class="status-dot"></span><span id="status">ready</span></div>
       </header>
@@ -85,6 +90,31 @@
         <div class="ctx-head">Stop</div>
         <button class="buy" data-side="BUY" data-type="SL"><span>Buy Stop (SL)</span></button>
         <button class="sell" data-side="SELL" data-type="SL"><span>Sell Stop (SL)</span></button>
+      </div>
+
+      <!-- Indicators Dialog -->
+      <div id="ind-backdrop" class="modal-backdrop" hidden>
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <span class="modal-title">Indicators & Studies <span id="ind-count" class="modal-count">102</span></span>
+            <button id="ind-close" class="modal-close-btn" title="Close dialog">✕</button>
+          </div>
+          <div class="modal-search-wrap">
+            <input type="text" id="ind-search" class="modal-search" placeholder="Search 100+ indicators (e.g. RSI, MACD, EMA, Bollinger, Supertrend)..." autocomplete="off" />
+          </div>
+          <div id="ind-active-bar" class="ind-active-bar" hidden>
+            <span class="ind-active-label">Active:</span>
+            <div id="ind-active-chips" class="ind-active-chips"></div>
+          </div>
+          <div class="modal-tabs" id="ind-tabs">
+            <button class="modal-tab active" data-cat="all">All</button>
+            <button class="modal-tab" data-cat="Trend">Trend</button>
+            <button class="modal-tab" data-cat="Momentum">Momentum</button>
+            <button class="modal-tab" data-cat="Volatility">Volatility</button>
+            <button class="modal-tab" data-cat="Volume">Volume</button>
+          </div>
+          <div id="ind-list" class="modal-list"></div>
+        </div>
       </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
