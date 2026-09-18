@@ -16,11 +16,14 @@
 The 2026-09-17 review listed six deepening candidates. Verified against source
 and by test, then worked:
 
-1. **Collapse the Execution Engine into a thin orchestrator** — DONE.
-   `FeeCalculator.calculate_capped` is consulted, fill dedup is `FillDedup` in
-   `idempotency.py`, the inline LRU is gone (`d10a157`). Engine is 886 LOC with
-   the bulk in `_run_pipeline`/`cancel`/`modify`; not the ~200 the review
-   sketched, but the delegation it asked for is in place.
+1. **Collapse the Execution Engine into a thin orchestrator** — DONE, all
+   three asks. `FeeCalculator.calculate_capped` is consulted, fill dedup is
+   `FillDedup` in `idempotency.py` (`d10a157`), and the kill switch is
+   `KillSwitch` in `kill_switch.py` with `trip_kill_switch` now a 7-line
+   delegate to it (`55f3037`). `execution/__init__.py` is 49 LOC / 18 public
+   exports — the review measured 72 LOC / 30+. Engine is 872 LOC, with the
+   bulk in `_run_pipeline` (178), `modify` (93) and `cancel` (86); those are
+   the next candidates if a further pass is wanted.
 2. **Unify the Datalake dual sync and fetch paths** — DONE (`d1fe277`).
    `simple_fetcher.py` deleted (155 LOC of duplication). `simple_sync` now
    fetches through `ParallelHistoryFetcher`, so the single path inherits
@@ -104,6 +107,8 @@ and by test, then worked:
   files became trackable (deletion is now recoverable) and the duplicate
   `simple_fetcher.py` was deleted deliberately — but the caution stands for any
   *new* untracked file.
-- **Candidate 1 is partially open.** The delegation the review asked for is in
-  place, but the engine is still 886 LOC; `_run_pipeline` (178), `modify` (93)
-  and `cancel` (86) carry most of it. A follow-up could extract those.
+- **All six roadmap candidates are genuinely complete.** Candidate 1's third
+  ask (kill switch extraction) was missed on the first pass and caught by the
+  re-verification; it is now done. The engine's remaining bulk
+  (`_run_pipeline` 178 LOC, `modify` 93, `cancel` 86) is a possible
+  follow-up, not an open item.
