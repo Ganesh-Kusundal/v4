@@ -25,7 +25,7 @@ Parity notes
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast, Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
@@ -367,7 +367,7 @@ def halftrend(
     seeded = False
 
     for i in range(n):
-        half = half_atr[i] / 2.0 if half_atr[i] is not None else None
+        half = cast(float, half_atr[i]) / 2.0 if half_atr[i] is not None else None
         dev = ch_dev * half if half is not None else None
         bar_high = roll_high[i]
         bar_low = roll_low[i]

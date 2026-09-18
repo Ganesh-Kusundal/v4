@@ -52,7 +52,7 @@ def _percent_rank(values: list[float | None], period: int) -> list[float | None]
         window = values[i - period : i]  # previous period, not including i
         if any(v is None for v in window):
             continue
-        cnt = sum(1 for v in window if v <= cur)  # type: ignore[operator]
+        cnt = sum(1 for v in window if v is not None and v <= cur)
         out[i] = (cnt * 100.0) / period
     return out
 

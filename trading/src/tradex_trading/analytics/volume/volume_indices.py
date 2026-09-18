@@ -12,7 +12,7 @@ Helpers (``_sma_seeded_ema``, ``_ema_of_gapped``, ``_change``, ``roc``,
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast, Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
@@ -190,7 +190,7 @@ def pvo(
     for i in range(n):
         sv = slow[i]
         if sv is not None and sv != 0 and fast[i] is not None:
-            pvo_line[i] = 100.0 * (fast[i] - sv) / sv
+            pvo_line[i] = 100.0 * (cast(float, fast[i]) - sv) / sv
 
     signal_line = _smooth_runs(
         [v if v is not None else float("nan") for v in pvo_line],

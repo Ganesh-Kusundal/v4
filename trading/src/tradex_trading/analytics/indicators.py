@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 NumericValue = float | Decimal
 
@@ -172,7 +172,7 @@ def wma(values: list, period: int) -> list[float | None]:
         window = floats[i - period + 1 : i + 1]
         if any(v is None for v in window):
             continue
-        acc = sum(v * (j + 1) for j, v in enumerate(window))
+        acc = sum(cast(float, v) * (j + 1) for j, v in enumerate(window))
         out[i] = acc / denom
     return out
 
@@ -196,7 +196,7 @@ def _fractional_wma(values: list, period: float) -> list[float | None]:
         window = floats[i - span + 1 : i + 1]
         if any(v is None for v in window):
             continue
-        acc = sum(v * (period - (span - 1 - j)) for j, v in enumerate(window))
+        acc = sum(cast(float, v) * (period - (span - 1 - j)) for j, v in enumerate(window))
         out[i] = acc / denom
     return out
 
@@ -224,7 +224,7 @@ def hma(values: list, period: int) -> list[float | None]:
     return wma(raw, root)
 
 
-def _sma_seeded_ema(values: list[float | None], period: int) -> list[float | None]:
+def _sma_seeded_ema(values: Sequence[float | None], period: int) -> list[float | None]:
     """SMA-seeded EMA (openalgo-charts parity).
 
     Matches openalgo-charts ``smaSeededEma`` (src/indicators/calc.ts): seeded
@@ -235,16 +235,19 @@ def _sma_seeded_ema(values: list[float | None], period: int) -> list[float | Non
     out: list[float | None] = [None] * n
     if n < period:
         return out
-    prev = sum(v for v in values[:period]) / period
+    prev = sum(cast(float, v) for v in values[:period]) / period
     out[period - 1] = prev
     k = 2.0 / (period + 1)
     for i in range(period, n):
-        prev = values[i] * k + prev * (1.0 - k)
+        v = values[i]
+        if v is None:
+            continue
+        prev = v * k + prev * (1.0 - k)
         out[i] = prev
     return out
 
 
-def _ema_of_gapped(values: list[float | None], period: int) -> list[float | None]:
+def _ema_of_gapped(values: Sequence[float | None], period: int) -> list[float | None]:
     """EMA chained over a warmup-gapped series (openalgo-charts parity).
 
     Matches openalgo-charts ``emaOfGapped`` (src/indicators/averages.ts): the
@@ -346,7 +349,7 @@ def smma(values: list, period: int) -> list[float | None]:
     return _rma(floats, int(period))
 
 
-def _generalized_double(values: list[float | None], length: int, factor: float) -> list[float | None]:
+def _generalized_double(values: Sequence[float | None], length: int, factor: float) -> list[float | None]:
     """One T3 layer: ``e1*(1+f) - e2*f`` (openalgo-charts parity).
 
     Matches ``generalizedDouble`` (src/indicators/averages.ts). At factor 0
@@ -679,7 +682,7 @@ def _fn_obv(
     }
 
 
-def _rolling_sma(values: list[float | None], period: int) -> list[float | None]:
+def _rolling_sma(values: Sequence[float | None], period: int) -> list[float | None]:
     """SMA that yields None unless ALL window entries are finite (TS calc.ts semantics)."""
     n = len(values)
     out: list[float | None] = [None] * n
@@ -687,7 +690,7 @@ def _rolling_sma(values: list[float | None], period: int) -> list[float | None]:
         window = values[i - period + 1 : i + 1]
         if any(v is None for v in window):
             continue
-        out[i] = sum(window) / period
+        out[i] = sum(cast(float, x) for x in window) / period
     return out
 
 
@@ -696,7 +699,7 @@ def _rolling_sma(values: list[float | None], period: int) -> list[float | None]:
 # ---------------------------------------------------------------------------
 
 
-def _highest(values: list[float | None], period: int) -> list[float | None]:
+def _highest(values: Sequence[float | None], period: int) -> list[float | None]:
     """Rolling max over *period* bars.  None for leading window."""
     n = len(values)
     out: list[float | None] = [None] * n
@@ -716,7 +719,7 @@ def _highest(values: list[float | None], period: int) -> list[float | None]:
     return out
 
 
-def _lowest(values: list[float | None], period: int) -> list[float | None]:
+def _lowest(values: Sequence[float | None], period: int) -> list[float | None]:
     """Rolling min over *period* bars; None in the window blanks it."""
     n = len(values)
     out: list[float | None] = [None] * n
@@ -730,7 +733,7 @@ def _lowest(values: list[float | None], period: int) -> list[float | None]:
     return out
 
 
-def _shift(values: list[float | None], k: int) -> list[float | None]:
+def _shift(values: Sequence[float | None], k: int) -> list[float | None]:
     """Displace by k bars: positive draws each value k bars later (TS shift)."""
     n = len(values)
     out: list[float | None] = [None] * n
@@ -741,21 +744,24 @@ def _shift(values: list[float | None], k: int) -> list[float | None]:
     return out
 
 
-def _rma(values: list[float], period: int) -> list[float | None]:
+def _rma(values: Sequence[float | None], period: int) -> list[float | None]:
     """Wilder RMA: SMA-seeded, then (prev*(period-1)+v)/period. None before period-1."""
     n = len(values)
     out: list[float | None] = [None] * n
     if period <= 0 or n < period:
         return out
-    prev = sum(values[:period]) / period
+    prev = sum(cast(float, v) for v in values[:period]) / period
     out[period - 1] = prev
     for i in range(period, n):
-        prev = (prev * (period - 1) + values[i]) / period
+        v = values[i]
+        if v is None:
+            continue
+        prev = (prev * (period - 1) + v) / period
         out[i] = prev
     return out
 
 
-def _sma_skip_none(values: list[float | None], period: int) -> list[float | None]:
+def _sma_skip_none(values: Sequence[float | None], period: int) -> list[float | None]:
     """SMA that returns None for any window containing a non-finite value."""
     n = len(values)
     out: list[float | None] = [None] * n
@@ -821,7 +827,7 @@ def _stdev(values: list, period: int) -> list[float | None]:
         window = clean[i - period + 1 : i + 1]
         if m is None or any(v is None for v in window):
             continue
-        out[i] = (sum((x - m) ** 2 for x in window) / period) ** 0.5
+        out[i] = (sum((cast(float, x) - m) ** 2 for x in window) / period) ** 0.5
     return out
 
 
@@ -949,7 +955,7 @@ def _bars_since(cond: list[bool]) -> list[float | None]:
     return out
 
 
-def _rolling_sum(values: list[float | None], period: int) -> list[float | None]:
+def _rolling_sum(values: Sequence[float | None], period: int) -> list[float | None]:
     """Rolling sum over *period* bars.  None for leading window."""
     n = len(values)
     out: list[float | None] = [None] * n
@@ -971,7 +977,7 @@ def _rolling_sum(values: list[float | None], period: int) -> list[float | None]:
     return out
 
 
-def _cumulative(values: list[float | None]) -> list[float]:
+def _cumulative(values: Sequence[float | None]) -> list[float]:
     """Running total.  Non-finite terms count as 0 (TS calc.ts semantics)."""
     out: list[float] = []
     acc = 0.0
@@ -1484,7 +1490,7 @@ def _builtin_specs() -> list[IndicatorSpec]:
             id="roc", name="ROC", category="Momentum", placement="pane",
             params=(("length", "int", 10),),
             plots=(("value", "line", "ROC"),),
-            levels=({"value": 0}),
+            levels=({"value": 0},),
             fn=_fn_roc,
         ),
         IndicatorSpec(
@@ -1495,7 +1501,7 @@ def _builtin_specs() -> list[IndicatorSpec]:
                 ("signal", "line", "Signal"),
                 ("histogram", "histogram", "Histogram"),
             ),
-            levels=({"value": 0}),
+            levels=({"value": 0},),
             fn=_fn_macd,
         ),
         IndicatorSpec(
@@ -1612,17 +1618,22 @@ from .ma_vol import (  # noqa: E402
 )
 from .median_study import SPEC_MEDIAN  # noqa: E402
 
-for _spec in (
-    SPEC_VWMA,
-    SPEC_TWAP,
-    SPEC_MCGINLEY_DYNAMIC,
-    SPEC_LSMA,
-    SPEC_ENVELOPE,
-    SPEC_DONCHIAN,
-    SPEC_KELTNER_CHANNEL,
-    SPEC_MEDIAN,
-):
-    register_indicator(_spec)
+def _register_specs(*specs: Any) -> None:
+    """Register IndicatorSpec objects; avoids circular-import type issues."""
+    for s in specs:
+        register_indicator(s)
+
+
+_register_specs(
+    SPEC_VWMA,  # type: ignore[has-type]
+    SPEC_TWAP,  # type: ignore[has-type]
+    SPEC_MCGINLEY_DYNAMIC,  # type: ignore[has-type]
+    SPEC_LSMA,  # type: ignore[has-type]
+    SPEC_ENVELOPE,  # type: ignore[has-type]
+    SPEC_DONCHIAN,  # type: ignore[has-type]
+    SPEC_KELTNER_CHANNEL,  # type: ignore[has-type]
+    SPEC_MEDIAN,  # type: ignore[has-type]
+)
 
 # Batch 2 ports — oscillators & trend / strength / range A/B
 from .oscillators.oscillators_range_a import (  # noqa: E402
@@ -1698,61 +1709,60 @@ from .volume.volume_simple import (  # noqa: E402
     SPEC_VOLUME,
 )
 
-for _spec in (
-    SPEC_ADX,
-    SPEC_AROON,
-    SPEC_AROON_OSCILLATOR,
-    SPEC_AWESOME_OSCILLATOR,
-    SPEC_CCI,
-    SPEC_MFI,
-    SPEC_PPO,
-    SPEC_TRIX,
-    SPEC_TSI,
-    SPEC_SMI,
-    SPEC_SMI_ERGODIC_INDICATOR,
-    SPEC_SMI_ERGODIC_OSCILLATOR,
-    SPEC_STOCHASTIC_RSI,
-    SPEC_WILLIAMS_PERCENT_R,
-    SPEC_ULTIMATE_OSCILLATOR,
-    SPEC_COPPOCK_CURVE,
-    SPEC_DPO,
-    SPEC_FISHER_TRANSFORM,
-    SPEC_CHANDE_MOMENTUM,
-    SPEC_CONNORS_RSI,
-    SPEC_BALANCE_OF_POWER,
-    SPEC_BOLLINGER_PERCENT_B,
-    SPEC_BOLLINGER_BANDWIDTH,
-    SPEC_BB_TREND,
-    SPEC_KAMA,
-    SPEC_MA_CHANNEL,
-    SPEC_STANDARD_ERROR_BANDS,
-    SPEC_CHAIKIN_VOLATILITY,
-    SPEC_STANDARD_DEVIATION,
-    SPEC_STANDARD_ERROR,
-    SPEC_CHOPPINESS_INDEX,
-    SPEC_HISTORICAL_VOLATILITY,
-    SPEC_AVERAGE_DAILY_RANGE,
-    SPEC_CHOP_ZONE,
-    SPEC_VOLATILITY_STOP,
-    SPEC_CHANDELIER_EXIT,
-    SPEC_CHANDE_KROLL_STOP,
-    SPEC_ADL,
-    SPEC_NET_VOLUME,
-    SPEC_VOLUME,
-    SPEC_PVT,
-    SPEC_CHAIKIN_MONEY_FLOW,
-    SPEC_CHAIKIN_OSCILLATOR,
-    SPEC_EASE_OF_MOVEMENT,
-    SPEC_ELDER_FORCE_INDEX,
-    SPEC_ULCER_INDEX,
-    SPEC_NVI,
-    SPEC_PVI,
-    SPEC_PVO,
-    SPEC_MASS_INDEX,
-    SPEC_KNOW_SURE_THING,
-    SPEC_KLINGER_OSCILLATOR,
-):
-    register_indicator(_spec)
+_register_specs(
+    SPEC_ADX,  # type: ignore[has-type]
+    SPEC_AROON,  # type: ignore[has-type]
+    SPEC_AROON_OSCILLATOR,  # type: ignore[has-type]
+    SPEC_AWESOME_OSCILLATOR,  # type: ignore[has-type]
+    SPEC_CCI,  # type: ignore[has-type]
+    SPEC_MFI,  # type: ignore[has-type]
+    SPEC_PPO,  # type: ignore[has-type]
+    SPEC_TRIX,  # type: ignore[has-type]
+    SPEC_TSI,  # type: ignore[has-type]
+    SPEC_SMI,  # type: ignore[has-type]
+    SPEC_SMI_ERGODIC_INDICATOR,  # type: ignore[has-type]
+    SPEC_SMI_ERGODIC_OSCILLATOR,  # type: ignore[has-type]
+    SPEC_STOCHASTIC_RSI,  # type: ignore[has-type]
+    SPEC_WILLIAMS_PERCENT_R,  # type: ignore[has-type]
+    SPEC_ULTIMATE_OSCILLATOR,  # type: ignore[has-type]
+    SPEC_COPPOCK_CURVE,  # type: ignore[has-type]
+    SPEC_DPO,  # type: ignore[has-type]
+    SPEC_FISHER_TRANSFORM,  # type: ignore[has-type]
+    SPEC_CHANDE_MOMENTUM,  # type: ignore[has-type]
+    SPEC_CONNORS_RSI,  # type: ignore[has-type]
+    SPEC_BALANCE_OF_POWER,  # type: ignore[has-type]
+    SPEC_BOLLINGER_PERCENT_B,  # type: ignore[has-type]
+    SPEC_BOLLINGER_BANDWIDTH,  # type: ignore[has-type]
+    SPEC_BB_TREND,  # type: ignore[has-type]
+    SPEC_KAMA,  # type: ignore[has-type]
+    SPEC_MA_CHANNEL,  # type: ignore[has-type]
+    SPEC_STANDARD_ERROR_BANDS,  # type: ignore[has-type]
+    SPEC_CHAIKIN_VOLATILITY,  # type: ignore[has-type]
+    SPEC_STANDARD_DEVIATION,  # type: ignore[has-type]
+    SPEC_STANDARD_ERROR,  # type: ignore[has-type]
+    SPEC_CHOPPINESS_INDEX,  # type: ignore[has-type]
+    SPEC_HISTORICAL_VOLATILITY,  # type: ignore[has-type]
+    SPEC_AVERAGE_DAILY_RANGE,  # type: ignore[has-type]
+    SPEC_CHOP_ZONE,  # type: ignore[has-type]
+    SPEC_VOLATILITY_STOP,  # type: ignore[has-type]
+    SPEC_CHANDELIER_EXIT,  # type: ignore[has-type]
+    SPEC_CHANDE_KROLL_STOP,  # type: ignore[has-type]
+    SPEC_ADL,  # type: ignore[has-type]
+    SPEC_NET_VOLUME,  # type: ignore[has-type]
+    SPEC_VOLUME,  # type: ignore[has-type]
+    SPEC_PVT,  # type: ignore[has-type]
+    SPEC_CHAIKIN_MONEY_FLOW,  # type: ignore[has-type]
+    SPEC_CHAIKIN_OSCILLATOR,  # type: ignore[has-type]
+    SPEC_EASE_OF_MOVEMENT,  # type: ignore[has-type]
+    SPEC_ELDER_FORCE_INDEX,  # type: ignore[has-type]
+    SPEC_ULCER_INDEX,  # type: ignore[has-type]
+    SPEC_NVI,  # type: ignore[has-type]
+    SPEC_PVI,  # type: ignore[has-type]
+    SPEC_PVO,  # type: ignore[has-type]
+    SPEC_MASS_INDEX,  # type: ignore[has-type]
+    SPEC_KNOW_SURE_THING,  # type: ignore[has-type]
+    SPEC_KLINGER_OSCILLATOR,  # type: ignore[has-type]
+)
 
 # Batch 5 ports — complex studies
 from .studies.studies_complex import (  # noqa: E402
@@ -1786,29 +1796,28 @@ from .studies.studies_trend import (  # noqa: E402
 )
 from .seasonality import SPEC_SEASONALITY  # noqa: E402
 
-for _spec in (
-    SPEC_MOMENTUM,
-    SPEC_MA_CROSS,
-    SPEC_MA_RIBBON,
-    SPEC_WOODIES_CCI,
-    SPEC_SPECIAL_K,
-    SPEC_ALLIGATOR,
-    SPEC_PARABOLIC_SAR,
-    SPEC_ICHIMOKU,
-    SPEC_HALFTREND,
-    SPEC_ALPHATREND,
-    SPEC_CPR,
-    SPEC_RANGE_ANALYSIS,
-    SPEC_VORTEX,
-    SPEC_RELATIVE_VIGOR_INDEX,
-    SPEC_RELATIVE_VOLATILITY_INDEX,
-    SPEC_RSI_DIVERGENCE,
-    SPEC_CONSOLIDATION_BREAKOUT,
-    SPEC_TREND_STRENGTH_INDEX,
-    SPEC_WILLIAMS_FRACTALS,
-    SPEC_WILLIAMS_VIX_FIX,
-    SPEC_WAVETREND,
-    SPEC_SEASONALITY,
-):
-    register_indicator(_spec)
+_register_specs(
+    SPEC_MOMENTUM,  # type: ignore[has-type]
+    SPEC_MA_CROSS,  # type: ignore[has-type]
+    SPEC_MA_RIBBON,  # type: ignore[has-type]
+    SPEC_WOODIES_CCI,  # type: ignore[has-type]
+    SPEC_SPECIAL_K,  # type: ignore[has-type]
+    SPEC_ALLIGATOR,  # type: ignore[has-type]
+    SPEC_PARABOLIC_SAR,  # type: ignore[has-type]
+    SPEC_ICHIMOKU,  # type: ignore[has-type]
+    SPEC_HALFTREND,  # type: ignore[has-type]
+    SPEC_ALPHATREND,  # type: ignore[has-type]
+    SPEC_CPR,  # type: ignore[has-type]
+    SPEC_RANGE_ANALYSIS,  # type: ignore[has-type]
+    SPEC_VORTEX,  # type: ignore[has-type]
+    SPEC_RELATIVE_VIGOR_INDEX,  # type: ignore[has-type]
+    SPEC_RELATIVE_VOLATILITY_INDEX,  # type: ignore[has-type]
+    SPEC_RSI_DIVERGENCE,  # type: ignore[has-type]
+    SPEC_CONSOLIDATION_BREAKOUT,  # type: ignore[has-type]
+    SPEC_TREND_STRENGTH_INDEX,  # type: ignore[has-type]
+    SPEC_WILLIAMS_FRACTALS,  # type: ignore[has-type]
+    SPEC_WILLIAMS_VIX_FIX,  # type: ignore[has-type]
+    SPEC_WAVETREND,  # type: ignore[has-type]
+    SPEC_SEASONALITY,  # type: ignore[has-type]
+)
 

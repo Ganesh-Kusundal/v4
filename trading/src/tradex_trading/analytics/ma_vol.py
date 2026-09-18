@@ -12,6 +12,7 @@ Helpers are imported from ``indicators.py`` — never redefined here.
 from __future__ import annotations
 
 import math
+from typing import cast
 
 from .indicators import IndicatorSpec, _rolling_sma, _sma_seeded_ema
 
@@ -45,7 +46,7 @@ def vwma(values: list[float], volumes: list[float], period: int) -> list[float |
     for i in range(n):
         d = den[i]
         if d is not None and d != 0:
-            out[i] = num[i] / d
+            out[i] = cast(float, num[i]) / d
     return out
 
 

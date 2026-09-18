@@ -132,37 +132,37 @@ def compute_volume_profile(
         share = (b.get("volume") or 0) / len(buckets)
         for bk in buckets:
             vol[bk] = vol.get(bk, 0) + share
-    buckets = [{"price": p, "volume": v} for p, v in sorted(vol.items(), key=lambda kv: -kv[0])]
+    bucket_list = [{"price": p, "volume": v} for p, v in sorted(vol.items(), key=lambda kv: -kv[0])]
 
-    if not buckets:
-        return {"buckets": buckets, "poc": 0, "vah": 0, "val": 0, "totalVolume": 0}
+    if not bucket_list:
+        return {"buckets": bucket_list, "poc": 0, "vah": 0, "val": 0, "totalVolume": 0}
 
-    total = 0
-    for b in buckets:
+    total: float = 0
+    for b in bucket_list:
         total += b["volume"]
     poc_idx = 0
-    for i in range(1, len(buckets)):
-        if buckets[i]["volume"] > buckets[poc_idx]["volume"]:
+    for i in range(1, len(bucket_list)):
+        if bucket_list[i]["volume"] > bucket_list[poc_idx]["volume"]:
             poc_idx = i
 
     upper = lower = poc_idx
-    acc = buckets[poc_idx]["volume"]
+    acc = bucket_list[poc_idx]["volume"]
     target = total * value_area_percent
-    while acc < target and (upper > 0 or lower < len(buckets) - 1):
-        up_vol = buckets[upper - 1]["volume"] if upper > 0 else -1
-        down_vol = buckets[lower + 1]["volume"] if lower < len(buckets) - 1 else -1
+    while acc < target and (upper > 0 or lower < len(bucket_list) - 1):
+        up_vol = bucket_list[upper - 1]["volume"] if upper > 0 else -1
+        down_vol = bucket_list[lower + 1]["volume"] if lower < len(bucket_list) - 1 else -1
         if up_vol >= down_vol:
             upper -= 1
-            acc += buckets[upper]["volume"]
+            acc += bucket_list[upper]["volume"]
         else:
             lower += 1
-            acc += buckets[lower]["volume"]
+            acc += bucket_list[lower]["volume"]
 
     return {
-        "buckets": buckets,
-        "poc": buckets[poc_idx]["price"],
-        "vah": buckets[upper]["price"],
-        "val": buckets[lower]["price"],
+        "buckets": bucket_list,
+        "poc": bucket_list[poc_idx]["price"],
+        "vah": bucket_list[upper]["price"],
+        "val": bucket_list[lower]["price"],
         "totalVolume": total,
     }
 
@@ -198,7 +198,7 @@ def compute_tpo(bars: list[dict[str, Any]], period_bars: int, tick_size: float,
     if not buckets:
         return {"buckets": buckets, "poc": 0, "vah": 0, "val": 0, "ib": {"high": 0, "low": 0}}
 
-    total = 0
+    total: float = 0
     for b in buckets:
         total += b["count"]
     poc_idx = 0
@@ -547,9 +547,26 @@ def row_of(price: float, options: dict[str, Any]) -> float:
 def compute_footprint(
     time: int, trades: list[dict[str, Any]], tick_size: float, row_ticks: int = 1
 ) -> dict[str, Any]:
-    """One bar's footprint from its classified bid/ask trades."""
+    """One bar's footprint from its classified bid/ask trades.
+
+    The shape — `cells`, `delta`, the running `minDelta`/`maxDelta`, `rowSize`,
+    `tradeCount` and (when there are trades) `open`/`close`/`high`/`low` — mirrors
+    openalgo-charts 2.1.8's `computeFootprint` field for field, because the pinned
+    golden records the whole object and the parity gate compares it exactly. The
+    running extremes are accumulated in *trade* order as the reference does, not
+    derived from the sorted cells afterwards: the two orders disagree in the last
+    bits of a float sum, and min/max over an accumulator is order-sensitive in the
+    values it sees, not just in the sum.
+
+    `open`/`close`/`high`/`low` are the trades' own printed prices, not the bucket
+    prices the cells are keyed by. They are absent — not zero — when there are no
+    trades, so a consumer cannot mistake an empty bar for one that traded at zero.
+    """
     row = tick_size * max(1, math.floor(row_ticks))
     cells_map: dict[float, dict[str, Any]] = {}
+    delta = 0.0
+    min_delta = 0.0
+    max_delta = 0.0
     for t in trades:
         price = bucket_price(t["price"], row)
         cell = cells_map.get(price)
@@ -558,13 +575,29 @@ def compute_footprint(
             cells_map[price] = cell
         if t["side"] == "bid":
             cell["bidVol"] += t["qty"]
+            delta -= t["qty"]
         else:
             cell["askVol"] += t["qty"]
+            delta += t["qty"]
+        min_delta = min(min_delta, delta)
+        max_delta = max(max_delta, delta)
     cells = sorted(cells_map.values(), key=lambda c: -c["price"])
-    delta = 0
-    for c in cells:
-        delta += c["askVol"] - c["bidVol"]
-    return {"time": time, "cells": cells, "delta": delta}
+    out: dict[str, Any] = {
+        "time": time,
+        "cells": cells,
+        "delta": delta,
+        "minDelta": min_delta,
+        "maxDelta": max_delta,
+        "rowSize": row,
+        "tradeCount": len(trades),
+    }
+    if trades:
+        prices = [t["price"] for t in trades]
+        out["open"] = prices[0]
+        out["close"] = prices[-1]
+        out["high"] = max(prices)
+        out["low"] = min(prices)
+    return out
 
 
 def diagonal_imbalances(cells: list[dict[str, Any]], ratio: float = 3) -> list[dict[str, Any]]:

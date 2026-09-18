@@ -8,6 +8,8 @@ Batch-2 tasks stay merge-clean.
 
 from __future__ import annotations
 
+from typing import cast
+
 import math
 from typing import Any
 
@@ -94,7 +96,7 @@ def _sma_gapped(values: list[float | None], period: int) -> list[float | None]:
         if any(v is None for v in window):
             continue
         # filter None handled above
-        s = sum(v for v in window)  # type: ignore[arg-type]
+        s = sum(cast(float, v) for v in window)
         out[i] = s / period
     return out
 

@@ -50,7 +50,6 @@ from tradex_trading.analytics.indicators import (
     _ema_of_gapped,
     _rolling_sum,
     _shift,
-    _sma_seeded_ema,
     _sma_skip_none,
     _to_float,
     sma,

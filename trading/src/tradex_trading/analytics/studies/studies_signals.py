@@ -35,6 +35,8 @@ Parity notes
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
+from typing import cast
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
@@ -87,13 +89,13 @@ def _stdev(values: list[float | None], period: int) -> list[float | None]:
             continue
         acc = 0.0
         for k in range(period):
-            d = values[i - k] - m
+            d = cast(float, values[i - k]) - m
             acc += d * d
         out[i] = math.sqrt(acc / period)
     return out
 
 
-def _highest_skip(values: list[float | None], period: int) -> list[float | None]:
+def _highest_skip(values: Sequence[float | None], period: int) -> list[float | None]:
     """Rolling maximum (calc.ts ``highest``).
 
     Non-finite entries lose every comparison, so they are simply skipped; an
@@ -542,7 +544,7 @@ def wavetrend(
     ap = _hlc3(candles)
     esa = _ema_of_gapped(ap, n1)
     absdev_in: list[float | None] = [
-        None if esa[i] is None else abs(ap[i] - esa[i]) for i in range(n)
+        None if esa[i] is None else abs(cast(float, ap[i]) - cast(float, esa[i])) for i in range(n)
     ]
     abs_dev = _ema_of_gapped(absdev_in, n1)
 
@@ -551,12 +553,12 @@ def wavetrend(
         dv = abs_dev[i]
         if dv is None:
             continue
-        ci[i] = 0.0 if dv == 0 else (ap[i] - esa[i]) / (0.015 * dv)
+        ci[i] = 0.0 if dv == 0 else (cast(float, ap[i]) - cast(float, esa[i])) / (0.015 * dv)
 
     wt1 = _ema_of_gapped(ci, n2)
     wt2 = _sma_of_gapped(wt1, sig_len)
     mom: list[float | None] = [
-        None if wt1[i] is None or wt2[i] is None else wt1[i] - wt2[i] for i in range(n)
+        None if wt1[i] is None or wt2[i] is None else cast(float, wt1[i]) - cast(float, wt2[i]) for i in range(n)
     ]
     return {"mom": mom, "wt1": wt1, "wt2": wt2}
 

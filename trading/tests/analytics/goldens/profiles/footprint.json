@@ -1054,6 +1054,14 @@
     "askVol": 0
    }
   ],
-  "delta": 0
+  "delta": 0,
+  "minDelta": 0,
+  "maxDelta": 2493.5,
+  "rowSize": 0.1,
+  "tradeCount": 600,
+  "open": 100.2019,
+  "close": 93.9123,
+  "low": 93.9123,
+  "high": 118.6626
  }
 }

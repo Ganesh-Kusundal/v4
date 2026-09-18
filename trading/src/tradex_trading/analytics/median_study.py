@@ -40,7 +40,7 @@ def _percentile_nearest_rank(
         window = values[i - period + 1 : i + 1]
         if any(v is None for v in window):
             continue
-        out[i] = sorted(window)[rank - 1]
+        out[i] = sorted(v for v in window if v is not None)[rank - 1]
     return out
 
 

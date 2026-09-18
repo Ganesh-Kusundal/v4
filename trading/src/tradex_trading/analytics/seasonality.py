@@ -159,7 +159,7 @@ def _column(matrix: dict[str, Any], month: int) -> list[float]:
 def _mean(v: list[float]) -> float | None:
     if not v:
         return None
-    s = 0
+    s: float = 0
     for x in v:
         s += x
     return s / len(v)
@@ -171,7 +171,7 @@ def _sample_stdev(v: list[float]) -> float | None:
     mu = _mean(v)
     if mu is None:
         return None
-    acc = 0
+    acc: float = 0
     for x in v:
         acc += (x - mu) * (x - mu)
     return math.sqrt(acc / (len(v) - 1))
@@ -210,7 +210,7 @@ def _build_table(bars: list[dict[str, Any]], settings: dict[str, Any]) -> dict[s
                 continue
             v = row[m]
             cells.append(
-                {"text": _pct(v), "bgColor": ramp_color(v, cutoff, pos, neg)}
+                {"text": _pct(v) or "", "bgColor": ramp_color(v, cutoff, pos, neg)}  # type: ignore[dict-item]
                 if v is not None
                 else {"text": ""}
             )
@@ -229,7 +229,7 @@ def _build_table(bars: list[dict[str, Any]], settings: dict[str, Any]) -> dict[s
             for m in range(12):
                 v = _mean(_column(matrix, m))
                 cells.append(
-                    {"text": _pct(v), "bgColor": ramp_color(v, cutoff, pos, neg)}
+                    {"text": _pct(v) or "", "bgColor": ramp_color(v, cutoff, pos, neg)}  # type: ignore[dict-item]
                     if v is not None
                     else {"text": ""}
                 )
@@ -247,7 +247,7 @@ def _build_table(bars: list[dict[str, Any]], settings: dict[str, Any]) -> dict[s
             for m in range(12):
                 v = _percent_positive(_column(matrix, m))
                 cells.append(
-                    {"text": f"{_round_half_up(v)}%", "bgColor": ramp_color(v - 50, 50, pos, neg)}
+                    {"text": f"{_round_half_up(v)}%", "bgColor": ramp_color(v - 50, 50, pos, neg)}  # type: ignore[operator,dict-item]
                     if v is not None else {"text": ""}
                 )
             rows.append(cells)

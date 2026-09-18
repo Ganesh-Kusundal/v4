@@ -15,7 +15,8 @@ from typing import Any
 
 class _Transform:
     def reset(self) -> None: ...
-    def push(self, bar: dict[str, Any]) -> list[dict[str, Any]]: ...
+    def push(self, bar: dict[str, Any]) -> list[dict[str, Any]]:
+        return []
     def flush(self) -> list[dict[str, Any]]:
         return []
 
@@ -136,7 +137,7 @@ class _RangeBars(_Transform):
 
 
 class _LineBreak(_Transform):
-    def __init__(self, lines: float = 3) -> None:
+    def __init__(self, lines: int = 3) -> None:
         self._n = max(1, lines)
         self._lines: list[dict[str, float]] = []
 
@@ -417,7 +418,7 @@ def compute_range_bars(bars: list[dict[str, Any]], *, range: float = 3) -> list[
 
 
 def compute_line_break(bars: list[dict[str, Any]], *, lines: float = 3) -> list[dict[str, Any]]:
-    return run_transform(_LineBreak(lines=lines), bars)
+    return run_transform(_LineBreak(lines=int(lines)), bars)
 
 
 def compute_point_figure(

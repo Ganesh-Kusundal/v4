@@ -26,7 +26,9 @@ Parity notes
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
+
+from typing import cast, Any
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
@@ -143,13 +145,13 @@ def _roc_ts(values: list[float], n: int) -> list[float | None]:
 
 
 def _vwma(
-    values: list[float], vols: list[float], period: int
+    values: Sequence[float | None], vols: Sequence[float | None], period: int
 ) -> list[float | None]:
     """calc.ts ``vwma``: ``sma(src*vol, len) / sma(vol, len)``."""
     n = len(values)
-    pv = [values[i] * vols[i] for i in range(n)]
-    num = sma(pv, period)
-    den = sma(vols, period)
+    pv = [cast(float, values[i]) * cast(float, vols[i]) for i in range(n)]
+    num = sma(list(pv), period)
+    den = sma(list(vols), period)
     out: list[float | None] = [None] * n
     for i in range(n):
         d = den[i]
@@ -346,7 +348,7 @@ def special_k(
             if s is None or out[i] is None:
                 out[i] = None
             else:
-                out[i] = out[i] + weight * s
+                out[i] = cast(float, out[i]) + weight * s
     once = _sma_skip_none(out, int(length1))
     signal = _sma_skip_none(once, int(length2))
     return {"specialK": out, "signal": signal}

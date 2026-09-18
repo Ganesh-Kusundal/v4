@@ -15,6 +15,9 @@ Helpers are imported from ``indicators.py`` — never redefined here.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import cast
+
 import math
 
 from tradex_trading.analytics.indicators import (  # noqa: F401
@@ -43,7 +46,7 @@ def _lows(candles: list) -> list[float]:
     return [_to_float(c.ohlc.low.value) for c in candles]
 
 
-def _stdev_gapped(values: list[float | None], period: int) -> list[float | None]:
+def _stdev_gapped(values: Sequence[float | None], period: int) -> list[float | None]:
     """Population stdev, None if any window entry is None (TS NaN carry-through)."""
     n = len(values)
     out: list[float | None] = [None] * n
@@ -55,7 +58,7 @@ def _stdev_gapped(values: list[float | None], period: int) -> list[float | None]
             continue
         # all finite
         m = sum(window) / period  # type: ignore[arg-type]
-        acc = sum((v - m) ** 2 for v in window)  # type: ignore[operator]
+        acc = sum((cast(float, v) - m) ** 2 for v in window)
         out[i] = math.sqrt(acc / period)
     return out
 

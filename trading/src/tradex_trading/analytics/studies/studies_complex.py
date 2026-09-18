@@ -45,9 +45,9 @@ the registry and extends the golden parity harness.
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Sequence, Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from tradex_trading.analytics.indicators import (
     IndicatorSpec,
@@ -88,7 +88,7 @@ LEGACY_PARAM_ALIASES["relative-volatility-index"] = {
 # ---------------------------------------------------------------------------
 
 
-def _stdev_ts(values: list[float | None], period: int) -> list[float | None]:
+def _stdev_ts(values: Sequence[float | None], period: int) -> list[float | None]:
     """calc.ts ``stdev``: rolling population stdev, NaN-strict over the window."""
     n = len(values)
     out: list[float | None] = [None] * n
@@ -113,13 +113,13 @@ def _stdev_ts(values: list[float | None], period: int) -> list[float | None]:
     return out
 
 
-def _swma(values: list[float]) -> list[float | None]:
+def _swma(values: Sequence[float | None]) -> list[float | None]:
     """calc.ts ``swma``: the fixed 4-bar 1/2/2/1 kernel; first value at index 3."""
     n = len(values)
     out: list[float | None] = [None] * n
     for i in range(3, n):
         out[i] = (
-            values[i - 3] + 2.0 * values[i - 2] + 2.0 * values[i - 1] + values[i]
+            cast(float, values[i - 3]) + 2.0 * cast(float, values[i - 2]) + 2.0 * cast(float, values[i - 1]) + cast(float, values[i])
         ) / 6.0
     return out
 
@@ -451,7 +451,7 @@ def range_analysis(
     rng = [h - lo for h, lo in zip(highs, lows)]
     n = len(rng)
     if not show_average:
-        return {"range": rng, "avg_range": [None] * n}
+        return {"range": rng, "avg_range": [None] * n}  # type: ignore[dict-item]
     return {"range": rng, "avg_range": sma(rng, max(1, int(round(float(avg_length)))))}
 
 
