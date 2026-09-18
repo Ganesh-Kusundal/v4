@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, time
 
 import pandas as pd
@@ -190,3 +191,70 @@ class TestParquetStorage:
         store._write_parquet(raw, p)
         result = store.read(symbols=["RELIANCE"], strip_post_market=False)
         assert len(result) == 2
+
+    def test_upsert_is_idempotent_with_content_check(self, tmp_path):
+        """Re-upserting same data produces identical content, not just same count."""
+        store = ParquetStorage(tmp_path)
+        df = _frame([
+            dict(timestamp="2026-07-01 09:15:00", open=100, high=101, low=99, close=100),
+        ])
+        store.upsert(df)
+        first_read = store.read(symbols=["RELIANCE"])
+        store.upsert(df)  # same data again
+        second_read = store.read(symbols=["RELIANCE"])
+        assert first_read.equals(second_read), "re-upsert must produce identical content"
+
+    def test_concurrent_upserts_same_partition(self, tmp_path):
+        """Two threads upserting different data to the same partition must not lose data."""
+        store = ParquetStorage(tmp_path)
+        df1 = _frame([dict(timestamp="2026-07-01 09:15:00",
+                           open=100, high=101, low=99, close=100)])
+        df2 = _frame([dict(timestamp="2026-07-01 09:16:00",
+                           open=200, high=201, low=199, close=200)])
+
+        errors: list[Exception] = []
+
+        def upsert1():
+            try:
+                store.upsert(df1)
+            except Exception as e:
+                errors.append(e)
+
+        def upsert2():
+            try:
+                store.upsert(df2)
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=upsert1)
+        t2 = threading.Thread(target=upsert2)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert not errors, f"concurrent upserts raised: {errors}"
+        result = store.read(symbols=["RELIANCE"])
+        assert len(result) == 2, "both rows must be present after concurrent upserts"
+
+    def test_write_parquet_same_dedup_as_upsert(self, tmp_path):
+        """_write_parquet must use the same dedup semantics as upsert (new replaces old)."""
+        store = ParquetStorage(tmp_path)
+        p = tmp_path / "ohlcv" / "symbol=RELIANCE" / "year=2026" / "month=07" / "data.parquet"
+        p.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write initial data via _write_parquet
+        df_old = _frame([dict(timestamp="2026-07-01 09:15:00",
+                              open=100, high=101, low=99, close=100)])
+        df_old["timestamp"] = pd.to_datetime(df_old["timestamp"])
+        store._write_parquet(df_old, p)
+
+        # Overwrite with new data via _write_parquet — new must replace old
+        df_new = _frame([dict(timestamp="2026-07-01 09:15:00",
+                              open=999, high=1000, low=998, close=999)])
+        df_new["timestamp"] = pd.to_datetime(df_new["timestamp"])
+        store._write_parquet(df_new, p)
+
+        result = store.read(symbols=["RELIANCE"], strip_post_market=False)
+        assert len(result) == 1
+        assert float(result.iloc[0]["open"]) == 999.0, "new data must replace old"

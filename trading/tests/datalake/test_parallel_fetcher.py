@@ -8,7 +8,6 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
-
 from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
@@ -239,13 +238,15 @@ class TestFailoverFanout:
         """A broker-wide outage must not explode into N×M API calls.
 
         With 3 brokers, all down for every symbol, the naive failover tries
-        every broker per symbol (8 symbols × 3 brokers = 24 calls). The
-        known-failed set caps this to ~M + N (one failure per broker, then
-        one primary attempt per remaining symbol). ``max_workers=1`` makes
-        the bound deterministic — with concurrent workers the mark-then-check
-        race could legitimately exceed the tight bound.
+        every broker per symbol (15 symbols × 3 brokers = 45 calls). The
+        known-failed set caps this: after threshold (10) distinct failures,
+        the broker is blacklisted. ``max_workers=1`` makes the bound
+        deterministic — with concurrent workers the mark-then-check race
+        could legitimately exceed the tight bound.
         """
-        all_symbols = {str(i.instrument_id) for i in INSTRUMENTS}
+        # Use 15 instruments so threshold=10 triggers blacklist
+        many_instruments = [Equity.of("NSE", f"SYM{i}") for i in range(15)]
+        all_symbols = {str(i.instrument_id) for i in many_instruments}
         brokers = {
             "a": _make_broker("a", fail_symbols=all_symbols),
             "b": _make_broker("b", fail_symbols=all_symbols),
@@ -253,15 +254,16 @@ class TestFailoverFanout:
         }
         fetcher = ParallelHistoryFetcher(brokers, max_workers=1)
         end = BASE + timedelta(days=7)
-        results, _ = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
+        results, _ = fetcher.fetch(many_instruments, Timeframe.M1, BASE, end)
         assert results == {}  # everything failed
 
         total_calls = sum(b.history.call_count for b in brokers.values())
-        naive = len(INSTRUMENTS) * len(brokers)  # 8 × 3 = 24
+        naive = len(many_instruments) * len(brokers)  # 15 × 3 = 45
         assert total_calls < naive
-        # Sequential worst case: first symbol tries every broker (M calls),
-        # each remaining symbol only its primary (N - 1 calls).
-        assert total_calls <= len(brokers) + len(INSTRUMENTS) - 1
+        # Each broker tries up to threshold (10) symbols before blacklist.
+        # With 3 brokers all failing, each gets blacklisted after 10 calls.
+        # Total: 3 brokers × 10 calls = 30, which is < 45 naive.
+        assert total_calls <= len(brokers) * 10
 
     def test_single_broker_outage_still_fails_over(self):
         """One broker down: other brokers absorb its chunk without fan-out."""
@@ -459,9 +461,9 @@ class TestBrokerHealth:
         results, _ = fetcher.fetch(INSTRUMENTS, Timeframe.M1, BASE, end)
         # All served via upstox failover.
         assert len(results) == len(INSTRUMENTS)
-        # dhan was blacklisted after K distinct misses (default 3), so the
+        # dhan was blacklisted after K distinct misses (default 10), so the
         # remaining primary slots were NOT re-attempted on dhan.
-        assert dhan.history.call_count <= 3
+        assert dhan.history.call_count <= 10
 
 
 class TestSharedLimiter:
@@ -624,3 +626,243 @@ def test_fetch_with_backoff_skips_dead_symbols() -> None:
         )
     assert calls["n"] == 1
     assert str(inst.instrument_id) in dead
+
+
+# --------------------------------------------------------------------------- #
+# Clipped responses: "non-empty" is not "complete"
+# --------------------------------------------------------------------------- #
+
+SESSION_DAY = datetime(2026, 8, 3)
+SESSION_OPEN = SESSION_DAY.replace(hour=9, minute=15)
+SESSION_CLOSE = SESSION_DAY.replace(hour=15, minute=30)
+
+
+def _ist_series(inst, stamps: list[datetime], close: str = "100") -> HistoricalSeries:
+    """Series of 1m candles at naive-IST stamps (the storage contract)."""
+    candles = [
+        Candle(
+            instrument=inst, timeframe=Timeframe.M1,
+            ohlc=OHLC(open=Price(Decimal(close)), high=Price(Decimal("101")),
+                      low=Price(Decimal("99")), close=Price(Decimal(close))),
+            volume=Quantity(Decimal("1000")), timestamp=ts,
+        )
+        for ts in stamps
+    ]
+    return HistoricalSeries(
+        instrument=inst, timeframe=Timeframe.M1, candles=candles,
+        start=stamps[0], end=stamps[-1],
+    )
+
+
+def _minute_stamps(first: datetime, count: int) -> list[datetime]:
+    return [first + timedelta(minutes=i) for i in range(count)]
+
+
+def _widening_broker(available: list[datetime], close: str = "100") -> MagicMock:
+    """Broker that ignores the window's clock time, like both real adapters.
+
+    Dhan and Upstox each widen an intraday request to the whole day, so the
+    response can be non-empty while holding nothing the caller asked for.
+    """
+    broker = MagicMock()
+
+    def _history(inst, tf, start, end):
+        served = [t for t in available if start.date() <= t.date() <= end.date()]
+        return _ist_series(inst, served, close) if served else None
+
+    broker.history = MagicMock(side_effect=_history)
+    return broker
+
+
+def _serving_broker(available: list[datetime], close: str = "100") -> MagicMock:
+    """Broker that serves the stamp of ``available`` falling inside the window."""
+    broker = MagicMock()
+
+    def _history(inst, tf, start, end):
+        served = [t for t in available if start <= t <= end]
+        return _ist_series(inst, served, close) if served else None
+
+    broker.history = MagicMock(side_effect=_history)
+    return broker
+
+
+class TestClippedResponses:
+    """Dhan's NSE 1m series stops at 15:14; a short answer must not read as success.
+
+    That is what made the 15:15-15:29 hole permanent: the fetch held candles,
+    scored a success, never failed over, and every re-fetch answered the same
+    way — so ``fill_gaps`` could run forever without closing it.
+    """
+
+    FULL = _minute_stamps(SESSION_OPEN, 375)          # 09:15 … 15:29
+    CLIPPED = _minute_stamps(SESSION_OPEN, 360)       # 09:15 … 15:14 (Dhan)
+
+    def test_clipped_response_is_completed_from_another_broker(self):
+        inst = Equity.of("NSE", "CLIPPED")
+        primary = _serving_broker(self.CLIPPED)
+        other = _serving_broker(self.FULL)
+        fetcher = ParallelHistoryFetcher({"a": primary, "b": other})
+
+        results, errors = fetcher.fetch([inst], Timeframe.M1, SESSION_OPEN, SESSION_CLOSE)
+
+        assert errors == []
+        candles = results[str(inst.instrument_id)].candles
+        assert len(candles) == 375
+        assert candles[-1].timestamp == SESSION_DAY.replace(hour=15, minute=29)
+        # the tail was asked for by its own window, from the other broker only
+        assert other.history.call_count == 1
+        asked = other.history.call_args.args
+        assert asked[2] == SESSION_DAY.replace(hour=15, minute=14)  # last bar served
+        assert asked[3] == SESSION_CLOSE
+
+    def test_partial_series_keeps_the_bars_it_already_had(self):
+        """A clipped window changes broker only for the stamps that were missing."""
+        inst = Equity.of("NSE", "KEEP")
+        primary = _serving_broker(self.CLIPPED, close="100")
+        other = _serving_broker(self.FULL, close="999")
+        fetcher = ParallelHistoryFetcher({"a": primary, "b": other})
+
+        results, _ = fetcher.fetch([inst], Timeframe.M1, SESSION_OPEN, SESSION_CLOSE)
+
+        candles = results[str(inst.instrument_id)].candles
+        by_ts = {c.timestamp: float(c.ohlc.close.value) for c in candles}
+        assert by_ts[SESSION_OPEN] == 100.0        # primary's bar stands
+        assert by_ts[SESSION_DAY.replace(hour=15, minute=29)] == 999.0  # tail filled
+
+    def test_complete_response_triggers_no_second_call(self):
+        inst = Equity.of("NSE", "WHOLE")
+        primary = _serving_broker(self.FULL)
+        other = _serving_broker(self.FULL)
+        fetcher = ParallelHistoryFetcher({"a": primary, "b": other})
+
+        results, _ = fetcher.fetch([inst], Timeframe.M1, SESSION_OPEN, SESSION_CLOSE)
+
+        assert len(results[str(inst.instrument_id)].candles) == 375
+        assert other.history.call_count == 0
+
+    def test_lone_clipped_broker_keeps_its_partial_data(self):
+        """Clipped is not failed: nothing is discarded for want of a tail."""
+        inst = Equity.of("NSE", "SOLO")
+        fetcher = ParallelHistoryFetcher({"a": _serving_broker(self.CLIPPED)})
+
+        results, errors = fetcher.fetch([inst], Timeframe.M1, SESSION_OPEN, SESSION_CLOSE)
+
+        assert errors == []
+        assert len(results[str(inst.instrument_id)].candles) == 360
+
+    def test_close_stamp_convention_is_not_treated_as_clipped(self):
+        """Upstox ends at 15:29 while the session closes at 15:30 — that is fine."""
+        inst = Equity.of("NSE", "CLOSE")
+        primary = _serving_broker(_minute_stamps(SESSION_OPEN, 375))
+        other = _serving_broker(self.FULL)
+        fetcher = ParallelHistoryFetcher({"a": primary, "b": other})
+
+        fetcher.fetch([inst], Timeframe.M1, SESSION_OPEN, SESSION_CLOSE)
+
+        assert other.history.call_count == 0
+
+    def test_multiday_window_is_not_judged_clipped(self):
+        """Across days the last bar legitimately precedes the end (weekends)."""
+        inst = Equity.of("NSE", "WEEK")
+        primary = _serving_broker(_minute_stamps(SESSION_DAY, 30))
+        other = _serving_broker(self.FULL)
+        fetcher = ParallelHistoryFetcher({"a": primary, "b": other})
+
+        fetcher.fetch([inst], Timeframe.M1, SESSION_DAY, SESSION_DAY + timedelta(days=3))
+
+        assert other.history.call_count == 0
+
+    def test_midnight_crossed_singleday_window_is_judged_clipped(self):
+        """A day-bounded window (00:00 -> next-day 00:00) crosses midnight but
+        covers exactly one session — the shape ``fill_gaps`` emits for a
+        cluster day. It must be judged clipped, not skipped as multi-day."""
+        inst = Equity.of("NSE", "MIDNIGHT")
+        primary = _serving_broker(self.CLIPPED)
+        other = _serving_broker(self.FULL)
+        fetcher = ParallelHistoryFetcher({"a": primary, "b": other})
+        day_start = SESSION_DAY  # 00:00
+        day_end = SESSION_DAY + timedelta(days=1)  # next-day 00:00
+
+        results, errors = fetcher.fetch([inst], Timeframe.M1, day_start, day_end)
+
+        assert errors == []
+        assert len(results[str(inst.instrument_id)].candles) == 375
+        assert other.history.call_count == 1
+
+    def test_tail_only_window_fills_through_the_other_broker(self):
+        """The repair shape, with brokers that behave like the real ones.
+
+        Both adapters widen an intraday request to the whole day, so a
+        tail-only gap fetch reaches Dhan as a full-session request and comes
+        back with a day of candles — none of them inside the 15:15-15:28 window
+        that was asked for. Non-empty, and useless.
+        """
+        inst = Equity.of("NSE", "TAIL")
+        primary = _widening_broker(self.CLIPPED)
+        other = _widening_broker(self.FULL)
+        fetcher = ParallelHistoryFetcher({"a": primary, "b": other})
+        tail = [(SESSION_DAY.replace(hour=15, minute=15),
+                 SESSION_DAY.replace(hour=15, minute=28))]
+
+        results, errors = fetcher.fetch(
+            [inst], Timeframe.M1, SESSION_OPEN, SESSION_CLOSE,
+            ranges={str(inst.instrument_id): tail},
+        )
+
+        assert errors == []
+        stamps = {c.timestamp for c in results[str(inst.instrument_id)].candles}
+        assert SESSION_DAY.replace(hour=15, minute=28) in stamps   # hole filled
+        assert SESSION_DAY.replace(hour=15, minute=15) in stamps
+        assert other.history.call_count == 1
+
+    def test_tail_only_window_with_one_broker_reports_the_hole(self):
+        """A single clipped broker cannot fill it — say so, don't fake success."""
+        inst = Equity.of("NSE", "TAILSOLO")
+        fetcher = ParallelHistoryFetcher({"a": _widening_broker(self.CLIPPED)})
+        tail = [(SESSION_DAY.replace(hour=15, minute=15),
+                 SESSION_DAY.replace(hour=15, minute=28))]
+
+        results, _ = fetcher.fetch(
+            [inst], Timeframe.M1, SESSION_OPEN, SESSION_CLOSE,
+            ranges={str(inst.instrument_id): tail},
+        )
+
+        stamps = {c.timestamp for c in results[str(inst.instrument_id)].candles}
+        assert SESSION_DAY.replace(hour=15, minute=28) not in stamps
+
+    def test_day_bounded_window_is_not_treated_as_clipped(self):
+        """Repair callers ask in day terms (00:00 to 23:59:59), not session terms.
+
+        A series that stops at 15:29 is complete for such a request; judging it
+        against the raw window bound made every closure of the day look clipped,
+        costing a pointless second fetch per symbol.
+        """
+        inst = Equity.of("NSE", "DAYBOUND")
+        primary = _serving_broker(self.FULL)
+        other = _serving_broker(self.FULL)
+        fetcher = ParallelHistoryFetcher({"a": primary, "b": other})
+
+        results, errors = fetcher.fetch(
+            [inst], Timeframe.M1, SESSION_DAY,
+            SESSION_DAY + timedelta(hours=23, minutes=59, seconds=59),
+        )
+
+        assert errors == []
+        assert len(results[str(inst.instrument_id)].candles) == 375
+        assert other.history.call_count == 0
+
+    def test_window_outside_session_hours_is_ignored(self):
+        """Nothing is expected of a window after the close, so nothing is short."""
+        inst = Equity.of("NSE", "POST")
+        # Widening brokers, like the real adapters: a 16:00-18:00 request still
+        # comes back with the day, which must not then read as "short of 18:00".
+        primary = _widening_broker(self.FULL)
+        other = _widening_broker(self.FULL)
+        fetcher = ParallelHistoryFetcher({"a": primary, "b": other})
+
+        fetcher.fetch(
+            [inst], Timeframe.M1,
+            SESSION_DAY.replace(hour=16), SESSION_DAY.replace(hour=18),
+        )
+
+        assert other.history.call_count == 0

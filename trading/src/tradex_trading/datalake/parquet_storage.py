@@ -2,11 +2,19 @@
 
 Layout: ``base_path/ohlcv/symbol={SYMBOL}/year={YYYY}/month={MM}/data.parquet``
 
+**Storage contract:**
+
+- Timestamps: tz-naive IST wall time (no timezone info)
+- Volume: int64 (0 = unknown/missing volume)
+- Session hours only: 09:15–15:30 IST, weekdays only (weekends/holidays dropped)
+- Dedup semantics: for matching (symbol, timeframe, timestamp), new data replaces old
+
 Partition pruning keeps reads fast: ``read(symbols, start, end)`` only scans
 the symbol + year/month partitions that overlap the requested range.
 
 Upsert is idempotent: re-upserting the same (symbol, timeframe, timestamp)
-replaces old rows instead of duplicating them.
+replaces old rows instead of duplicating them. Concurrent upserts to the
+same partition are serialized via per-partition locks.
 
 Adapted from nTrade's ParquetStorage.
 """
@@ -60,6 +68,11 @@ class ParquetStorage:
     ``base_path/ohlcv/symbol=.../year=.../month=.../`` as needed.
     """
 
+    # Per-partition locks serialize concurrent upserts to the same file.
+    # Class-level so all instances share the same lock for a given partition key.
+    _partition_locks: dict[str, threading.Lock] = {}
+    _locks_guard = threading.Lock()
+
     def __init__(self, base_path: str | Path):
         self.base_path = Path(base_path)
         # ponytail: if base_path already ends with 'ohlcv', use it directly
@@ -69,12 +82,21 @@ class ParquetStorage:
             self._ohlcv_root = self.base_path / "ohlcv"
         self._ohlcv_root.mkdir(parents=True, exist_ok=True)
 
+    @classmethod
+    def _get_partition_lock(cls, partition_key: str) -> threading.Lock:
+        """Return the lock for *partition_key*, creating it if needed."""
+        with cls._locks_guard:
+            if partition_key not in cls._partition_locks:
+                cls._partition_locks[partition_key] = threading.Lock()
+            return cls._partition_locks[partition_key]
+
     # ------------------------------------------------------------------ write
 
     def upsert(self, df: pd.DataFrame) -> int:
         """Insert-or-replace rows by (symbol, timeframe, timestamp).
 
-        Returns the number of rows written (post-dedup).
+        Returns the number of NEW rows written (not net change in file size).
+        If the file already had 100 rows and we replace 10, returns 10.
         """
         if df is None or df.empty:
             return 0
@@ -96,28 +118,33 @@ class ParquetStorage:
                 partition_dir.mkdir(parents=True, exist_ok=True)
                 parquet_file = partition_dir / "data.parquet"
 
-                if parquet_file.exists():
-                    existing = pq.ParquetFile(parquet_file).read().to_pandas()
-                    existing["timestamp"] = pd.to_datetime(existing["timestamp"])
-                    if getattr(existing["timestamp"].dt, "tz", None) is not None:
-                        existing["timestamp"] = existing["timestamp"].dt.tz_localize(None)
-                    key_cols = ["symbol", "timeframe", "timestamp"]
-                    existing = existing[
-                        ~existing.set_index(key_cols).index.isin(
-                            grp.set_index(key_cols).index
+                partition_key = f"{symbol}/{year}/{int(month):02d}"
+                lock = self._get_partition_lock(partition_key)
+                with lock:
+                    if parquet_file.exists():
+                        existing = pq.ParquetFile(parquet_file).read().to_pandas()
+                        existing["timestamp"] = pd.to_datetime(existing["timestamp"])
+                        if getattr(existing["timestamp"].dt, "tz", None) is not None:
+                            existing["timestamp"] = existing["timestamp"].dt.tz_localize(None)
+                        key_cols = ["symbol", "timeframe", "timestamp"]
+                        existing = existing[
+                            ~existing.set_index(key_cols).index.isin(
+                                grp.set_index(key_cols).index
+                            )
+                        ]
+                        combined = (
+                            pd.concat([existing, grp], ignore_index=True)
+                            if not existing.empty
+                            else grp
                         )
-                    ]
-                    combined = (
-                        pd.concat([existing, grp], ignore_index=True)
-                        if not existing.empty
-                        else grp
-                    )
-                else:
-                    combined = grp
+                    else:
+                        combined = grp
 
-                if not combined.empty:
-                    self._write_atomic(combined, parquet_file)
-                    written += len(grp)
+                    if not combined.empty:
+                        self._write_atomic(combined, parquet_file)
+                        written += len(grp)
+                        log.info("upsert: symbol=%s %d-%02d — %d new rows",
+                                 symbol, year, int(month), len(grp))
 
         return written
 
@@ -136,6 +163,9 @@ class ParquetStorage:
     def _write_parquet(self, df: pd.DataFrame, path: Path) -> None:
         """Write a DataFrame to parquet (append + dedupe if file exists).
 
+        Uses the same dedup semantics as :meth:`upsert`: for matching
+        (symbol, timeframe, timestamp), new data replaces old.
+
         External callers may use this directly; it remains atomic and dedupes.
         """
         if path.exists():
@@ -143,9 +173,18 @@ class ParquetStorage:
             existing["timestamp"] = pd.to_datetime(existing["timestamp"])
             if getattr(existing["timestamp"].dt, "tz", None) is not None:
                 existing["timestamp"] = existing["timestamp"].dt.tz_localize(None)
-            combined = pd.concat([existing, df], ignore_index=True)
-            combined = combined.drop_duplicates(
-                subset=["symbol", "timeframe", "timestamp"], keep="last"
+            # Same dedup semantics as upsert: new data replaces old for
+            # matching (symbol, timeframe, timestamp) keys.
+            key_cols = ["symbol", "timeframe", "timestamp"]
+            existing = existing[
+                ~existing.set_index(key_cols).index.isin(
+                    df.set_index(key_cols).index
+                )
+            ]
+            combined = (
+                pd.concat([existing, df], ignore_index=True)
+                if not existing.empty
+                else df
             )
             self._write_atomic(combined, path)
         else:
@@ -177,9 +216,14 @@ class ParquetStorage:
         )
         # NaNs fail the mask and are dropped
         if mask_valid.sum() != before:
+            dropped = df[~mask_valid]
+            n_dropped = before - int(mask_valid.sum())
+            examples = dropped.head(5)[
+                ["symbol", "timestamp", "open", "high", "low", "close"]
+            ].to_dict("records")
             log.warning(
-                "ParquetStorage: dropping %d invalid OHLC bars",
-                before - int(mask_valid.sum()),
+                "ParquetStorage: dropping %d invalid OHLC bars (examples: %s)",
+                n_dropped, examples,
             )
             df = df[mask_valid].copy()
 
@@ -190,7 +234,14 @@ class ParquetStorage:
         # lake look clean while 0.7% was garbage (2026-02-01 took a phantom
         # Sunday session). See market_session_mask. (Idempotent: already-clean
         # frames pass through untouched.)
+        before_session = len(df)
         df = df[market_session_mask(df["timestamp"])].reset_index(drop=True)
+        if len(df) < before_session:
+            log.warning(
+                "ParquetStorage: dropping %d non-session bars "
+                "(weekend/pre-post market)",
+                before_session - len(df),
+            )
         return df
 
     # ------------------------------------------------------------------ read

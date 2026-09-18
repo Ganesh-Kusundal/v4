@@ -10,6 +10,14 @@ Long intraday minute ranges are auto-chunked into consecutive windows
 (Dhan caps one poll at 90 days, Upstox at 30) and stitched on return,
 so callers never need to split ranges themselves.
 
+**A non-empty response is not evidence of a complete one.** Dhan's NSE 1m
+series stops at 15:14 and Upstox's at 15:29, so a request for 09:15–15:30 came
+back short while still holding 375 candles — scored a success, never failed
+over, and the missing tail reappeared as a permanent gap that every re-fetch
+answered the same way. Responses are now checked against the window they were
+asked for; an uncovered tail is fetched from another broker and merged, with
+the bars already in hand kept as-is (`_clipped_tail`, `_merge_candles`).
+
 The fetcher throttles through a per-broker historical rate-limit bucket
 (5/s for Dhan, 50/s for Upstox) so fan-out never exceeds the serving broker's
 documented historical-data quota — including when a symbol fails over to a
@@ -38,7 +46,9 @@ from tradex_brokers.common.resilience import (
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import HistoricalSeries
+from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN, to_ist_naive
 from tradex_domain.timeframe import DHAN_INTRADAY as _DHAN_INTRADAY_TIMEFRAMES
+from tradex_domain.timeframe import bucket_seconds as _bucket_seconds
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +65,94 @@ ERROR_LOG_CAP = 100
 # instrument, concat+dedupe) instead of fail-loud, so callers need not split.
 _DHAN_INTRADAY_MAX_DAYS = 90
 _UPSTOX_INTRADAY_MAX_DAYS = 30
+
+#: How far short of a window's end a response may fall before it counts as
+#: clipped.  Two bars absorb the closing-stamp convention (Upstox's last 1m bar
+#: is 15:29 for a session closing at 15:30) and a live fetch landing one bar
+#: behind "now".  Dhan's NSE 1m series ends 15 minutes early — 15x this
+#: tolerance, so the two cases do not blur together.
+_CLIP_TOLERANCE_BARS = 2
+
+
+def _clipped_tail(
+    series: HistoricalSeries,
+    windows: list[tuple[datetime, datetime]],
+    timeframe: Timeframe,
+) -> tuple[datetime, datetime] | None:
+    """Span a non-empty response failed to cover, or ``None`` if it covers it.
+
+    Two shapes count, and the second one is the one that matters for repair:
+
+    - the response stops short of the window's end (a whole-session request
+      answered only through 15:14);
+    - the response holds *nothing inside* the window at all, which is what a
+      tail-only gap fetch gets back from a broker that widens every request to
+      the full day — a day's worth of candles, none of them the ones asked
+      for. Empty-for-the-window is not "covered just because non-empty".
+
+    Only a window inside a single session can be judged this way: across a
+    multi-day span the last bar legitimately precedes the window end
+    (weekends, holidays), and per-day completeness is GapDetector's job.
+    Candle stamps are normalized to tz-naive IST before comparison — brokers
+    return aware UTC while the windows here are IST wall clock.
+
+    The window is clamped to session hours first, because the callers that
+    repair gaps ask in *day* terms — ``topup``/``fill_gaps`` clusters end at
+    23:59:59 — and a series that stops at 15:29 would otherwise look 8 hours
+    short on every such request, costing a pointless second fetch per symbol.
+    """
+    if timeframe not in _DHAN_INTRADAY_TIMEFRAMES or not series.candles:
+        return None
+    tolerance = timedelta(seconds=_bucket_seconds(timeframe) * _CLIP_TOLERANCE_BARS)
+    stamps = [to_ist_naive(c.timestamp) for c in series.candles]
+    norm_windows = [(to_ist_naive(ws), to_ist_naive(we)) for ws, we in windows]
+    for ws, we in norm_windows:
+        # A multi-day span (≥2 calendar days) is not judgeable per-day: the
+        # last bar legitimately precedes the end across weekends/holidays.
+        # But a single calendar day expressed midnight-to-midnight — the
+        # shape a gap detector emits for a fully-empty cluster day — crosses
+        # the date boundary while still asking for exactly one session. Judge
+        # the session within it; skip only genuinely multi-day windows.
+        span_days = (we.date() - ws.date()).days
+        if span_days >= 2:
+            continue
+        cur = ws.date()
+        while cur <= we.date():
+            lo = max(ws, datetime.combine(cur, MARKET_OPEN))
+            hi = min(we, datetime.combine(cur, MARKET_CLOSE))
+            cur += timedelta(days=1)
+            if hi <= lo:
+                continue  # this day sits outside session hours
+            served = [t for t in stamps if lo <= t <= hi]
+            if not served:
+                return (lo, hi)  # crossed the wire, but not for this day
+            last = max(served)
+            if last >= hi - tolerance:
+                continue
+            return (last, hi)
+    return None
+
+
+def _merge_candles(
+    base: HistoricalSeries,
+    extra: HistoricalSeries,
+    timeframe: Timeframe,
+    start: datetime,
+    end: datetime,
+    instrument: Instrument,
+) -> HistoricalSeries:
+    """Overlay ``extra`` on ``base``: base keeps its own bars, extra fills gaps.
+
+    The bars already in hand are real, so a clipped window changes broker only
+    for what was missing — no wholesale rewrite of a day just because one
+    broker cannot reach its close.
+    """
+    merged = {to_ist_naive(c.timestamp): c for c in extra.candles}
+    merged.update({to_ist_naive(c.timestamp): c for c in base.candles})
+    return HistoricalSeries(
+        instrument=instrument, timeframe=timeframe,
+        candles=[merged[k] for k in sorted(merged)], start=start, end=end,
+    )
 
 
 def _date_windows(
@@ -200,16 +298,13 @@ def _has_transient_errors(errors: list[str]) -> bool:
 
 
 def _provider_for(name: str) -> str:
-    """Map a broker key to the provider name used for rate-limit tables."""
-    if name in ("dhan", "upstox", "paper"):
-        return name
-    return "paper"
     """Map a broker key to the provider name used for rate-limit tables.
 
     The fetcher's broker keys are ``"dhan"``/``"upstox"``/``"paper"``,
     matching provider names.  Unknown keys fall back to ``"paper"`` (the
     unthrottled table) so custom test brokers are never rate-limited by a
-    wrong provider's budget.
+    wrong provider's budget — loudly, because that fallback means no
+    throttling at all.
     """
     if name in ("dhan", "upstox", "paper"):
         return name
@@ -222,10 +317,11 @@ def _provider_for(name: str) -> str:
 
 
 # ponytail: threshold=3 — one per-instrument miss shouldn't kill the broker
-# for the rest of a 500-symbol batch, but 3 distinct misses is a strong
-# signal the broker is down. Tune up if flakes appear, down if real outages
-# drag the batch.
-BROKER_HEALTH_THRESHOLD = 3
+# for the rest of a 500-symbol batch, but 10 distinct misses is a strong
+# signal the broker is down. The previous threshold of 3 was too aggressive —
+# rate-limit timeouts on 3 symbols would blacklist the broker prematurely.
+# Increased to 10 to tolerate transient rate-limit exhaustion.
+BROKER_HEALTH_THRESHOLD = 10
 
 
 class _BrokerHealth:
@@ -410,6 +506,37 @@ class ParallelHistoryFetcher:
             # Broker adapters accept (instrument, timeframe, start, end) positional
             return broker.history(inst, timeframe, s, e)
 
+        def _try_broker(
+            broker_name: str, broker: Any, inst: Instrument,
+        ) -> HistoricalSeries:
+            """Serve one instrument, or raise. Never returns an empty series.
+
+            Also rejects a *clipped* one: as far as accept/reject goes, "I got
+            375 bars but not the 15 you asked for" is the same outcome as an
+            empty response, and the caller can only fail over if it hears one.
+            """
+            windows = _windows_for(
+                inst, _chunk_cap_for(self._timeframe, [broker_name])
+            )
+            if windows is not None:
+                series = self._stitch_windows(broker_name, broker, inst, windows)
+                if series is None or not series.candles:
+                    raise RuntimeError(
+                        f"{broker_name}: empty stitched series for {inst.instrument_id}"
+                    )
+            else:
+                self._maybe_acquire(broker_name, broker, str(inst.instrument_id))
+                series = _call_history(broker, inst, s=start, e=end)
+                if series is None or not series.candles:
+                    raise RuntimeError(
+                        f"{broker_name}: empty series for {inst.instrument_id}"
+                    )
+                windows = [(start, end)]
+            return self._complete_shortfall(
+                broker_name, broker, inst, series, windows, active_brokers,
+                broker_health, lock,
+            )
+
         def _fetch_one(broker_name: str, broker: Any, inst: Instrument) -> None:
             first_exc: Exception | None = None
             skip_primary = False
@@ -421,22 +548,10 @@ class ParallelHistoryFetcher:
                     raise RuntimeError(
                         f"{broker_name}: blacklisted for batch after K distinct failures"
                     )
-                windows = _windows_for(inst, cap)
-                if windows is not None:
-                    series = self._stitch_windows(broker_name, broker, inst, windows)
-                    if series is not None and series.candles:
-                        with lock:
-                            results[str(inst.instrument_id)] = series
-                        return
-                    raise RuntimeError(
-                        f"{broker_name}: empty stitched series for {inst.instrument_id}"
-                    )
-                self._maybe_acquire(broker_name, broker, str(inst.instrument_id))
-                series = _call_history(broker, inst, s=start, e=end)
-                if series is not None and len(series.candles) > 0:
-                    with lock:
-                        results[str(inst.instrument_id)] = series
-                    return
+                series = _try_broker(broker_name, broker, inst)
+                with lock:
+                    results[str(inst.instrument_id)] = series
+                return
             except Exception as exc:
                 first_exc = exc
                 with lock:
@@ -449,27 +564,10 @@ class ParallelHistoryFetcher:
                     if broker_health.is_blacklisted(other_name):
                         continue
                 try:
-                    other_windows = _windows_for(
-                        inst, _chunk_cap_for(self._timeframe, [other_name])
-                    )
-                    if other_windows is not None:
-                        series = self._stitch_windows(
-                            other_name, other_broker, inst, other_windows
-                        )
-                        if series is not None and series.candles:
-                            with lock:
-                                results[str(inst.instrument_id)] = series
-                            return
-                        raise RuntimeError(
-                            f"{other_name}: empty stitched failover"
-                            f" for {inst.instrument_id}"
-                        )
-                    self._maybe_acquire(other_name, other_broker, str(inst.instrument_id))
-                    series = _call_history(other_broker, inst, s=start, e=end)
-                    if series is not None and len(series.candles) > 0:
-                        with lock:
-                            results[str(inst.instrument_id)] = series
-                        return
+                    series = _try_broker(other_name, other_broker, inst)
+                    with lock:
+                        results[str(inst.instrument_id)] = series
+                    return
                 except Exception as exc:
                     first_exc = first_exc or exc
                     with lock:
@@ -523,6 +621,59 @@ class ParallelHistoryFetcher:
             instrument=inst, timeframe=self._timeframe, candles=deduped,
             start=self._req_start, end=self._req_end,
         )
+
+    def _complete_shortfall(
+        self,
+        broker_name: str,
+        broker: Any,
+        inst: Instrument,
+        series: HistoricalSeries,
+        windows: list[tuple[datetime, datetime]],
+        active_brokers: dict[str, Any],
+        broker_health: _BrokerHealth,
+        lock: threading.Lock,
+    ) -> HistoricalSeries:
+        """Fetch a clipped window's tail from another broker and merge it in.
+
+        A clipped response is not a failure — the bars it did return are real —
+        so the partial series is kept and only the uncovered tail changes
+        broker. This is the step whose absence let a 15-minute hole survive
+        every ``fill_gaps`` run: the fetch looked successful, so no other
+        broker was ever asked for the 15:15–15:29 bars. The clipped broker is
+        deliberately NOT marked unhealthy — it served correctly, it just
+        cannot reach the close.
+        """
+        shortfall = _clipped_tail(series, windows, self._timeframe)
+        if shortfall is None:
+            return series
+        tail_start, tail_end = shortfall
+        for other_name, other_broker in active_brokers.items():
+            if other_name == broker_name:
+                continue
+            with lock:
+                if broker_health.is_blacklisted(other_name):
+                    continue
+            try:
+                self._maybe_acquire(other_name, other_broker, str(inst.instrument_id))
+                part = other_broker.history(inst, self._timeframe, tail_start, tail_end)
+            except Exception as exc:  # another broker may still cover it
+                log.warning(
+                    "ParallelHistoryFetcher: shortfall fetch for %s via %s "
+                    "failed (%s)", inst.instrument_id, other_name, exc,
+                )
+                continue
+            if part is None or not part.candles:
+                continue
+            return _merge_candles(
+                series, part, self._timeframe,
+                self._req_start, self._req_end, inst,
+            )
+        log.warning(
+            "ParallelHistoryFetcher: %s returned data only through %s "
+            "(asked for %s) and no other broker covered the tail",
+            inst.instrument_id, tail_start, tail_end,
+        )
+        return series
 
     def _pick_brokers(self) -> list[str]:
         """Select serving brokers.

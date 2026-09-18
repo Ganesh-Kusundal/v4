@@ -165,7 +165,143 @@ class TestSessionAwareDetection:
                                   timeframe="1m", bar_freq="30min",
                                   min_gap_stamps=3)
         assert len(floored) == 1
-        assert floored[0][1] == [(datetime(2026, 7, 3, 9, 15), datetime(2026, 7, 3, 15, 15))]
+        # 09:15 / 15:15 are Friday's session EDGE stamps: they belong to the
+        # edge classification, so the range is the interior span between them
+        # (see TestSessionEdgeStamps).
+        assert floored[0][1] == [(datetime(2026, 7, 3, 9, 45),
+                                 datetime(2026, 7, 3, 14, 45))]
+
+
+class TestSessionEdgeStamps:
+    """Session-edge stamps are classified, never reported as data holes."""
+
+    def test_edge_stamps_are_read_off_the_grid(self):
+        """On a 30min grid a session ends at 15:15 — not MARKET_CLOSE."""
+        from tradex_trading.datalake.gap_detector import _edge_stamps, _session_grid
+
+        grid = _session_grid(datetime(2026, 7, 3, 9, 15), datetime(2026, 7, 3, 15, 30),
+                             "30min", frozenset())
+        opens, closes = _edge_stamps(grid)
+        assert opens == {pd.Timestamp("2026-07-03 09:15")}
+        assert closes == {pd.Timestamp("2026-07-03 15:15")}
+
+    def test_open_bar_only_is_classified_not_gapped(self, tmp_path):
+        """A symbol short only of the 09:15 open is not a data hole.
+
+        This is the phantom gap: Dhan's intraday window is start-exclusive, so
+        a session fetched from the open loses this bar while every other bar
+        arrives. Counting it as a gap flagged all 500 symbols on the days the
+        pipeline happened to fetch them that way.
+        """
+        store = ParquetStorage(tmp_path)
+        store.upsert(_frame(_session_rows("2026-07-03", skip={dtime(9, 15)})))
+        detector = GapDetector(store)
+        insts = [_FakeInst("RELIANCE")]
+        kwargs = dict(start=datetime(2026, 7, 3, 9, 15), end=datetime(2026, 7, 3, 15, 30),
+                      timeframe="1m", bar_freq="30min")
+
+        assert detector.detect(insts, **kwargs) == []
+        found = detector.scan(insts, **kwargs)
+        assert found.gaps == []
+        assert found.edge_only == ("RELIANCE",)
+        assert found.open_missing_symbols == 1
+        assert found.close_missing_symbols == 0
+
+    def test_close_bar_only_is_classified_not_gapped(self, tmp_path):
+        store = ParquetStorage(tmp_path)
+        store.upsert(_frame(_session_rows("2026-07-03", skip={dtime(15, 15)})))
+        detector = GapDetector(store)
+        found = detector.scan(
+            [_FakeInst("RELIANCE")],
+            start=datetime(2026, 7, 3, 9, 15), end=datetime(2026, 7, 3, 15, 30),
+            timeframe="1m", bar_freq="30min",
+        )
+        assert found.gaps == []
+        assert found.edge_only == ("RELIANCE",)
+        assert found.close_missing_symbols == 1
+        assert found.open_missing_symbols == 0
+
+    def test_a_real_hole_still_reports_even_alongside_edge_stamps(self, tmp_path):
+        """Classifying edges must not hide an interior hole next to one."""
+        store = ParquetStorage(tmp_path)
+        inst = _FakeInst("RELIANCE")
+        store.upsert(_frame(_session_rows(
+            "2026-07-03", skip={dtime(9, 15), dtime(11, 15), dtime(11, 45),
+                                dtime(12, 15)},
+        )))
+        detector = GapDetector(store)
+        found = detector.scan(
+            [inst], start=datetime(2026, 7, 3, 9, 15),
+            end=datetime(2026, 7, 3, 15, 30), timeframe="1m", bar_freq="30min",
+        )
+        assert found.gaps == [
+            (inst, [(datetime(2026, 7, 3, 11, 15), datetime(2026, 7, 3, 12, 15))])
+        ]
+        assert found.open_missing_symbols == 1
+        assert found.edge_only == ()
+
+    def test_include_open_stamps_folds_them_back_in(self, tmp_path):
+        """A repair run asks for the open bar explicitly, and gets it."""
+        store = ParquetStorage(tmp_path)
+        store.upsert(_frame(_session_rows("2026-07-03", skip={dtime(9, 15)})))
+        detector = GapDetector(store)
+        gaps = detector.detect(
+            [_FakeInst("RELIANCE")],
+            start=datetime(2026, 7, 3, 9, 15), end=datetime(2026, 7, 3, 15, 30),
+            timeframe="1m", bar_freq="30min", include_open_stamps=True,
+        )
+        assert len(gaps) == 1
+        assert gaps[0][1] == [(datetime(2026, 7, 3, 9, 15), datetime(2026, 7, 3, 9, 15))]
+
+    def test_complete_symbol_is_counted_complete(self, tmp_path):
+        store = ParquetStorage(tmp_path)
+        store.upsert(_frame(_session_rows("2026-07-03")))
+        found = GapDetector(store).scan(
+            [_FakeInst("RELIANCE")],
+            start=datetime(2026, 7, 3, 9, 15), end=datetime(2026, 7, 3, 15, 30),
+            timeframe="1m", bar_freq="30min",
+        )
+        assert found.complete_symbols == 1
+        assert found.gaps == [] and found.edge_only == ()
+
+
+class TestSubThresholdVisibility:
+    """Holes hiding under the min_gap_stamps floor are counted, not lost."""
+
+    def test_floored_hole_is_reported(self, tmp_path):
+        """The 2026-08-31 shape: a 14-stamp tail hole under a floor of 15."""
+        store = ParquetStorage(tmp_path)
+        skip = {dtime(11, 15), dtime(11, 45)}
+        store.upsert(_frame(_session_rows("2026-07-06", skip=skip)))
+        detector = GapDetector(store)
+        found = detector.scan(
+            [_FakeInst("RELIANCE")],
+            start=datetime(2026, 7, 6, 9, 15), end=datetime(2026, 7, 6, 15, 30),
+            timeframe="1m", bar_freq="30min", min_gap_stamps=3,
+        )
+        assert found.gaps == []
+        assert found.sub_threshold_stamps == 2
+        assert found.sub_threshold_symbols == ("RELIANCE",)
+
+    def test_floor_that_nothing_hides_under_reports_zero(self, tmp_path):
+        store = ParquetStorage(tmp_path)
+        store.upsert(_frame(_session_rows("2026-07-06")))
+        found = GapDetector(store).scan(
+            [_FakeInst("RELIANCE")],
+            start=datetime(2026, 7, 6, 9, 15), end=datetime(2026, 7, 6, 15, 30),
+            timeframe="1m", bar_freq="30min", min_gap_stamps=3,
+        )
+        assert found.sub_threshold_stamps == 0
+        assert found.sub_threshold_symbols == ()
+
+    def test_gapped_symbols_property(self, tmp_path):
+        store = ParquetStorage(tmp_path)
+        found = GapDetector(store).scan(
+            [_FakeInst("A"), _FakeInst("B")],
+            start=datetime(2026, 7, 6, 9, 15), end=datetime(2026, 7, 6, 15, 30),
+            timeframe="1m", bar_freq="30min",
+        )
+        assert found.gapped_symbols == 2
 
 
 def test_tail_days_limits_scan_window(tmp_path):

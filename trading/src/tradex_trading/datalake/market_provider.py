@@ -158,10 +158,13 @@ class BulkPrefetchMarketProvider:
             df = pd.DataFrame(columns=_BASE_COLUMNS)
         # Filter on wall time: prefetched M1 frames carry naive IST
         # timestamps (store convention); resampled views carry UTC-aware
-        # ones whose wall values match _bucketize's keys.
+        # ones whose wall values match _bucketize's keys. Guard the .dt
+        # access: an empty frame (object dtype) or a non-datetime column
+        # raises AttributeError on .dt.
         ts_col = df["timestamp"]
-        if getattr(ts_col.dt, "tz", None) is not None:
-            ts_col = ts_col.dt.tz_localize(None)
+        if not ts_col.empty and pd.api.types.is_datetime64_any_dtype(ts_col):
+            if getattr(ts_col.dt, "tz", None) is not None:
+                ts_col = ts_col.dt.tz_localize(None)
         lo = pd.Timestamp(start)
         hi = pd.Timestamp(end)
         if lo.tzinfo is not None:
