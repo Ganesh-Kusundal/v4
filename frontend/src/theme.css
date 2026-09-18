@@ -189,6 +189,18 @@ select.field {
   background: linear-gradient(180deg, #35e0c0, var(--acc-2));
 }
 
+.btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn.active {
+  background: var(--elev-2);
+  border-color: var(--acc);
+  color: var(--acc);
+}
+
 .btn--ghost {
   color: var(--mut);
 }
@@ -235,6 +247,65 @@ select.field {
   color: var(--mut);
   flex: none;
   z-index: 15;
+}
+
+/* ── Replay Transport Strip ─────────────────────────────────── */
+.replay-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: linear-gradient(180deg, #131926, #0d121c);
+  border-bottom: 1px solid #223247;
+  flex: none;
+  z-index: 15;
+  animation: replaySlide .18s ease-out;
+}
+
+@keyframes replaySlide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.replay-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: rgba(224, 176, 32, 0.12);
+  border: 1px solid rgba(224, 176, 32, 0.35);
+  padding: 2px 8px;
+  border-radius: 5px;
+}
+
+.replay-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 6px var(--amber);
+  transition: all .2s;
+}
+
+.replay-dot.playing {
+  background: var(--acc);
+  box-shadow: 0 0 8px var(--acc);
+  animation: replayPulse 1.2s infinite;
+}
+
+@keyframes replayPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.replay-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .chip {

@@ -48,6 +48,7 @@
         <div class="divider"></div>
         <div class="group">
           <button id="ind-btn" class="btn" title="Indicators & backend studies">📊 Indicators</button>
+          <button id="replay-btn" class="btn" title="Toggle Market Replay mode">⏪ Replay</button>
           <button id="fit" class="btn" title="restore the default view (fit bars + auto price scale), same as double-click">Fit</button>
           <button id="snap-btn" class="btn" title="Save snapshot PNG image">📷 PNG</button>
           <button id="connect" class="btn btn--primary">Connect</button>
@@ -68,6 +69,27 @@
         <label class="chk"><input type="checkbox" id="arm" /> <span>Arm trading</span></label>
         <span class="chip analyze" id="mode" title="Order routing mode">ANALYZE (sandbox)</span>
         <span class="hint">right-click chart to order</span>
+      </div>
+
+      <!-- Market Replay Transport Strip -->
+      <div id="replay-strip" class="replay-strip" hidden>
+        <span class="replay-badge"><span id="replay-dot" class="replay-dot"></span> MARKET REPLAY</span>
+        <div class="replay-group">
+          <button id="replay-start" class="btn btn--primary" title="Start market replay">▶ Play</button>
+          <button id="replay-pause" class="btn" disabled title="Pause replay">⏸ Pause</button>
+          <button id="replay-resume" class="btn" disabled title="Resume replay">▶ Resume</button>
+          <button id="replay-stop" class="btn btn--ghost" disabled title="Stop replay">⏹ Stop</button>
+          <select id="replay-speed" class="field" title="Replay Speed">
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="2">2x</option>
+            <option value="5">5x</option>
+            <option value="10">10x</option>
+          </select>
+        </div>
+        <span id="replay-status" class="chip">Ready</span>
+        <span class="spacer"></span>
+        <button id="replay-close" class="modal-close-btn" title="Exit Replay">✕ Close Replay</button>
       </div>
 
       <main class="stage">

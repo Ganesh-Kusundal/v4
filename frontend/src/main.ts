@@ -1124,6 +1124,112 @@ if (modeEl) {
   modeEl.className = 'chip analyze';
 }
 
+// ── Market Replay Controls ──────────────────────────────────
+const replayBtn = el('replay-btn');
+const replayStrip = el('replay-strip');
+const replayStartBtn = el<HTMLButtonElement>('replay-start');
+const replayPauseBtn = el<HTMLButtonElement>('replay-pause');
+const replayResumeBtn = el<HTMLButtonElement>('replay-resume');
+const replayStopBtn = el<HTMLButtonElement>('replay-stop');
+const replaySpeedSelect = el<HTMLSelectElement>('replay-speed');
+const replayStatus = el('replay-status');
+const replayDot = el('replay-dot');
+const replayClose = el('replay-close');
+
+let isReplaying = false;
+
+function setReplayState(running: boolean, paused: boolean): void {
+  isReplaying = running;
+  replayStartBtn.disabled = running;
+  replayPauseBtn.disabled = !running || paused;
+  replayResumeBtn.disabled = !running || !paused;
+  replayStopBtn.disabled = !running;
+  replayDot.classList.toggle('playing', running && !paused);
+}
+
+replayBtn.addEventListener('click', () => {
+  replayStrip.hidden = !replayStrip.hidden;
+  replayBtn.classList.toggle('active', !replayStrip.hidden);
+  if (!replayStrip.hidden) {
+    replayStatus.textContent = 'Ready (click Play to replay history)';
+  }
+});
+
+replayClose.addEventListener('click', () => {
+  if (isReplaying) {
+    barSocket.send({ type: 'replay_stop' });
+  }
+  replayStrip.hidden = true;
+  replayBtn.classList.remove('active');
+});
+
+replayStartBtn.addEventListener('click', () => {
+  const symbol = el<HTMLInputElement>('symbol').value.trim().toUpperCase();
+  const exchange = el<HTMLSelectElement>('exchange').value;
+  const interval = el<HTMLSelectElement>('interval').value;
+  const speed = Number(replaySpeedSelect.value) || 1;
+  const instrument = `${exchange}:${symbol}`;
+
+  setStatus(`Starting replay for ${instrument} (${speed}x)...`, true);
+  replayStatus.textContent = `Starting ${symbol}...`;
+  barSocket.send({
+    type: 'replay_start',
+    instrument,
+    interval: interval === 'D' ? '1d' : interval,
+    speed,
+  });
+});
+
+replayPauseBtn.addEventListener('click', () => {
+  barSocket.send({ type: 'replay_pause' });
+});
+
+replayResumeBtn.addEventListener('click', () => {
+  barSocket.send({ type: 'replay_resume' });
+});
+
+replayStopBtn.addEventListener('click', () => {
+  barSocket.send({ type: 'replay_stop' });
+});
+
+replaySpeedSelect.addEventListener('change', () => {
+  const speed = Number(replaySpeedSelect.value) || 1;
+  barSocket.send({ type: 'replay_speed', speed });
+  if (isReplaying) {
+    replayStatus.textContent = `Speed: ${speed}x`;
+  }
+});
+
+barSocket.on('replay_started', (msg: any) => {
+  setReplayState(true, false);
+  replayStatus.textContent = `Replaying ${msg?.instrument || ''} (${replaySpeedSelect.value}x)`;
+  setStatus(`Replay active: ${msg?.instrument || ''}`, true);
+});
+
+barSocket.on('replay_paused', () => {
+  setReplayState(true, true);
+  replayStatus.textContent = 'Paused';
+  setStatus('Replay paused');
+});
+
+barSocket.on('replay_resumed', () => {
+  setReplayState(true, false);
+  replayStatus.textContent = `Replaying (${replaySpeedSelect.value}x)`;
+  setStatus('Replay running', true);
+});
+
+barSocket.on('replay_stopped', () => {
+  setReplayState(false, false);
+  replayStatus.textContent = 'Stopped';
+  setStatus('Replay stopped');
+});
+
+barSocket.on('replay_done', () => {
+  setReplayState(false, false);
+  replayStatus.textContent = 'Replay completed';
+  setStatus('Replay finished');
+});
+
 // Initial connection
 connect();
 
