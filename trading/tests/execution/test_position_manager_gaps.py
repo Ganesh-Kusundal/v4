@@ -109,11 +109,13 @@ def test_concurrent_same_instrument_fills_atomic() -> None:
     assert pos is not None
     assert pos.quantity.value == Decimal("10"), f"lost update: qty={pos.quantity.value}"
 
-    # ponytail: assert lock infrastructure exists (deterministic even if race not triggered)
-    assert hasattr(pm, "_instrument_locks")
-    assert hasattr(pm, "_locks_guard")
-    assert hasattr(pm, "_instrument_lock")
-    assert callable(pm._instrument_lock)
+    # ponytail: assert lock infrastructure exists on the accountant
+    # (deterministic even if race not triggered)
+    acct = pm.accountant
+    assert hasattr(acct, "_instrument_locks")
+    assert hasattr(acct, "_locks_guard")
+    assert hasattr(acct, "_lock")
+    assert callable(acct._lock)
     key = str(instrument.instrument_id)
-    lock = pm._instrument_lock(key)
-    assert lock is pm._instrument_lock(key)
+    lock = acct._lock(key)
+    assert lock is acct._lock(key)

@@ -18,7 +18,7 @@ from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Money, OrderId, Price, Quantity
 
 from tradex_trading.execution.position_manager import PositionManager
-from tradex_trading.execution.position_math import apply_fill
+from tradex_domain.position_math import apply_fill
 from tradex_trading.execution.trading_cache import TradingCache
 
 

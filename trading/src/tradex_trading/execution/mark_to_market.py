@@ -19,7 +19,7 @@ from tradex_domain.execution import Position
 from tradex_domain.market import Quote
 from tradex_domain.value_objects import Money, Price
 
-from tradex_trading.execution.position_math import q2
+from tradex_domain.utils import q2
 from tradex_trading.execution.trading_cache import TradingCache
 
 log = logging.getLogger(__name__)
