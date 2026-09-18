@@ -27,8 +27,8 @@ load_env_file(str(ROOT / ".env.local"))
 from tradex_domain.market_calendar import NSE_HOLIDAYS_2026  # noqa: E402
 
 from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
-from tradex_trading.datalake.historical_sync import SyncOrchestrator  # noqa: E402
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402
 from tradex_trading.datalake.universe import load_universe  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 
@@ -132,7 +132,6 @@ def main(argv: list[str] | None = None) -> int:
     log.info("%d gap clusters", len(clusters))
 
     # ---- broker: prefer whichever serves this span (same-day -> dhan) ----
-    from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
     brokers = {}
     for name in ("dhan", "upstox"):
         try:
@@ -144,7 +143,11 @@ def main(argv: list[str] | None = None) -> int:
     if not brokers:
         return 1
 
-    svc = SyncOrchestrator(store, ParallelHistoryFetcher(brokers), detector)
+    # The primary serves the window; the other broker is handed to the fetcher
+    # as failover, so a clipped tail or a dead primary falls back instead of
+    # leaving a permanent gap. One path, no separate orchestrator.
+    primary, failover = brokers["dhan"], {k: v for k, v in brokers.items() if k != "dhan"}
+
     total_written = 0
     # Biggest clusters first: fills the most symbols earliest and pushes
     # dead singletons (permanent broker failures) to the very end.
@@ -152,10 +155,10 @@ def main(argv: list[str] | None = None) -> int:
         clusters.items(), key=lambda kv: len(kv[1]), reverse=True
     ):
         log.info("cluster %s -> %s (%d symbols)", c_start.date(), c_end.date(), len(insts))
-        result = svc.sync(
-            insts, "1m", c_start, c_end,
-            min_gap_stamps=args.min_gap_stamps,
-            include_open_stamps=args.include_open_stamps,
+        result = simple_sync(
+            primary, store, insts, "1m", c_start, c_end,
+            skip_existing=True, gaps=detector,
+            failover_brokers=failover or None,
         )
         total_written += result.written
         log.info("cluster done; total written so far=%d", total_written)

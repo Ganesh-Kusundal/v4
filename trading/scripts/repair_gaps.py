@@ -50,11 +50,8 @@ from tradex_trading.config.env import load_env_file  # noqa: E402
 load_env_file(str(ROOT / ".env.local"))
 
 from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
-from tradex_trading.datalake.historical_sync import SyncOrchestrator  # noqa: E402
-from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402
-    ParallelHistoryFetcher,
-)
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402
 from tradex_trading.datalake.universe import load_universe  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 
@@ -199,7 +196,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[repair] {name} unavailable: {exc}", flush=True)
     if not brokers:
         return 1
-    svc = SyncOrchestrator(store, ParallelHistoryFetcher(brokers), detector)
+    primary, failover = brokers["dhan"], {k: v for k, v in brokers.items() if k != "dhan"}
 
     written = done = 0
     stop = False
@@ -213,10 +210,10 @@ def main(argv: list[str] | None = None) -> int:
                 stop = True
                 break
             t0 = time.monotonic()
-            result = svc.sync(
-                chunk, args.timeframe, ws, we,
-                min_gap_stamps=args.min_gap_stamps,
-                include_open_stamps=open_stamps,
+            result = simple_sync(
+                primary, store, chunk, args.timeframe, ws, we,
+                skip_existing=True, gaps=detector,
+                failover_brokers=failover or None,
             )
             written += result.written
             print(f"[repair] {first} [{bucket['kind']}]: {len(chunk)}/{len(insts)} symbols, "

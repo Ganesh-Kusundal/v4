@@ -1,7 +1,16 @@
-"""Simple sync — ponytail edition.
+"""Simple sync — the one datalake fill path.
 
-Replaces SyncOrchestrator + ParallelHistoryFetcher + fetch_with_backoff with
-a direct fetch-convert-store loop. No backoff, no blacklisting, no failover.
+Candidate 2 of the 2026-09-17 architecture review asked for the dual sync
+paths (``simple_sync`` vs ``SyncOrchestrator``) to be unified. They were
+reunited *under this name*, not by keeping the orchestrator: the entry point
+stays a single function, but the fetch it performs is now
+``ParallelHistoryFetcher``, so the simple path inherits the two properties
+that made the orchestrator worth having — multi-broker failover and
+clipped-tail repair (a 375-bar reply for a 375-bar window used to score
+"success" and never fail over, leaving a permanent gap).
+
+``simple_fetcher.py`` is deleted: it was ~155 LOC of chunking and threading
+that ``ParallelHistoryFetcher.fetch`` already did, minus the failover.
 """
 import logging
 from datetime import datetime
@@ -11,6 +20,7 @@ import pandas as pd
 from tradex_domain import Timeframe
 
 from tradex_trading.datalake.historical_sync import SyncResult, series_to_frame
+from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
 
 log = logging.getLogger(__name__)
 
@@ -27,24 +37,37 @@ def simple_sync(
     max_workers: int = 5,
     skip_existing: bool = False,
     gaps: Any = None,
+    failover_brokers: dict[str, Any] | None = None,
 ) -> SyncResult:
-    """Simple sync: fetch in parallel, convert, store.
+    """Fetch in parallel, convert, store.
 
-    ponytail: No backoff, no blacklisting, no failover. Just fetch and store.
-    No-data (recent IPOs) is silently skipped — only real errors are failed.
+    One flat executor per batch: concurrency is exactly *max_workers*, never
+    chunks*workers, so the rate-limiter bucket is not drained. No-data (a
+    recent IPO) is silently skipped — only real errors (429/network) are
+    failed.
+
+    ``failover_brokers`` lets a caller hand in the other live brokers; an
+    uncovered tail or a dead primary is then served from whichever broker can.
     """
-    from tradex_trading.datalake.simple_fetcher import fetch_history_chunked
-
     tf = Timeframe(timeframe) if isinstance(timeframe, str) else timeframe
     if not instruments:
         return SyncResult(0, 0, 0, [])
 
     to_fetch = instruments
+    ranges: dict[str, list[tuple[datetime, datetime]]] | None = None
     if skip_existing and gaps is not None:
-        to_fetch, _ = _plan_gaps(instruments, tf, start, end, gaps)
+        to_fetch, ranges = _plan_gaps(instruments, tf, start, end, gaps)
         if not to_fetch:
             log.info("simple_sync: all %d symbols complete — nothing to fetch", len(instruments))
             return SyncResult(len(instruments), 0, 0, [])
+
+    # The single fetch path: primary broker, plus any others for failover and
+    # clipped-tail repair. Both are invisible to the caller, which still sees
+    # (results, errors) — but the errors now exclude tails another broker filled.
+    brokers: dict[str, Any] = {"primary": broker}
+    if failover_brokers:
+        brokers.update(failover_brokers)
+    fetcher = ParallelHistoryFetcher(brokers, max_workers=max_workers)
 
     fetched = written = 0
     failed: list[str] = []
@@ -53,11 +76,24 @@ def simple_sync(
     for bi, batch in enumerate(batches, 1):
         log.info("simple_sync: batch %d/%d (%d symbols)", bi, len(batches), len(batch))
 
-        # ponytail: flat executor — concurrency is exactly max_workers, not chunks*workers.
-        results, fetch_errors = fetch_history_chunked(
-            broker, batch, tf, start, end,
-            max_days=90, max_workers=max_workers,
+        results, fetch_errors = fetcher.fetch(
+            batch, tf, start, end, ranges=ranges,
         )
+
+        # ParallelHistoryFetcher reports an *empty* series as an error ("empty
+        # stitched series"), but this path's contract is that no-data means the
+        # instrument is not listed (a recent IPO), not that the fetch failed.
+        # Transient failures (429/network/all-brokers-failed) stay failures;
+        # the empty-series marker is downgraded to a skip so an IPO doesn't
+        # inflate the failure list and trigger pointless retries.
+        no_data_ids = {
+            str(i.instrument_id) for i in batch
+            if str(i.instrument_id) not in results
+        }
+        real_errors = [
+            e for e in fetch_errors
+            if not (any(iid in e for iid in no_data_ids) and "empty" in e)
+        ]
 
         # Convert and store
         frames: list[pd.DataFrame] = []
@@ -65,9 +101,9 @@ def simple_sync(
             inst_id = str(inst.instrument_id)
             series = results.get(inst_id)
             if series is None or not series.candles:
-                # ponytail: no data = not listed (IPO), not a failure.
-                # Only actual fetch errors (429/network) go to failed.
-                if inst_id in fetch_errors:
+                # No data = not listed (IPO), not a failure.
+                # Only real fetch errors (429/network) go to failed.
+                if any(inst_id in e for e in real_errors):
                     failed.append(inst.symbol)
                 else:
                     log.debug("simple_sync: no data for %s (skipped)", inst.symbol)

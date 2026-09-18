@@ -2,6 +2,18 @@
 
 Fetch/chunk/rate-limit/failover live in the fetcher; skip-complete logic in
 the gap detector. This module only converts and persists in batches.
+
+**Superseded by ``simple_sync``** (datalake/simple_sync.py) as the fill path
+— candidate 2 of the 2026-09-17 architecture review asked for the two to be
+unified, and the entry point that won was the function, not the class:
+``simple_sync`` now performs its fetch through ``ParallelHistoryFetcher``
+too, so it carries the same failover and clipped-tail repair. The operator
+scripts and the ``tradex sync`` CLI all go through it.
+
+What remains here is what still has a caller: ``series_to_frame`` (the frame
+conversion two scripts use), ``SyncResult`` (the shared result type), and
+``SyncOrchestrator`` itself, kept for the parity benchmark that measures it
+and its own tests. New code should call ``simple_sync``.
 """
 
 from __future__ import annotations

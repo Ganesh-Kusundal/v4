@@ -8,6 +8,7 @@ from tradex_trading.datalake.historical_sync import SyncOrchestrator, SyncResult
 from tradex_trading.datalake.market_provider import ParquetMarketProvider
 from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
 from tradex_trading.datalake.parquet_storage import ParquetStorage
+from tradex_trading.datalake.simple_sync import simple_sync
 from tradex_trading.datalake.universe import available_universes, load_universe
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "ParallelHistoryFetcher",
     "ParquetStorage",
     "GapDetector",
+    "simple_sync",
     "SyncOrchestrator",
     "SyncResult",
     "load_universe",

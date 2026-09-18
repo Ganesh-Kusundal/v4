@@ -17,9 +17,8 @@ from tradex_trading.config.env import load_env_file  # noqa: E402
 load_env_file(str(ROOT / ".env.local"))
 
 from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
-from tradex_trading.datalake.historical_sync import SyncOrchestrator  # noqa: E402
-from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher  # noqa: E402
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402
 from tradex_trading.datalake.universe import load_universe  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 
@@ -40,9 +39,26 @@ def main() -> int:
         logging.error("no brokers available")
         return 1
 
-    svc = SyncOrchestrator(store, ParallelHistoryFetcher(brokers), GapDetector(store))
+    from datetime import UTC, datetime
+
+    from tradex_domain.market_calendar import MARKET_OPEN, to_ist_naive
+
+    primary, failover = brokers["dhan"], {k: v for k, v in brokers.items() if k != "dhan"}
     instruments = load_universe("nifty500")
-    result = svc.sync_today(instruments, "1m")
+
+    # sync_today's window: 09:15 to now, IST. Pre-open there is nothing to do.
+    now = to_ist_naive(datetime.now(UTC)).replace(second=0, microsecond=0)
+    day_start = now.replace(hour=MARKET_OPEN.hour, minute=MARKET_OPEN.minute, second=0, microsecond=0)
+    if now <= day_start:
+        logging.info("pre-open — nothing to sync today")
+        print("[today-topup] pre-open, nothing to do")
+        return 0
+
+    result = simple_sync(
+        primary, store, instruments, "1m", day_start, now,
+        skip_existing=True, gaps=GapDetector(store),
+        failover_brokers=failover or None,
+    )
     print(
         f"[today-topup] DONE fetched={result.fetched} written={result.written} "
         f"failed={len(result.failed)}"
