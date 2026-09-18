@@ -200,6 +200,7 @@ class BarSocket {
   private intentionalClose = false;
   /** Frames sent while the handshake was still CONNECTING. */
   private readonly pendingSends: object[] = [];
+  private closeTimer: ReturnType<typeof setTimeout> | null = null;
 
   subscribe(instrument: string, interval: string, onBar: (bar: Bar) => void): UnsubscribeFn {
     const key = `${instrument}|${interval}`;
@@ -270,6 +271,9 @@ class BarSocket {
   /** Callback for every (re)open, so connection-scoped subscriptions can re-arm. */
   onOpen(cb: () => void): UnsubscribeFn {
     this.openCbs.add(cb);
+    if (this.ws !== null && this.ws.readyState === WebSocket.OPEN) {
+      cb();
+    }
     return () => this.openCbs.delete(cb);
   }
 
@@ -288,12 +292,12 @@ class BarSocket {
   // ponytail: frames sent while the socket is CONNECTING queue and flush on
   // open — a send-during-handshake is normal ordering, not an error.
   send(msg: object): void {
-    if (this.ws !== null && this.ws.readyState === WebSocket.CONNECTING) {
+    if (this.ws === null || this.ws.readyState === WebSocket.CONNECTING) {
       this.pendingSends.push(msg);
       return;
     }
     try {
-      this.ws?.send(JSON.stringify(msg));
+      this.ws.send(JSON.stringify(msg));
     } catch (err) {
       console.warn('bar socket send failed', err);
     }
@@ -301,6 +305,10 @@ class BarSocket {
 
   private acquire(): void {
     this.refs += 1;
+    if (this.closeTimer !== null) {
+      clearTimeout(this.closeTimer);
+      this.closeTimer = null;
+    }
     // A new subscription after a give-up is a fresh chance to connect.
     this.attempts = 0;
     if (this.ws === null || this.ws.readyState === WebSocket.CLOSED) this.connect();
@@ -309,10 +317,17 @@ class BarSocket {
   private release(): void {
     this.refs -= 1;
     if (this.refs <= 0) {
-      this.intentionalClose = true;
+      this.refs = 0;
       this.cancelReconnect();
-      this.ws?.close();
-      this.ws = null;
+      if (this.closeTimer !== null) clearTimeout(this.closeTimer);
+      this.closeTimer = setTimeout(() => {
+        this.closeTimer = null;
+        if (this.refs <= 0) {
+          this.intentionalClose = true;
+          this.ws?.close();
+          this.ws = null;
+        }
+      }, 100);
     }
   }
 
@@ -342,7 +357,11 @@ class BarSocket {
   /** Auth lives in the connect URL: the server checks ?api_key pre-accept (close 1008 on mismatch). */
   private url(): string {
     const key = getApiKey();
-    return `${WS_BASE}/ws/stream${key === '' ? '' : `?api_key=${encodeURIComponent(key)}`}`;
+    const inputEl = typeof document !== 'undefined' ? (document.getElementById('wsurl') as HTMLInputElement | null) : null;
+    const base = inputEl?.value.trim() || `${WS_BASE}/ws/stream`;
+    if (key === '') return base;
+    const delim = base.includes('?') ? '&' : '?';
+    return `${base}${delim}api_key=${encodeURIComponent(key)}`;
   }
 
   private connect(): void {
@@ -395,7 +414,7 @@ class BarSocket {
         // Depth frames are already engine MarketDepth shape (numeric, {price,qty} levels).
         const set = this.depths.get(msg.instrument);
         if (set === undefined) return;
-        for (const cb of set) cb({ bids: msg.bids, asks: msg.asks, ltp: msg.ltp });
+        for (const cb of set) cb({ bids: msg.bids, asks: msg.asks, ltp: Number(msg.ltp) });
         return;
       }
       if (typeof frame.type === 'string') {
@@ -430,7 +449,7 @@ function isDepthFrame(msg: unknown): msg is WsDepthFrame {
     typeof m.instrument === 'string' &&
     Array.isArray(m.bids) &&
     Array.isArray(m.asks) &&
-    typeof m.ltp === 'number'
+    (typeof m.ltp === 'number' || typeof m.ltp === 'string')
   );
 }
 

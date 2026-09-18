@@ -7,21 +7,86 @@
          (fastapi_app.py `_root_with_key`); stays empty on keyless servers. -->
     <meta name="api-key" content="" data-applied="false" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <title>TradeX</title>
-    <style>
-      html,
-      body {
-        margin: 0;
-        height: 100%;
-        background: #131722;
-      }
-      #app {
-        height: 100vh;
-      }
-    </style>
+    <title>TradeX - Live Chart Trading</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand"><span class="brand-dot"></span> TradeX <em>LIVE</em></div>
+        <div class="divider"></div>
+        <div class="group">
+          <input type="password" id="apikey" class="field field--key" placeholder="TradeX API key" autocomplete="off" spellcheck="false" title="Kept in memory for this session only. Never stored, never committed." />
+        </div>
+        <div class="divider"></div>
+        <div class="group">
+          <input type="text" id="symbol" class="field field--sym" value="RELIANCE" title="instrument symbol" />
+          <select id="exchange" class="field" title="exchange">
+            <option>NSE</option><option>NFO</option><option>BSE</option><option>BFO</option><option>MCX</option><option>NSE_INDEX</option>
+          </select>
+          <select id="interval" class="field" title="bar interval">
+            <option value="1m">1m</option><option value="5m" selected>5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="D">D</option>
+          </select>
+          <select id="ctype" class="field" title="chart type">
+            <option value="candlestick">Candles</option>
+            <option value="hollow-candle">Hollow Candles</option>
+            <option value="bar">Bars (OHLC)</option>
+            <option value="high-low">High-Low</option>
+            <option value="volume-candle">Volume Candles</option>
+            <option value="line">Line</option>
+            <option value="line-markers">Line + Markers</option>
+            <option value="step">Step</option>
+            <option value="area">Area</option>
+            <option value="hlc-area">HLC Area</option>
+            <option value="baseline">Baseline</option>
+            <option value="heikin-ashi">Heikin Ashi</option>
+            <option value="renko">Renko</option>
+            <option value="range">Range</option>
+            <option value="line-break">Line Break</option>
+          </select>
+        </div>
+        <div class="divider"></div>
+        <div class="group">
+          <button id="connect" class="btn btn--primary">Connect</button>
+          <button id="disconnect" class="btn btn--ghost">Disconnect</button>
+          <button id="fit" class="btn" title="restore the default view (fit bars + auto price scale), same as double-click">Fit</button>
+        </div>
+        <div class="status"><span class="status-dot"></span><span id="status">ready</span></div>
+      </header>
+
+      <div class="subbar">
+        <span class="chip">REST <code>/api/charts/history</code></span>
+        <label class="lbl">WS <input type="text" id="wsurl" class="field field--ws" value="ws://127.0.0.1:8000/ws/stream" title="WebSocket feed" /></label>
+        <span class="chip" id="wsstate">WS idle</span>
+        <span class="chip" id="ticks">0 ticks</span>
+        <span class="chip chip--ltp" id="ltp">LTP -</span>
+        <span class="spacer"></span>
+        <label class="lbl">Qty <input type="number" id="qty" class="field field--qty" value="1" min="1" title="order quantity" /></label>
+        <select id="product" class="field" title="product"><option>MIS</option><option>CNC</option><option>NRML</option></select>
+        <label class="chk"><input type="checkbox" id="arm" /> <span>Arm trading</span></label>
+        <span class="chip analyze" id="mode" title="Order routing mode">ANALYZE (sandbox)</span>
+        <span class="hint">right-click chart to order</span>
+      </div>
+
+      <main class="stage">
+        <div id="chart"></div>
+        <div class="legend" id="legend"></div>
+      </main>
+
+      <!-- right-click order menu (price under the cursor) -->
+      <div id="ctxmenu" hidden>
+        <div class="ctx-head">Market</div>
+        <button class="buy" data-side="BUY" data-type="MARKET"><span>Buy Market</span></button>
+        <button class="sell" data-side="SELL" data-type="MARKET"><span>Sell Market</span></button>
+        <hr>
+        <div class="ctx-head">Limit</div>
+        <button class="buy" data-side="BUY" data-type="LIMIT"><span>Buy Limit</span></button>
+        <button class="sell" data-side="SELL" data-type="LIMIT"><span>Sell Limit</span></button>
+        <hr>
+        <div class="ctx-head">Stop</div>
+        <button class="buy" data-side="BUY" data-type="SL"><span>Buy Stop (SL)</span></button>
+        <button class="sell" data-side="SELL" data-type="SL"><span>Sell Stop (SL)</span></button>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

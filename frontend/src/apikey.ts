@@ -31,6 +31,11 @@ export function getApiKey(): string {
   return key;
 }
 
+/** Set the active API key in memory for this session. */
+export function setApiKey(newKey: string): void {
+  key = newKey;
+}
+
 /** Headers every mutating request must carry when the server runs keyed. */
 export function authHeaders(): Record<string, string> {
   return key === '' ? {} : { 'X-API-Key': key };
