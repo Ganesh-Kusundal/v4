@@ -74,6 +74,44 @@ class TestBuildParser:
         assert args.workers == 4
         assert args.reload is True
 
+    def test_parser_has_sync_command(self) -> None:
+        """sync command should parse with its documented defaults."""
+        parser = _build_parser()
+        args = parser.parse_args(["sync"])
+        assert args.command == "sync"
+        assert args.universe == "nifty500"
+        assert args.timeframe == "1m"
+        assert args.broker == "dhan"
+        assert args.workers == 4
+        assert args.batch_size == 20
+        assert args.skip_existing is True
+        assert args.dry_run is False
+
+    def test_parser_sync_with_overrides(self) -> None:
+        """sync --start/--end/--universe/--dry-run should parse."""
+        parser = _build_parser()
+        args = parser.parse_args(
+            ["sync", "--start", "2026-09-01", "--end", "2026-09-05",
+             "--universe", "nifty50", "--timeframe", "5m", "--dry-run"]
+        )
+        assert args.start == "2026-09-01"
+        assert args.end == "2026-09-05"
+        assert args.universe == "nifty50"
+        assert args.timeframe == "5m"
+        assert args.dry_run is True
+
+    def test_parser_sync_no_skip_existing(self) -> None:
+        """--no-skip-existing should flip skip_existing to False."""
+        parser = _build_parser()
+        args = parser.parse_args(["sync", "--no-skip-existing"])
+        assert args.skip_existing is False
+
+    def test_parser_sync_rejects_invalid_universe(self) -> None:
+        """sync should reject an unknown universe (choices are constrained)."""
+        parser = _build_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(["sync", "--universe", "nasdaq100"])
+
 
 class TestRunCli:
     """run_cli — CLI runner."""
@@ -144,6 +182,26 @@ class TestRunCli:
         ):
             result = run_cli(["serve"])
         assert result == 1
+
+    def test_sync_dry_run_is_paper_and_writes_nothing(self) -> None:
+        """sync --dry-run must never touch the network or the store.
+
+        This is the safety guarantee of the command: --dry-run swaps in the
+        paper broker and can be run without credentials.
+        """
+        with patch("tradex_trading.datalake.simple_sync.simple_sync") as simple:
+            simple.return_value = MagicMock(
+                requested=50, fetched=0, written=0, failed=[]
+            )
+            result = run_cli(
+                ["sync", "--dry-run", "--universe", "nifty50",
+                 "--start", "2026-09-01", "--end", "2026-09-02"]
+            )
+        assert result == 0
+        simple.assert_called_once()
+        # The broker handed to the pipeline must be a PaperBroker, not dhan.
+        broker_arg = simple.call_args.args[0]
+        assert type(broker_arg).__name__ == "PaperBroker"
 
     def test_serve_reuses_runtime_session(self) -> None:
         """main() must pass its own session to serve — never boot a second."""

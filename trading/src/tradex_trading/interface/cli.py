@@ -1,6 +1,7 @@
 """TradeX v4 CLI — argparse-based command-line interface.
 
-Commands: quote, order, health, scanner, positions, account, orders, watch, serve.
+Commands: quote, order, health, scanner, positions, account, orders, watch,
+serve, sync.
 Uses only stdlib (argparse, json); ``serve`` lazily imports the optional
 FastAPI/uvicorn stack.
 """
@@ -97,6 +98,38 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     serve_parser.set_defaults(func=cmd_serve)
 
+    # sync command — historical OHLCV data sync
+    sync_parser = sub.add_parser("sync", help="Sync historical OHLCV data")
+    sync_parser.add_argument("--start", default=None,
+                             help="Start date YYYY-MM-DD (default: auto-detect from latest stored data)")
+    sync_parser.add_argument("--end", default=None,
+                             help="End date YYYY-MM-DD (default: today)")
+    sync_parser.add_argument("--universe", default="nifty500",
+                             choices=["nifty50", "nifty100", "nifty200", "nifty500"],
+                             help="Universe to sync (default: nifty500)")
+    sync_parser.add_argument("--timeframe", default="1m",
+                             help="Bar resolution (default: 1m)")
+    sync_parser.add_argument("--broker", default="dhan",
+                             choices=["dhan", "upstox", "both"],
+                             help="Broker adapter (default: dhan)")
+    sync_parser.add_argument("--workers", type=int, default=4,
+                             help="Concurrent fetch threads (default: 4)")
+    sync_parser.add_argument("--batch-size", type=int, default=20,
+                             help="Symbols per batch (default: 20)")
+    sync_parser.add_argument("--skip-existing", action="store_true", default=True,
+                             help="Skip symbols with full coverage (default: on)")
+    sync_parser.add_argument("--no-skip-existing", action="store_false", dest="skip_existing",
+                             help="Re-fetch all symbols regardless of existing data")
+    sync_parser.add_argument("--min-gap-stamps", type=int, default=15,
+                             help="Ignore gaps shorter than N stamps (default: 15)")
+    sync_parser.add_argument("--backoff-base", type=float, default=60.0,
+                             help="Initial backoff after a throttled batch, seconds (default: 60)")
+    sync_parser.add_argument("--backoff-max", type=float, default=600.0,
+                             help="Backoff ceiling, seconds (default: 600)")
+    sync_parser.add_argument("--dry-run", action="store_true",
+                             help="Use PaperBroker with synthetic data")
+    sync_parser.set_defaults(func=cmd_sync)
+
     return parser
 
 
@@ -138,6 +171,10 @@ def run_cli(argv: list[str] | None = None, runtime: Any | None = None) -> int:
         # Reuses a bound runtime session in paper mode (avoids a second
         # boot); live brokers always boot their own from the environment.
         return args.func(args, runtime)
+
+    if args.command == "sync":
+        # Sync is self-contained — no runtime session needed.
+        return args.func(args)
 
     if runtime is None:
         print("no runtime bound")
@@ -375,6 +412,117 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
         if not reused:
             session.stop()
     return 0
+
+
+def cmd_sync(args: Any) -> int:
+    """Sync historical OHLCV data for a date range.
+
+    Self-contained: builds its own brokers, fetcher, and store — no
+    runtime session needed.  Reuses the proven pattern from
+    ``backfill_parquet.py`` and ``fill_gaps.py``.
+    """
+    import logging
+    from datetime import datetime
+    from pathlib import Path
+
+    # Parse end date (default: today)
+    from datetime import datetime, timedelta
+    try:
+        end = datetime.strptime(args.end, "%Y-%m-%d") if args.end else datetime.now()
+    except ValueError as e:
+        print(f"error: invalid end date: {e}")
+        return 1
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
+    )
+
+    # Lazy imports to avoid circular deps
+    from tradex_trading.config.env import load_env_file
+    from tradex_trading.datalake.gap_detector import GapDetector
+    from tradex_trading.datalake.parquet_storage import ParquetStorage
+    from tradex_trading.datalake.universe import load_universe
+    from tradex_trading.runtime.live import build_broker_from_env
+
+    # Repo root for .env.local and data/
+    # cli.py is at trading/src/tradex_trading/interface/cli.py → 5 levels to repo root
+    ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+    env_path = ROOT / ".env.local"
+    if env_path.exists():
+        load_env_file(str(env_path))
+    else:
+        logging.warning(".env.local not found at %s — broker credentials may be missing", env_path)
+
+    # Build store early so we can auto-detect start date
+    store = ParquetStorage(ROOT / "data")
+
+    # Auto-detect start date from store if not provided
+    if args.start:
+        try:
+            start = datetime.strptime(args.start, "%Y-%m-%d")
+        except ValueError as e:
+            print(f"error: invalid start date: {e}")
+            return 1
+    else:
+        # Default to 30 days ago — gap detection will skip symbols with full coverage
+        start = end - timedelta(days=30)
+        print(f"No --start provided. Syncing from: {start.date()} -> {end.date()}")
+        print(f"(Gap detection will skip symbols with full coverage)")
+
+    if end <= start:
+        print(f"Nothing to sync — end date ({end.date()}) is before start ({start.date()})")
+        return 0
+
+    # Build brokers
+    brokers: dict[str, Any] = {}
+    if args.dry_run:
+        from tradex_brokers.paper.adapter import PaperBroker
+        brokers["paper"] = PaperBroker()
+    else:
+        for name in (["dhan", "upstox"] if args.broker == "both" else [args.broker]):
+            try:
+                b = build_broker_from_env(name)
+                b.connect()
+                brokers[name] = b
+                logging.info("connected: %s", name)
+            except Exception as e:
+                logging.warning("skip %s: %s", name, e)
+
+    if not brokers:
+        print("error: no brokers available")
+        return 1
+
+    # Load universe
+    instruments = load_universe(args.universe)
+    print(f"Universe: {args.universe} ({len(instruments)} instruments)")
+    print(f"Window:   {start.date()} -> {end.date()} ({args.timeframe})")
+
+    # Build sync pipeline — ponytail: simple_sync replaces SyncOrchestrator + ParallelHistoryFetcher
+    from tradex_trading.datalake.simple_sync import simple_sync
+
+    gaps = GapDetector(store) if args.skip_existing else None
+    broker = brokers.get("dhan") or next(iter(brokers.values()))
+
+    # Run sync
+    result = simple_sync(
+        broker, store, instruments, args.timeframe, start, end,
+        batch_size=args.batch_size,
+        max_workers=args.workers,
+        skip_existing=args.skip_existing,
+        gaps=gaps,
+    )
+
+    # Report
+    print(f"\nSync complete:")
+    print(f"  Requested: {result.requested}")
+    print(f"  Fetched:   {result.fetched}")
+    print(f"  Written:   {result.written} rows")
+    if result.failed:
+        print(f"  Failed:    {len(result.failed)} symbols")
+        print(f"  Examples:  {result.failed[:5]}")
+
+    return 0 if not result.failed else 1
 
 
 def cmd_watch(args: object) -> None:

@@ -7,7 +7,8 @@ the gap detector. This module only converts and persists in batches.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from datetime import UTC
 from typing import Any
 
 import pandas as pd
@@ -23,7 +24,6 @@ class SyncResult:
     fetched: int
     written: int
     failed: list[str]
-    errors: list[str] = field(default_factory=list)
 
 
 def series_to_frame(series: HistoricalSeries, symbol: str) -> pd.DataFrame:
@@ -32,31 +32,25 @@ def series_to_frame(series: HistoricalSeries, symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
     from tradex_domain.market_calendar import to_ist_naive
 
-    rows = []
-    for c in series.candles:
-        ts = c.timestamp
-        # ponytail: attach UTC only when naive; aware stamps convert as-is
-        # (old code used replace(tzinfo=UTC) which corrupted aware non-UTC ts)
-        ts = to_ist_naive(ts if ts.tzinfo is not None else ts.replace(tzinfo=_utc()))
-        rows.append({
-            "symbol": symbol,
-            "exchange": c.instrument.exchange.value if hasattr(c.instrument, "exchange") else "NSE",
-            "kind": "equity",
-            "timeframe": str(c.timeframe.value),
-            "timestamp": ts,
-            "open": float(c.ohlc.open.value),
-            "high": float(c.ohlc.high.value),
-            "low": float(c.ohlc.low.value),
-            "close": float(c.ohlc.close.value),
-            "volume": float(c.volume.value) if c.volume else 0.0,
-        })
-    return pd.DataFrame(rows)
-
-
-def _utc():
-    from datetime import UTC
-
-    return UTC
+    candles = series.candles
+    timestamps = [
+        to_ist_naive(c.timestamp if c.timestamp.tzinfo is not None
+                     else c.timestamp.replace(tzinfo=UTC))
+        for c in candles
+    ]
+    return pd.DataFrame({
+        "symbol": symbol,
+        "exchange": [c.instrument.exchange.value if hasattr(c.instrument, "exchange") else "NSE"
+                     for c in candles],
+        "kind": "equity",
+        "timeframe": str(series.timeframe.value),
+        "timestamp": timestamps,
+        "open": [float(c.ohlc.open.value) for c in candles],
+        "high": [float(c.ohlc.high.value) for c in candles],
+        "low": [float(c.ohlc.low.value) for c in candles],
+        "close": [float(c.ohlc.close.value) for c in candles],
+        "volume": [float(c.volume.value) if c.volume else 0.0 for c in candles],
+    })
 
 
 def _bar_freq(timeframe: Timeframe | str) -> str:
@@ -94,11 +88,18 @@ class SyncOrchestrator:
         *,
         skip_existing: bool = True,
         min_gap_stamps: int = 15,
+        include_open_stamps: bool = False,
         batch_size: int = 20,
         backoff_base: float = 15.0,
         backoff_max: float = 300.0,
     ) -> SyncResult:
-        """Sync one universe/timeframe for the given window."""
+        """Sync one universe/timeframe for the given window.
+
+        ``min_gap_stamps`` / ``include_open_stamps`` are the planning floor and
+        open-stamp handling, forwarded to GapDetector — a caller that detected with
+        its own settings must pass them here too, or the plan re-detects with
+        the defaults and silently skips the very symbols it was handed.
+        """
         import time
 
         from tradex_trading.datalake.parallel_fetcher import fetch_with_backoff
@@ -106,16 +107,18 @@ class SyncOrchestrator:
         instruments = universe if isinstance(universe, list) else _load_universe(universe)
         tf = Timeframe(timeframe) if isinstance(timeframe, str) else timeframe
         if not instruments:
-            return SyncResult(0, 0, 0, [], [])
+            return SyncResult(0, 0, 0, [])
 
-        to_fetch, ranges = self._plan(instruments, tf, start, end, skip_existing, min_gap_stamps)
+        to_fetch, ranges = self._plan(
+            instruments, tf, start, end, skip_existing, min_gap_stamps,
+            include_open_stamps,
+        )
         if not to_fetch:
             log.info("sync: all %d symbols complete — nothing to fetch", len(instruments))
-            return SyncResult(len(instruments), 0, 0, [], [])
+            return SyncResult(len(instruments), 0, 0, [])
 
         fetched = written = 0
         failed: list[str] = []
-        errors: list[str] = []
         dead: set[str] = set()
         by_id = {_key(i): i for i in to_fetch}
         batches = [to_fetch[i:i + batch_size] for i in range(0, len(to_fetch), batch_size)]
@@ -158,7 +161,7 @@ class SyncOrchestrator:
         if failed:
             log.warning("sync: %d failed: %s", len(failed), failed[:5])
         log.info("sync: %d/%d fetched, %d rows", fetched, len(instruments), written)
-        return SyncResult(len(instruments), fetched, written, failed, errors)
+        return SyncResult(len(instruments), fetched, written, failed)
 
     def sync_today(
         self,
@@ -177,14 +180,17 @@ class SyncOrchestrator:
         )
         if now <= day_start:
             log.info("pre-open — nothing to sync today")
-            return SyncResult(0, 0, 0, [], [])
+            return SyncResult(0, 0, 0, [])
 
         instruments = universe if isinstance(universe, list) else _load_universe(universe)
         return self.sync(instruments, timeframe, day_start, now)
 
     # ------------------------------------------------------------------ internal
 
-    def _plan(self, instruments, tf, start, end, skip_existing, min_gap_stamps):
+    def _plan(
+        self, instruments, tf, start, end, skip_existing, min_gap_stamps,
+        include_open_stamps: bool = False,
+    ):
         if not skip_existing or self.gaps is None:
             return list(instruments), {}
         try:
@@ -192,6 +198,7 @@ class SyncOrchestrator:
                 instruments, start=start, end=end,
                 timeframe=str(tf.value), bar_freq=_bar_freq(tf),
                 min_gap_stamps=min_gap_stamps,
+                include_open_stamps=include_open_stamps,
             )
         except Exception as e:
             log.warning("gap detect failed (%s) — full fetch", e)
