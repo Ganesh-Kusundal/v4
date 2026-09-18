@@ -273,7 +273,7 @@ class ReactiveBus:
         """
         key = id(on_next)
         self._subscriber_remaining[key] = int(max_queue_size)
-        self._subscriber_backpressure[key] = on_backpressure
+        self._subscriber_backpressure[key] = on_backpressure  # type: ignore[assignment]
         self._subscriber_type[key] = subscriber_type or ""
 
         def gated(value: object) -> None:
@@ -341,7 +341,8 @@ class ReactiveBus:
         log = self._log
         # SQLEventLog exposes .replay(after_id); list/deque expose __iter__.
         if hasattr(log, "replay"):
-            yield from log.replay()
+            if log is not None:
+                yield from log.replay()
         elif log is not None:
             yield from log
 

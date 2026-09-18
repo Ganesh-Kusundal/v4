@@ -11,14 +11,11 @@ import logging
 import threading
 import time
 import uuid
-from collections import OrderedDict, deque
-from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from tradex_domain.enums import (
-    OrderSide,
     OrderStatus,
     OrderType,
     TimeInForce,
@@ -47,6 +44,7 @@ from tradex_domain.value_objects import CorrelationId, OrderId
 from tradex_trading.execution.fees import FeeCalculator
 from tradex_trading.execution.fill_sources import FillSource
 from tradex_trading.execution.idempotency import (
+    FillDedup,
     IdempotencyDuplicate,
     IdempotencyGuard,
     IdempotencyInflight,
@@ -63,6 +61,8 @@ from tradex_trading.execution.risk import (
     RiskManager,
 )
 from tradex_trading.execution.trading_cache import TradingCache
+from tradex_trading.reactive.bus import ReactiveBus
+from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
 
 if TYPE_CHECKING:
     from tradex_trading.runtime.metrics import MetricsRegistry
@@ -147,27 +147,32 @@ def _cancel_fingerprint(order_id: OrderId) -> str:
     """Canonical fingerprint for a cancel mutation."""
     return f"cancel|{order_id.value}"
 
-# ---------------------------------------------------------------------------
-# Re-exports for backward compatibility (PE-6 decomposition).
-# Symbols were moved to dedicated modules; re-imported here so existing
-# ``from tradex_trading.execution.engine import RiskManager`` keeps working.
-# The final ``__all__`` at the bottom of this file lists all public symbols.
-# ---------------------------------------------------------------------------
-
-
 class ExecutionEngine:
     """Single order spine as reactive pipeline.
 
     idempotency → risk → fill → OMS, all as Observable operators.
     This is the core of v4 — the reactive execution pipeline.
+
+    **Dual entry points (R5 architecture decision):**
+
+    Orders can enter the pipeline through two doors:
+
+    1. **Imperative** — ``engine.submit(request)`` for direct submission.
+    2. **CQRS command** — publish ``PlaceOrderCommand`` on the bus for
+       strategy-driven submission.
+
+    Both paths share the same idempotency guard, so a duplicate request
+    is caught regardless of entry point. However, strategies should pick
+    **one** pattern and not mix them — mixing imperative and command
+    submission on the same guard can create subtle ordering races.
     """
 
     def __init__(
         self,
-        bus: Any,  # ReactiveBus
+        bus: ReactiveBus | ThreadSafeReactiveBus,
         fill_source: FillSource,
         risk_manager: RiskManager | None = None,
-        idempotency_guard: Any | None = None,
+        idempotency_guard: IdempotencyGuard | None = None,
         cache: TradingCache | None = None,
         metrics: MetricsRegistry | None = None,
         fee_calculator: FeeCalculator | None = None,
@@ -200,17 +205,16 @@ class ExecutionEngine:
         self._reconciler = ReconciliationEngine()
         self._brokerage_accrued: dict[str, Decimal] = {}
         self._brokerage_lock = threading.Lock()  # ponytail: unbounded, LRU 50k if needed
-        #: Fingerprints of OrderFilled events already applied to the OMS
-        #: (order_id + side + qty + price) — re-published broker fills are
-        #: skipped, distinct partial fills are each applied in full.
-        #:
-        #: **Capacity:** bounded at ``applied_fills_max`` (default 50_000) as
-        #: an LRU; oldest fingerprint is evicted when the cap is exceeded.
-        #: Eviction is observable via the ``bus.applied_fills.evicted`` counter
-        #: so operators can detect under-provisioned dedup windows.
-        self._applied_fills: OrderedDict[tuple, None] = OrderedDict()
-        self._applied_fills_max = applied_fills_max
-        self._applied_fills_lock = threading.Lock()
+        #: Bounded LRU dedup for applied fill events — re-published broker
+        #: fills are skipped, distinct partial fills are each applied in full.
+        #: Eviction is observable via the ``bus.applied_fills.evicted`` counter.
+        self._fill_dedup = FillDedup(
+            max_size=applied_fills_max,
+            on_evict=lambda: (
+                self._metrics.counter("bus.applied_fills.evicted").inc()
+                if self._metrics is not None else None
+            ),
+        )
         #: M2: side-table mapping each order_id to the CorrelationId reserved
         #: for it in the pipeline. Populated when ``check_and_reserve`` returns
         #: ``None`` (cid is fresh); consulted by ``cancel()`` so the cid is
@@ -376,7 +380,7 @@ class ExecutionEngine:
             # M2: release the reservation on risk-reject so the cid is            # immediately reusable. Risk rejection is a terminal state for
             # the request — the order never reaches the cancel path and
             # would otherwise leak the cid forever.
-            if reserved_cid is not None:
+            if reserved_cid is not None and self._guard is not None:
                 with self._guard_lock:
                     self._guard.release(reserved_cid)
 
@@ -405,7 +409,7 @@ class ExecutionEngine:
                 raise OrderSubmissionUnknownError(
                     f"Order submission failed after crossing broker boundary: {exc}"
                 ) from exc
-            if reserved_cid is not None:
+            if reserved_cid is not None and self._guard is not None:
                 with self._guard_lock:
                     self._guard.release(reserved_cid)
             reserved_cid = None
@@ -426,7 +430,7 @@ class ExecutionEngine:
 
         # 4. OMS update
         self._order_manager.on_order_created(order)
-        if reserved_cid is not None:
+        if reserved_cid is not None and self._guard is not None:
             with self._guard_lock:
                 self._guard.record_result(reserved_cid, order.order_id)
         # M2: stamp the order_id → cid mapping so cancel() can release
@@ -467,7 +471,7 @@ class ExecutionEngine:
             # request. Persist the provider order id before returning so a
             # client retry cannot submit a second live order while waiting for
             # the asynchronous fill stream.
-            if reserved_cid is not None:
+            if reserved_cid is not None and self._guard is not None:
                 with self._guard_lock:
                     self._guard.record_result(reserved_cid, order.order_id)
             if self._metrics is not None:
@@ -491,51 +495,17 @@ class ExecutionEngine:
         Failures propagate loudly — a silently-swallowed fee bug is exactly
         the accounting divergence the parity work exists to prevent.
 
-        Brokerage ₹20 per-order cap is enforced across partial fills:
-        each fill's brokerage is capped to the remaining headroom
-        ``20 - accrued`` so an order with two 5-lot fills at 10k pays
-        15 + 5 = 20, not 15 + 15 = 30 (H2).
+        Brokerage ₹20 per-order cap is enforced across partial fills via
+        FeeCalculator.calculate_capped (H2).
         """
         if self._fee_calculator is None:
             return
-        from tradex_domain.utils import q2
-        from tradex_domain.value_objects import Money
-
-        from tradex_trading.execution.fees import (
-            _BROKERAGE_CAP,
-            _GST_RATE,
-            FeeCalculator,
-        )
-
-        # Canonical breakdown to isolate the per-fill brokerage.
-        breakdown = FeeCalculator.equity_intraday(
-            side=fill.side, price=fill.price.value, quantity=fill.quantity.value
-        )
-        calculated = breakdown.broker_fee
         oid = fill.order_id.value if hasattr(fill.order_id, "value") else str(fill.order_id)
         with self._brokerage_lock:
             accrued = self._brokerage_accrued.get(oid, Decimal("0"))
-            remaining = _BROKERAGE_CAP - accrued
-            if remaining < Decimal("0"):
-                remaining = Decimal("0")
-            capped = min(calculated, remaining)
-            self._brokerage_accrued[oid] = accrued + capped
-        if capped < calculated:
-            # Recompute GST on the capped brokerage so total stays consistent.
-            gst_new = q2(
-                (capped + breakdown.exchange_fee + breakdown.sebi_fee) * _GST_RATE
+            fee, self._brokerage_accrued[oid] = self._fee_calculator.calculate_capped(
+                fill, accrued,
             )
-            total = (
-                capped
-                + breakdown.exchange_fee
-                + breakdown.stt
-                + breakdown.sebi_fee
-                + breakdown.stamp_duty
-                + gst_new
-            )
-            fee = Money(amount=q2(total))
-        else:
-            fee = self._fee_calculator.calculate(fill)
         if fee.amount > 0:
             self._position_manager.on_fee(fill, fee)
 
@@ -562,44 +532,11 @@ class ExecutionEngine:
         )
 
     def _record_applied_fill(self, fill: Any) -> bool:
-        """Insert the fill's fingerprint into the applied-fills LRU.
+        """Insert the fill's fingerprint into the dedup LRU.
 
-        H3 contract:
-
-        - The set is bounded at ``self._applied_fills_max`` (default
-          ``50_000``, configurable via the ``applied_fills_max`` ctor arg).
-        - On overflow, the **oldest** key is evicted (LRU end) and the
-          ``bus.applied_fills.evicted`` counter increments by 1. Operators
-          watch this counter to detect an under-provisioned dedup window.
-        - A re-publish (key already present) moves the key to the MRU end
-          and reports a duplicate (returns ``True``); the caller must skip
-          the apply. A fresh key is inserted at the MRU end and the caller
-          proceeds (returns ``False``).
-
-        Returns True if the key was already present (re-publish — skip apply).
-        Returns False if the key is new and was inserted (proceed to apply).
+        Delegates to FillDedup. Returns True if duplicate (skip apply).
         """
-        if fill.fill_id is not None:
-            key: tuple = (fill.fill_id,)
-        else:
-            key = (
-                fill.order_id.value, fill.side.value, str(fill.quantity.value),
-                str(fill.price.value),
-            )
-        evicted = False
-        with self._applied_fills_lock:
-            if key in self._applied_fills:
-                self._applied_fills.move_to_end(key)
-                return True
-            self._applied_fills[key] = None
-            if len(self._applied_fills) > self._applied_fills_max:
-                self._applied_fills.popitem(last=False)
-                evicted = True
-        if evicted and self._metrics is not None:
-            # H3: each LRU eviction is counted so a chronically under-sized
-            # dedup window is visible in the metrics without parsing logs.
-            self._metrics.counter("bus.applied_fills.evicted").inc()
-        return False
+        return self._fill_dedup.check_and_record(fill)
 
     def _apply_fill(self, event: OrderFilled) -> None:
         """Apply an inbound OrderFilled to the OMS (live-fill bridge).
@@ -946,16 +883,4 @@ class ExecutionEngine:
         return self._cache
 
 
-__all__ = [
-    "ExecutionEngine",
-    "IdempotencyDuplicate",
-    "IdempotencyGuard",
-    "IdempotencyInflight",
-    "IdempotencyKeyReuseMismatch",
-    "InMemoryOrderStore",
-    "MemoryIdempotencyGuard",
-    "OrderStore",
-    "RiskBudget",
-    "RiskCheckResult",
-    "RiskManager",
-]
+__all__ = ["ExecutionEngine"]

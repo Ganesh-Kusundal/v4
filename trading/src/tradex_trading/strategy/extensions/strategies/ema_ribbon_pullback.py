@@ -8,7 +8,7 @@ is the caller's responsibility.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from tradex_domain import OrderSide
 from tradex_domain.enums import ExchangeId
@@ -42,14 +42,14 @@ class EmaRibbonPullbackStrategy(StudyStrategyBase):
             return None
         close = closes[-1]
         bullish = all(
-            emas[i][-1] > emas[i + 1][-1] for i in range(3)
+            cast(float, emas[i][-1]) > cast(float, emas[i + 1][-1]) for i in range(3)
         )
         bearish = all(
-            emas[i][-1] < emas[i + 1][-1] for i in range(3)
+            cast(float, emas[i][-1]) < cast(float, emas[i + 1][-1]) for i in range(3)
         )
-        if bullish and close <= fast[-1]:
+        if bullish and close <= cast(float, fast[-1]):
             return self._emit(OrderSide.BUY, "ema_ribbon_pullback", context.timestamp)
-        if bearish and close >= fast[-1]:
+        if bearish and close >= cast(float, fast[-1]):
             return self._emit(OrderSide.SELL, "ema_ribbon_rip", context.timestamp)
         return None
 

@@ -164,7 +164,7 @@ class TestBootPersistenceWiring:
 
     def test_default_boot_wires_in_memory_idempotency_guard(self) -> None:
         """Every order endpoint has a guard, even without SQLite durability."""
-        from tradex_trading.execution.engine import MemoryIdempotencyGuard
+        from tradex_trading.execution.idempotency import MemoryIdempotencyGuard
 
         session = boot(AppConfig(mode="paper"))
         try:

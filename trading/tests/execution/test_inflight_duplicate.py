@@ -18,8 +18,8 @@ from tradex_domain.execution import Order, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
-from tradex_trading.execution.engine import (
-    ExecutionEngine,
+from tradex_trading.execution.engine import ExecutionEngine
+from tradex_trading.execution.idempotency import (
     IdempotencyDuplicate,
     IdempotencyInflight,
     MemoryIdempotencyGuard,

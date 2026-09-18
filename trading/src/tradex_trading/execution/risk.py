@@ -13,11 +13,15 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from tradex_domain.enums import OrderSide
 from tradex_domain.execution import OrderRequest
 from tradex_domain.protocols import Clock
+
+if TYPE_CHECKING:
+    from tradex_domain.execution import Position
+    from tradex_domain.market import Quote
 
 log = logging.getLogger(__name__)
 
@@ -57,8 +61,8 @@ class RiskManager:
         max_orders_per_minute: int | None = None,
         *,
         live_orders_enabled: bool = True,
-        positions_provider: Any | None = None,
-        price_provider: Any | None = None,
+        positions_provider: Callable[[], list[Position]] | None = None,
+        price_provider: Callable[[Any], Quote | None] | None = None,
         reject_unknown_market_value: bool = False,
         require_fresh_marks: bool = False,
         max_mark_age_seconds: float = 5.0,
@@ -111,13 +115,13 @@ class RiskManager:
         #: lazily via ``bind_cash_provider()`` so the engine can boot
         #: without a cash ledger (backtest, unit tests). Initialized to
         #: None explicitly (M9 fix — previously relied on getattr fallback).
-        self._cash_provider: Any | None = None
+        self._cash_provider: Callable[[], Decimal | None] | None = None
         #: Count of orders denied by ``check()`` (any gate). Read by
         #: BacktestEngine to populate ``BacktestResult.num_rejected`` without
         #: re-implementing rejection bookkeeping in its own loop.
         self._rejected_count = 0
 
-    def _active_budget(self, request: Any) -> tuple[Decimal | None, ...]:
+    def _active_budget(self, request: OrderRequest) -> tuple[Decimal | None, ...]:
         """Resolve the active cap values for ``request``.
 
         Returns ``(max_order_value, max_position_value,
@@ -217,7 +221,7 @@ class RiskManager:
     def live_orders_enabled(self, value: bool) -> None:
         self._live_orders_enabled = value
 
-    def set_positions_provider(self, provider: Any) -> None:
+    def set_positions_provider(self, provider: Callable[[], list[Position]]) -> None:
         """Bind the position source used for ``max_position_value``.
 
         ``provider`` is a zero-arg callable returning an iterable of
@@ -226,7 +230,7 @@ class RiskManager:
         """
         self._positions_provider = provider
 
-    def set_price_provider(self, provider: Any) -> None:
+    def set_price_provider(self, provider: Callable[[Any], Quote | None]) -> None:
         """Bind a market-price source for exposure marking.
 
         ``provider`` is a one-arg callable mapping an instrument to its
@@ -299,7 +303,7 @@ class RiskManager:
             return False
         return True
 
-    def bind_cash_provider(self, provider: Any) -> None:
+    def bind_cash_provider(self, provider: Callable[[], Decimal | None]) -> None:
         """Bind a zero-arg callable returning available cash (Decimal).
 
         When bound, every BUY in :meth:`check` is rejected if its incoming
@@ -398,7 +402,7 @@ class RiskManager:
                 and getattr(self, "_cash_provider", None) is not None
             ):
                 try:
-                    cash = self._cash_provider()
+                    cash = self._cash_provider()  # type: ignore[misc]
                 except Exception:
                     cash = None
                 if cash is not None:
@@ -520,7 +524,7 @@ class RiskManager:
             self._recent_orders.clear()
             self._rejected_count = 0
 
-    def check_order(self, request: OrderRequest, context: Any = None) -> RiskCheckResult:
+    def check_order(self, request: OrderRequest, context: object = None) -> RiskCheckResult:
         """v3-parity risk check returning rich result."""
         approved = self.check(request)
         return RiskCheckResult(

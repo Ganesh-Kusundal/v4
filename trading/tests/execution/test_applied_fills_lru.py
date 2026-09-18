@@ -128,9 +128,9 @@ def test_applied_fills_max_is_configurable() -> None:
         applied_fills_max=10,
     )
 
-    assert engine._applied_fills_max == 10
+    assert engine._fill_dedup._max_size == 10
 
-    # The dict never grows past the cap.
+    # The LRU never grows past the cap.
     for i in range(25):
         engine._record_applied_fill(_make_fill(f"o-{i}", f"f-{i}"))
-    assert len(engine._applied_fills) <= 10
+    assert len(engine._fill_dedup._lru) <= 10

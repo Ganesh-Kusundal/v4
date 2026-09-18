@@ -81,6 +81,7 @@ class TradingSession:
         master_scheduler: object | None = None,
         mark_to_market: object | None = None,
         metrics: object | None = None,
+        writer_lock: object | None = None,
     ) -> None:
         self._broker = broker
         self._bus = bus
@@ -111,6 +112,10 @@ class TradingSession:
         #: Quote-driven position marking service. The composition root owns
         #: construction; the session owns lifecycle teardown.
         self._mark_to_market = mark_to_market
+        #: Single-writer lock for live mode. Released in stop() so every
+        #: teardown path (context manager, explicit stop(), RuntimeContext)
+        #: clears the lockfile without monkey-patching.
+        self._writer_lock = writer_lock
 
     def start(self) -> None:
         """Transition to READY state. Idempotent: no-op if already READY."""
@@ -131,14 +136,24 @@ class TradingSession:
         """
         if self._state == SessionState.STOPPED:
             return  # already stopped
+        # Release the single-writer lock (live mode only) regardless of
+        # whether the session reached READY. Boot acquires the lock before
+        # session.start(); if boot fails partway (e.g. critical drift) the
+        # session stays NEW but the lock must still be released.
+        if self._writer_lock is not None:
+            try:
+                self._writer_lock.release()  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover – defensive teardown
+                log.warning("writer lock release failed", exc_info=True)
+            self._writer_lock = None
         if self._state == SessionState.NEW:
-            return  # never started, nothing to stop
+            return  # never started, nothing else to stop
         for sub in self._subscriptions:
             sub.cancel()
         self._subscriptions.clear()
         if self._market_feed is not None:
             try:
-                self._market_feed.stop()
+                self._market_feed.stop()  # type: ignore[attr-defined]
             except Exception:  # pragma: no cover – defensive teardown
                 log.warning("market feed stop failed", exc_info=True)
         if self._mark_to_market is not None:
@@ -163,7 +178,7 @@ class TradingSession:
         # Tear down the daily master-refresh daemon (live brokers only).
         if self._master_scheduler is not None:
             try:
-                self._master_scheduler.stop()
+                self._master_scheduler.stop()  # type: ignore[attr-defined]
             except Exception:  # pragma: no cover – defensive teardown
                 log.warning("master refresh scheduler stop failed", exc_info=True)
             self._master_scheduler = None
@@ -356,7 +371,7 @@ class TradingSession:
             raise CapabilityNotSupportedError(
                 "no live market feed bound to this session (paper mode)"
             )
-        self._market_feed.start(instruments)
+        self._market_feed.start(instruments)  # type: ignore[attr-defined]
 
     @classmethod
     def live(
@@ -415,7 +430,7 @@ class TradingSession:
     def __exit__(self, *args: object) -> None:
         """Context manager exit — stop the session."""
         try:
-            self.stop()
+            self.stop()  # type: ignore[attr-defined]
         except Exception:
             pass
 

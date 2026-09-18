@@ -118,6 +118,63 @@ class FeeCalculator:
         )
         return Money(amount=breakdown.total.quantize(Decimal("0.01")))
 
+    def calculate_capped(
+        self,
+        fill: Fill,
+        accrued_brokerage: Decimal,
+    ) -> tuple[Money, Decimal]:
+        """Calculate fees with per-order brokerage cap across partial fills.
+
+        Brokerage is capped at Rs 20 per order.  When an order has multiple
+        partial fills, each fill's brokerage is limited to the remaining
+        headroom ``20 - accrued``.  If the brokerage is capped, GST is
+        recomputed on the reduced brokerage so the total stays consistent.
+
+        Parameters
+        ----------
+        fill : Fill
+            The fill to calculate fees for.
+        accrued_brokerage : Decimal
+            Brokerage already accrued for this order from prior partial fills.
+
+        Returns
+        -------
+        tuple[Money, Decimal]
+            ``(fee, new_accrued)`` — the total fee for this fill and the
+            updated accrued brokerage for the order.
+        """
+        if fill.price.value <= 0 or fill.quantity.value <= 0:
+            raise ValueError("fill price and quantity must be positive")
+
+        breakdown = self.equity_intraday(
+            side=fill.side,
+            price=fill.price.value,
+            quantity=fill.quantity.value,
+        )
+        calculated_brokerage = breakdown.broker_fee
+        remaining = max(_BROKERAGE_CAP - accrued_brokerage, Decimal("0"))
+        capped = min(calculated_brokerage, remaining)
+        new_accrued = accrued_brokerage + capped
+
+        if capped < calculated_brokerage:
+            # Recompute GST on the capped brokerage so total stays consistent.
+            gst_new = q2(
+                (capped + breakdown.exchange_fee + breakdown.sebi_fee) * _GST_RATE
+            )
+            total = (
+                capped
+                + breakdown.exchange_fee
+                + breakdown.stt
+                + breakdown.sebi_fee
+                + breakdown.stamp_duty
+                + gst_new
+            )
+            fee = Money(amount=q2(total))
+        else:
+            fee = Money(amount=breakdown.total.quantize(Decimal("0.01")))
+
+        return fee, new_accrued
+
     # -- v3-ported static helpers ------------------------------------------
 
     @staticmethod

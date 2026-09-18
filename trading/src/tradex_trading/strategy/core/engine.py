@@ -9,10 +9,12 @@ from typing import Any
 
 from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
 from tradex_domain.events import OrderCancelled, PlaceOrderCommand
-from tradex_domain.execution import Order, OrderRequest
+from tradex_domain.execution import Order
 from tradex_domain.instruments import InstrumentId
 from tradex_domain.strategy import Signal, StrategyContext
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
+
+from tradex_trading.strategy.core.brackets import protective_request
 
 log = logging.getLogger(__name__)
 
@@ -174,12 +176,13 @@ class ReactiveStrategyEngine:
             open_price = Price(value=Decimal(str(candle.ohlc.open.value)))
             for pending in pending_for_inst:
                 version = pending.get("strategy_version", "1.0.0")
-                request = OrderRequest(
-                    instrument=pending["signal"].instrument,
-                    side=pending["signal"].direction,
-                    order_type=OrderType.MARKET,
+                # Declared protective levels ride the deferred signal onto the
+                # order, validated against the open this order actually fills
+                # at — not the close the strategy saw when it declared them.
+                request = protective_request(
+                    signal=pending["signal"],
+                    entry=open_price,
                     quantity=pending["quantity"],
-                    price=open_price,
                     correlation_id=pending["correlation_id"],
                     tag=f"{pending['strategy_id']}@{version}",
                     reference_timestamp=getattr(candle, "timestamp", None),
@@ -333,12 +336,10 @@ class ReactiveStrategyEngine:
                 f"strategy {strategy_id} emitted {result.reason!r} without a "
                 "priced event (candle/quote/depth) to reference"
             )
-        request = OrderRequest(
-            instrument=result.instrument,
-            side=result.direction,
-            order_type=OrderType.MARKET,
+        request = protective_request(
+            signal=result,
+            entry=price,
             quantity=Quantity(Decimal(str(qty_value))),
-            price=price,
             correlation_id=correlation_id,
             tag=tag,
             reference_timestamp=getattr(event, "timestamp", None),

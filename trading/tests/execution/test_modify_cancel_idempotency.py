@@ -30,11 +30,10 @@ from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
-from tradex_trading.execution.engine import (
-    ExecutionEngine,
+from tradex_trading.execution.engine import ExecutionEngine, RiskManager
+from tradex_trading.execution.idempotency import (
     IdempotencyKeyReuseMismatch,
     MemoryIdempotencyGuard,
-    RiskManager,
 )
 from tradex_trading.execution.fill_sources import BrokerFillSource
 from tradex_trading.execution.trading_cache import TradingCache

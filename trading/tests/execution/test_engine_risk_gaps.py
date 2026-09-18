@@ -16,11 +16,8 @@ from tradex_domain.value_objects import (
     Quantity,
 )
 
-from tradex_trading.execution.engine import (
-    ExecutionEngine,
-    MemoryIdempotencyGuard,
-    RiskManager,
-)
+from tradex_trading.execution.engine import ExecutionEngine, RiskManager
+from tradex_trading.execution.idempotency import MemoryIdempotencyGuard
 from tradex_trading.execution.fill_sources import SimulatedFillSource
 from tradex_trading.reactive.bus import ReactiveBus
 
@@ -373,15 +370,17 @@ def test_risk_manager_rejected_count_increments() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _applied_fills bounding (C1)
+# fill dedup bounding (C1)
 # ---------------------------------------------------------------------------
 
 
 def test_applied_fills_bounded_to_prevent_memory_leak() -> None:
-    """_applied_fills is cleared when it exceeds the max to cap memory growth."""
+    """FillDedup LRU is bounded at the configured max to cap memory growth."""
+    from tradex_trading.execution.idempotency import FillDedup
+
     engine = _make_engine()
-    # Lower the cap for testing.
-    engine._applied_fills_max = 100
+    # Lower the cap for testing by replacing the FillDedup.
+    engine._fill_dedup = FillDedup(max_size=100)
 
     instrument = Equity.of("NSE", "TEST")
     for i in range(150):
@@ -395,9 +394,8 @@ def test_applied_fills_bounded_to_prevent_memory_leak() -> None:
         )
         engine._apply_fill(OrderFilled(fill=fill))
 
-    # After 150 unique fills with max=100, the set should have been cleared
-    # at some point and only contain a subset.
-    assert len(engine._applied_fills) <= 100
+    # After 150 unique fills with max=100, the LRU is bounded.
+    assert len(engine._fill_dedup._lru) <= 100
 
 
 # ---------------------------------------------------------------------------

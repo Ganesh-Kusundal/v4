@@ -24,7 +24,8 @@ from tradex_domain.execution import BracketOrderRequest, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
 
-from tradex_trading.execution.engine import ExecutionEngine, MemoryIdempotencyGuard
+from tradex_trading.execution.engine import ExecutionEngine
+from tradex_trading.execution.idempotency import MemoryIdempotencyGuard
 from tradex_trading.execution.fill_sources import BrokerFillSource
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
