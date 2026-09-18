@@ -2,7 +2,7 @@ import type { TradingOrder, TradingPosition } from 'openalgo-charts';
 import type { OrderRequest, Widget } from 'openalgo-charts/widget';
 import { authHeaders } from './apikey';
 import { API_BASE, barSocket } from './feed';
-import { getOrderQty } from './trade-bar';
+import { getOrderProduct, getOrderQty, isTradingArmed } from './shellbar';
 
 /** GET /api/charts/book row shapes (backend chart vocabulary, numeric). */
 interface BookOrder {
@@ -34,14 +34,18 @@ function mapOrder(o: BookOrder): TradingOrder | null {
   // level for its line to sit at, so it draws no line (instead of one at 0).
   const price = o.price > 0 ? o.price : (o.triggerPrice ?? 0);
   if (price <= 0) return null;
+  const side = o.side.toLowerCase() === 'sell' ? 'sell' : 'buy';
   return {
     id: o.id,
     // Engine type union is limit|stop|stop_limit; backend SL (STOP, trigger
     // only) -> 'stop', SL-M (STOP_LIMIT) -> 'stop_limit'.
     type: o.type === 'SL' ? 'stop' : o.type === 'SL-M' ? 'stop_limit' : 'limit',
-    side: o.side.toLowerCase() === 'sell' ? 'sell' : 'buy',
+    side,
     price,
     size: Math.max(o.qty - o.filledQty, 0),
+    color: side === 'buy' ? '#26a69a' : '#ef5350',
+    lineStyle: 'dashed',
+    draggable: true,
   };
 }
 
@@ -84,6 +88,67 @@ export function mountOrders(widget: Widget): void {
   };
   refreshBook = refresh;
 
+  // Wire interactive on-chart cancel button [x]
+  trading.on('trading:order_cancel', (payload: unknown) => {
+    const p = payload as { orderId?: string };
+    if (!p?.orderId) return;
+    void (async () => {
+      const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(p.orderId!)}`, {
+        method: 'DELETE',
+        headers: {
+          'Idempotency-Key': crypto.randomUUID(),
+          ...authHeaders(),
+        },
+      });
+      if (res.ok) {
+        widget.context.toast(`Order ${p.orderId} cancelled`, 'success');
+        refresh();
+      } else {
+        widget.context.toast(`Cancel failed (${res.status})`, 'error');
+      }
+    })().catch((err) => widget.context.toast(`Cancel error: ${err.message}`, 'error'));
+  });
+
+  // Wire interactive on-chart position close button [x]
+  trading.on('trading:position_close', (payload: unknown) => {
+    const p = payload as { positionId?: string };
+    if (!p?.positionId) return;
+    if (!isTradingArmed()) {
+      widget.context.toast('Tick "Arm trading" in toolbar to close position', 'error');
+      return;
+    }
+    const [ex, sym] = p.positionId.split(':');
+    if (!ex || !sym) return;
+    const currentPositions = trading.getPositions();
+    const pos = currentPositions.find((item) => item.id === p.positionId);
+    if (!pos) return;
+    const closeSide = pos.side === 'long' ? 'SELL' : 'BUY';
+    void (async () => {
+      const res = await fetch(`${API_BASE}/orders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': crypto.randomUUID(),
+          ...authHeaders(),
+        },
+        body: JSON.stringify({
+          exchange: ex,
+          symbol: sym,
+          side: closeSide,
+          quantity: pos.size,
+          order_type: 'MARKET',
+          product: getOrderProduct(),
+        }),
+      });
+      if (res.ok) {
+        widget.context.toast(`Position ${p.positionId} closed`, 'success');
+        refresh();
+      } else {
+        widget.context.toast(`Close position failed (${res.status})`, 'error');
+      }
+    })().catch((err) => widget.context.toast(`Close error: ${err.message}`, 'error'));
+  });
+
   // Connection-scoped: re-armed on every (re)open so a server restart resubscribes.
   const sendSubscribe = (): void => barSocket.send({ type: 'subscribe_orders' });
   barSocket.onOpen(sendSubscribe);
@@ -93,16 +158,8 @@ export function mountOrders(widget: Widget): void {
 
   void refresh();
   setInterval(refresh, 5000);
-  // # ponytail: teardown — the host never calls widget.destroy (page-lifetime app),
-  // so the onOpen/order/fill handlers and this interval are never released;
-  // wire them up if a destroy hook appears.
 }
 
-/**
- * Widget right-click order entry (context menu onOrder hook). Sends
- * POST /orders with an idempotency key; quantity comes from the trade-bar
- * input read at place-time (default 1, min 1).
- */
 /**
  * Engine context-menu type -> backend OrderType value. The menu emits
  * MARKET (price null), LIMIT (price = pointer price) and SL (price =
@@ -146,6 +203,7 @@ export function onOrderEntry(widget: Widget, order: OrderRequest): void {
     symbol: widget.symbol(),
     side: order.side,
     quantity: getOrderQty(),
+    product: getOrderProduct(),
     ...mapped,
   };
   if (order.type === 'LIMIT') body.price = order.price;

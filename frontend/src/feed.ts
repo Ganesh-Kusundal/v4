@@ -48,7 +48,106 @@ interface RawBar {
 
 interface HistoryEnvelope {
   bars?: RawBar[];
+  /** UTC seconds of the last bar in the returned window (absent on error). */
+  last_closed_time?: number | null;
   error?: { code?: string; message?: string };
+}
+
+/** Newest bar time the backend has actually served, in UTC seconds.
+ *
+ * The widget derives its load window from a clock: `lookbackBars` back from
+ * "now". Wall-clock "now" is the wrong anchor whenever the datalake lags —
+ * overnight, over a weekend, or on any day not yet synced — because the
+ * window then lands entirely *after* the newest bar and every intraday
+ * interval renders empty ("no bars for this range") while daily still works
+ * by spanning years. The backend already reports the newest bar it served, so
+ * the host hands the widget that instant instead and the window always ends
+ * on data that exists.
+ */
+let anchorSec: number | null = null;
+
+/** Clock the chart's load window is derived from (falls back to wall clock). */
+export const datalakeClock = (): number => anchorSec ?? Math.floor(Date.now() / 1000);
+
+/** Remember the newest served bar from any history response. */
+function noteAnchor(body: HistoryEnvelope): void {
+  if (typeof body.last_closed_time === 'number' && body.last_closed_time > 0) {
+    anchorSec = body.last_closed_time;
+  }
+}
+
+/** One history request, unwrapped. Shared by `getBars` and the anchor probe. */
+async function fetchHistory(
+  exchange: string,
+  symbol: string,
+  interval: string,
+  from?: number,
+  to?: number,
+): Promise<HistoryEnvelope> {
+  // The engine's paging math produces fractional epochs (`to` like
+  // 1788839099.999999). Bars are whole seconds and the endpoint types these as
+  // `int`, so a float 422s — which the UI surfaces as "Could not load older
+  // history" for a page that actually has bars. Normalize at the wire edge.
+  const fromSec = from === undefined ? undefined : Math.floor(from);
+  const toSec = to === undefined ? undefined : Math.floor(to);
+  const window =
+    `${fromSec === undefined ? '' : `&from=${fromSec}`}${toSec === undefined ? '' : `&to=${toSec}`}`;
+  let res: Response;
+  try {
+    res = await fetch(
+      `${API_BASE}/api/charts/history/${exchange}:${symbol}?interval=${mapInterval(interval)}${window}`,
+      { signal: AbortSignal.timeout(45_000) },
+    );
+  } catch (err) {
+    if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      throw new FeedError('history request timed out', 'timeout');
+    }
+    throw err;
+  }
+  const body = (await res.json().catch(() => undefined)) as HistoryEnvelope | undefined;
+  if (body?.error) {
+    throw new FeedError(body.error.message ?? 'history failed', body.error.code ?? 'error');
+  }
+  if (!res.ok) throw new FeedError(`history failed (${res.status})`);
+  const parsed = body ?? {};
+  noteAnchor(parsed);
+  return parsed;
+}
+
+/** Learn the datalake's newest bar before the widget computes its first window.
+ *
+ * `last_closed_time` is the last bar *in the returned window*, so one
+ * unbounded request makes it the newest bar that exists. Best-effort: with no
+ * anchor the clock falls back to wall clock and the chart behaves exactly as
+ * it did before this probe existed.
+ *
+ * Returns **this probe's own** answer, not the shared `anchorSec`: the global is
+ * written by every response, and a paged-in older window reports an older
+ * `last_closed_time`, so the global can sit below the newest bar. Callers that
+ * need the series *identity* — the workspace fingerprint check — need the exact
+ * value for the instrument they asked about. (The mutable global is a known
+ * wart: it should be keyed per instrument so a paged response cannot drag the
+ * load-window clock backwards. Out of scope here; the probe is exact.)
+ */
+export async function probeDatalakeAnchor(
+  exchange: string,
+  symbol: string,
+  interval: string,
+): Promise<number | null> {
+  try {
+    const body = await fetchHistory(
+      exchange,
+      symbol,
+      interval,
+      undefined,
+      Math.floor(Date.now() / 1000) + 86_400,
+    );
+    const newest = body.last_closed_time;
+    if (typeof newest === 'number' && newest > 0) return newest;
+  } catch (err) {
+    console.warn('datalake anchor probe failed', err);
+  }
+  return anchorSec;
 }
 
 /** Engine token -> WS interval param. Backend Timeframe values are 1m|5m|15m|30m|1h|1d. */
@@ -92,6 +191,7 @@ class BarSocket {
   private readonly depthLevels = new Map<string, string>();
   private readonly handlers = new Map<string, Set<(msg: unknown) => void>>();
   private readonly openCbs = new Set<() => void>();
+  private readonly closeCbs = new Set<() => void>();
   private readonly giveUpCbs = new Set<() => void>();
   /** Consecutive failed connect attempts; reset on open and on fresh user demand. */
   private attempts = 0;
@@ -171,6 +271,12 @@ class BarSocket {
   onOpen(cb: () => void): UnsubscribeFn {
     this.openCbs.add(cb);
     return () => this.openCbs.delete(cb);
+  }
+
+  /** Callback for connection close / drop. */
+  onClose(cb: () => void): UnsubscribeFn {
+    this.closeCbs.add(cb);
+    return () => this.closeCbs.delete(cb);
   }
 
   /** Fired once when 10 consecutive reconnect attempts have failed. */
@@ -299,6 +405,7 @@ class BarSocket {
     this.ws.onclose = () => {
       this.ws = null;
       this.pendingSends.length = 0;
+      for (const cb of this.closeCbs) cb();
       if (this.intentionalClose || this.refs <= 0) return;
       this.scheduleReconnect();
     };
@@ -332,26 +439,8 @@ export const barSocket = new BarSocket();
 
 export class V4DataFeed implements DataFeed {
   async getBars(req: BarsRequest): Promise<Bar[]> {
-    const from = req.from === undefined ? '' : `&from=${req.from}`;
-    const to = req.to === undefined ? '' : `&to=${req.to}`;
-    let res: Response;
-    try {
-      res = await fetch(
-        `${API_BASE}/api/charts/history/${req.exchange}:${req.symbol}?interval=${mapInterval(req.interval)}${from}${to}`,
-        { signal: AbortSignal.timeout(15_000) },
-      );
-    } catch (err) {
-      if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-        throw new FeedError('history request timed out', 'timeout');
-      }
-      throw err;
-    }
-    const body = (await res.json().catch(() => undefined)) as HistoryEnvelope | undefined;
-    if (body?.error) {
-      throw new FeedError(body.error.message ?? 'history failed', body.error.code ?? 'error');
-    }
-    if (!res.ok) throw new FeedError(`history failed (${res.status})`);
-    const raw = Array.isArray(body?.bars) ? body.bars : [];
+    const body = await fetchHistory(req.exchange, req.symbol, req.interval, req.from, req.to);
+    const raw = Array.isArray(body.bars) ? body.bars : [];
     if (raw.length === 0) throw new NotFoundError(`${req.exchange}:${req.symbol}: no bars for this range`);
     return raw.map((b) => ({
       time: b.time,

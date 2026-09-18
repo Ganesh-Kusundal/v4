@@ -1,20 +1,20 @@
 import type { Widget } from 'openalgo-charts/widget';
 import { barSocket, mapWsInterval } from './feed';
+import type { Dock } from './dock';
+import { createPanel } from './dock';
 
 /**
- * Replay transport bar, docked as the widget root's last grid row (below the
- * status line). One shared BarSocket connection: replay commands are plain
- * sends, acks come back as typed frames. Click-to-pick a start bar is skipped
- * for now: chart.subscribeClick only yields hit-tested primitive ids, not
- * bar times, so picking would need its own pointer plumbing (replay_start
- * uses the backend's default trailing window instead).
+ * Replay transport bar, docked as a panel in the dock. One shared BarSocket
+ * connection: replay commands are plain sends, acks come back as typed frames.
+ * Click-to-pick a start bar is skipped for now: chart.subscribeClick only
+ * yields hit-tested primitive ids, not bar times, so picking would need its
+ * own pointer plumbing (replay_start uses the backend's default trailing window
+ * instead).
  */
-export function mountReplayBar(widget: Widget): void {
-  const doc = widget.root.ownerDocument;
-  const bar = doc.createElement('div');
-  bar.className = 'v4-replaybar';
-  bar.style.cssText =
-    'display:flex;align-items:center;gap:8px;padding:6px 12px;border-top:1px solid var(--oac-bd);';
+export function mountReplayBar(widget: Widget, dock: Dock): void {
+  const doc = dock.ownerDocument;
+  const panel = createPanel(dock, { title: 'Replay', hint: 'Market replay transport' });
+  panel.body.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 12px;';
 
   const button = (label: string): HTMLButtonElement => {
     const b = doc.createElement('button');
@@ -34,8 +34,7 @@ export function mountReplayBar(widget: Widget): void {
     speed.appendChild(opt);
   }
   speed.value = '1';
-  bar.append(start, pause, resume, speed, stop);
-  widget.root.appendChild(bar);
+  panel.body.append(start, pause, resume, speed, stop);
 
   const setRunning = (running: boolean): void => {
     start.disabled = running;
@@ -54,6 +53,7 @@ export function mountReplayBar(widget: Widget): void {
   barSocket.on('replay_started', () => {
     replaying = true;
     setRunning(true);
+    panel.setError(null);
     widget.context.toast('Replay started');
   });
   barSocket.on('replay_paused', () => widget.context.toast('Replay paused'));
@@ -71,6 +71,7 @@ export function mountReplayBar(widget: Widget): void {
   barSocket.on('error', (msg) => {
     const message = frameMessage(msg);
     if (replaying || /replay/i.test(message)) {
+      panel.setError(`Replay: ${message}`);
       widget.context.toast(`Replay: ${message}`, 'error');
     } else {
       console.warn('replay bar: ignoring non-replay error frame', message);
@@ -85,6 +86,7 @@ export function mountReplayBar(widget: Widget): void {
     replaying = false;
     setRunning(false);
     barSocket.send({ type: 'replay_stop' });
+    panel.setError('Replay aborted: connection lost');
     widget.context.toast('Replay aborted: connection lost');
   });
 

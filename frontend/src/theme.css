@@ -1,0 +1,93 @@
+/* OpenAlgo Charts Reference Design System & Tokens
+ * Sourced from referances/openalgo-charts/examples/live/index.html
+ */
+
+:root {
+  /* Surface & elevation */
+  --bg: #0a0c11;
+  --panel: #0f121a;
+  --elev: #151925;
+  --elev-2: #1b2030;
+  
+  /* Borders */
+  --bd: #232a3a;
+  --bd-soft: #1a1f2c;
+  
+  /* Typography */
+  --tx: #d7dce8;
+  --tx-strong: #ffffff;
+  --mut: #8b93a7;
+  --faint: #5b6376;
+  
+  /* Accents & Trading Signals */
+  --acc: #22c1a4;
+  --acc-2: #2dd4bf;
+  --buy: #26a69a;
+  --sell: #ef5350;
+  --amber: #e6b53c;
+  --live: #ff6b6b;
+  --analyze: #38bdf8;
+  
+  /* Geometry */
+  --r: 7px;
+  --h: 28px;
+
+  /* OpenAlgo Charts Widget Token Overrides */
+  --oac-bg: #0a0c11;
+  --oac-panel: #0f121a;
+  --oac-elev: #151925;
+  --oac-elev-2: #1b2030;
+  --oac-bd: #232a3a;
+  --oac-bd-soft: #1a1f2c;
+  --oac-tx: #d7dce8;
+  --oac-tx-strong: #ffffff;
+  --oac-mut: #8b93a7;
+  --oac-faint: #5b6376;
+  --oac-acc: #22c1a4;
+  --oac-acc-2: #2dd4bf;
+  --oac-buy: #26a69a;
+  --oac-sell: #ef5350;
+  --oac-amber: #e6b53c;
+  --oac-danger: #ef5350;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background-color: var(--bg);
+  color: var(--tx);
+  font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: radial-gradient(1100px 500px at 78% -12%, rgba(34, 193, 164, 0.06), transparent), var(--bg);
+}
+
+/* Scrollbar aesthetic */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--panel);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bd);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--elev-2);
+}
+
+[hidden] {
+  display: none !important;
+}

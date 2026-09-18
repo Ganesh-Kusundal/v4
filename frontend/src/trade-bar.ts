@@ -1,39 +1,17 @@
 import type { Widget } from 'openalgo-charts/widget';
+import type { Dock } from './dock';
+import { getOrderQty as getShellbarQty } from './shellbar';
 
 /**
- * Order-quantity control, docked beside the replay bar. The widget's
- * context-menu onOrder hook carries no quantity, so every order entry
- * (context menu now, anything else later) reads the live input value at
- * place-time. No dialogs.
+ * Order-quantity and quick execution bar.
+ * Controls are primarily hosted in the top Subbar (matching trading.png);
+ * this module keeps backward compatibility for getOrderQty().
  */
-let input: HTMLInputElement | null = null;
-
-export function mountTradeBar(widget: Widget): void {
-  const doc = widget.root.ownerDocument;
-  const bar = doc.createElement('div');
-  bar.className = 'v4-tradebar';
-  bar.style.cssText =
-    'display:flex;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--oac-bd);';
-
-  const label = doc.createElement('span');
-  label.textContent = 'Qty';
-  label.style.cssText = 'font-size:12px;color:var(--oac-fg);';
-
-  input = doc.createElement('input');
-  input.type = 'number';
-  input.min = '1';
-  input.step = '1';
-  input.value = '1';
-  input.setAttribute('aria-label', 'Order quantity');
-  input.style.cssText =
-    'width:64px;padding:2px 6px;border:1px solid var(--oac-bd);border-radius:4px;background:transparent;color:var(--oac-fg);';
-
-  bar.append(label, input);
-  widget.root.appendChild(bar);
+export function mountTradeBar(_widget: Widget, _dock: Dock): void {
+  // Quick trade controls are now prominently in the top subbar.
 }
 
 /** Clamped quantity for order placement: integer >= 1, default 1. */
 export function getOrderQty(): number {
-  const n = Math.floor(Number(input?.value));
-  return Number.isFinite(n) && n >= 1 ? n : 1;
+  return getShellbarQty();
 }

@@ -5,8 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "build": "vite build && npm run stamp",
+    "stamp": "node scripts/artifact-stamp.mjs write",
+    "verify-artifact": "node scripts/artifact-stamp.mjs check",
+    "typecheck": "tsc --noEmit",
+    "e2e": "npm run build && playwright test"
   },
   "dependencies": {
     "openalgo-charts": "file:../openalgo-charts"
