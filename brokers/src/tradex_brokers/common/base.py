@@ -321,19 +321,37 @@ class BaseBroker:
         Master loads build a fresh registry and swap it in atomically
         (``replace_all``): concurrent WS-tick resolution against the shared
         registry sees either the old or the new complete master, never a
-        partial reload. Subclasses override :meth:`_extra_row_meta` and
-        :meth:`_extra_row_aliases` for broker-specific metadata/aliases.
+        partial reload. Subclasses override :meth:`_extra_row_meta`,
+        :meth:`_extra_row_aliases` and :meth:`_row_claim_priority` for
+        broker-specific metadata, aliases and symbol-claim strength.
         """
         if rows is None:
             self._load_fallback_universe()
             return
+        # Registration order decides who owns the primary provider key, because
+        # ``register_authoritative`` is last-wins — which is exactly what
+        # re-points a rotated security id on a daily refresh. But a vendor
+        # master can list two *different* securities under one trading symbol,
+        # which made the owner "whichever row the vendor printed last": Upstox
+        # carries NSE_EQ|INE121A01024 (series ``EQ``) and NSE_EQ|INE121A08PJ0
+        # (series ``D1``, a debenture) both as ``CHOLAFIN``, and the debenture
+        # is printed second — so every request for the equity resolved to a
+        # debenture that never trades, an empty series that downstream reads as
+        # "this broker has no data for the symbol". Registering
+        # weakest-claim-first makes the strongest claimant the owner whatever
+        # order the vendor used.
+        entries = [
+            (self._row_claim_priority(row), row, build_instrument_from_row(row))
+            for row in rows
+        ]
+        # The instrument list keeps master order; only registration is reordered.
+        loaded: list[Instrument] = [instrument for _, _, instrument in entries]
+        entries.sort(key=lambda entry: entry[0])
         fresh = InstrumentRegistry()
-        loaded: list[Instrument] = []
-        for row in rows:
+        for _priority, row, instrument in entries:
             exchange = str(row.get("exchange", "NSE")).strip().upper()
             key = str(row.get("key", f"{exchange}:{row.get('symbol', '')}"))
             asset_class = str(row.get("asset_class", "EQUITY")).upper()
-            instrument = build_instrument_from_row(row)
             iid = instrument.instrument_id
             # Authoritative registration: a full-master load owns the
             # primary provider key, so a re-listed/rotated security id in a
@@ -344,11 +362,29 @@ class BaseBroker:
             if native_kind:
                 meta["instrument_type"] = native_kind
             self._extra_row_meta(row, meta)
+            incumbent = fresh.provider_key(iid)
             fresh.register_authoritative(iid, key, meta)
             fresh.add_alias(key, iid)
             fresh.add_alias(str(row.get("symbol", "")).strip().upper(), iid)
             self._extra_row_aliases(fresh, row, iid, key)
-            loaded.append(instrument)
+            if incumbent is not None and incumbent != key:
+                # Rows arrive weakest-claim-first, so this one owns the key.
+                # A silently re-owned key is how the CHOLAFIN collision went
+                # unnoticed for weeks; name it instead. Vendors name the
+                # distinguishing field differently — Upstox carries the
+                # exchange series in ``instrument_type`` (``EQ``/``D1``), Dhan
+                # keeps ``SEM_SERIES`` next to a coarse ``instrument_type`` of
+                # ``EQUITY`` — so report whichever the row actually carries.
+                kind = str(row.get("series") or native_kind or "").strip()
+                log.warning(
+                    "master claims %s with more than one key: %s vs %s "
+                    "(kind %s) — %s owns the provider key",
+                    iid,
+                    incumbent,
+                    key,
+                    kind or "?",
+                    key,
+                )
         # Publish the new instrument list before the atomic registry swap so
         # search/_universe never see a new registry with an old list.
         self._loaded_instruments = loaded
@@ -363,6 +399,20 @@ class BaseBroker:
             fresh.add_alias(symbol, iid)
         self._registry.replace_all(fresh)
         self._instruments_loaded = True
+
+    def _row_claim_priority(self, row: Mapping[str, Any]) -> int:
+        """Hook: how strongly one master row claims its instrument's key.
+
+        When two rows of a single master resolve to the same
+        ``InstrumentId``, the higher priority becomes the owner of the primary
+        provider key. The default — every row equal — leaves the vendor's own
+        row order as the tie-break, so a re-listed security id still re-points
+        on refresh. Brokers override this when their master lists materially
+        different securities under one trading symbol. A row may carry the
+        exchange series as ``series`` (Dhan) or inside ``instrument_type``
+        (Upstox); contested symbols are logged with whichever is present.
+        """
+        return 0
 
     def _extra_row_meta(self, row: Mapping[str, Any], meta: dict[str, object]) -> None:
         """Hook: broker-specific contract metadata (lot/tick sizes)."""

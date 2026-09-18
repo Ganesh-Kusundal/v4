@@ -310,6 +310,33 @@ def test_token_bucket_cooldown_blocks() -> None:
         limiter.acquire(timeout=0.01)
 
 
+def test_wait_cooldown_blocks_until_cooldown_lifts() -> None:
+    """wait_cooldown=True makes acquire() wait out the cooldown instead of
+    raising — the safety net that lets a backfill absorb a 429 rather than
+    fail the whole batch."""
+    from tradex_brokers.common.resilience import RateLimitConfig
+
+    cfg = RateLimitConfig(
+        rate_per_second=10.0, capacity=5, cooldown_seconds=0.2, wait_cooldown=True,
+    )
+    limiter = TokenBucketRateLimiter(config=cfg)
+    limiter.trigger_cooldown()
+    t0 = time.monotonic()
+    # Must block for the cooldown window, then succeed — not raise.
+    limiter.acquire(timeout=5.0)
+    elapsed = time.monotonic() - t0
+    assert elapsed >= 0.18  # actually waited out the ~0.2s cooldown
+
+
+def test_wait_cooldown_default_still_fails_fast() -> None:
+    """Default (wait_cooldown=False) preserves the original fast-fail so
+    latency-sensitive paths (orders) don't block during a cooldown."""
+    limiter = TokenBucketRateLimiter(rate=10.0, burst=5, cooldown_seconds=60.0)
+    limiter.trigger_cooldown()
+    with pytest.raises(TimeoutError):
+        limiter.acquire(timeout=0.01)
+
+
 # ---------------------------------------------------------------------------
 # RATE LIMITING — multi-bucket classification
 # ---------------------------------------------------------------------------
@@ -336,7 +363,12 @@ def test_table_defaults_match_broker_standards() -> None:
         (250, 60.0), (1000, 3600.0), (7000, 86400.0)
     )
     assert dhan["quotes"]["rate_per_second"] == 1.0
-    assert dhan["historical"]["rate_per_second"] == 5.0
+    # Dhan historical: documented cap is 5/s. We configure 4/s on purpose —
+    # a 20% margin so timing jitter never lands 6 reqs in a rolling 1s window.
+    # cooldown 1s matches the 429 body ("retry after 1 second"); it is global
+    # and fully slept, so keeping it short is what makes a bulk sync fast.
+    assert dhan["historical"]["rate_per_second"] == 4.0
+    assert dhan["historical"]["cooldown_seconds"] == 1.0
     assert dhan["option_chain"]["rate_per_second"] == 0.34
     assert dhan["option_chain"]["min_interval"] == 3.0
     assert dhan["admin"]["rate_per_second"] == 20.0

@@ -691,6 +691,41 @@ class TestMarketData:
 
         assert fake.last_payload("json")["toDate"] == "2026-08-05 12:30:00"
 
+    def test_history_intraday_from_date_precedes_session_open(self):
+        """Dhan's ``fromDate`` is exclusive — asking from 09:15 loses the open.
+
+        Regression: a full-day request for 09:15-15:30 came back 09:16-15:14,
+        so every stored session silently lost its first bar while the
+        response still looked complete (non-empty).  The window must start one
+        bar *before* the session open.
+        """
+        client, fake, _ = _make_client([{"data": {}}])
+        start = datetime(2026, 8, 5, 9, 15, tzinfo=UTC)
+        end = datetime(2026, 8, 5, 15, 30, tzinfo=UTC)
+
+        client.history(_equity(), Timeframe.M1, start, end)
+
+        payload = fake.last_payload("json")
+        assert payload["fromDate"] == "2026-08-05 09:14:00"
+        assert payload["interval"] == "1"
+
+    def test_history_daily_uses_date_only_window(self):
+        """Daily bars take /charts/historical, whose fromDate is a plain date.
+
+        The one-bar lead above is an intraday concern only: a D1 request is
+        day-granular, so the lead is capped at an hour and never reaches the
+        previous session.
+        """
+        client, fake, _ = _make_client([{"data": {}}])
+        start = datetime(2026, 8, 5, tzinfo=UTC)
+        end = datetime(2026, 8, 5, tzinfo=UTC)
+
+        client.history(_equity(), Timeframe.D1, start, end)
+
+        payload = fake.last_payload("json")
+        assert payload["fromDate"] == "2026-08-05"
+        assert payload["toDate"] == "2026-08-05"
+
     def test_history_daily(self):
         response = {
             "data": {

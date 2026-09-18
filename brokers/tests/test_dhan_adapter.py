@@ -70,6 +70,11 @@ def _index() -> Instrument:
     return Index.of("IDX", "NIFTY")
 
 
+def _cholafin() -> InstrumentId:
+    """The ``InstrumentId`` both ``CHOLAFIN`` master rows collapse onto."""
+    return InstrumentId.equity("NSE", "CHOLAFIN")
+
+
 def _make_broker() -> tuple[DhanBroker, MagicMock]:
     """Build a connected adapter with a mocked DhanApiClient transport."""
     transport = MagicMock(spec=DhanApiClient)
@@ -769,6 +774,58 @@ class TestInstruments:
         chain = broker.future_chain(Equity.of("MCX", "GOLD"))
         assert [c.instrument_id.expiry for c in chain] == [date(2026, 9, 4), date(2026, 10, 30)]
         assert all(c.asset_class is AssetClass.FUTURE for c in chain)
+
+
+# ---------------------------------------------------------------------------
+# Contested trading symbols (one master row set, two securities, one symbol)
+# ---------------------------------------------------------------------------
+
+#: The real Dhan master rows for ``CHOLAFIN``: the equity (series ``EQ``) and a
+#: debenture of the same issuer (series ``D1``) share the trading symbol.
+_CHOLAFIN_EQUITY = {
+    "symbol": "CHOLAFIN", "exchange": "NSE", "key": "NSE:685",
+    "security_id": "685", "asset_class": "EQUITY", "series": "EQ",
+}
+_CHOLAFIN_DEBENTURE = {
+    "symbol": "CHOLAFIN", "exchange": "NSE", "key": "NSE:19257",
+    "security_id": "19257", "asset_class": "EQUITY", "series": "D1",
+}
+
+
+class TestContestedSymbols:
+    """A symbol the master lists twice must resolve to the equity, always."""
+
+    @pytest.mark.parametrize(
+        "rows",
+        [
+            [_CHOLAFIN_DEBENTURE, _CHOLAFIN_EQUITY],
+            [_CHOLAFIN_EQUITY, _CHOLAFIN_DEBENTURE],
+        ],
+        ids=["equity-row-last", "equity-row-first"],
+    )
+    def test_equity_series_owns_the_key_whatever_the_row_order(self, rows):
+        broker, _ = _make_broker()
+        broker.load_instruments(rows)
+        assert broker.registry.provider_key(_cholafin()) == "NSE:685"
+
+    def test_losing_security_keeps_its_aliases(self):
+        """The debenture's key and bare security id still resolve."""
+        broker, _ = _make_broker()
+        broker.load_instruments([_CHOLAFIN_EQUITY, _CHOLAFIN_DEBENTURE])
+        assert broker.registry.resolve("NSE:19257") == _cholafin()
+        assert broker.registry.resolve("19257") == _cholafin()
+        assert broker.registry.resolve("NSE:685") == _cholafin()
+
+    def test_unranked_rows_keep_vendor_order(self):
+        """Rows the broker cannot rank keep last-wins, so a re-listed security
+        id still re-points on a daily refresh."""
+        broker, _ = _make_broker()
+        rows = [
+            {**_CHOLAFIN_EQUITY, "key": "NSE:OLDID", "series": ""},
+            {**_CHOLAFIN_EQUITY, "key": "NSE:NEWID", "series": ""},
+        ]
+        broker.load_instruments(rows)
+        assert broker.registry.provider_key(_cholafin()) == "NSE:NEWID"
 
 
 # ---------------------------------------------------------------------------

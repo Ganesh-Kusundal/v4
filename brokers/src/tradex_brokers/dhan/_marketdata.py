@@ -7,7 +7,7 @@ facade owns shared state and internal helpers.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol
 
@@ -182,7 +182,7 @@ class MarketDataMixin(Protocol):
         end: datetime,
     ) -> HistoricalSeries:
         """Historical candles via POST /charts/intraday or /charts/historical."""
-        from tradex_domain.timeframe import dhan_interval
+        from tradex_domain.timeframe import bucket_seconds, dhan_interval
 
         interval = timeframe.value if isinstance(timeframe, Timeframe) else str(timeframe)
         # Single-sourced interval map (domain/timeframe.py) — None means unsupported (M30/W1)
@@ -211,12 +211,23 @@ class MarketDataMixin(Protocol):
                 if end.date() == now.date()
                 else datetime.strptime(session_close, "%H:%M:%S").time()
             )
+            # Dhan treats ``fromDate`` as EXCLUSIVE: asking from the session
+            # open drops the session's first bar, so a full-day request for
+            # 09:15-15:30 came back 09:16-15:14 — every stored day silently
+            # lost its 09:15 open while the response still looked complete.
+            # Ask one bar earlier; the session boundary clips the extra back
+            # off.  Capped at an hour so a coarser timeframe routed through
+            # this endpoint could still not reach into the previous session.
+            lead = min(bucket_seconds(requested_timeframe), 3600)
+            from_dt = datetime.combine(
+                start.date(), datetime.strptime(session_open, "%H:%M:%S").time()
+            ) - timedelta(seconds=lead)
             params: dict[str, object] = {
                 "securityId": security_id,
                 "exchangeSegment": segment,
                 "instrument": native_type,
                 "interval": dhan_int,
-                "fromDate": f"{start.date()} {session_open}",
+                "fromDate": from_dt.strftime("%Y-%m-%d %H:%M:%S"),
                 "toDate": f"{end.date()} {end_time.strftime('%H:%M:%S')}",
             }
         else:

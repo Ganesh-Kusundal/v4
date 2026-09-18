@@ -152,206 +152,22 @@ def jwt_expiry(token: str) -> float | None:
 
 
 # ---------------------------------------------------------------------------
-# Broker-specific mint factories
+# Broker-specific mint factories (re-exported from adapter modules)
 # ---------------------------------------------------------------------------
 
 
-def dhan_totp_mint(
-    *,
-    fetch: _AuthFetch,
-    client_id: str,
-    pin: str,
-    totp_secret: str,
-    token_url: str = "https://auth.dhan.co/app/generateAccessToken",
-    clock: Callable[[], float] = time.time,
-    sleeper: Callable[[float], None] = time.sleep,
-    settle_seconds: float = 5.0,
-) -> MintStrategy:
-    """Build a Dhan token mint that POSTs client id + pin + TOTP (stdlib-only).
-
-    Success body is FLAT: ``{"accessToken": ..., "expiryTime": ...}``;
-    rejections arrive as HTTP 200 + ``{"status": "error", "message": ...}``.
-    Waits for the TOTP window to settle before generating the code.
-    """
-
-    def mint() -> TokenMintResult:
-        totp_window_wait(clock, sleeper, settle=settle_seconds)
-        code = totp_code(totp_secret, at=clock())
-        status, body = _form_post(
-            fetch,
-            token_url,
-            {"dhanClientId": client_id, "pin": pin, "totp": code},
-        )
-        data = _require_mapping(body, "Dhan")
-        if status not in {200, 201}:
-            # Only known message fields — never dump the raw body (it could echo
-            # submitted PIN/TOTP fields back into an exception string).
-            message = _extract_message(data)
-            if _is_rate_limit_message(message):
-                raise RateLimitError(f"Dhan token rate limited (HTTP {status}): {message}")
-            raise AuthenticationError(f"Dhan token mint failed (HTTP {status}): {message}")
-        # Dhan wraps rejections (rate limit, invalid TOTP) in HTTP 200 +
-        # {"status": "error", "message": ...} — classify before token lookup.
-        if data.get("status") == "error":
-            message = _extract_message(data)
-            if _is_rate_limit_message(message):
-                raise RateLimitError(f"Dhan token rate limited: {message}")
-            raise AuthenticationError(f"Dhan token mint rejected: {message}")
-        raw_inner = data.get("data")
-        inner = raw_inner if isinstance(raw_inner, dict) else {}
-        # Dhan's success body is FLAT ({"accessToken": ..., "expiryTime": ...});
-        # accept a nested "data" wrapper too, defensively.
-        token = (
-            data.get("accessToken")
-            or data.get("access_token")
-            or inner.get("accessToken")
-            or inner.get("access_token")
-        )
-        if not token:
-            # Dhan returns HTTP 200 + status:error for TOTP rate limits — never
-            # mask that as a misleading "missing accessToken".
-            message = _extract_message(data)
-            if _is_rate_limit_message(message):
-                raise RateLimitError(f"Dhan token rate limited: {message}")
-            if message:
-                raise AuthenticationError(f"Dhan token mint rejected: {message}")
-            raise AuthenticationError("Dhan token mint response missing accessToken")
-        token = str(token)
-        return TokenMintResult(token=token, expires_at=jwt_expiry(token))
-
-    return mint
-
-
-# ---------------------------------------------------------------------------
-# Upstox — OAuth refresh-token grant
-# ---------------------------------------------------------------------------
-# The initial authorization-code flow requires a browser/user consent, which a
-# headless SDK cannot automate. We support the server-side refresh grant only;
-# the initial refresh_token must be obtained once via the standard Upstox OAuth
-# redirect (or TOTP flow) and stored in config/state.
-
-
-def upstox_refresh_mint(
-    *,
-    fetch: _AuthFetch,
-    client_id: str,
-    client_secret: str,
-    redirect_uri: str,
-    refresh_token: str,
-    token_url: str = "https://api.upstox.com/v2/login/authorization/token",
-    clock: Callable[[], float] = time.time,
-) -> MintStrategy:
-    """Build an Upstox token mint that exchanges the refresh token for a fresh
-    access token via ``grant_type=refresh_token`` (form-encoded POST)."""
-
-    def mint() -> TokenMintResult:
-        status, body = _form_post(
-            fetch,
-            token_url,
-            {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "redirect_uri": redirect_uri,
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-            },
-        )
-        data = _require_mapping(body, "Upstox")
-        if status not in {200, 201}:
-            message = str(data.get("error_description") or data.get("error") or data)
-            if _is_rate_limit_message(message):
-                raise RateLimitError(
-                    f"Upstox token refresh rate limited (HTTP {status}): {message}"
-                )
-            raise AuthenticationError(f"Upstox token refresh failed (HTTP {status}): {message}")
-        token = data.get("access_token")
-        if not token:
-            raise AuthenticationError("Upstox token refresh response missing access_token")
-        expires_in = data.get("expires_in")
-        expires_at = (
-            clock() + float(expires_in)
-            if isinstance(expires_in, (int, float))
-            else jwt_expiry(str(token))
-        )
-        return TokenMintResult(
-            token=str(token),
-            expires_at=expires_at,
-            refresh_token=str(data.get("refresh_token") or refresh_token),
-        )
-
-    return mint
-
-
-# ---------------------------------------------------------------------------
-# Upstox — TOTP self-mint (optional: requires ``upstox-totp`` package)
-# ---------------------------------------------------------------------------
-# Upstox does not expose a native TOTP API endpoint (unlike Dhan). The
-# ``upstox-totp`` third-party library automates the full browser-like OAuth
-# flow: login → OTP generation → TOTP verification → authorization code →
-# token exchange. This is an optional dependency; when absent, the refresh-
-# token grant (``upstox_refresh_mint``) remains the only mint strategy.
-
-
-def upstox_totp_mint(
-    *,
-    mobile: str,
-    pin: str,
-    totp_secret: str,
-    client_id: str,
-    client_secret: str,
-    redirect_uri: str,
-    clock: Callable[[], float] = time.time,
-) -> MintStrategy:
-    """Build an Upstox token mint that automates the full TOTP OAuth flow.
-
-    Requires the ``upstox-totp`` package (``pip install upstox-totp``).
-    Response shape: ``AccessTokenResponse.data.access_token``.
-    """
-
-    def mint() -> TokenMintResult:
-        try:
-            from upstox_totp import UpstoxTOTP
-        except ImportError as exc:
-            raise AuthenticationError(
-                "Upstox TOTP self-mint requires the 'upstox-totp' package; "
-                "install it with: pip install upstox-totp, or use the OAuth "
-                "refresh-token flow instead (set UPSTOX_REFRESH_TOKEN)."
-            ) from exc
-        try:
-            client = UpstoxTOTP(
-                username=mobile,
-                password=pin,
-                pin_code=pin,
-                totp_secret=totp_secret,
-                client_id=client_id,
-                client_secret=client_secret,
-                redirect_uri=redirect_uri,
-                debug=False,
-            )
-            response = client.app_token.get_access_token()
-        except AuthenticationError:
-            raise
-        except Exception as exc:
-            message = str(exc)
-            if _is_rate_limit_message(message):
-                raise RateLimitError(f"Upstox TOTP rate limited: {message}") from exc
-            raise AuthenticationError(f"Upstox TOTP self-mint failed: {message}") from exc
-        data = getattr(response, "data", None)
-        if data is None or not getattr(data, "success", True):
-            error = getattr(response, "error", None) or "no data in response"
-            message = str(error)
-            if _is_rate_limit_message(message):
-                raise RateLimitError(f"Upstox TOTP rate limited: {message}")
-            raise AuthenticationError(f"Upstox TOTP self-mint rejected: {message}")
-        token = getattr(data, "access_token", None)
-        if not token:
-            raise AuthenticationError("Upstox TOTP response missing access_token")
-        return TokenMintResult(
-            token=str(token),
-            expires_at=clock() + 86400.0,  # Upstox tokens expire in 24h
-        )
-
-    return mint
+def __getattr__(name: str) -> object:
+    """Backward-compat: re-export broker mint factories from their new homes."""
+    if name == "dhan_totp_mint":
+        from tradex_brokers.dhan.auth_flow import dhan_totp_mint
+        return dhan_totp_mint
+    if name == "upstox_refresh_mint":
+        from tradex_brokers.upstox.auth_flow import upstox_refresh_mint
+        return upstox_refresh_mint
+    if name == "upstox_totp_mint":
+        from tradex_brokers.upstox.auth_flow import upstox_totp_mint
+        return upstox_totp_mint
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

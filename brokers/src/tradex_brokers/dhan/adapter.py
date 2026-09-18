@@ -206,6 +206,19 @@ class DhanBroker(BaseBroker):
     # instruments
     # ------------------------------------------------------------------
 
+    #: Cash-segment series codes for the exchange's *equity* series. Other series
+    #: in the same segment (D1/W1/N1/N2… debentures, warrants, bonds) can carry
+    #: an equity's trading symbol — the master lists ``CHOLAFIN`` as both the
+    #: equity (series ``EQ``, security id 685) and a debenture (series ``D1``,
+    #: security id 19257) — and must never own its key. Dhan's own row order puts
+    #: the equity last today, so it wins by luck; that luck is not guaranteed.
+    _CASH_EQUITY_SERIES = frozenset({"EQ", "BE"})
+
+    def _row_claim_priority(self, row: Mapping[str, Any]) -> int:
+        """Cash-equity rows outrank the other securities sharing their symbol."""
+        series = str(row.get("series") or "").strip().upper()
+        return 1 if series in self._CASH_EQUITY_SERIES else 0
+
     def _extra_row_meta(self, row: Mapping[str, Any], meta: dict[str, object]) -> None:
         """Dhan contract metadata (position sizing / tick maths / slippage)."""
         for name in ("lot_size", "tick_size"):

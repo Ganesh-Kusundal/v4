@@ -71,154 +71,53 @@ class RateLimitConfig:
     capacity: int = 10
     min_interval: float = 0.0
     cooldown_seconds: float = 60.0
+    #: When true, a cooldown makes acquire() block until it lifts instead of
+    #: failing fast. Long-running batch jobs (historical backfill) want this so
+    #: a 429 is absorbed rather than cascading; latency-sensitive paths
+    #: (orders) keep the default fast-fail.
+    wait_cooldown: bool = False
 
 
 # ---------------------------------------------------------------------------
-# Per-broker rate-limit tables
+# Per-broker rate-limit tables (imported from adapter modules)
 # ---------------------------------------------------------------------------
 
-DHAN_RATE_LIMITS: dict[str, dict[str, float | int | tuple[tuple[int, float], ...]]] = {
-    "orders": {
-        "rate_per_second": 10.0,
-        "capacity": 20,
-        "min_interval": 0.1,
-        "cooldown_seconds": 130.0,
-        "extra_windows": ((250, 60.0), (1000, 3600.0), (7000, 86400.0)),
-    },
-    "quotes": {
-        "rate_per_second": 1.0,
-        "capacity": 2,
-        "min_interval": 1.0,
-        "cooldown_seconds": 130.0,
-    },
-    "historical": {
-        "rate_per_second": 5.0,
-        "capacity": 10,
-        "min_interval": 0.2,
-        "cooldown_seconds": 130.0,
-    },
-    "options_historical": {
-        "rate_per_second": 2.0,
-        "capacity": 3,
-        "min_interval": 0.5,
-        "cooldown_seconds": 130.0,
-    },
-    "expired_historical": {
-        "rate_per_second": 5.0,
-        "capacity": 10,
-        "min_interval": 0.2,
-        "cooldown_seconds": 60.0,
-    },
-    "option_chain": {
-        "rate_per_second": 0.34,
-        "capacity": 1,
-        "min_interval": 3.0,
-        "cooldown_seconds": 130.0,
-    },
-    "admin": {
-        "rate_per_second": 20.0,
-        "capacity": 40,
-        "min_interval": 0.05,
-        "cooldown_seconds": 130.0,
-    },
-}
 
-UPSTOX_RATE_LIMITS: dict[str, dict[str, float | int | tuple[tuple[int, float], ...]]] = {
-    "orders": {
-        "rate_per_second": 10.0,
-        "capacity": 20,
-        "min_interval": 0.1,
-        "cooldown_seconds": 60.0,
-        "extra_windows": ((500, 60.0), (2000, 1800.0)),
-    },
-    "quotes": {
-        "rate_per_second": 25.0,
-        "capacity": 50,
-        "min_interval": 0.04,
-        "cooldown_seconds": 60.0,
-    },
-    "historical": {
-        "rate_per_second": 50.0,
-        "capacity": 100,
-        "min_interval": 0.02,
-        "cooldown_seconds": 60.0,
-    },
-    "option_chain": {
-        "rate_per_second": 50.0,
-        "capacity": 100,
-        "min_interval": 0.02,
-        "cooldown_seconds": 60.0,
-    },
-    "funds": {
-        "rate_per_second": 50.0,
-        "capacity": 100,
-        "min_interval": 0.02,
-        "cooldown_seconds": 60.0,
-    },
-    "positions": {
-        "rate_per_second": 50.0,
-        "capacity": 100,
-        "min_interval": 0.02,
-        "cooldown_seconds": 60.0,
-    },
-    "holdings": {
-        "rate_per_second": 50.0,
-        "capacity": 100,
-        "min_interval": 0.02,
-        "cooldown_seconds": 60.0,
-    },
-    "options_historical": {
-        "rate_per_second": 50.0,
-        "capacity": 100,
-        "min_interval": 0.02,
-        "cooldown_seconds": 60.0,
-    },
-    "expired_historical": {
-        "rate_per_second": 50.0,
-        "capacity": 100,
-        "min_interval": 0.02,
-        "cooldown_seconds": 60.0,
-    },
-    "admin": {
-        "rate_per_second": 50.0,
-        "capacity": 100,
-        "min_interval": 0.02,
-        "cooldown_seconds": 60.0,
-    },
-}
+def _load_rate_tables() -> dict[str, Mapping[str, object]]:
+    """Lazily import per-broker rate tables to avoid circular imports."""
+    from tradex_brokers.dhan.rate_table import DHAN_RATE_LIMITS
+    from tradex_brokers.paper.rate_table import PAPER_RATE_LIMITS
+    from tradex_brokers.upstox.rate_table import UPSTOX_RATE_LIMITS
 
-PAPER_RATE_LIMITS: dict[str, dict[str, float | int | tuple[tuple[int, float], ...]]] = {
-    "orders": {
-        "rate_per_second": 1000.0,
-        "capacity": 1000,
-        "min_interval": 0.0,
-        "cooldown_seconds": 0.0,
-    },
-    "quotes": {
-        "rate_per_second": 1000.0,
-        "capacity": 1000,
-        "min_interval": 0.0,
-        "cooldown_seconds": 0.0,
-    },
-    "historical": {
-        "rate_per_second": 1000.0,
-        "capacity": 1000,
-        "min_interval": 0.0,
-        "cooldown_seconds": 0.0,
-    },
-    "admin": {
-        "rate_per_second": 1000.0,
-        "capacity": 1000,
-        "min_interval": 0.0,
-        "cooldown_seconds": 0.0,
-    },
-}
+    return {
+        "dhan": DHAN_RATE_LIMITS,
+        "upstox": UPSTOX_RATE_LIMITS,
+        "paper": PAPER_RATE_LIMITS,
+    }
 
-_RATE_TABLES_BY_PROVIDER: dict[str, Mapping[str, object]] = {
-    "dhan": DHAN_RATE_LIMITS,
-    "upstox": UPSTOX_RATE_LIMITS,
-    "paper": PAPER_RATE_LIMITS,
-}
+
+def __getattr__(name: str) -> object:
+    """Backward-compat: re-export broker rate tables from their new homes."""
+    if name == "DHAN_RATE_LIMITS":
+        from tradex_brokers.dhan.rate_table import DHAN_RATE_LIMITS
+        return DHAN_RATE_LIMITS
+    if name == "UPSTOX_RATE_LIMITS":
+        from tradex_brokers.upstox.rate_table import UPSTOX_RATE_LIMITS
+        return UPSTOX_RATE_LIMITS
+    if name == "PAPER_RATE_LIMITS":
+        from tradex_brokers.paper.rate_table import PAPER_RATE_LIMITS
+        return PAPER_RATE_LIMITS
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+_RATE_TABLES_BY_PROVIDER: dict[str, Mapping[str, object]] | None = None
+
+
+def _rate_tables() -> dict[str, Mapping[str, object]]:
+    """Lazily loaded broker → rate-table mapping."""
+    global _RATE_TABLES_BY_PROVIDER
+    if _RATE_TABLES_BY_PROVIDER is None:
+        _RATE_TABLES_BY_PROVIDER = _load_rate_tables()
+    return _RATE_TABLES_BY_PROVIDER
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +139,7 @@ def table_for_provider(
     without code changes.
     """
     name = (provider or "paper").strip().lower()
-    table = _RATE_TABLES_BY_PROVIDER.get(name)
+    table = _rate_tables().get(name)
     if table is None:
         raise ValueError(f"unknown rate-limit provider: {provider!r}")
     # Env overrides replace whole buckets; the base rows pass through as-is
@@ -317,6 +216,7 @@ def limiter_from_table(
             capacity=int(str(row.get("capacity", 10))),
             min_interval=float(str(row.get("min_interval", 0.0))),
             cooldown_seconds=float(str(row.get("cooldown_seconds", 60.0))),
+            wait_cooldown=bool(row.get("wait_cooldown", False)),
         )
         buckets[name] = config
         raw_windows = row.get("extra_windows")
@@ -385,6 +285,7 @@ class TokenBucketRateLimiter:
             self._burst = config.capacity
             self._min_interval = config.min_interval
             self._cooldown_seconds = config.cooldown_seconds
+            self._wait_cooldown = config.wait_cooldown
         else:
             if rate is None or burst is None:
                 raise ValueError("provide either (rate, burst) or config")
@@ -396,6 +297,7 @@ class TokenBucketRateLimiter:
             self._burst = burst
             self._min_interval = min_interval
             self._cooldown_seconds = cooldown_seconds
+            self._wait_cooldown = False
 
         self._tokens: float = float(self._burst)
         self._last_refill: float = time.monotonic()
@@ -439,11 +341,23 @@ class TokenBucketRateLimiter:
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             with self._lock:
-                if time.monotonic() < self._cooldown_until:
-                    raise TimeoutError("rate limiter is in cooldown")
-                self._refill()
                 now = time.monotonic()
-                if now - self._last_acquire >= self._min_interval and self._tokens >= 1.0:
+                if now < self._cooldown_until:
+                    # In cooldown. Either block until it lifts (batch/backfill
+                    # paths) or fail fast (latency-sensitive paths like orders).
+                    if not self._wait_cooldown:
+                        raise TimeoutError("rate limiter is in cooldown")
+                    # Wait out the FULL cooldown — the deadline does NOT bound
+                    # this. Cutting it short just wakes into the same cooldown
+                    # and trips another 429, so the caller must wait the whole
+                    # window the broker asked for.
+                    time.sleep(self._cooldown_until - now)
+                    continue
+                self._refill()
+                if (
+                    now - self._last_acquire >= self._min_interval
+                    and self._tokens >= 1.0
+                ):
                     self._tokens -= 1.0
                     self._last_acquire = now
                     return
@@ -458,7 +372,9 @@ class TokenBucketRateLimiter:
             if deadline is not None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    raise TimeoutError("TokenBucketRateLimiter.acquire timed out")
+                    raise TimeoutError(
+                        "TokenBucketRateLimiter.acquire timed out"
+                    )
                 wait = min(wait, remaining)
             time.sleep(wait)
 

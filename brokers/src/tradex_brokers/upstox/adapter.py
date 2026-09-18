@@ -175,6 +175,24 @@ class UpstoxBroker(BaseBroker):
     # instruments
     # ------------------------------------------------------------------
 
+    #: Cash-segment series codes for the exchange's *equity* series. Every other
+    #: series in the same segment (D1/W1/N1/N2… debentures, warrants, bonds) can
+    #: carry an equity's trading symbol — ``CHOLAFIN`` is both the equity
+    #: ``NSE_EQ|INE121A01024`` (series ``EQ``) and the debenture
+    #: ``NSE_EQ|INE121A08PJ0`` (series ``D1``) — and must never own its key.
+    _CASH_EQUITY_SERIES = frozenset({"EQ", "BE"})
+
+    def _row_claim_priority(self, row: Mapping[str, Any]) -> int:
+        """Cash-equity rows outrank the other securities sharing their symbol.
+
+        Without this, an equity's provider key goes to whichever of the rows
+        the master happens to list last. A request resolved to a debenture that
+        does not trade returns an empty series, which is indistinguishable
+        downstream from a broker that has no history for the symbol.
+        """
+        series = str(row.get("instrument_type") or "").strip().upper()
+        return 1 if series in self._CASH_EQUITY_SERIES else 0
+
     def _extra_row_meta(self, row: Mapping[str, Any], meta: dict[str, object]) -> None:
         """Upstox contract metadata (position sizing)."""
         lot_size = row.get("lot_size")

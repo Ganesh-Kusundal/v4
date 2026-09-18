@@ -77,6 +77,11 @@ def parse_dhan_master(raw: object, *, strict: bool) -> list[dict[str, Any]]:
     for row in rows:
         exchange = str(row.get("SEM_EXM_EXCH_ID", "NSE")).strip().upper()
         segment = str(row.get("SEM_SEGMENT", "")).strip().upper()
+        # Exchange series (EQ/BE/… and the debt/warrant codes D1/W1/N1). The
+        # trading symbol alone does not identify a security: the master lists
+        # ``CHOLAFIN`` twice — the equity (series ``EQ``, id 685) and a
+        # debenture of the same issuer (series ``D1``, id 19257).
+        series = str(row.get("SEM_SERIES") or "").strip().upper()
         symbol = str(row.get("SEM_TRADING_SYMBOL", "")).strip()
         security_id = str(row.get("SEM_SMST_SECURITY_ID", "")).strip()
         instrument_name = str(row.get("SEM_INSTRUMENT_NAME", "")).strip()
@@ -126,6 +131,7 @@ def parse_dhan_master(raw: object, *, strict: bool) -> list[dict[str, Any]]:
             "asset_class": asset_class,
             "security_id": security_id,
             "segment": segment,
+            "series": series,
             "instrument_type": instrument_name,
             "right": right,
             # Dhan expiry is "YYYY-MM-DD HH:MM:SS" — keep the date part ISO.

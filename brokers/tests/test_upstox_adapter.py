@@ -702,6 +702,82 @@ class TestInstruments:
 
 
 # ---------------------------------------------------------------------------
+# Contested trading symbols (one master row set, two securities, one symbol)
+# ---------------------------------------------------------------------------
+
+#: The real Upstox master rows for ``CHOLAFIN``: the equity and a debenture of
+#: the same issuer share the trading symbol, and the debenture is printed last.
+_CHOLAFIN_EQUITY = {
+    "symbol": "CHOLAFIN", "exchange": "NSE", "key": "NSE_EQ|INE121A01024",
+    "asset_class": "EQUITY", "instrument_type": "EQ",
+}
+_CHOLAFIN_DEBENTURE = {
+    "symbol": "CHOLAFIN", "exchange": "NSE", "key": "NSE_EQ|INE121A08PJ0",
+    "asset_class": "EQUITY", "instrument_type": "D1",
+}
+
+
+class TestContestedSymbols:
+    """A symbol the master lists twice must resolve to the equity, always.
+
+    CHOLAFIN's equity history lives under ``NSE_EQ|INE121A01024``; the debenture
+    ``NSE_EQ|INE121A08PJ0`` returns an empty series, which is indistinguishable
+    from a broker that has no data for the symbol.
+    """
+
+    @pytest.mark.parametrize(
+        "rows",
+        [
+            [_CHOLAFIN_EQUITY, _CHOLAFIN_DEBENTURE],
+            [_CHOLAFIN_DEBENTURE, _CHOLAFIN_EQUITY],
+        ],
+        ids=["equity-row-first", "debenture-row-first"],
+    )
+    def test_equity_series_owns_the_key_whatever_the_row_order(self, rows):
+        broker, _ = _make_broker()
+        broker.load_instruments(rows)
+        iid = InstrumentId.equity("NSE", "CHOLAFIN")
+        assert broker.registry.provider_key(iid) == "NSE_EQ|INE121A01024"
+        assert broker.registry.meta(iid)["instrument_type"] == "EQ"
+
+    def test_losing_security_stays_resolvable(self):
+        """The debenture's own key must still reverse-resolve."""
+        broker, _ = _make_broker()
+        broker.load_instruments([_CHOLAFIN_EQUITY, _CHOLAFIN_DEBENTURE])
+        iid = InstrumentId.equity("NSE", "CHOLAFIN")
+        assert broker.registry.resolve("NSE_EQ|INE121A08PJ0") == iid
+        assert broker.registry.resolve("NSE_EQ|INE121A01024") == iid
+
+    def test_contested_symbol_is_reported(self, caplog):
+        """A re-owned provider key is logged — silence is what hid this."""
+        broker, _ = _make_broker()
+        with caplog.at_level("WARNING"):
+            broker.load_instruments([_CHOLAFIN_EQUITY, _CHOLAFIN_DEBENTURE])
+        assert any(
+            "CHOLAFIN" in r.message and "NSE_EQ|INE121A01024" in r.message
+            for r in caplog.records
+        )
+
+    def test_uncontested_master_is_quiet(self, caplog):
+        broker, _ = _make_broker()
+        with caplog.at_level("WARNING"):
+            broker.load_instruments([_CHOLAFIN_EQUITY])
+        assert not [r for r in caplog.records if "more than one key" in r.message]
+
+    def test_unknown_series_keeps_vendor_order_as_tie_break(self):
+        """Rows the broker cannot rank keep today's last-wins behaviour, so a
+        re-listed security id still re-points on a daily refresh."""
+        broker, _ = _make_broker()
+        rows = [
+            {**_CHOLAFIN_EQUITY, "key": "NSE_EQ|OLDID", "instrument_type": ""},
+            {**_CHOLAFIN_EQUITY, "key": "NSE_EQ|NEWID", "instrument_type": ""},
+        ]
+        broker.load_instruments(rows)
+        iid = InstrumentId.equity("NSE", "CHOLAFIN")
+        assert broker.registry.provider_key(iid) == "NSE_EQ|NEWID"
+
+
+# ---------------------------------------------------------------------------
 # Streaming tests
 # ---------------------------------------------------------------------------
 
