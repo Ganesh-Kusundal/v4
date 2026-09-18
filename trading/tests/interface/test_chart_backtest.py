@@ -100,6 +100,27 @@ class TestBacktestEndpoint:
         )
         assert resp.status_code == 422
 
+    def test_composite_workspace_params_from_other_strategies_ignored(self):
+        """Composite settings saved by frontend workspace (containing params from
+        multiple strategies) must not crash strategy instantiation with unexpected kwargs."""
+        resp = _client().post(
+            "/api/charts/backtest",
+            json={
+                **_WINDOW,
+                "strategy": "bracket_breakout",
+                "params": {
+                    "fast": 5,
+                    "slow": 20,
+                    "period": 14,
+                    "atr_period": 14,
+                    "lookback": 20,
+                    "reward": 2,
+                    "stop_atr": 1.5,
+                },
+            },
+        )
+        assert resp.status_code == 200, resp.text
+
     def test_rejected_signals_surfaced_in_trades(self):
         """Trades carry a rejected flag so the chart can render them distinctly."""
         resp = _client().post(
@@ -110,6 +131,61 @@ class TestBacktestEndpoint:
         for trade in resp.json()["trades"]:
             assert trade["rejected"] is False
             assert trade["side"] in {"BUY", "SELL"}
+
+
+class TestProtectiveLevelsOnFills:
+    """A declared stop/target must reach the chart on the fill that carried it.
+
+    The whole point of the contract: a strategy declares its levels, the engine
+    puts them on the order, and the fill reports what the order actually had —
+    so a drawn bracket describes a protection that existed rather than one the
+    strategy merely intended.
+    """
+
+    # The full datalake: the breakout needs ~20 bars of warmup before it can
+    # find a range to break, and a thin window would make this vacuous.
+    _FULL = {"exchange": "NSE", "symbol": "RELIANCE", "interval": "D",
+             "from": 1_700_000_000, "to": 1_900_000_000}
+
+    def test_a_declaring_strategy_reports_its_levels_on_every_entry(self):
+        resp = _client().post(
+            "/api/charts/backtest",
+            json={**self._FULL, "strategy": "bracket_breakout",
+                  "params": {"lookback": 10, "atr_period": 5}},
+        )
+        assert resp.status_code == 200, resp.text
+        trades = resp.json()["trades"]
+        assert trades, "the breakout must trade over the full datalake window"
+
+        bracketed = 0
+        for t in trades:
+            if t["stop"] is None and t["target"] is None:
+                continue  # an exit, which protects nothing
+            bracketed += 1
+            assert t["stop"] is not None and t["target"] is not None
+            # The legs must bracket the price the order filled at, on the side
+            # it filled: the domain refuses anything else at construction, so
+            # this also proves the pair survived the pipeline intact.
+            if t["side"] == "BUY":
+                assert t["stop"] < t["price"] < t["target"]
+            else:
+                assert t["target"] < t["price"] < t["stop"]
+        assert bracketed > 0, "no entry fill carried a bracket"
+
+    def test_a_strategy_that_declares_nothing_reports_null_levels(self):
+        """`null` means "no protection was declared", not "protection unknown".
+
+        The chart draws a bracket line only where a level is present, so this
+        is the contract that keeps it from inventing one for the two strategies
+        that trade signals rather than levels.
+        """
+        resp = _client().post(
+            "/api/charts/backtest", json={**_WINDOW, "strategy": "sma_cross"}
+        )
+        assert resp.status_code == 200
+        for trade in resp.json()["trades"]:
+            assert trade["stop"] is None
+            assert trade["target"] is None
 
 
 class TestScannerEndpoint:

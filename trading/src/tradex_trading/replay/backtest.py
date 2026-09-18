@@ -9,9 +9,8 @@ from decimal import Decimal
 from typing import Any
 
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
-from tradex_domain.enums import OrderStatus, OrderType, Timeframe
-from tradex_domain.events import OrderFilled, OrderRejected, PlaceOrderCommand
-from tradex_domain.execution import OrderRequest
+from tradex_domain.enums import OrderStatus, Timeframe
+from tradex_domain.events import OrderFilled, OrderPlaced, OrderRejected, PlaceOrderCommand
 from tradex_domain.utils import q2
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
 
@@ -25,6 +24,7 @@ from tradex_trading.execution.position_manager import PositionManager
 from tradex_trading.execution.slippage import SlippageModel
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
+from tradex_trading.strategy.core.brackets import protective_request
 from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
 from tradex_trading.strategy.core.protocols import Strategy
 
@@ -237,11 +237,31 @@ class BacktestEngine:
         # Cash ledger subscribes to fills (orchestrated cash tracking).
         recorded_fills: list[dict[str, Any]] = []
 
+        # Protective levels are a property of the ORDER, and a fill only carries
+        # its order_id — so the legs are indexed as orders are placed and read
+        # back when their fills arrive. `OrderPlaced` is published before the
+        # `OrderFilled` of the same submit, so the entry is always there first.
+        order_legs: dict[str, tuple[float | None, float | None]] = {}
+
+        def _legs_of(order: Any) -> tuple[float | None, float | None]:
+            stop = getattr(order, "stop_loss_price", None)
+            target = getattr(order, "target_price", None)
+            return (
+                float(stop.value) if stop is not None else None,
+                float(target.value) if target is not None else None,
+            )
+
+        def _on_placed(ev: OrderPlaced) -> None:
+            order_legs[ev.order.order_id.value] = _legs_of(ev.order)
+
+        bus.of_type(OrderPlaced).subscribe(_on_placed)
+
         def _on_fill(ev: OrderFilled) -> None:
             f = ev.fill
             ledger.on_fill(f.side, f.quantity, f.price)
             if self._fee_calculator is not None:
                 ledger.on_fee(self._fee_calculator.calculate(f).amount)
+            stop, target = order_legs.get(f.order_id.value, (None, None))
             recorded_fills.append({
                 "time": f.timestamp,
                 "side": str(getattr(f.side, "value", f.side)).upper(),
@@ -249,12 +269,16 @@ class BacktestEngine:
                 "qty": float(f.quantity.value),
                 "rejected": False,
                 "reason": "",
+                # The levels the order carried, for a chart to draw.
+                "stop": stop,
+                "target": target,
             })
 
         bus.of_type(OrderFilled).subscribe(_on_fill)
 
         def _on_rejected(ev: OrderRejected) -> None:
             ts = getattr(ev.order, "reference_timestamp", None)
+            stop, target = _legs_of(ev.order)
             recorded_fills.append({
                 "time": ts or self._clock.now(),
                 "side": str(getattr(ev.order.side, "value", ev.order.side)).upper(),
@@ -262,6 +286,8 @@ class BacktestEngine:
                 "qty": float(ev.order.quantity.value),
                 "rejected": True,
                 "reason": ev.reason,
+                "stop": stop,
+                "target": target,
             })
 
         bus.of_type(OrderRejected).subscribe(_on_rejected)
@@ -327,12 +353,13 @@ class BacktestEngine:
             nonlocal bridge_seq
             bridge_seq += 1
             qty_value = abs(signal.strength) if signal.strength else 1.0
-            request = OrderRequest(
-                instrument=signal.instrument,
-                side=signal.direction,
-                order_type=OrderType.MARKET,
+            # Same declaration as the engine-driven paths: a recording-only
+            # strategy's levels must reach the order too, or the two ways a
+            # strategy can emit a signal would carry different protection.
+            request = protective_request(
+                signal=signal,
+                entry=price,
                 quantity=Quantity(Decimal(str(qty_value))),
-                price=price,
                 correlation_id=CorrelationId(value=f"backtest-bridge-{bridge_seq}"),
                 tag=f"{getattr(strategy, 'strategy_id', 'strategy')}@{version}",
                 reference_timestamp=ts,
