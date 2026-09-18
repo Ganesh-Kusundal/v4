@@ -53,7 +53,23 @@ from tradex_trading.datalake.universe import load_universe  # noqa: E402 — sys
 log = logging.getLogger("tradex.scripts.backfill")
 
 
-def _date_args(months: int) -> tuple[datetime, datetime]:
+def _date_args(
+    months: int, start_str: str | None, end_str: str | None
+) -> tuple[datetime, datetime]:
+    """Parse date range from --months or --start/--end arguments.
+
+    If --start and --end are provided, they override --months.
+    Dates must be in YYYY-MM-DD format.
+    """
+    if start_str and end_str:
+        start = datetime.strptime(start_str, "%Y-%m-%d")
+        end = datetime.strptime(end_str, "%Y-%m-%d")
+        if end <= start:
+            raise ValueError("--end must be after --start")
+        return start, end
+    if start_str or end_str:
+        raise ValueError("--start and --end must be provided together")
+    # Fallback to --months (existing behavior)
     end = datetime.now()
     start = end - timedelta(days=months * 30)
     return start, end
@@ -117,6 +133,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="Universe CSV to load (default: nifty50)")
     p.add_argument("--timeframe", default="1m", help="Resolution (default: 1m)")
     p.add_argument("--months", type=int, default=3, help="Trailing months (default: 3)")
+    p.add_argument("--start", default=None,
+                   help="Start date YYYY-MM-DD (overrides --months)")
+    p.add_argument("--end", default=None,
+                   help="End date YYYY-MM-DD (overrides --months)")
     p.add_argument("--broker", default="dhan", choices=["dhan", "upstox", "both", "paper"],
                    help="Broker adapter (default: dhan)")
     p.add_argument("--data-root", default=None,
@@ -147,9 +167,10 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
     )
 
-    start, end = _date_args(args.months)
-    log.info("Backfill window: %s -> %s (%d months, %s)",
-             start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), args.months, args.timeframe)
+    start, end = _date_args(args.months, args.start, args.end)
+    mode = "absolute" if args.start else f"{args.months} months"
+    log.info("Backfill window: %s -> %s (%s, %s)",
+             start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"), mode, args.timeframe)
 
     # Load universe
     instruments = load_universe(args.universe)

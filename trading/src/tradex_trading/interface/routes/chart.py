@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
+from tradex_domain.value_objects import Money
 
 #: Interval codes the chart may request, mapped to canonical Timeframes.
 #: Deliberately no monthly code: neither side has calendar-month bucketing yet
@@ -99,13 +101,32 @@ def _map_order_type(order: Any) -> str:
     return mapped
 
 
-_STRATEGY_FACTORIES: dict[str, tuple[str, dict[str, str]]] = {
-    # name -> (module path under strategy.extensions.strategies, {param: type})
-    "sma_cross": ("sma_cross.SmaCrossStrategy", {"fast": "int", "slow": "int"}),
-    "mean_reversion": (
-        "mean_reversion.MeanReversionStrategy",
-        {"period": "int"},
-    ),
+_STRATEGY_PARAM_TYPES: dict[str, str] = {
+    "fast": "int",
+    "slow": "int",
+    "period": "int",
+    "lookback": "int",
+    "atr_period": "int",
+    "stop_atr": "float",
+    "reward": "float",
+}
+
+#: Default values for strategy parameters, keyed by strategy then param.
+#: Sourced from each strategy's ``__init__`` defaults so the UI and the engine
+#: agree on what a fresh pane runs without the user touching a slider.
+_STRATEGY_DEFAULTS: dict[str, dict[str, float]] = {
+    "sma_cross": {"fast": 5, "slow": 20},
+    "mean_reversion": {"period": 14},
+    "bracket_breakout": {"lookback": 20, "atr_period": 14, "stop_atr": 1.5, "reward": 2.0},
+}
+
+#: name -> module path under strategy.extensions.strategies.
+_STRATEGY_FACTORIES: dict[str, str] = {
+    "sma_cross": "sma_cross.SmaCrossStrategy",
+    "mean_reversion": "mean_reversion.MeanReversionStrategy",
+    # The protective-level producer: every entry declares a stop and a target,
+    # so this is the strategy whose chart carries a bracket.
+    "bracket_breakout": "bracket_breakout.BracketBreakoutStrategy",
 }
 
 
@@ -115,13 +136,12 @@ def _build_strategy(name: str, instrument: Any, params: dict[str, Any]) -> Any:
     Only strategies whose constructor takes (strategy_id, instrument, **params)
     are exposed here — the same shape the backtest script builds.
     """
-    entry = _STRATEGY_FACTORIES.get(name)
-    if entry is None:
+    path = _STRATEGY_FACTORIES.get(name)
+    if path is None:
         raise HTTPException(
             status_code=422,
             detail=f"unknown strategy {name!r}; one of {sorted(_STRATEGY_FACTORIES)}",
         )
-    path, param_types = entry
     module_name, class_name = path.split(".")
     import importlib
 
@@ -133,13 +153,19 @@ def _build_strategy(name: str, instrument: Any, params: dict[str, Any]) -> Any:
     except ImportError as exc:
         raise HTTPException(status_code=500, detail=f"strategy unavailable: {exc}") from exc
 
-    clean_params: dict[str, Any] = {}
-    unknown = set(params) - set(param_types)
+    known = _STRATEGY_PARAM_TYPES.keys()
+    unknown = set(params) - set(known)
     if unknown:
         raise HTTPException(status_code=422, detail=f"unknown params: {sorted(unknown)}")
-    for key, kind in param_types.items():
-        if key in params:
-            clean_params[key] = int(params[key]) if kind == "int" else float(params[key])
+    clean_params: dict[str, Any] = {}
+    allowed = set(_STRATEGY_DEFAULTS.get(name, {}).keys())
+    for key, value in params.items():
+        if key not in allowed:
+            continue
+        kind = _STRATEGY_PARAM_TYPES.get(key)
+        if kind is None:
+            continue
+        clean_params[key] = int(value) if kind == "int" else float(value)
     try:
         return cls(strategy_id=f"{name}_chart", instrument=instrument, **clean_params)
     except TypeError as exc:
@@ -304,12 +330,19 @@ def create_chart_router(
         cache_key = (exchange.upper(), symbol.upper(), interval, from_utc, to_utc, limit)
         cached = _history_cache.get(cache_key)
         if cached is not None:
+            # Same field contract as the fresh path below, including
+            # ``last_closed_time``: the frontend anchors its load window to the
+            # newest closed bar, and a cache hit that omitted the field would
+            # silently fall back to wall-clock (and load an empty intraday
+            # window whenever the datalake lags). ``_serialize_series`` derives
+            # it the same way, so a hit and a miss agree exactly.
             return {
                 "symbol": symbol.upper(),
                 "exchange": exchange.upper(),
                 "interval": interval,
                 "bars": cached,
                 "cached": True,
+                "last_closed_time": cached[-1]["time"] if cached else None,
             }
 
         bars, last_closed = _bars_from_datalake(instrument, tf, start, end, limit)
@@ -587,6 +620,54 @@ def create_chart_router(
         ]
         return {"orders": orders, "positions": positions}
 
+    # ---------------------------------------------------------------- account
+
+    @router.get("/account")
+    async def get_account() -> dict:
+        """Account snapshot for the chart host's account panel.
+
+        Returns balance, margin, net P&L and the positions the engine is
+        currently holding. Paper mode reports the paper broker's cash + positions;
+        live brokers report whatever ``get_account`` returns. No session means
+        an empty snapshot (the panel shows its empty state).
+        """
+        if session is None:
+            return {
+                "account_id": "",
+                "balance": "0",
+                "margin": "0",
+                "unrealized_pnl": "0",
+                "positions": [],
+            }
+        try:
+            acct = session.broker.get_account()
+        except Exception as exc:  # noqa: BLE001 — degrade to empty, not 500
+            raise HTTPException(status_code=502, detail=f"account unavailable: {exc}") from exc
+        positions = []
+        for p in session.engine.cache.all_positions():
+            try:
+                net_qty = float(p.quantity.value)
+                if net_qty == 0.0:
+                    continue
+                unrealized = getattr(p, "unrealized_pnl", None)
+                unrealized_val = float(unrealized.amount) if isinstance(unrealized, Money) else float(unrealized) if isinstance(unrealized, (int, float, Decimal)) else 0.0
+                positions.append({
+                    "symbol": p.instrument.symbol,
+                    "exchange": str(p.instrument.exchange.value),
+                    "net_qty": net_qty,
+                    "avg_price": float(p.avg_price.value),
+                    "unrealized_pnl": unrealized_val,
+                })
+            except AttributeError:
+                continue
+        return {
+            "account_id": str(getattr(acct.account_id, "value", "")),
+            "balance": str(acct.balance.amount),
+            "margin": str(acct.margin.amount),
+            "unrealized_pnl": str(sum(pos["unrealized_pnl"] for pos in positions)),
+            "positions": positions,
+        }
+
     # ---------------------------------------------------------------- strategies
 
     @router.get("/strategies")
@@ -603,11 +684,22 @@ def create_chart_router(
             }
             for s in all_strategies
         ]
-        # Backtestable strategies carry their param schema so the UI builds
-        # forms from the response instead of hardcoding formulas' shapes.
+        # Backtestable strategies carry their param schema — name, type and
+        # default — so the UI builds editable forms from the response instead of
+        # hardcoding each strategy's shape.
         backtestable = [
-            {"id": name, "params": sorted(param_types)}
-            for name, (_path, param_types) in _STRATEGY_FACTORIES.items()
+            {
+                "id": name,
+                "params": [
+                    {
+                        "name": param,
+                        "type": _STRATEGY_PARAM_TYPES[param],
+                        "default": _STRATEGY_DEFAULTS[name][param],
+                    }
+                    for param in sorted(_STRATEGY_DEFAULTS[name])
+                ],
+            }
+            for name in _STRATEGY_FACTORIES
         ]
         # ScannerDefinition is an anonymous frozen dataclass, so identity
         # lives in the declaring package's __all__ names, not the type.
@@ -651,7 +743,12 @@ def create_chart_router(
         exchange = str(body.get("exchange", "NSE"))
         if not symbol:
             raise HTTPException(status_code=422, detail="'symbol' required")
-        tf = INTERVAL_TIMEFRAME.get(str(body.get("interval", "D")))
+        # Normalize the WS-style "1d" alias onto the REST "D" the table keys on,
+        # so a Tier-2 fetch that rides the same interval string the WebSocket
+        # layer uses does not 422 here.
+        raw_interval = str(body.get("interval", "D"))
+        interval = "D" if raw_interval == "1d" else raw_interval
+        tf = INTERVAL_TIMEFRAME.get(interval)
         if tf is None:
             raise HTTPException(status_code=422, detail="unsupported interval")
         instrument = _resolve_instrument(exchange, symbol)
@@ -707,6 +804,12 @@ def create_chart_router(
                 "qty": f.get("qty"),
                 "reason": f["reason"],
                 "rejected": f["rejected"],
+                # The protective legs the order carried, when the strategy
+                # declared them. `null` is not "no protection" — it is "this
+                # order declared none", and the chart draws only what is here
+                # rather than inventing a level.
+                "stop": f.get("stop"),
+                "target": f.get("target"),
             }
             for f in result.fills
         ]
@@ -876,7 +979,7 @@ def create_chart_router(
         return {
             "layout_id": layout_id,
             "revision": new_revision,
-            "updated_at": workspace.get(layout_id)["updated_at"],
+            "updated_at": workspace.get(layout_id)["updated_at"],  # type: ignore[index]
         }
 
     @router.delete("/workspace/{layout_id}", status_code=204)
@@ -953,4 +1056,4 @@ def _serialize_series(series: Any, limit: int) -> tuple[list[dict[str, Any]], in
         for c in candles
     ]
     last_closed = bars[-1]["time"] if bars else None
-    return bars, last_closed
+    return bars, last_closed  # type: ignore[return-value]

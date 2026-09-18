@@ -378,7 +378,7 @@ async def ws_stream(
                     )
                 else:
                     disposable = session.bus.of_type(OrderPlaced).subscribe(_on_order)
-                    sub = StreamSubscription(disposable, "orders")
+                    sub = StreamSubscription(disposable, "orders")  # type: ignore[assignment]
                 handle = sub
             except Exception as exc:  # noqa: BLE001 – no backend / not READY
                 _ack({"type": "error", "message": f"order stream unavailable: {exc}"})

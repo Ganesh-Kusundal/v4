@@ -1,19 +1,25 @@
-// One-time golden generator (P2 Task 1): runs the ACTUAL openalgo-charts
+// Golden generator (P2 Task 1): runs the ACTUAL openalgo-charts
 // profile + seasonality reference functions over the shared fixtures and the
 // two synthetic fixtures, writing per-study JSON goldens for Task 2's parity gate.
-import {
+//
+// The library is resolved and verified against `openalgo-charts.pin` before
+// anything is captured (see scripts/library-dist.mjs); run through
+// `scripts/regenerate-goldens.sh`.
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { resolveLibrary } from "./library-dist.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const outDir = join(here, "..", "trading", "tests", "analytics", "goldens", "profiles");
+const lib = resolveLibrary({ kinds: ["profile", "indicators"] });
+const {
   computeVolumeProfile,
   computeTpo,
   computeMarketProfile,
   computeFootprint,
-} from "/Users/apple/Downloads/openalgo-charts-master/dist/openalgo-charts.profile.mjs";
-import { SEASONALITY } from "/Users/apple/Downloads/openalgo-charts-master/dist/openalgo-charts.indicators.mjs";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const outDir = join(here, "..", "trading", "tests", "analytics", "goldens", "profiles");
+} = await import(lib.entry("profile"));
+const { SEASONALITY } = await import(lib.entry("indicators"));
 const fixtures = JSON.parse(
   readFileSync(join(outDir, "..", "fixtures.json"), "utf8"),
 );
@@ -106,4 +112,6 @@ for (const g of GOLDENS) {
     JSON.stringify({ id: g.id, settings: g.settings, result: sanitize(g.result) }, null, 1),
   );
 }
-console.log("wrote 5 profile/seasonality goldens");
+console.log(
+  `wrote 5 profile/seasonality goldens from openalgo-charts ${lib.version} (${lib.sha.slice(0, 7)})`,
+);

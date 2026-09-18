@@ -33,11 +33,58 @@ from tradex_trading.datalake.universe import load_universe  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 
 
+def _scan(detector, instruments, start, end, *, min_gap_stamps, include_open_stamps,
+          tail_days):
+    """One gap scan with this run's floor, edge policy and scan window.
+
+    ``tail_days`` bounds the scan to each symbol's recent data, which is right
+    for the daily top-up and wrong for a repair: with the default 7 a hole from
+    three weeks ago is never detected, let alone filled.
+    """
+    return detector.scan(
+        instruments, start=start, end=end, timeframe="1m", bar_freq="1min",
+        holidays=NSE_HOLIDAYS_2026, min_gap_stamps=min_gap_stamps,
+        max_workers=8, tail_days=tail_days or None,
+        include_open_stamps=include_open_stamps,
+    )
+
+
+def _log_scan(found, min_gap_stamps: int) -> None:
+    """Report what the floor and the edge classification are holding back.
+
+    Without this the run prints only the gaps it acted on, so a hole sitting
+    under the floor (a 14-stamp tail under a 15-stamp floor, on 2026-08-31)
+    reads as "nothing to do" while the lake stays short.
+    """
+    log.info("scan: %d gapped, %d complete, %d edge-only",
+             found.gapped_symbols, found.complete_symbols, len(found.edge_only))
+    if found.open_missing_symbols or found.close_missing_symbols:
+        log.info("  session-edge bars: %d symbols missing the 09:15 open, %d the "
+                 "15:30 close (classified, not gapped; pass "
+                 "--include-open-stamps to fetch the open bars)",
+                 found.open_missing_symbols, found.close_missing_symbols)
+    if found.sub_threshold_stamps:
+        log.info("  under the %d-stamp floor: %d stamps on %d symbols "
+                 "(lower --min-gap-stamps to fetch them)",
+                 min_gap_stamps, found.sub_threshold_stamps,
+                 len(found.sub_threshold_symbols))
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
     p = argparse.ArgumentParser(description="Range-scoped gap filler with quota-backoff")
     p.add_argument("--yesterday", action="store_true",
                    help="Only fill gaps up to yesterday's close (skip today's live tail)")
+    p.add_argument("--min-gap-stamps", type=int, default=15,
+                   help="Only holes of at least N stamps are fetched; smaller "
+                        "ones are counted and reported (default: 15)")
+    p.add_argument("--include-open-stamps", action="store_true",
+                   help="Also fetch the missing 09:15 session-open bars, which "
+                        "are otherwise classified rather than treated as holes "
+                        "(the 15:30 close is served by neither broker)")
+    p.add_argument("--tail-days", type=int, default=7,
+                   help="Scan only each symbol's last N days (0 = the whole "
+                        "window; use 0 to repair older holes) (default: 7)")
     args = p.parse_args(argv)
 
     store = ParquetStorage(ROOT / "data")
@@ -62,13 +109,16 @@ def main(argv: list[str] | None = None) -> int:
         end = now
 
     log.info("detecting gaps (window %s -> %s)...", start.date(), end.date())
-    gaps = detector.detect(instruments, start=start, end=end,
-                           timeframe="1m", bar_freq="1min",
-                           holidays=NSE_HOLIDAYS_2026, min_gap_stamps=15,
-                           max_workers=8, tail_days=7)
-    log.info("%d gapped symbols", len(gaps))
+    found = _scan(detector, instruments, start, end,
+                  min_gap_stamps=args.min_gap_stamps,
+                  include_open_stamps=args.include_open_stamps,
+                  tail_days=args.tail_days)
+    _log_scan(found, args.min_gap_stamps)
+    gaps = found.gaps
     if not gaps:
-        print("[fill-gaps] lake is clean — nothing to do")
+        print(f"[fill-gaps] nothing at or above {args.min_gap_stamps} stamps "
+              f"(edge-only={len(found.edge_only)}, "
+              f"sub-threshold={found.sub_threshold_stamps} stamps)")
         return 0
 
     # ---- cluster missing ranges by contiguous day-spans ----
@@ -102,18 +152,23 @@ def main(argv: list[str] | None = None) -> int:
         clusters.items(), key=lambda kv: len(kv[1]), reverse=True
     ):
         log.info("cluster %s -> %s (%d symbols)", c_start.date(), c_end.date(), len(insts))
-        result = svc.sync(insts, "1m", c_start, c_end)
+        result = svc.sync(
+            insts, "1m", c_start, c_end,
+            min_gap_stamps=args.min_gap_stamps,
+            include_open_stamps=args.include_open_stamps,
+        )
         total_written += result.written
         log.info("cluster done; total written so far=%d", total_written)
 
     # ---- verify ----
-    remaining = detector.detect(instruments, start=start, end=end,
-                                timeframe="1m", bar_freq="1min",
-                                holidays=NSE_HOLIDAYS_2026, min_gap_stamps=15,
-                                max_workers=8, tail_days=7)
-    log.info("verification: %d gapped symbols remain", len(remaining))
+    remaining = _scan(detector, instruments, start, end,
+                      min_gap_stamps=args.min_gap_stamps,
+                      include_open_stamps=args.include_open_stamps,
+                      tail_days=args.tail_days)
+    log.info("verification: %d gapped symbols remain", remaining.gapped_symbols)
+    _log_scan(remaining, args.min_gap_stamps)
     print(f"[fill-gaps] DONE written={total_written} "
-          f"gapped_remaining={len(remaining)}")
+          f"gapped_remaining={remaining.gapped_symbols}")
     return 0
 
 

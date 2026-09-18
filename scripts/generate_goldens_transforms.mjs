@@ -1,19 +1,27 @@
-// One-time golden generator: runs the ACTUAL openalgo-charts transform classes
-// over the shared fixtures and writes per-transform JSON goldens.
-import {
+// Golden generator: runs the ACTUAL openalgo-charts transform classes over the
+// shared fixtures and writes per-transform JSON goldens.
+//
+// Same change as the indicator generator: the library is resolved from the repo and
+// verified against `openalgo-charts.pin` before a single bar is transformed, rather
+// than imported from a hardcoded path into another checkout. Run through
+// `scripts/regenerate-goldens.sh`.
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { resolveLibrary } from "./library-dist.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const outDir = join(here, "..", "trading", "tests", "analytics", "goldens", "transforms");
+const lib = resolveLibrary({ kinds: ["transform"] });
+const {
   HeikinAshiTransform,
   RenkoTransform,
   RangeBarsTransform,
   LineBreakTransform,
   PointFigureTransform,
   KagiTransform,
-} from "/Users/apple/Downloads/openalgo-charts-master/dist/openalgo-charts.transform.mjs";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+} = await import(lib.entry("transform"));
 
-const here = dirname(fileURLToPath(import.meta.url));
-const outDir = join(here, "..", "trading", "tests", "analytics", "goldens", "transforms");
 const fixtures = JSON.parse(readFileSync(join(outDir, "..", "fixtures.json"), "utf8"));
 const bars = fixtures.bars.map(([time, open, high, low, close, volume]) => ({
   time, open, high, low, close, volume,
@@ -61,4 +69,6 @@ for (const [id, transform] of Object.entries(T)) {
     JSON.stringify({ id, settings: SETTINGS[id], bars: serialized }, null, 1),
   );
 }
-console.log("wrote 6 transform goldens");
+console.log(
+  `wrote 6 transform goldens from openalgo-charts ${lib.version} (${lib.sha.slice(0, 7)})`,
+);
