@@ -48,8 +48,6 @@ from tradex_trading.strategy.extensions import all_scanners, all_strategies
 
 log = logging.getLogger(__name__)
 
-_ACTIVE_WRITER_LOCK: Any = None
-
 
 def _broker_matches_config(config: AppConfig, broker: Any) -> bool:
     """Validate that the injected broker matches the configured broker identity.
@@ -81,10 +79,9 @@ class RuntimeContext:
     Holds the config, session, engine, strategy engine, bus, and broker so
     callers can manage the full lifecycle (including ``close()``).
 
-    M7: ``writer_lock`` is the local lock this context acquired in the
-    live boot path. ``close()`` releases it directly instead of going
-    through a module global, so two RuntimeContexts don't trample
-    each other's writer lock.
+    M7: ``writer_lock`` is carried on the TradingSession itself (passed
+    through the constructor by the composition root). ``close()`` releases
+    it via ``session.stop()`` — no module global, no monkey-patch.
     """
 
     config: AppConfig
@@ -120,12 +117,8 @@ class RuntimeContext:
         if hasattr(self, "engine") and self.engine is not None:
             coord.register("engine", priority=2, action=self.engine.shutdown)
 
-        # Phase 3: session — release resources (includes broker.close)
+        # Phase 3: session — release resources (includes writer lock for live)
         coord.register("session", priority=3, action=self.session.stop)
-
-        # Phase 4: writer lock — last, after all I/O is done
-        if self.writer_lock is not None:
-            coord.register("writer_lock", priority=4, action=self.writer_lock.release)
 
         coord.shutdown()
 
@@ -253,8 +246,6 @@ def boot(
             Path("runtime/live") / f"{cfg.broker_id.value.lower()}.writer.lock"
         )
         writer_lock.acquire()  # fail-closed if another live process is running
-        global _ACTIVE_WRITER_LOCK
-        _ACTIVE_WRITER_LOCK = writer_lock
         atexit.register(writer_lock.release)  # stale-PID auto-clear covers crashes
         try:
             return _boot_tail(
@@ -542,19 +533,8 @@ def _boot_tail(
         master_scheduler=master_scheduler,
         metrics=metrics,
         mark_to_market=mark_to_market,
+        writer_lock=writer_lock,
     )
-
-    # 8b. Live single-writer lock releases when the session stops (composition
-    # root wraps stop so every teardown path — context manager, explicit
-    # stop(), RuntimeContext.close() — clears the lockfile).
-    if writer_lock is not None:
-        _inner_stop = session.stop
-
-        def _stop_and_release() -> None:
-            _inner_stop()
-            writer_lock.release()
-
-        session.stop = _stop_and_release  # type: ignore[method-assign]
 
     # 9. Live restart reconciliation (R1) — run BEFORE session.start() so
     # a *new* critical drift never leaves the session in READY (C2).
@@ -668,19 +648,15 @@ def boot_context(
     and provides a ``close()`` method for clean shutdown. Extra keyword
     arguments (e.g. ``bus=`` or ``broker=``) are forwarded to :func:`boot`.
 
-    M7: the returned ``RuntimeContext`` carries the writer_lock the
-    live boot acquired (or None for non-live modes), so its ``close()``
-    can release the right one without consulting the module global.
+    M7: the writer_lock is carried on the TradingSession (set by the
+    composition root in ``_boot_tail``), so ``session.stop()`` releases
+    it without a module global or monkey-patch.
     """
     cfg = config or AppConfig()
     session = boot(cfg, **boot_kwargs)
-    # Resolve the writer_lock this boot acquired: the live path stores
-    # it in the module global; the non-live path returns None. The
-    # snapshot is taken here so subsequent boots don't clobber it
-    # between this assignment and RuntimeContext construction.
-    writer_lock: Any = None
-    if cfg.mode == "live" and _ACTIVE_WRITER_LOCK is not None:
-        writer_lock = _ACTIVE_WRITER_LOCK
+    # The writer_lock lives on the session (passed through the constructor
+    # by _boot_tail for live mode). Non-live sessions have None.
+    writer_lock = getattr(session, "_writer_lock", None)
     return RuntimeContext(
         config=cfg,
         session=session,

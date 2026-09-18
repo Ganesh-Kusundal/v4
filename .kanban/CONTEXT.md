@@ -1,4 +1,4 @@
-# v4 — kanban digest (2026-08-25T17:58:30Z)
+# v4 — kanban digest (2026-09-18T13:59:17Z)
 
 ## Work in progress
 - none
@@ -13,22 +13,42 @@
 - none
 
 ## Tests
-- last pytest run: 0 failing (1310 passed, 12 deselected) — 2026-08-25 23:38 IST
+- last pytest run: 0 failing
 
 ## Drift since previous scan
-- none
+- added: apps/top_gainers/app.py
+- added: architecture-review-2026-09-17.html
+- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=01/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=02/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=03/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=04/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=05/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=06/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=07/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=08/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=09/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=01/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=02/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=03/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=04/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=05/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=06/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=07/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=08/data.parquet
+- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=09/data.parquet
+- … +4091 more
 
 ## Recent commits
-- 1df9720 feat(scripts): topup_gaps — fill broker-unservable spans via filler broker
-- 0bd070d fix(datalake): min_gap_stamps tolerance — broker tail noise forced nightly refetch
-- da4de09 feat(datalake): dual-broker routing for long ranges — split beats Dhan-only
-- 36a5a12 feat(scripts): adaptive throttle backoff in backfill_parquet
-- 8ae2fde style(datalake): ruff auto-fix — drop unused Decimal, sort parquet_storage imports
-- 0a7ee2e chore: untrack data/ohlcv parquet store, ignore tool state
-- df928b4 feat(domain): NSE_HOLIDAYS_2026 — wire holidays into backfill gap detection
-- 3c3b8da docs(datalake): correct fetcher docs — long ranges auto-chunk, not fail-loud; wrap E501s
+- 1c5bde9 ci: expand mypy to all packages (PE-3)
+- 0a54be9 feat(trading): ordered graceful-shutdown coordinator (PE-10)
+- d00117c refactor(trading): decompose ExecutionEngine — extract risk, idempotency, order_store (PE-6)
+- f5b7597 fix(trading): strict broker_id validation + typed RuntimeContext (PE-2, PE-14)
+- d7fe7e1 refactor(domain): remove dead RxPY dependency (PE-1)
+- cbc40c5 test(parity): add 21 tests closing 5 framework gaps (GAP-1 to GAP-5)
+- 6e50399 fix(trading): cache lock unification, reconciliation keying, risk manager init
+- 70e8edd fix(brokers): paper broker partial-fill cash leak, limit overwrite, exit_all settlement
 
-(34 uncommitted changes in working tree)
+(216 uncommitted changes in working tree)
 
 ## Architecture & components
 - none
@@ -37,11 +57,14 @@
 - none
 
 ## Knowledge graph (graphify)
-- 8948 nodes · 26963 edges · 334 communities (built 2026-08-25T17:59:46Z, commit 05504c51)
-- Refreshed post-Phase 4.5 / D1 refactor: `models.py`, `queueing.py`, `auth.py` extracted;
-  `routes/{health,portfolio,orders,market_data,account,extensions,stream,chart}.py` split out;
-  `chart_api.py` moved to `routes/chart.py`.
-- `fastapi_app.py`: 1021 LOC · `create_app` CC=A(5), COG=370, NLOC=708 · graphify degree 45.
+- 12510 nodes · 34591 edges · 477 communities (built 2026-09-18T13:37:00Z)
+- STALE (6 modified, 15 deleted, 1037 new since build) — refresh with `/graphify update`
+  - modified: frontend/src/dock.ts
+  - modified: frontend/src/feed.ts
+  - modified: frontend/src/main.ts
+  - modified: frontend/src/orders.ts
+  - modified: frontend/src/trade-bar.ts
+  - modified: test_dhan_rate_limits.py
 - AUTO-REFRESH: run `/graphify update` now, then re-run `kanban.py update` to refresh this digest.
 
 ## Data / execution flows

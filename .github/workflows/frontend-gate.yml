@@ -1,0 +1,127 @@
+name: frontend-gate
+
+# Frontend gate: build the chart library at its pinned commit, then typecheck,
+# build and browser-test the host.
+#
+# Why this is separate from quality-gate: that job is Python-only, so nothing
+# gated `frontend/` — a broken chart host could merge with every gate green.
+#
+# Why the library is cloned here: `frontend/` depends on
+# `openalgo-charts: file:../openalgo-charts`, and that checkout is gitignored
+# (it is an independent upstream repo, not vendored source). A fresh checkout
+# has no such directory, so `npm ci` in `frontend/` cannot resolve.
+#
+# Why it is built from source: upstream tracks zero `dist/` files and gitignores
+# the directory, but `package.json` resolves module/types/exports there, and
+# there is no `prepare` hook to build it implicitly. Without the build step the
+# host would typecheck against a missing directory.
+on:
+  push:
+    branches: ["main", "develop"]
+  pull_request:
+  workflow_dispatch:
+
+# The pinned chart library is read from `openalgo-charts.pin` rather than written
+# here. Four readers share that file (this workflow, the build stamp, the golden
+# generators, and the pytest provenance gate), and a second copy of the SHA is a
+# second thing to forget to bump — which is how the golden fixtures came to be a
+# snapshot of a different version than the one this job builds.
+#
+# Before changing the pin, read the "Chart UI" section of CLAUDE.md: the Python
+# golden-parity fixtures are a snapshot of that commit's indicator maths, so a
+# bump has to be reviewed as a diff to ground truth, not merely as a passing run.
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22" # library requires >=20; vite 7 wants 20.19+/22.12+
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+            openalgo-charts/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The E2E suite runs the real server, so it needs the real interpreter and
+      # the real dependency set. `uv sync` creates the `.venv/` that
+      # playwright.config.ts points at.
+      - name: Install uv
+        run: pip install uv
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Read the chart-library pin
+        run: |
+          sha=$(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' openalgo-charts.pin | head -1 | awk '{print $1}')
+          if ! printf '%s' "$sha" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "openalgo-charts.pin does not start with a commit SHA (got: '$sha')" >&2
+            exit 1
+          fi
+          echo "OPENALGO_CHARTS_SHA=$sha" >> "$GITHUB_ENV"
+          echo "chart library pinned at $sha"
+
+      - name: Clone the chart library at the pinned commit
+        run: |
+          git clone https://github.com/marketcalls/openalgo-charts.git openalgo-charts
+          cd openalgo-charts
+          git checkout "$OPENALGO_CHARTS_SHA"
+          test "$(git rev-parse HEAD)" = "$OPENALGO_CHARTS_SHA"  # fail loudly on drift
+
+      - name: Build the chart library
+        working-directory: openalgo-charts
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Playwright
+        run: npm ci
+
+      - name: Install host dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      # Stamps `dist/` with the sources it was built from, plus the pinned
+      # library's build hash. The Playwright globalSetup reads it back and refuses
+      # to run against a bundle that is not the current tree — that suite once
+      # passed, green, while testing a stale bundle.
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # No datalake is committed (`data/ohlcv/` is gitignored), so the config's
+      # webServer seeds a fixture first — otherwise the chart serves zero bars
+      # and the browser tests would pass without exercising anything.
+      #
+      # `npm run e2e` builds before it tests. That is deliberate and worth the
+      # second build: the suite serves `dist/`, so without it a run asserts
+      # against whatever bundle was last built — which is how a negative control
+      # silently passed here once, testing code that was no longer on disk.
+      - name: E2E
+        working-directory: frontend
+        run: npm run e2e
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          if-no-files-found: ignore # a boot failure leaves no report to upload
+          retention-days: 7

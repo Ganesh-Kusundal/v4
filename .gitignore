@@ -59,6 +59,9 @@ data/ohlcv/
 # only source, package.json and the lockfile are tracked.
 frontend/node_modules/
 frontend/dist/
+# Playwright run artifacts (traces, screenshots, HTML report)
+frontend/test-results/
+frontend/playwright-report/
 
 # Nested engine clone (independent repo; build via npm ci + npm run build)
 openalgo-charts/

@@ -1,0 +1,17 @@
+# openalgo-charts commit pin — the ONE source for this value.
+#
+# Read by:
+#   - .github/workflows/frontend-gate.yml  (clones and checks out this commit)
+#   - frontend/scripts/artifact-stamp.mjs  (records it in the build stamp)
+#   - scripts/library-dist.mjs             (refuses to capture goldens from another commit)
+#   - trading/tests/analytics/test_goldens_provenance.py (asserts the goldens came from it)
+#
+# Bumping it is a deliberate act, not a rename: the golden-parity fixtures under
+# trading/tests/analytics/goldens/ are a snapshot of this commit's indicator math,
+# so a bump requires re-running scripts/regenerate-goldens.sh (which will refuse to
+# run against a checkout that is not at this SHA). See the "Chart UI" section of
+# CLAUDE.md.
+#
+# The rest of the line after a `#` is a human-readable label; only the first
+# whitespace-delimited token of the first non-comment line is the value.
+be7418e960b7fcdeeaa8f68a845ca463055a7cb3  # v2.3.2

@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Architecture Review — TradeX v4</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+  </script>
+  <style>
+    .seam { stroke-dasharray: 4 4; }
+    .leak { stroke: #dc2626; }
+    .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+    .badge-strong { background: #059669; color: white; }
+    .badge-explore { background: #d97706; color: white; }
+    .badge-speculative { background: #64748b; color: white; }
+    .card-shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04); }
+    details[open] summary svg { transform: rotate(90deg); }
+    summary svg { transition: transform 0.15s ease; }
+  </style>
+</head>
+<body class="bg-stone-50 text-slate-900 font-sans">
+<main class="max-w-5xl mx-auto px-6 py-12 space-y-12">
+
+  <!-- HEADER -->
+  <header class="flex items-baseline justify-between border-b border-slate-200 pb-6">
+    <div>
+      <h1 class="text-3xl font-serif font-bold tracking-tight">Architecture Review — TradeX v4</h1>
+      <p class="text-sm text-slate-500 mt-1">17 September 2026 · ultra-review · 3 core packages · ~30,000 LOC</p>
+    </div>
+    <div class="text-xs text-slate-400 space-y-1 text-right">
+      <div><span class="inline-block w-3 h-3 bg-slate-800 rounded-sm mr-1 align-middle"></span> deep module</div>
+      <div><span class="inline-block w-3 h-3 border border-slate-300 rounded-sm mr-1 align-middle"></span> shallow module</div>
+      <div><span class="inline-block w-3 h-0 border-t-2 border-dashed border-red-500 mr-1 align-middle"></span> leakage</div>
+    </div>
+  </header>
+
+  <section id="candidates" class="space-y-14">
+
+    <!-- CANDIDATE 1 -->
+    <article class="bg-white rounded-xl card-shadow p-8 space-y-6">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h2 class="text-xl font-serif font-bold">Collapse the Execution Engine into a thin orchestrator</h2>
+        <span class="badge-strong text-xs font-semibold px-2.5 py-0.5 rounded-full">Strong</span>
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">in-process</span>
+      </div>
+      <div class="font-mono text-sm text-slate-600 space-y-0.5">
+        <div>trading/src/tradex_trading/execution/engine.py <span class="text-slate-400">(974 LOC)</span></div>
+        <div>trading/src/tradex_trading/execution/__init__.py <span class="text-slate-400">(72 LOC, 30+ re-exports)</span></div>
+        <div>trading/src/tradex_trading/execution/fees.py <span class="text-slate-400">(233 LOC)</span></div>
+        <div>trading/src/tradex_trading/execution/idempotency.py <span class="text-slate-400">(116 LOC)</span></div>
+      </div>
+      <div class="grid grid-cols-2 gap-6">
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">Before — god module, shallow siblings</p>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <pre class="mermaid">
+flowchart TB
+  subgraph engine["engine.py (974 LOC)"]
+    direction TB
+    E1["submit() — imperative"]
+    E2["_on_place_order() — CQRS"]
+    E3["_run_pipeline()"]
+    E4["_calculate_fee() — inline"]
+    E5["_applied_fills — LRU dedup"]
+    E6["trip_kill_switch()"]
+    E7["re-exports 8+ symbols"]
+  end
+  E1 --> E3
+  E2 --> E3
+  E3 --> E4
+  E3 --> E5
+  E3 --> E6
+  subgraph siblings["sibling modules (underused)"]
+    direction TB
+    F["fees.py — params NOT consulted"]
+    I["idempotency.py — Guard protocol"]
+  end
+  E4 -.leak.-> F
+  E7 -.hides.-> I
+  classDef leak stroke:#dc2626,stroke-width:2px
+  class E4,F leak
+            </pre>
+          </div>
+          <div class="mt-4 flex gap-4 items-end justify-center">
+            <div class="text-center">
+              <div class="text-xs text-slate-400 mb-1">interface</div>
+              <div class="w-24 h-16 bg-slate-200 rounded border border-slate-300"></div>
+            </div>
+            <div class="text-center">
+              <div class="text-xs text-slate-400 mb-1">implementation</div>
+              <div class="w-24 h-20 bg-slate-200 rounded border border-slate-300"></div>
+            </div>
+            <div class="text-xs text-red-500 self-center font-medium">shallow<br/>(interface ≈ impl)</div>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">After — deep orchestrator, deep siblings</p>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <pre class="mermaid">
+flowchart TB
+  subgraph engine["engine.py (~200 LOC)"]
+    direction TB
+    E1["submit()"]
+    E2["_on_place_order()"]
+    E3["_run_pipeline()"]
+  end
+  E1 --> E3
+  E2 --> E3
+  E3 --> FM["FeeCalculator.calculate()"]
+  E3 --> IG["IdempotencyGuard"]
+  E3 --> KS["KillSwitch.trip()"]
+  subgraph deep["deepened modules"]
+    direction TB
+    FM2["fees.py — ALL fee logic<br/>params NOW consulted"]
+    IG2["idempotency.py — dedup<br/>+ fingerprint + reservation"]
+    KS2["kill_switch.py — halt<br/>+ cancel-all + events"]
+  end
+  FM --> FM2
+  IG --> IG2
+  KS --> KS2
+  classDef deepStyle fill:#0f172a,stroke:#0f172a,color:#fff
+  class FM2,IG2,KS2 deepStyle
+            </pre>
+          </div>
+          <div class="mt-4 flex gap-4 items-end justify-center">
+            <div class="text-center">
+              <div class="text-xs text-slate-400 mb-1">interface</div>
+              <div class="w-24 h-6 bg-slate-800 rounded border border-slate-900"></div>
+            </div>
+            <div class="text-center">
+              <div class="text-xs text-slate-400 mb-1">implementation</div>
+              <div class="w-24 h-28 bg-slate-800 rounded border border-slate-900"></div>
+            </div>
+            <div class="text-xs text-emerald-600 self-center font-medium">deep<br/>(small interface,<br/>rich impl behind seam)</div>
+          </div>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Problem</p>
+        <p class="text-slate-600 text-sm">engine.py absorbs fee calculation, fill dedup, kill switch, and CQRS dispatch into one 974-line class. The sibling <code class="bg-slate-100 px-1 rounded">fees.py</code> has a FeeCalculator whose constructor parameters are accepted but never consulted — the engine inlines its own fee math instead. The <code class="bg-slate-100 px-1 rounded">execution/__init__.py</code> re-exports 30+ symbols, hiding which submodule owns what.</p>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Solution</p>
+        <p class="text-slate-600 text-sm">Make engine.py a thin orchestrator: delegate fee calculation to <code class="bg-slate-100 px-1 rounded">fees.py</code> (activate the constructor params), extract fill dedup into <code class="bg-slate-100 px-1 rounded">idempotency.py</code>, extract kill switch into its own module. Collapse <code class="bg-slate-100 px-1 rounded">__init__.py</code> to re-export only the public intake interface.</p>
+      </div>
+      <div>
+        <p class="font-semibold text-slate-700 mb-2">Wins</p>
+        <ul class="text-sm text-slate-600 space-y-1 list-disc list-inside">
+          <li><strong>locality:</strong> fee bugs concentrate in fees.py, not split across two modules</li>
+          <li><strong>leverage:</strong> one intake interface, three testable adapters behind seams</li>
+          <li><strong>depth:</strong> engine interface shrinks; implementation absorbs the wrappers</li>
+          <li>Tests hit one interface per concern, not the god-class</li>
+          <li>Delete the misleading FeeCalculator dead params</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- CANDIDATE 2 -->
+    <article class="bg-white rounded-xl card-shadow p-8 space-y-6">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h2 class="text-xl font-serif font-bold">Unify the Datalake dual sync and fetch paths</h2>
+        <span class="badge-strong text-xs font-semibold px-2.5 py-0.5 rounded-full">Strong</span>
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">in-process</span>
+      </div>
+      <div class="font-mono text-sm text-slate-600 space-y-0.5">
+        <div>datalake/historical_sync.py <span class="text-slate-400">(217 LOC) — SyncOrchestrator</span></div>
+        <div>datalake/simple_sync.py <span class="text-slate-400">(186 LOC) — "ponytail edition"</span></div>
+        <div>datalake/parallel_fetcher.py <span class="text-slate-400">(702 LOC) — multi-broker, auto-chunk</span></div>
+        <div>datalake/simple_fetcher.py <span class="text-slate-400">(152 LOC) — basic ThreadPoolExecutor</span></div>
+      </div>
+      <div class="grid grid-cols-2 gap-6">
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">Before — two parallel hierarchies</p>
+          <div class="space-y-2">
+            <div class="border-l-4 border-amber-400 bg-amber-50 px-3 py-2 rounded-r text-sm">
+              <span class="font-mono text-xs">historical_sync.py</span> — SyncOrchestrator + SyncResult + series_to_frame()
+            </div>
+            <div class="border-l-4 border-amber-400 bg-amber-50 px-3 py-2 rounded-r text-sm">
+              <span class="font-mono text-xs">simple_sync.py</span> — direct loop + SyncResult <span class="text-red-500">(dup)</span> + series_to_frame() <span class="text-red-500">(dup)</span>
+            </div>
+            <div class="border-l-4 border-sky-400 bg-sky-50 px-3 py-2 rounded-r text-sm">
+              <span class="font-mono text-xs">parallel_fetcher.py</span> — multi-broker, auto-chunk, K-failure, clipped-tail
+            </div>
+            <div class="border-l-4 border-sky-400 bg-sky-50 px-3 py-2 rounded-r text-sm">
+              <span class="font-mono text-xs">simple_fetcher.py</span> — ThreadPoolExecutor subset
+            </div>
+            <p class="text-xs text-red-500 mt-2">Two sync paths, two fetch paths. Same domain, duplicated types.</p>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">After — one deep module per concern</p>
+          <div class="space-y-2">
+            <div class="border-l-4 border-slate-800 bg-slate-800 text-white px-3 py-4 rounded-r text-sm">
+              <span class="font-mono text-xs font-bold">sync.py</span> — single sync entry point<br/>
+              <span class="text-slate-400 text-xs">delegates to ParallelFetcher, owns SyncResult + series_to_frame()</span>
+            </div>
+            <div class="border-l-4 border-slate-800 bg-slate-800 text-white px-3 py-4 rounded-r text-sm">
+              <span class="font-mono text-xs font-bold">parallel_fetcher.py</span> — sole fetch implementation<br/>
+              <span class="text-slate-400 text-xs">simple_fetcher.py deleted; call sites use the deep module</span>
+            </div>
+            <p class="text-xs text-emerald-600 mt-2">One seam per concern. Delete ~340 LOC of duplicated types.</p>
+          </div>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Problem</p>
+        <p class="text-slate-600 text-sm">Two sync implementations define the same <code class="bg-slate-100 px-1 rounded">SyncResult</code> and <code class="bg-slate-100 px-1 rounded">series_to_frame()</code>. Two fetcher implementations cover overlapping ground — the 702-line parallel fetcher is a strict superset of the 152-line simple fetcher. Neither delegates to the other. Call sites must choose which path to use, and the wrong choice silently drops multi-broker routing or clipped-tail repair.</p>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Solution</p>
+        <p class="text-slate-600 text-sm">Delete <code class="bg-slate-100 px-1 rounded">simple_sync.py</code> and <code class="bg-slate-100 px-1 rounded">simple_fetcher.py</code>. Route all callers through <code class="bg-slate-100 px-1 rounded">historical_sync.py</code> (renamed to <code class="bg-slate-100 px-1 rounded">sync.py</code>) which delegates fetching to <code class="bg-slate-100 px-1 rounded">parallel_fetcher.py</code>. One interface, one place to test.</p>
+      </div>
+      <div>
+        <p class="font-semibold text-slate-700 mb-2">Wins</p>
+        <ul class="text-sm text-slate-600 space-y-1 list-disc list-inside">
+          <li><strong>locality:</strong> sync bugs concentrate in one module</li>
+          <li><strong>leverage:</strong> one fetch interface, all call sites use the same path</li>
+          <li>Delete ~340 LOC of duplicated types and conversion logic</li>
+          <li>Multi-broker routing and clipped-tail repair become the only path — no silent degradation</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- CANDIDATE 3 -->
+    <article class="bg-white rounded-xl card-shadow p-8 space-y-6">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h2 class="text-xl font-serif font-bold">Push broker-specific knowledge out of common infrastructure</h2>
+        <span class="badge-explore text-xs font-semibold px-2.5 py-0.5 rounded-full">Worth exploring</span>
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">ports &amp; adapters</span>
+      </div>
+      <div class="font-mono text-sm text-slate-600 space-y-0.5">
+        <div>brokers/.../common/resilience.py <span class="text-slate-400">(1,249 LOC)</span></div>
+        <div>brokers/.../common/auth.py <span class="text-slate-400">(364 LOC)</span></div>
+        <div>brokers/.../common/capabilities.py <span class="text-slate-400">(103 LOC)</span></div>
+        <div>brokers/.../common/token_lifecycle.py <span class="text-slate-400">(749 LOC)</span></div>
+      </div>
+      <div class="grid grid-cols-2 gap-6">
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">Before — broker names in "common"</p>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <pre class="mermaid">
+flowchart LR
+  subgraph common["common/ (supposed to be generic)"]
+    R["resilience.py<br/>DHAN_RATE_LIMITS<br/>UPSTOX_RATE_LIMITS<br/>bucket_for_path()"]
+    A["auth.py<br/>dhan_totp_mint()<br/>upstox_totp_mint()"]
+    C["capabilities.py<br/>dhan_capabilities()<br/>upstox_capabilities()"]
+  end
+  subgraph adapters["broker adapters"]
+    D["dhan/"]
+    U["upstox/"]
+  end
+  R -.leak.-> D
+  R -.leak.-> U
+  A -.leak.-> D
+  A -.leak.-> U
+  C -.leak.-> D
+  C -.leak.-> U
+  classDef leak stroke:#dc2626,stroke-width:2px
+  class R,A,C leak
+            </pre>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">After — adapters own their specifics</p>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <pre class="mermaid">
+flowchart LR
+  subgraph common["common/ (truly generic)"]
+    R2["resilience.py<br/>TokenBucket, CircuitBreaker<br/>Retry, Pipeline"]
+    A2["auth.py<br/>TOTP, rate-detect"]
+  end
+  subgraph adapters["broker adapters"]
+    D2["dhan/rate_table.py<br/>dhan/auth_flow.py"]
+    U2["upstox/rate_table.py<br/>upstox/auth_flow.py"]
+  end
+  D2 --> R2
+  U2 --> R2
+  D2 --> A2
+  U2 --> A2
+  classDef deepStyle fill:#0f172a,stroke:#0f172a,color:#fff
+  class R2,A2 deepStyle
+            </pre>
+          </div>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Problem</p>
+        <p class="text-slate-600 text-sm">The <code class="bg-slate-100 px-1 rounded">common/</code> package contains broker-specific rate tables, auth flow factories, and capability functions — all keyed by broker name. Adding a third broker requires editing the "generic" infrastructure. The seam between common and adapter-specific is leaky: common knows about Dhan and Upstox by name.</p>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Solution</p>
+        <p class="text-slate-600 text-sm">Extract rate tables to <code class="bg-slate-100 px-1 rounded">dhan/rate_table.py</code> and <code class="bg-slate-100 px-1 rounded">upstox/rate_table.py</code>. Move auth flow factories to per-broker modules. Common keeps only the generic primitives (TokenBucket, CircuitBreaker, TOTP). Two adapters justify the seam: each broker brings its own config.</p>
+      </div>
+      <div>
+        <p class="font-semibold text-slate-700 mb-2">Wins</p>
+        <ul class="text-sm text-slate-600 space-y-1 list-disc list-inside">
+          <li><strong>locality:</strong> adding a broker touches only its own directory</li>
+          <li><strong>leverage:</strong> common primitives serve N brokers without modification</li>
+          <li>common/resilience.py drops from 1,249 to ~600 LOC</li>
+          <li>Auth flow changes don't risk breaking other brokers</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- CANDIDATE 4 -->
+    <article class="bg-white rounded-xl card-shadow p-8 space-y-6">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h2 class="text-xl font-serif font-bold">Unify Paper Broker under the BaseBroker seam</h2>
+        <span class="badge-explore text-xs font-semibold px-2.5 py-0.5 rounded-full">Worth exploring</span>
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">ports &amp; adapters</span>
+      </div>
+      <div class="font-mono text-sm text-slate-600 space-y-0.5">
+        <div>brokers/.../paper/adapter.py <span class="text-slate-400">(845 LOC) — standalone class</span></div>
+        <div>brokers/.../common/base.py <span class="text-slate-400">(672 LOC) — BaseBroker</span></div>
+      </div>
+      <div class="grid grid-cols-2 gap-6">
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">Before — PaperBroker bypasses BaseBroker</p>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <pre class="mermaid">
+flowchart TB
+  BA["BaseBroker (672 LOC)<br/>lifecycle, health,<br/>pass-through wall,<br/>instrument loading,<br/>stream mgmt, order gates"]
+  PB["PaperBroker (845 LOC)<br/>manual re-impl of<br/>everything above"]
+  D["DhanBroker"] --> BA
+  U["UpstoxBroker"] --> BA
+  BA -.same protocol<br/>but no shared code.-> PB
+  classDef leak stroke:#dc2626,stroke-width:2px
+  class PB leak
+            </pre>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">After — PaperBroker extends BaseBroker</p>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <pre class="mermaid">
+flowchart TB
+  BA2["BaseBroker<br/>(shared lifecycle,<br/>instrument loading,<br/>order gates)"]
+  PB2["PaperBroker<br/>(overrides only:<br/>fill engine, cash ledger,<br/>market sim)"]
+  D2["DhanBroker"] --> BA2
+  U2["UpstoxBroker"] --> BA2
+  PB2 --> BA2
+  classDef deepStyle fill:#0f172a,stroke:#0f172a,color:#fff
+  class BA2 deepStyle
+            </pre>
+          </div>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Problem</p>
+        <p class="text-slate-600 text-sm">PaperBroker (845 lines) is a standalone class that manually re-implements every method of the BrokerAdapter protocol. Bug fixes to BaseBroker's lifecycle, pass-through wall, or instrument loading don't propagate. The fill engine, cash ledger, and tape seeding are mixed with broker infrastructure in one monolith.</p>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Solution</p>
+        <p class="text-slate-600 text-sm">Make PaperBroker extend BaseBroker. Override only the adapter-specific methods (fill engine, cash ledger, market simulation). Inherit lifecycle, instrument loading, order gates, and stream management. Extract the simulation logic into focused modules.</p>
+      </div>
+      <div>
+        <p class="font-semibold text-slate-700 mb-2">Wins</p>
+        <ul class="text-sm text-slate-600 space-y-1 list-disc list-inside">
+          <li><strong>locality:</strong> BaseBroker bug fixes propagate to Paper automatically</li>
+          <li><strong>leverage:</strong> one lifecycle path, one instrument loading path</li>
+          <li>Parity tests (backtest=paper=live) gain confidence from shared infrastructure</li>
+          <li>Paper simulation logic becomes independently testable</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- CANDIDATE 5 -->
+    <article class="bg-white rounded-xl card-shadow p-8 space-y-6">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h2 class="text-xl font-serif font-bold">Deepen the Position Accounting module across domain and trading</h2>
+        <span class="badge-explore text-xs font-semibold px-2.5 py-0.5 rounded-full">Worth exploring</span>
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">in-process</span>
+      </div>
+      <div class="font-mono text-sm text-slate-600 space-y-0.5">
+        <div>domain/.../position_math.py <span class="text-slate-400">(154 LOC) — pure functions, 0 domain tests</span></div>
+        <div>trading/.../execution/position_math.py <span class="text-slate-400">(18 LOC) — pure re-export shim</span></div>
+        <div>trading/.../execution/position_manager.py <span class="text-slate-400">(147 LOC) — orchestration</span></div>
+        <div>trading/.../execution/mark_to_market.py <span class="text-slate-400">(118 LOC) — quote-driven marking</span></div>
+        <div>trading/.../execution/cash_ledger.py <span class="text-slate-400">(77 LOC) — cash accounting</span></div>
+      </div>
+      <div class="grid grid-cols-2 gap-6">
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">Before — scattered, untested, fragile orchestration</p>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <pre class="mermaid">
+flowchart TB
+  subgraph domain["tradex_domain"]
+    PM["position_math.py<br/>apply_fill, apply_split<br/>(pure, untested at domain)"]
+  end
+  subgraph trading["tradex_trading/execution"]
+    PM2["position_math.py<br/>(18 LOC re-export)"]
+    PMgr["position_manager.py<br/>(calls apply_fill,<br/>wipes mark_price)"]
+    MTM["mark_to_market.py<br/>(re-mark after fill)"]
+    CL["cash_ledger.py<br/>(cash + MTM)"]
+  end
+  PM2 --> PM
+  PMgr --> PM
+  PMgr -.must remember.-> MTM
+  MTM -.feeds.-> CL
+  classDef leak stroke:#dc2626,stroke-width:2px
+  class PMgr,MTM leak
+            </pre>
+          </div>
+          <p class="text-xs text-red-500 mt-2 text-center">Real bugs: caller forgets to re-mark, or apply_fill wipes unrealized_pnl</p>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">After — one deep position accounting module</p>
+          <div class="rounded-lg border border-slate-200 bg-white p-4">
+            <pre class="mermaid">
+flowchart TB
+  subgraph deep["position_accounting (deep)"]
+    direction TB
+    PA["PositionAccountant<br/>apply_fill() — fills + re-mark<br/>apply_split() — split + re-mark<br/>mark() — quote-driven update<br/>equity() — cash + MTM"]
+  end
+  subgraph domain["tradex_domain"]
+    PM3["position_math.py<br/>(pure core, now tested)"]
+  end
+  PA --> PM3
+  classDef deepStyle fill:#0f172a,stroke:#0f172a,color:#fff
+  class PA deepStyle
+            </pre>
+          </div>
+          <p class="text-xs text-emerald-600 mt-2 text-center">One interface. Fill + re-mark is atomic. No forgotten steps.</p>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Problem</p>
+        <p class="text-slate-600 text-sm">Domain's <code class="bg-slate-100 px-1 rounded">position_math.py</code> has zero domain-level tests. The trading layer's 18-line re-export shim adds nothing. The real bugs hide in orchestration: <code class="bg-slate-100 px-1 rounded">apply_fill</code> wipes <code class="bg-slate-100 px-1 rounded">mark_price</code> and <code class="bg-slate-100 px-1 rounded">unrealized_pnl</code> on every fill — if the caller forgets to re-mark, positions show zero P&L. Five modules share this concern; none owns it.</p>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Solution</p>
+        <p class="text-slate-600 text-sm">Create a <code class="bg-slate-100 px-1 rounded">PositionAccountant</code> in trading that wraps the domain pure functions and makes fill+re-mark atomic. Delete the 18-line re-export shim. Add domain-level property-based tests for <code class="bg-slate-100 px-1 rounded">apply_fill</code> invariants.</p>
+      </div>
+      <div>
+        <p class="font-semibold text-slate-700 mb-2">Wins</p>
+        <ul class="text-sm text-slate-600 space-y-1 list-disc list-inside">
+          <li><strong>locality:</strong> position bugs concentrate in one module</li>
+          <li><strong>depth:</strong> small interface (fill/split/mark/equity), rich implementation</li>
+          <li>Fill + re-mark becomes atomic — no forgotten steps</li>
+          <li>Domain pure functions finally get property-based tests</li>
+          <li>Delete the 18-line re-export shim</li>
+        </ul>
+      </div>
+    </article>
+
+    <!-- CANDIDATE 6 -->
+    <article class="bg-white rounded-xl card-shadow p-8 space-y-6">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h2 class="text-xl font-serif font-bold">Route shutdown through the ShutdownCoordinator — eliminate the monkey-patch</h2>
+        <span class="badge-speculative text-xs font-semibold px-2.5 py-0.5 rounded-full">Speculative</span>
+        <span class="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">in-process</span>
+      </div>
+      <div class="font-mono text-sm text-slate-600 space-y-0.5">
+        <div>trading/.../runtime/startup.py <span class="text-slate-400">(695 LOC) — monkey-patches session.stop</span></div>
+        <div>trading/.../runtime/shutdown.py <span class="text-slate-400">(70 LOC) — ShutdownCoordinator (bypassed)</span></div>
+        <div>trading/.../sdk/session.py <span class="text-slate-400">(425 LOC) — TradingSession</span></div>
+      </div>
+      <div class="grid grid-cols-2 gap-6">
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">Before — monkey-patch bypasses coordinator</p>
+          <div class="rounded-lg border border-slate-200 p-4">
+            <pre class="mermaid">
+sequenceDiagram
+  participant Boot as startup.boot()
+  participant Sess as TradingSession
+  participant Coord as ShutdownCoordinator
+  participant Lock as WriterLock
+  Boot->>Sess: create session
+  Boot->>Sess: monkey-patch stop()
+  Note over Sess,Lock: session.stop = _stop_with_writer_lock()
+  Sess-->>Coord: bypassed!
+  Note over Boot,Lock: At shutdown:
+  Sess->>Lock: release lock (via patch)
+  Sess->>Sess: original stop()
+  Note over Coord: coordinator never<br/>sequences this
+            </pre>
+          </div>
+        </div>
+        <div>
+          <p class="text-xs uppercase tracking-wider text-slate-400 mb-3 font-semibold">After — coordinator owns the sequence</p>
+          <div class="rounded-lg border border-slate-200 p-4">
+            <pre class="mermaid">
+sequenceDiagram
+  participant Boot as startup.boot()
+  participant Sess as TradingSession
+  participant Coord as ShutdownCoordinator
+  participant Lock as WriterLock
+  Boot->>Sess: create session
+  Boot->>Coord: register("writer_lock", priority=10)
+  Boot->>Coord: register("session.stop", priority=20)
+  Note over Boot,Lock: At shutdown:
+  Coord->>Lock: release (priority 10)
+  Coord->>Sess: stop (priority 20)
+  Note over Coord: ordered, visible,<br/>testable
+            </pre>
+          </div>
+        </div>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Problem</p>
+        <p class="text-slate-600 text-sm"><code class="bg-slate-100 px-1 rounded">startup.py</code> monkey-patches <code class="bg-slate-100 px-1 rounded">session.stop</code> to release the writer lock, bypassing the <code class="bg-slate-100 px-1 rounded">ShutdownCoordinator</code> that was specifically designed for ordered shutdown. The shutdown sequence is invisible — you can't see what runs in what order without reading the monkey-patch.</p>
+      </div>
+      <div class="space-y-2">
+        <p class="font-semibold text-slate-700">Solution</p>
+        <p class="text-slate-600 text-sm">Register the writer lock release and session stop as named entries in the ShutdownCoordinator with explicit priorities. Remove the monkey-patch. The coordinator becomes the single authority for shutdown ordering.</p>
+      </div>
+      <div>
+        <p class="font-semibold text-slate-700 mb-2">Wins</p>
+        <ul class="text-sm text-slate-600 space-y-1 list-disc list-inside">
+          <li><strong>locality:</strong> shutdown logic lives in one module, not split between startup and session</li>
+          <li><strong>leverage:</strong> adding a shutdown step = one register() call</li>
+          <li>Shutdown ordering becomes testable through the coordinator interface</li>
+          <li>Delete the monkey-patch and the module-global <code class="bg-slate-100 px-1 rounded">_ACTIVE_WRITER_LOCK</code></li>
+        </ul>
+      </div>
+    </article>
+
+  </section>
+
+  <!-- TOP RECOMMENDATION -->
+  <section id="top-recommendation" class="bg-slate-900 text-white rounded-xl p-8 space-y-4">
+    <div class="flex items-center gap-3">
+      <span class="bg-emerald-500 text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">Top Pick</span>
+      <h2 class="text-xl font-serif font-bold">Collapse the Execution Engine into a thin orchestrator</h2>
+    </div>
+    <p class="text-slate-300 text-sm leading-relaxed">
+      This is the highest-leverage deepening in the codebase. The Execution Engine is the central spine of TradeX v4 — every order flows through it — yet it absorbs fee calculation, fill dedup, kill switch, and CQRS dispatch into one 974-line class. The sibling <code class="bg-slate-800 px-1 rounded">fees.py</code> has a FeeCalculator whose constructor parameters are documented as "accepted but not consulted." The <code class="bg-slate-800 px-1 rounded">execution/__init__.py</code> re-exports 30+ symbols, hiding which submodule owns what. Deepening this module means: one thin orchestrator interface, three testable adapters behind seams (fees, idempotency, kill switch), and the misleading dead params eliminated. The 55 execution test files already exist — they'll get sharper, not larger.
+    </p>
+    <a href="#candidates" class="text-emerald-400 text-sm hover:underline">Jump to Candidate 1</a>
+  </section>
+
+</main>
+</body>
+</html>

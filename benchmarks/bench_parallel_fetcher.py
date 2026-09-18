@@ -39,6 +39,7 @@ from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
 
+from tradex_brokers.common.resilience import limiter_for_provider, limiter_from_table
 from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
 
 # --------------------------------------------------------------------------- #
@@ -76,6 +77,9 @@ def _make_broker(name: str, latency_ms: float) -> MagicMock:
 
     broker.history = MagicMock(side_effect=_history)
     broker.name = name
+    # Permissive limiter so benchmarks measure parallelism, not quota throttling.
+    fast = limiter_from_table({"historical": {"rate_per_second": 10000.0, "capacity": 10000}})
+    broker.rate_limiter = fast
     return broker
 
 
@@ -100,7 +104,7 @@ def bench_single_broker_parallel(instruments, latency_ms, days):
     fetcher = ParallelHistoryFetcher({"dhan": broker}, max_workers=4)
     end = BASE + timedelta(days=days)
     t0 = time.monotonic()
-    results = fetcher.fetch(instruments, Timeframe.M1, BASE, end)
+    results, _ = fetcher.fetch(instruments, Timeframe.M1, BASE, end)
     wall = time.monotonic() - t0
     return wall, len(results)
 
@@ -112,13 +116,13 @@ def bench_dual_broker_parallel(instruments, latency_ms, days):
     fetcher = ParallelHistoryFetcher({"dhan": dhan, "upstox": upstox}, max_workers=4)
     end = BASE + timedelta(days=days)
     t0 = time.monotonic()
-    results = fetcher.fetch(instruments, Timeframe.M1, BASE, end)
+    results, _ = fetcher.fetch(instruments, Timeframe.M1, BASE, end)
     wall = time.monotonic() - t0
     # Count calls per broker
     return wall, len(results), dhan.history.call_count, upstox.history.call_count
 
 
-QUOTA_N = 40          # calls; dhan bucket = cap 10 @ 5/s -> ~6s solo
+QUOTA_N = 40          # calls; dhan bucket = rate 5/s cap 1 -> ~8s solo
 QUOTA_LATENCY_MS = 2  # small enough that buckets dominate wall time
 
 
@@ -126,21 +130,26 @@ def bench_quota_bound():
     """Rate-limit-bound regime: dhan's 5/s bucket binds, upstox's doesn't.
 
     Fresh limiters per fetcher instance make this deterministic.  Solo Dhan
-    drains its own bucket (~6s for QUOTA_N calls); split across two brokers
+    drains its own bucket (~8s for QUOTA_N calls); split across two brokers
     each side serves half, so Dhan's bucket refills while Upstox runs —
     roughly half the wall time.  This is the win the split routing exists for.
     """
     instruments = [Equity.of("NSE", f"QB{i:03d}") for i in range(QUOTA_N)]
     end = BASE + timedelta(days=7)
 
+    # Delete the permissive mock limiter so the fetcher falls back to the real
+    # provider limiter with pre-acquire (the mock history() doesn't acquire internally).
     solo = _make_broker("dhan", QUOTA_LATENCY_MS)
+    del solo.rate_limiter
     t0 = time.monotonic()
     ParallelHistoryFetcher({"dhan": solo}, max_workers=4).fetch(
         instruments, Timeframe.M1, BASE, end)
     t_single = time.monotonic() - t0
 
     dhan = _make_broker("dhan", QUOTA_LATENCY_MS)
+    del dhan.rate_limiter
     upstox = _make_broker("upstox", QUOTA_LATENCY_MS)
+    del upstox.rate_limiter
     t0 = time.monotonic()
     ParallelHistoryFetcher({"dhan": dhan, "upstox": upstox}, max_workers=4).fetch(
         instruments, Timeframe.M1, BASE, end)
@@ -158,8 +167,8 @@ def main() -> int:
     p = argparse.ArgumentParser(description="Benchmark ParallelHistoryFetcher")
     p.add_argument("--instruments", type=int, nargs="+", default=[10, 50, 100, 250, 500],
                    help="Instrument counts to benchmark")
-    p.add_argument("--latency-ms", type=float, default=200.0,
-                   help="Simulated API latency per call in ms (default: 200)")
+    p.add_argument("--latency-ms", type=float, default=5.0,
+                   help="Simulated API latency per call in ms (default: 5)")
     p.add_argument("--out", default=None,
                    help="Output JSON path (default: .benchmarks/parallel_fetch.json)")
     args = p.parse_args()
