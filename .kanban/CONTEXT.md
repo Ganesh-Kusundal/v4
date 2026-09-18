@@ -1,4 +1,4 @@
-# v4 — kanban digest (2026-09-18T13:59:17Z)
+# v4 — kanban digest (2026-09-18T15:33:00Z)
 
 ## Work in progress
 - none
@@ -10,45 +10,40 @@
 - none
 
 ## Recently completed
-- none
+- **WIP landed.** All 216 uncommitted working-tree changes across three
+  efforts are now committed and the tree is clean. Each effort was verified
+  by execution before its commit.
+  1. Position accounting deepened into `PositionAccountant` (46 position tests).
+  2. Broker-specific knowledge moved out of `common/` into per-broker packages
+     (789 brokers tests).
+  3. `tradex sync` CLI + frontend runs-bar feature + backtest leg surfacing
+     + analytics `trade_metrics` + datalake gap/clip hardening + bracket
+     protection extraction.
+- **Bug fixed:** `test_request_spacing(spacing_seconds)` was a helper
+  misnamed as a test, so pytest treated its parameter as a missing fixture
+  and errored. Renamed to `run_request_spacing`.
 
 ## Tests
-- last pytest run: 0 failing
-
-## Drift since previous scan
-- added: apps/top_gainers/app.py
-- added: architecture-review-2026-09-17.html
-- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=01/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=02/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=03/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=04/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=05/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=06/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=07/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=08/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=ANANDRATHI/year=2026/month=09/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=01/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=02/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=03/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=04/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=05/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=06/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=07/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=08/data.parquet
-- added: backups/pre_reconcile_2026-09-17/symbol=IRB/year=2026/month=09/data.parquet
-- … +4091 more
+- last pytest run: 3176 passed, 5 skipped (full suite: domain + brokers +
+  trading + root)
+- frontend: `tsc --noEmit` clean, `vite build` succeeds (25 modules)
 
 ## Recent commits
-- 1c5bde9 ci: expand mypy to all packages (PE-3)
-- 0a54be9 feat(trading): ordered graceful-shutdown coordinator (PE-10)
-- d00117c refactor(trading): decompose ExecutionEngine — extract risk, idempotency, order_store (PE-6)
-- f5b7597 fix(trading): strict broker_id validation + typed RuntimeContext (PE-2, PE-14)
-- d7fe7e1 refactor(domain): remove dead RxPY dependency (PE-1)
-- cbc40c5 test(parity): add 21 tests closing 5 framework gaps (GAP-1 to GAP-5)
-- 6e50399 fix(trading): cache lock unification, reconciliation keying, risk manager init
-- 70e8edd fix(brokers): paper broker partial-fill cash leak, limit overwrite, exit_all settlement
-
-(216 uncommitted changes in working tree)
+- 51b76ec chore: gitignore reconcile backups and runtime logs
+- 9af50f3 feat(apps): top-gainers Streamlit viewer over the datalake
+- b240264 test(scripts): cover the datalake audit, backfill, stats and reconcile helpers
+- 10d05c2 chore: session owns the writer lock, add frontend CI gate
+- 098d5df fix(duckdb-analytics): widen query guards and tighten catalog typing
+- b3be342 feat(chart): expose bracket_breakout and strategy parameter defaults
+- 74d5047 fix(datalake): classify session-edge stamps and detect clipped fetch tails
+- d10a157 refactor(execution): decompose engine spine and extract bracket protection
+- 937c00e feat(analytics): add round-trip trade derivation and statistics block
+- 823cf09 feat(backtest): surface stop/target legs on recorded fills
+- d359e41 feat(frontend): add backtest runs bar and panel surfaces
+- 6f6ae7b feat(cli): add 'tradex sync' command for historical OHLCV backfill
+- d7a13ca refactor(brokers): move broker-specific knowledge out of common/
+- 9155d90 refactor(execution): deepen position accounting into PositionAccountant
+- 6bac231 fix: rename test_request_spacing helper that broke pytest collection
 
 ## Architecture & components
 - none
@@ -58,23 +53,13 @@
 
 ## Knowledge graph (graphify)
 - 12510 nodes · 34591 edges · 477 communities (built 2026-09-18T13:37:00Z)
-- STALE (6 modified, 15 deleted, 1037 new since build) — refresh with `/graphify update`
-  - modified: frontend/src/dock.ts
-  - modified: frontend/src/feed.ts
-  - modified: frontend/src/main.ts
-  - modified: frontend/src/orders.ts
-  - modified: frontend/src/trade-bar.ts
-  - modified: test_dhan_rate_limits.py
-- AUTO-REFRESH: run `/graphify update` now, then re-run `kanban.py update` to refresh this digest.
 
-## Data / execution flows
-- none
-
-## Dependencies
-- frontend: openalgo-charts
-
-## Technical debt & risks
-- none
-
----
-*Generated by kanban.cli v1.2.0. Refresh: `python3 .qoder/skills/kanban.cli/scripts/kanban.py update`. Do not edit by hand.*
+## Notes for the next session
+- **pytest invocation:** run `.venv/bin/python -m pytest <paths> -p
+  no:cacheprovider --import-mode=importlib -c pyproject.toml`. Without `-c
+  pyproject.toml`, pytest's rootdir discovery walks up to the parent
+  directory's `pyproject.toml` and hits a sandbox PermissionError on
+  `/Users/apple/Downloads/v2-cleanup-.../pyproject.toml`.
+- **Do not delete untracked files.** The earlier `simple_sync.py` deletion
+  plan was cancelled: those were uncommitted WIP, not shipped code. They
+  are now committed, but the caution stands for any new untracked file.
