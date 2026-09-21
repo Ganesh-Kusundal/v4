@@ -157,7 +157,7 @@ def main(argv: list[str] | None = None) -> int:
         log.info("cluster %s -> %s (%d symbols)", c_start.date(), c_end.date(), len(insts))
         result = simple_sync(
             primary, store, insts, "1m", c_start, c_end,
-            skip_existing=True, gaps=detector,
+            gaps=detector,
             failover_brokers=failover or None,
         )
         total_written += result.written

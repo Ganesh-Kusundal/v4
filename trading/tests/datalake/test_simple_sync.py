@@ -141,8 +141,8 @@ class TestSimpleSync:
             result = simple_sync(MagicMock(), _store(10), INSTRUMENTS, "1m", START, END)
         assert INSTRUMENTS[0].symbol in result.failed
 
-    def test_skip_existing_with_no_gaps_fetches_nothing(self) -> None:
-        """skip_existing plus a complete lake short-circuits before fetching."""
+    def test_gaps_short_circuit_before_fetching(self) -> None:
+        """A complete lake (detector returns []) short-circuits before fetching."""
         gaps = MagicMock()
         gaps.detect.return_value = []
         store = _store()
@@ -150,13 +150,50 @@ class TestSimpleSync:
             "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
         ) as phf:
             result = simple_sync(
-                MagicMock(), store, INSTRUMENTS, "1m", START, END,
-                skip_existing=True, gaps=gaps,
+                MagicMock(), store, INSTRUMENTS, "1m", START, END, gaps=gaps,
             )
         assert result.requested == 3
         assert result.fetched == 0
         phf.assert_not_called()
         store.upsert.assert_not_called()
+
+    def test_no_gaps_detector_fetches_everything(self) -> None:
+        """gaps=None means a full fetch — no detector, no skip logic."""
+        results = {str(i.instrument_id): _series(instrument=i) for i in INSTRUMENTS}
+        with patch(
+            "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
+        ) as phf:
+            phf.return_value = _patched_fetcher(results, [])
+            result = simple_sync(MagicMock(), _store(10), INSTRUMENTS, "1m", START, END)
+        assert result.fetched == 3
+
+    def test_present_but_empty_series_is_skipped(self) -> None:
+        """A present-but-empty series is an IPO skip, never a failure."""
+        results = {
+            str(INSTRUMENTS[0].instrument_id): _series(n=0, instrument=INSTRUMENTS[0])
+        }
+        with patch(
+            "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
+        ) as phf:
+            phf.return_value = _patched_fetcher(results, [])
+            result = simple_sync(MagicMock(), _store(10), INSTRUMENTS, "1m", START, END)
+        assert result.failed == []
+
+    def test_partial_gaps_fetch_only_ranged_symbols(self) -> None:
+        """Detector hits pass both the symbol filter and the ranges through."""
+        results = {str(INSTRUMENTS[0].instrument_id): _series(instrument=INSTRUMENTS[0])}
+        gaps = MagicMock()
+        gaps.detect.return_value = [(INSTRUMENTS[0], [(START, END)])]
+        with patch(
+            "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
+        ) as phf:
+            phf.return_value = _patched_fetcher(results, [])
+            result = simple_sync(
+                MagicMock(), _store(10), INSTRUMENTS, "1m", START, END, gaps=gaps,
+            )
+        assert result.fetched == 1
+        _, kw = phf.return_value.fetch.call_args
+        assert kw.get("ranges") == {str(INSTRUMENTS[0].instrument_id): [(START, END)]}
 
 
 class TestSeriesToFrame:

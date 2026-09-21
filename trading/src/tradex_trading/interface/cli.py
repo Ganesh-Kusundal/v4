@@ -509,7 +509,6 @@ def cmd_sync(args: Any) -> int:
         broker, store, instruments, args.timeframe, start, end,
         batch_size=args.batch_size,
         max_workers=args.workers,
-        skip_existing=args.skip_existing,
         gaps=gaps,
     )
 

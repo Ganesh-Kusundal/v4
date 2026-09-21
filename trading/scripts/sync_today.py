@@ -56,7 +56,7 @@ def main() -> int:
 
     result = simple_sync(
         primary, store, instruments, "1m", day_start, now,
-        skip_existing=True, gaps=GapDetector(store),
+        gaps=GapDetector(store),
         failover_brokers=failover or None,
     )
     print(

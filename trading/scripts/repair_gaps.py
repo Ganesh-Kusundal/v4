@@ -33,6 +33,7 @@ import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
+from itertools import batched
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -100,10 +101,6 @@ def _clusters(found) -> dict[tuple, dict]:
 
 
 _ORDER = {"interior": 0, "session": 1, "open": 2}
-
-
-def _chunks(items: list, size: int) -> list[list]:
-    return [items[i:i + size] for i in range(0, len(items), size)]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -205,14 +202,14 @@ def main(argv: list[str] | None = None) -> int:
         insts = [by_symbol[s] for s in symbols if s in by_symbol]
         ws = datetime.combine(first, datetime.min.time())
         we = datetime.combine(last, datetime.max.time())
-        for chunk in _chunks(insts, args.chunk):
+        for chunk in batched(insts, args.chunk):
             if time.monotonic() - started > args.budget:
                 stop = True
                 break
             t0 = time.monotonic()
             result = simple_sync(
                 primary, store, chunk, args.timeframe, ws, we,
-                skip_existing=True, gaps=detector,
+                gaps=detector,
                 failover_brokers=failover or None,
             )
             written += result.written
