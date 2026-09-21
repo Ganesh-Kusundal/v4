@@ -498,7 +498,7 @@ def cmd_sync(args: Any) -> int:
     print(f"Universe: {args.universe} ({len(instruments)} instruments)")
     print(f"Window:   {start.date()} -> {end.date()} ({args.timeframe})")
 
-    # Build sync pipeline — ponytail: simple_sync replaces SyncOrchestrator + ParallelHistoryFetcher
+    # Build sync pipeline — simple_sync is the one fill path (fetch + failover + gaps)
     from tradex_trading.datalake.simple_sync import simple_sync
 
     gaps = GapDetector(store) if args.skip_existing else None

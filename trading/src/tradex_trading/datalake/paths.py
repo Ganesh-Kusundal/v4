@@ -8,7 +8,7 @@ and the chart API served ``source: "none"`` with zero bars — the frontend
 rendered an empty shell and replay never opened.
 
 The anchor mirrors the convention already used by ``_UI_DIST_DIR``
-(interface/fastapi_app.py) and historical_sync: repo root =
+(interface/fastapi_app.py) and simple_sync: repo root =
 ``Path(__file__).resolve().parents[4]`` from this file
 (datalake -> tradex_trading -> src -> trading -> repo).
 """
