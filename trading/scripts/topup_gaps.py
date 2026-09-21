@@ -21,48 +21,22 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-import pandas as pd
-
 ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 for sub in ("domain/src", "brokers/src", "trading/src"):
     sys.path.insert(0, str(ROOT / sub))
 
-from tradex_domain import Timeframe  # noqa: E402 — sys.path setup above
 from tradex_domain.market_calendar import (  # noqa: E402 — sys.path setup above
     NSE_HOLIDAYS_2026,
 )
 
 from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402 — sys.path setup above
-from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402 — sys.path setup above
-    ParallelHistoryFetcher,
-)
 from tradex_trading.datalake.parquet_storage import (  # noqa: E402 — sys.path setup above
     ParquetStorage,
 )
+from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402 — sys.path setup above
 from tradex_trading.datalake.universe import load_universe  # noqa: E402 — sys.path setup above
 
 log = logging.getLogger("tradex.scripts.topup")
-
-
-def _series_to_frame(series, symbol: str) -> pd.DataFrame:
-    """Convert a HistoricalSeries to a DataFrame for ParquetStorage.upsert."""
-    from tradex_domain.market_calendar import to_ist_naive
-
-    rows = []
-    for c in series.candles:
-        rows.append({
-            "symbol": symbol,
-            "exchange": str(c.instrument.exchange),
-            "kind": "equity",
-            "timeframe": str(c.timeframe.value),
-            "timestamp": to_ist_naive(c.timestamp),
-            "open": float(c.ohlc.open.value),
-            "high": float(c.ohlc.high.value),
-            "low": float(c.ohlc.low.value),
-            "close": float(c.ohlc.close.value),
-            "volume": float(c.volume.value),
-        })
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -122,40 +96,24 @@ def main(argv: list[str] | None = None) -> int:
         log.info("Nothing to top up.")
         return 0
 
-    # Fetch each gapped symbol's full span from the filler broker — its own
-    # poll caps are handled by the fetcher's auto-chunking.
+    # Fill through the one sync path: the filler broker is the primary, gap
+    # planning scopes the fetch to the detected ranges, and the fetcher's
+    # auto-chunking handles the filler's own poll caps.
     from tradex_trading.config.env import load_env_file
     load_env_file(str(ROOT / ".env.local"))
     from tradex_trading.runtime.live import build_broker_from_env
     filler = build_broker_from_env(args.filler)
     filler.connect()
-    fetcher = ParallelHistoryFetcher(
-        {args.filler: filler}, max_workers=args.workers,
-    )
 
     targets = [instruments[inst.symbol] for inst, _ in gaps]
-    batch_size = 25
-    total_written = 0
-    batches = [targets[i:i + batch_size]
-               for i in range(0, len(targets), batch_size)]
-    for idx, batch in enumerate(batches, 1):
-        t0 = time.perf_counter()
-        results, _ = fetcher.fetch(batch, Timeframe(args.timeframe), start, end)
-        frames = []
-        for inst_id, series in results.items():
-            sym = inst_id.split(":")[-1] if ":" in inst_id else inst_id
-            frames.append(_series_to_frame(series, sym))
-        frames = [f for f in frames if not f.empty]
-        if not frames:
-            log.warning("Batch %d/%d: nothing served", idx, len(batches))
-            continue
-        written = store.upsert(pd.concat(frames, ignore_index=True))
-        total_written += written
-        log.info("Batch %d/%d: %d rows in %.1fs",
-                 idx, len(batches), written, time.perf_counter() - t0)
+    result = simple_sync(
+        filler, store, targets, args.timeframe, start, end,
+        gaps=detector, max_workers=args.workers,
+    )
 
     log.info("=" * 60)
-    log.info("Top-up complete: %d rows across %d batches", total_written, len(batches))
+    log.info("Top-up complete: %d rows written, %d failed: %s",
+             result.written, len(result.failed), result.failed[:5])
     return 0
 
 
