@@ -7,7 +7,8 @@ preserve, and the one it improved (failover).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import pandas as pd
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +16,7 @@ from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
 
-from tradex_trading.datalake.simple_sync import simple_sync
+from tradex_trading.datalake.simple_sync import series_to_frame, simple_sync
 
 INSTRUMENTS = [Equity.of("NSE", f"SYM{i}") for i in range(3)]
 BASE = datetime(2026, 8, 1, 9, 15, tzinfo=UTC)
@@ -156,3 +157,36 @@ class TestSimpleSync:
         assert result.fetched == 0
         phf.assert_not_called()
         store.upsert.assert_not_called()
+
+
+class TestSeriesToFrame:
+    def test_converts_candles_to_storage_columns(self):
+        df = series_to_frame(_series(n=3), "SYM0")
+        assert list(df.columns) == [
+            "symbol", "exchange", "kind", "timeframe",
+            "timestamp", "open", "high", "low", "close", "volume",
+        ]
+        assert len(df) == 3
+        assert df["symbol"].eq("SYM0").all()
+        assert df["timestamp"].dt.tz is None
+
+    def test_empty_series_gives_empty_frame(self):
+        empty = HistoricalSeries(
+            instrument=INSTRUMENTS[0], timeframe=Timeframe.M1,
+            candles=[], start=BASE, end=BASE,
+        )
+        assert series_to_frame(empty, "SYM0").empty
+
+    def test_aware_non_utc_converts_not_relabels(self):
+        # 14:45 IST aware == 09:15 UTC; old replace() bug shifted it +5:30
+        ist = timezone(timedelta(hours=5, minutes=30))
+        src = _series(n=1).candles[0]
+        candle = Candle(
+            instrument=src.instrument, timeframe=src.timeframe,
+            ohlc=src.ohlc, volume=src.volume,
+            timestamp=datetime(2026, 8, 3, 14, 45, tzinfo=ist),
+        )
+        df = series_to_frame(
+            HistoricalSeries(instrument=INSTRUMENTS[0], timeframe=Timeframe.M1,
+                             candles=[candle], start=BASE, end=BASE), "SYM0")
+        assert df["timestamp"].iloc[0] == pd.Timestamp("2026-08-03 14:45:00")

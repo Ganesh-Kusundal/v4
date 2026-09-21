@@ -10,65 +10,27 @@ unified, and the entry point that won was the function, not the class:
 too, so it carries the same failover and clipped-tail repair. The operator
 scripts and the ``tradex sync`` CLI all go through it.
 
-What remains here is what still has a caller: ``series_to_frame`` (the frame
-conversion two scripts use), ``SyncResult`` (the shared result type), and
-``SyncOrchestrator`` itself, kept for the parity benchmark that measures it
-and its own tests. New code should call ``simple_sync``.
+What remains here is ``SyncOrchestrator`` itself, kept for the parity
+benchmark that measures it and its own tests.
+``series_to_frame`` and ``SyncResult`` moved to ``simple_sync.py``
+(2026-09-21) and are re-exported here until this module is deleted.
+New code should call ``simple_sync``.
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from datetime import UTC
 from typing import Any
 
 import pandas as pd
-from tradex_domain import Equity, Timeframe
-from tradex_domain.market import HistoricalSeries
+from tradex_domain import Timeframe
+from tradex_trading.datalake.simple_sync import (  # noqa: F401 — re-export until deletion
+    SyncResult,
+    _bar_freq,
+    series_to_frame,
+)
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class SyncResult:
-    requested: int
-    fetched: int
-    written: int
-    failed: list[str]
-
-
-def series_to_frame(series: HistoricalSeries, symbol: str) -> pd.DataFrame:
-    """Convert HistoricalSeries to storage DataFrame (tz-naive IST)."""
-    if not series.candles:
-        return pd.DataFrame()
-    from tradex_domain.market_calendar import to_ist_naive
-
-    candles = series.candles
-    timestamps = [
-        to_ist_naive(c.timestamp if c.timestamp.tzinfo is not None
-                     else c.timestamp.replace(tzinfo=UTC))
-        for c in candles
-    ]
-    return pd.DataFrame({
-        "symbol": symbol,
-        "exchange": [c.instrument.exchange.value if hasattr(c.instrument, "exchange") else "NSE"
-                     for c in candles],
-        "kind": "equity",
-        "timeframe": str(series.timeframe.value),
-        "timestamp": timestamps,
-        "open": [float(c.ohlc.open.value) for c in candles],
-        "high": [float(c.ohlc.high.value) for c in candles],
-        "low": [float(c.ohlc.low.value) for c in candles],
-        "close": [float(c.ohlc.close.value) for c in candles],
-        "volume": [float(c.volume.value) if c.volume else 0.0 for c in candles],
-    })
-
-
-def _bar_freq(timeframe: Timeframe | str) -> str:
-    """Map a Timeframe to a GapDetector bar_freq."""
-    tf = str(timeframe.value if isinstance(timeframe, Timeframe) else timeframe)
-    return {"1m": "1min", "5m": "5min", "15m": "15min"}.get(tf, "1min")
 
 
 class SyncOrchestrator:

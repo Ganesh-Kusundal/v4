@@ -11,18 +11,65 @@ clipped-tail repair (a 375-bar reply for a 375-bar window used to score
 
 ``simple_fetcher.py`` is deleted: it was ~155 LOC of chunking and threading
 that ``ParallelHistoryFetcher.fetch`` already did, minus the failover.
+
+SyncResult and series_to_frame moved here from historical_sync.py
+(2026-09-21): this is the only sync entry point, so the shared types live
+with it.
 """
 import logging
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from itertools import batched
 from typing import Any
 
 import pandas as pd
 from tradex_domain import Timeframe
+from tradex_domain.market import HistoricalSeries
 
-from tradex_trading.datalake.historical_sync import SyncResult, series_to_frame
 from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class SyncResult:
+    requested: int
+    fetched: int
+    written: int
+    failed: list[str]
+
+
+def series_to_frame(series: HistoricalSeries, symbol: str) -> pd.DataFrame:
+    """Convert HistoricalSeries to storage DataFrame (tz-naive IST)."""
+    if not series.candles:
+        return pd.DataFrame()
+    from tradex_domain.market_calendar import to_ist_naive
+
+    candles = series.candles
+    timestamps = [
+        to_ist_naive(c.timestamp if c.timestamp.tzinfo is not None
+                     else c.timestamp.replace(tzinfo=UTC))
+        for c in candles
+    ]
+    return pd.DataFrame({
+        "symbol": symbol,
+        "exchange": [c.instrument.exchange.value if hasattr(c.instrument, "exchange") else "NSE"
+                     for c in candles],
+        "kind": "equity",
+        "timeframe": str(series.timeframe.value),
+        "timestamp": timestamps,
+        "open": [float(c.ohlc.open.value) for c in candles],
+        "high": [float(c.ohlc.high.value) for c in candles],
+        "low": [float(c.ohlc.low.value) for c in candles],
+        "close": [float(c.ohlc.close.value) for c in candles],
+        "volume": [float(c.volume.value) if c.volume else 0.0 for c in candles],
+    })
+
+
+def _bar_freq(timeframe: Timeframe | str) -> str:
+    """Map a Timeframe to a GapDetector bar_freq."""
+    tf = str(timeframe.value if isinstance(timeframe, Timeframe) else timeframe)
+    return {"1m": "1min", "5m": "5min", "15m": "15min"}.get(tf, "1min")
 
 
 def simple_sync(

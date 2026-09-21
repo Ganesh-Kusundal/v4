@@ -53,7 +53,7 @@ load_env_file(str(ROOT / ".env.local"))
 
 import pandas as pd  # noqa: E402
 
-from tradex_trading.datalake.historical_sync import series_to_frame  # noqa: E402
+from tradex_trading.datalake.simple_sync import series_to_frame  # noqa: E402
 from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402
     ParallelHistoryFetcher,
 )

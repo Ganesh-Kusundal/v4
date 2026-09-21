@@ -56,7 +56,7 @@ for sub in ("domain/src", "brokers/src", "trading/src"):
 
 from tradex_domain.instruments import Equity  # noqa: E402
 
-from tradex_trading.datalake.historical_sync import series_to_frame  # noqa: E402
+from tradex_trading.datalake.simple_sync import series_to_frame  # noqa: E402
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
 
 log = logging.getLogger("reconcile-bars")
