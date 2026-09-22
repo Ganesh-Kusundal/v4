@@ -715,8 +715,13 @@ async def ws_stream(
                     )
                     # Forward quote to client so LTP line and tickers update live
                     _send_quote(quote)
+                    # Scope simulated quotes to the selected replay aggregator
+                    # only — never feed replay ticks into unrelated intervals
+                    # for the same instrument.
+                    if iid != agg_key[0]:
+                        return
                     replay_agg = bar_aggregators.get(agg_key)
-                    if replay_agg is not None and agg_key[0] == iid:
+                    if replay_agg is not None:
                         try:
                             replay_agg.on_quote(
                                 ts_ist,
