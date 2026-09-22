@@ -1,9 +1,8 @@
 """Universe — load Nifty index constituent CSVs → Equity instruments.
 
 CSV columns: Company Name, Industry, Symbol, Series, ISIN Code
-Maps the ``Symbol`` column to :class:`Equity` via ``Equity.of("NSE", symbol)``.
-
-Adapted from nTrade's universe loader.
+Maps the ``Symbol`` column to :class:`Equity`, attaching CSV ISIN/series on
+``meta`` for connect-time resolve.
 """
 
 from __future__ import annotations
@@ -11,7 +10,9 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from tradex_domain.instruments import Equity
+from tradex_domain.enums import ExchangeId
+from tradex_domain.instruments import Equity, InstrumentMeta
+from tradex_domain.value_objects import InstrumentId
 
 _NSE = "NSE"
 
@@ -37,13 +38,7 @@ def load_universe(
 ) -> list[Equity]:
     """Load a Nifty index constituents CSV and return Equity instruments.
 
-    Args:
-        name: ``nifty50``, ``nifty100``, ``nifty200``, or ``nifty500``.
-        csv_dir: Directory containing the CSV files
-                 (default: ``<repo>/Dependencies``).
-
-    Returns:
-        A list of :class:`Equity` instruments, one per constituent.
+    ``meta.isin`` / ``meta.extra['series']`` come from the CSV when present.
     """
     csv_dir = Path(csv_dir) if csv_dir else _DEFAULT_CSV_DIR
     csv_path = csv_dir / f"{name}_list.csv"
@@ -56,7 +51,13 @@ def load_universe(
         series = row.get("Series", "").strip().upper()
         if series not in _CASH_SERIES:
             continue
-        instruments.append(Equity.of(_NSE, symbol))
+        isin = (row.get("ISIN Code") or row.get("ISIN") or "").strip().upper() or None
+        instruments.append(Equity(
+            instrument_id=InstrumentId.equity(_NSE, symbol),
+            symbol=symbol,
+            exchange=ExchangeId(_NSE),
+            meta=InstrumentMeta(isin=isin, extra={"series": series} if series else {}),
+        ))
     return instruments
 
 

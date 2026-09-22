@@ -494,6 +494,14 @@ def cmd_sync(args: Any) -> int:
 
     # Load universe
     instruments = load_universe(args.universe)
+    if not args.dry_run:
+        from tradex_trading.datalake.symbol_resolve import resolve_universe_symbols
+        resolved = resolve_universe_symbols(broker, instruments)
+        if resolved.renamed:
+            print(f"Renamed:  {resolved.renamed[:10]}")
+        if resolved.quarantine:
+            print(f"Quarantine ({len(resolved.quarantine)}): {resolved.quarantine[:10]}")
+        instruments = resolved.ok
     print(f"Universe: {args.universe} ({len(instruments)} instruments)")
     print(f"Window:   {start.date()} -> {end.date()} ({args.timeframe})")
 

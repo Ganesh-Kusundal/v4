@@ -36,8 +36,13 @@ def main() -> int:
     from datetime import UTC, datetime
 
     from tradex_domain.market_calendar import MARKET_OPEN, to_ist_naive
+    from tradex_trading.datalake.symbol_resolve import resolve_universe_symbols
 
     instruments = load_universe("nifty500")
+    resolved = resolve_universe_symbols(dhan, instruments)
+    if resolved.quarantine:
+        logging.warning("quarantine: %s", resolved.quarantine[:10])
+    instruments = resolved.ok
 
     # sync_today's window: 09:15 to now, IST. Pre-open there is nothing to do.
     now = to_ist_naive(datetime.now(UTC)).replace(second=0, microsecond=0)

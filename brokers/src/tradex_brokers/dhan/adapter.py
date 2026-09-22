@@ -225,6 +225,12 @@ class DhanBroker(BaseBroker):
             value = row.get(name)
             if value not in (None, ""):
                 meta[name] = str(value).strip()
+        series = str(row.get("series") or "").strip().upper()
+        if series:
+            meta["series"] = series
+        isin = str(row.get("isin") or "").strip().upper()
+        if isin:
+            meta["isin"] = isin
 
     def _extra_row_aliases(
         self,

@@ -12,6 +12,7 @@ from tradex_trading.datalake.simple_sync import (
     series_to_frame,
     simple_sync,
 )
+from tradex_trading.datalake.symbol_resolve import ResolveResult, resolve_universe_symbols
 from tradex_trading.datalake.universe import available_universes, load_universe
 
 __all__ = [
@@ -24,6 +25,8 @@ __all__ = [
     "simple_sync",
     "series_to_frame",
     "SyncResult",
+    "ResolveResult",
+    "resolve_universe_symbols",
     "load_universe",
     "available_universes",
     "ParquetMarketProvider",

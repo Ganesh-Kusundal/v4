@@ -139,7 +139,22 @@ def main(argv: list[str] | None = None) -> int:
         log.error("dhan unavailable: %s", e)
         return 1
 
+    from tradex_trading.datalake.symbol_resolve import resolve_universe_symbols
+    resolved = resolve_universe_symbols(dhan, instruments)
+    if resolved.renamed:
+        log.info("symbol_resolve renamed: %s", resolved.renamed[:10])
+    if resolved.quarantine:
+        log.warning("symbol_resolve quarantine (%d): %s",
+                    len(resolved.quarantine), resolved.quarantine[:10])
+    instruments = resolved.ok
+    if not instruments:
+        log.error("no instruments left after resolve")
+        return 1
+
     gap_map = {str(inst.instrument_id): r for inst, r in gaps}
+    # Drop gap entries for quarantined symbols
+    ok_ids = {str(i.instrument_id) for i in instruments}
+    gap_map = {k: v for k, v in gap_map.items() if k in ok_ids}
     total_written = 0
     # Biggest clusters first: fills the most symbols earliest and pushes
     # dead singletons (permanent broker failures) to the very end.
@@ -154,6 +169,9 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             seen.add(i.symbol)
             uniq.append(i)
+        uniq = [i for i in uniq if str(i.instrument_id) in ok_ids]
+        if not uniq:
+            continue
         ranges = {
             str(i.instrument_id): gap_map[str(i.instrument_id)]
             for i in uniq if str(i.instrument_id) in gap_map

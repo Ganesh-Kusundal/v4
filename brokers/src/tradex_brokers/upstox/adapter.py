@@ -194,10 +194,19 @@ class UpstoxBroker(BaseBroker):
         return 1 if series in self._CASH_EQUITY_SERIES else 0
 
     def _extra_row_meta(self, row: Mapping[str, Any], meta: dict[str, object]) -> None:
-        """Upstox contract metadata (position sizing)."""
+        """Upstox contract metadata (position sizing + ISIN from instrument key)."""
         lot_size = row.get("lot_size")
         if lot_size not in (None, ""):
             meta["lot_size"] = str(lot_size).strip()
+        series = str(row.get("instrument_type") or "").strip().upper()
+        if series:
+            meta["series"] = series
+            meta["instrument_type"] = series
+        key = str(row.get("key") or "")
+        if "|" in key:
+            isin = key.split("|", 1)[1].strip().upper()
+            if isin.startswith("IN"):
+                meta["isin"] = isin
 
     def subscribe_quotes(self, instruments: object, handler: object) -> object:
         """Subscribe to quote stream via WebSocket backend."""

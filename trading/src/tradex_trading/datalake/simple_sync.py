@@ -20,6 +20,21 @@ from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
 log = logging.getLogger(__name__)
 
 
+def _classify_fetch_error(msg: str) -> str:
+    """Map a fetcher error string to a sync outcome.
+
+    Returns one of: EMPTY_SERIES | NO_PROVIDER_KEY | NON_EQUITY_PRIMARY | TRANSIENT.
+    """
+    lower = msg.lower()
+    if "no provider key" in lower:
+        return "NO_PROVIDER_KEY"
+    if "non_equity" in lower or "non-equity" in lower or "series " in lower and "primary" in lower:
+        return "NON_EQUITY_PRIMARY"
+    if "empty" in lower:
+        return "EMPTY_SERIES"
+    return "TRANSIENT"
+
+
 @dataclass
 class SyncResult:
     requested: int
@@ -96,11 +111,14 @@ def simple_sync(
             inst_id = str(inst.instrument_id)
             series = results.get(inst_id)
             if series is None or not series.candles:
-                if any(inst_id in e and "empty" not in e for e in fetch_errors):
-                    failed.append(inst.symbol)
-                else:
+                errs = [e for e in fetch_errors if inst_id in e]
+                kind = _classify_fetch_error(errs[0]) if errs else "EMPTY_SERIES"
+                if kind == "EMPTY_SERIES":
                     skipped.append(inst.symbol)
                     log.debug("simple_sync: no data for %s (skipped)", inst.symbol)
+                else:
+                    failed.append(inst.symbol)
+                    log.debug("simple_sync: %s → failed (%s)", inst.symbol, kind)
                 continue
             frames.append(series_to_frame(series, inst.symbol))
             fetched += 1
