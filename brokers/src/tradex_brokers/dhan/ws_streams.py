@@ -4,7 +4,7 @@ Provider WebSocket transports for portfolio/order streams:
 
 * Dhan order-update stream: a token+clientId query-authenticated socket
   pushing native order rows as JSON.
-* Dhan market-data stream: JSON frames via RequestCode 15.
+* Dhan market-data stream: binary frames; mode via RequestCode (15/17/21).
 * Dhan depth stream: binary frames via RequestCode 23.
 """
 
@@ -40,8 +40,11 @@ MapPosition = Callable[[Mapping[str, Any]], Position | None]
 
 #: Official Dhan order-update websocket (dhanhq ``OrderUpdate`` endpoint).
 DHAN_ORDER_UPDATE_WS_URL = "wss://api-feed.dhan.co/v2/orderUpdate"
-#: Official Dhan quote/market-data websocket (RequestCode 15 feed).
+#: Official Dhan market-data websocket (modes selected by RequestCode:
+#: 15 ticker / 17 quote / 21 full — see dhanhq annexure).
 DHAN_MARKET_DATA_WS_URL = "wss://api-feed.dhan.co"
+#: Subscribe Full Packet (LTP + vol/OI + 5-level depth). Not 15 (ticker-only).
+DHAN_SUBSCRIBE_FULL = 21
 #: Official Dhan depth-20 websocket (RequestCode 23 binary feed).
 DHAN_DEPTH_20_WS_URL = "wss://depth-api-feed.dhan.co/twentydepth"
 
@@ -215,7 +218,7 @@ def _shape_dhan_quote_row(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class DhanMarketDataStreamBackend(AutoReconnectMixin):
-    """Dhan quote/market-data stream: JSON frames via RequestCode 15."""
+    """Dhan market-data stream: binary frames; subscribe via RequestCode 21 (Full)."""
 
     def __init__(
         self,
@@ -371,8 +374,8 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
         ws.send(
             json.dumps(
                 {
-                    "RequestCode": 15,
-                    "SubscriptionMode": 2,  # Full (quote + 5-level depth per tick)
+                    # ponytail: mode IS the RequestCode (15 ticker / 17 quote / 21 full)
+                    "RequestCode": DHAN_SUBSCRIBE_FULL,
                     "InstrumentCount": len(instrument_list),
                     "InstrumentList": instrument_list,
                 }
@@ -465,7 +468,7 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
     def feed_raw(self, raw: bytes | str) -> None:
         """Decode one Dhan market-data frame and dispatch to handlers.
 
-        The RequestCode-15 socket streams *binary* tick packets (see
+        The market-data socket streams *binary* tick packets (see
         :mod:`tradex_brokers.dhan.tick_parser`); a small JSON path is kept for
         textual frames. Order-update frames (``orderId`` / type ``order``) are
         skipped — the order feed is serviced by :class:`DhanOrderStreamBackend`.

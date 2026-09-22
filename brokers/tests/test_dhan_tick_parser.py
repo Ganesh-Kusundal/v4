@@ -138,6 +138,23 @@ class TestParseTickFrame:
         assert SEGMENT_EXCHANGE[2] == "NFO"
         assert SEGMENT_EXCHANGE[4] == "BSE"
 
+    def test_ltt_ist_wall_emitted_as_utc(self):
+        """Dhan LTT wall numbers are IST; Quote consumers need real UTC."""
+        from datetime import UTC, datetime
+        from zoneinfo import ZoneInfo
+
+        ist = ZoneInfo("Asia/Kolkata")
+        wall = datetime(2026, 9, 22, 19, 35, 10)
+        # Wire epoch: same wall components stamped as if they were UTC.
+        epoch = int(wall.replace(tzinfo=UTC).timestamp())
+        row = parse_tick_frame(
+            struct.pack("<BHBIfI", 2, 0, 5, 569900, 8680.0, epoch)
+        )
+        assert row is not None
+        expect = wall.replace(tzinfo=ist).astimezone(UTC).isoformat()
+        assert row["last_trade_time"] == expect
+        assert row["timestamp"] == expect
+
 
 # ---------------------------------------------------------------------------
 # Backend dispatch tests (feed_raw → Quote)
@@ -281,7 +298,7 @@ class TestMarketBackendReconnect:
             time.sleep(0.01)
         assert len(opened) >= 2  # reconnect opened a fresh socket
         frames = [json.loads(s) for s in opened[1].sent]
-        assert any(f.get("RequestCode") == 15 for f in frames)
+        assert any(f.get("RequestCode") == 21 for f in frames)
         assert any(
             str(item.get("SecurityId")) == "2885"
             for f in frames
@@ -368,7 +385,7 @@ class TestMarketBackendReconnect:
         backend._ws = None
         backend._ensure_ws()
         frames = [json.loads(s) for s in opened[1].sent]
-        assert any(f.get("RequestCode") == 15 for f in frames)
+        assert any(f.get("RequestCode") == 21 for f in frames)
         ids = {
             str(item.get("SecurityId"))
             for f in frames
@@ -397,7 +414,7 @@ class TestMarketBackendReconnect:
         backend._ensure_ws()
         assert len(opened) == 2
         frames = [json.loads(s) for s in opened[1].sent]
-        assert any(f.get("RequestCode") == 15 for f in frames)
+        assert any(f.get("RequestCode") == 21 for f in frames)
         ids = {
             str(item.get("SecurityId"))
             for f in frames

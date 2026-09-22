@@ -28,6 +28,7 @@ from __future__ import annotations
 import struct
 from datetime import UTC, datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 #: Exchange-segment codes carried in the binary frame header (dhanhq map).
 SEGMENT_EXCHANGE: dict[int, str] = {
@@ -40,6 +41,9 @@ SEGMENT_EXCHANGE: dict[int, str] = {
     7: "BCD",
     8: "BFO",
 }
+
+#: Dhan LTT is IST wall-clock seconds encoded as a Unix timestamp (as if UTC).
+_IST = ZoneInfo("Asia/Kolkata")
 
 #: Struct layout per Dhan binary message type (header + payload fields).
 _TICKER = struct.Struct("<BHBIfI")  # type, len, seg, secid, ltp, ltt
@@ -63,9 +67,16 @@ _MSG_TYPES = {
 
 
 def _epoch_to_iso(epoch: int) -> str:
-    """Convert a Dhan epoch-seconds timestamp to ISO 8601 (UTC)."""
+    """Convert a Dhan LTT epoch to ISO 8601 UTC.
+
+    Measured live (NSE + MCX): the wire integer is IST wall clock encoded as a
+    Unix timestamp *as if* those components were UTC. Reading it as UTC leaves
+    ``Quote.timestamp`` ~5.5h in the future and breaks mark freshness.
+    """
     try:
-        return datetime.fromtimestamp(epoch, tz=UTC).isoformat()
+        # ponytail: one shared decode — all frame types call this
+        wall = datetime.fromtimestamp(epoch, tz=UTC).replace(tzinfo=None)
+        return wall.replace(tzinfo=_IST).astimezone(UTC).isoformat()
     except (OverflowError, OSError, ValueError):
         return datetime.now(UTC).isoformat()
 
