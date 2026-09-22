@@ -715,17 +715,17 @@ async def ws_stream(
                     )
                     # Forward quote to client so LTP line and tickers update live
                     _send_quote(quote)
-                    for (bar_iid, _iv), agg in list(bar_aggregators.items()):
-                        if bar_iid == iid:
-                            try:
-                                agg.on_quote(
-                                    ts_ist,
-                                    quote.ltp.value,
-                                    quote.volume.value if quote.volume is not None else None,
-                                    source="sim",
-                                )
-                            except Exception:  # noqa: BLE001
-                                log.exception("sim bar aggregation failed for %s", iid)
+                    replay_agg = bar_aggregators.get(agg_key)
+                    if replay_agg is not None and agg_key[0] == iid:
+                        try:
+                            replay_agg.on_quote(
+                                ts_ist,
+                                quote.ltp.value,
+                                quote.volume.value if quote.volume is not None else None,
+                                source="sim",
+                            )
+                        except Exception:  # noqa: BLE001
+                            log.exception("sim bar aggregation failed for %s", iid)
 
                 mini_bus.of_type(Quote).subscribe(_on_sim_quote)
 
