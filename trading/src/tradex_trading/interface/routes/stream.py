@@ -407,7 +407,13 @@ async def ws_stream(
         # synthetic ones — the source only changes what gets published.
         bar_aggregators: dict[tuple[str, str], Any] = {}
         bar_disposables: list[Any] = []
-        replay_state: dict[str, Any] = {"task": None}
+        replay_state: dict[str, Any] = {
+            "task": None,
+            "paused": False,
+            "step": False,
+            "speed": 1.0,
+            "key": None,
+        }
 
         def _send_bar_frame(frame: Any) -> None:
             dropped[0] += _enqueue_drop_oldest(ticks, {
@@ -580,8 +586,15 @@ async def ws_stream(
             if agg_key not in bar_aggregators:
                 try:
                     bar_aggregators[agg_key] = _make_aggregator(instrument, interval)
-                except Exception:
-                    pass
+                except Exception as exc:  # noqa: BLE001 — surface setup failure
+                    log.exception("replay aggregator setup failed for %s", agg_key)
+                    _ack({"type": "error", "message": f"cannot start replay bars: {exc}"})
+                    return
+
+            replay_state["paused"] = False
+            replay_state["step"] = False
+            replay_state["speed"] = speed
+            replay_state["key"] = agg_key
 
             async def _run() -> None:
                 from datetime import datetime as _dt
@@ -747,9 +760,10 @@ async def ws_stream(
                         _ack({"type": "replay_paused"})
 
                 # Flat-close whatever is open.
-                for agg in bar_aggregators.values():
+                replay_agg = bar_aggregators.get(agg_key)
+                if replay_agg is not None:
                     try:
-                        agg.flush()
+                        replay_agg.flush()
                     except Exception:  # noqa: BLE001
                         pass
                 _ack({"type": "replay_done"})
@@ -782,6 +796,10 @@ async def ws_stream(
 
             task = replay_state.get("task")
             replay_state["task"] = None
+            replay_state["paused"] = False
+            replay_state["step"] = False
+            replay_state["speed"] = 1.0
+            replay_state["key"] = None
             if task is not None:
                 task.cancel()
                 try:

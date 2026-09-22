@@ -740,7 +740,7 @@ async function connect(): Promise<void> {
           };
           setPriceData();
           if (isReplaying) {
-            syncReplayBarUI(rawBars.length - 1, replayTotalBars, rawBars[rawBars.length - 1], replayIsPlaying, replaySpeed);
+            syncReplayBarUI(rawBars.length - 1, replayTotalBars, rawBars[rawBars.length - 1] ?? null, replayIsPlaying, replaySpeed);
           }
         } else if (last && b.time > last.time) {
           // New candle started
@@ -748,7 +748,7 @@ async function connect(): Promise<void> {
           setPriceData();
           if (isReplaying) {
             replayCurrentIndex = rawBars.length - 1;
-            syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[replayCurrentIndex], replayIsPlaying, replaySpeed);
+            syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[replayCurrentIndex] ?? null, replayIsPlaying, replaySpeed);
           }
         } else if (isReplaying) {
           const idx = rawBars.findIndex((r) => r.time === b.time);
@@ -1358,8 +1358,10 @@ function startReplayAt(index: number): void {
 
   replayCurrentIndex = index;
   replayTotalBars = replayFullBars.length;
-  const chosenBar = replayFullBars[index];
-  const startTime = chosenBar ? chosenBar.time : rawBars[0].time;
+  const chosenBar = replayFullBars[index] ?? null;
+  const firstBar = rawBars[0];
+  if (!chosenBar || !firstBar) return;
+  const startTime = chosenBar.time;
 
   // Truncate chart bars to the selected start bar
   rawBars = replayFullBars.slice(0, index + 1);
@@ -1470,7 +1472,7 @@ rpBack.addEventListener('click', () => {
   replayCurrentIndex--;
   rawBars = replayFullBars.slice(0, replayCurrentIndex + 1);
   setPriceData();
-  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[replayCurrentIndex], false, replaySpeed);
+  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[replayCurrentIndex] ?? null, false, replaySpeed);
   barSocket.send({ type: 'replay_pause' });
 });
 
@@ -1485,13 +1487,13 @@ rpScrub.addEventListener('input', () => {
   replayCurrentIndex = target;
   rawBars = replayFullBars.slice(0, target + 1);
   setPriceData();
-  syncReplayBarUI(target, replayTotalBars, rawBars[target], false, replaySpeed);
+  syncReplayBarUI(target, replayTotalBars, rawBars[target] ?? null, false, replaySpeed);
   barSocket.send({ type: 'replay_pause' });
 });
 
 rpSpeed.addEventListener('click', () => {
   const at = REPLAY_SPEEDS.indexOf(replaySpeed);
-  replaySpeed = REPLAY_SPEEDS[(at + 1) % REPLAY_SPEEDS.length];
+  replaySpeed = REPLAY_SPEEDS[(at + 1) % REPLAY_SPEEDS.length] ?? 1;
   barSocket.send({ type: 'replay_speed', speed: replaySpeed });
   syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[rawBars.length - 1] ?? null, replayIsPlaying, replaySpeed);
 });
@@ -1542,4 +1544,3 @@ barSocket.on('replay_done', () => {
 
 // Initial connection
 connect();
-
