@@ -2,8 +2,8 @@
 
 Public intake interface: the engine, fill sources, fee calculation,
 order/position management, and the trading cache.  Internal types
-(idempotency guards, order stores, risk internals) live in their
-respective submodules — import from there directly.
+(idempotency guards, the sqlite persistence seam, risk internals) live
+in their respective submodules — import from there directly.
 """
 
 from tradex_trading.execution.engine import ExecutionEngine, RiskManager

@@ -53,7 +53,7 @@ from tradex_trading.execution.idempotency import (
 )
 from tradex_trading.execution.kill_switch import KillSwitch
 from tradex_trading.execution.order_manager import OrderManager
-from tradex_trading.execution.order_store import InMemoryOrderStore, OrderStore
+from tradex_trading.execution.sqlite_store import InMemoryOrderStore, OrderStore
 from tradex_trading.execution.position_manager import PositionManager
 from tradex_trading.execution.reconciliation import DriftItem, ReconciliationEngine
 from tradex_trading.execution.risk import (

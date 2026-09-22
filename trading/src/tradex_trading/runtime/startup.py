@@ -388,7 +388,7 @@ def _boot_tail(
     # BEFORE the session starts, then mirror every lifecycle event into the
     # store. Subscriptions die with bus.dispose() on session.stop().
     if order_store is not None:
-        from tradex_trading.execution.order_persistence import attach_order_persistence
+        from tradex_trading.execution.sqlite_store import attach_order_persistence
 
         order_store.load_into(engine.cache)
         attach_order_persistence(bus, engine.cache, order_store)

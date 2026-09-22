@@ -1,9 +1,16 @@
-"""SQLite-backed persistent order store and idempotency guard."""
+"""Order persistence seam: SQLite store, in-memory variant, and bus wiring.
+
+The single home for "where does an order get persisted": ``SQLiteOrderStore``
+(production), ``InMemoryOrderStore`` + the ``OrderStore`` protocol (tests and
+single-process use), ``attach_order_persistence`` (event-driven cache mirroring),
+and the SQLite idempotency guard.
+"""
 
 from __future__ import annotations
 
 import base64
 import json
+import logging
 import pickle
 import sqlite3
 
@@ -11,10 +18,16 @@ import sqlite3
 _PICKLE_PREFIX = "__tradex_pickle__:"
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
-from tradex_domain.events import OrderFilled
+from tradex_domain.events import (
+    OrderCancelled,
+    OrderFilled,
+    OrderModified,
+    OrderPlaced,
+    OrderRejected,
+)
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
@@ -473,4 +486,114 @@ class SQLiteIdempotencyGuard:
         self._conn.close()
 
 
-__all__ = ["SQLiteIdempotencyGuard", "SQLiteOrderStore"]
+# ---------------------------------------------------------------------------
+# OrderStore protocol + in-memory implementation (folded from order_store.py)
+# ---------------------------------------------------------------------------
+
+
+@runtime_checkable
+class OrderStore(Protocol):
+    """Persistence abstraction for orders."""
+
+    def upsert(self, order: Order) -> None: ...
+    def get(self, order_id: OrderId) -> Order | None: ...
+    def all_orders(self) -> list[Order]: ...
+
+
+class InMemoryOrderStore:
+    """Dict-backed OrderStore for tests and single-process use."""
+
+    def __init__(self) -> None:
+        self._orders: dict[str, Order] = {}
+
+    def upsert(self, order: Order) -> None:
+        self._orders[order.order_id.value] = order
+
+    def get(self, order_id: OrderId) -> Order | None:
+        key = order_id.value if isinstance(order_id, OrderId) else str(order_id)
+        return self._orders.get(key)
+
+    def all_orders(self) -> list[Order]:
+        return list(self._orders.values())
+
+
+# ---------------------------------------------------------------------------
+# Event-driven persistence wiring (folded from order_persistence.py)
+# ---------------------------------------------------------------------------
+#
+# ``attach_order_persistence`` subscribes a store (e.g. ``SQLiteOrderStore``)
+# to the five order lifecycle events on the reactive bus. Two paths are wired,
+# depending on the store's capabilities:
+#
+# * **Cache-mirror** (OrderPlaced/Cancelled/Modified/Rejected): read the
+#   current cached state and persist it — exactly what the OMS holds at
+#   publication time.
+# * **Fill-aware** (OrderFilled): delegate to the store's
+#   ``upsert_from_event`` so a fill arriving before its OrderPlaced is still
+#   durable, and partial fills accumulate idempotently. When the store
+#   exposes that entry point, the fill subscription *owns* OrderFilled (the
+#   cache-mirror must not also write it — a partial fill would double-count).
+#
+# Subscriptions die with ``bus.dispose()`` — i.e. on ``session.stop()``.
+# Persistence failures are logged, never raised: durability must not break
+# trading.
+
+_log = logging.getLogger(__name__)
+
+_ORDER_EVENTS = (OrderPlaced, OrderFilled, OrderCancelled, OrderModified, OrderRejected)
+
+
+def attach_order_persistence(bus: Any, cache: Any, store: Any) -> int:
+    """Mirror cache state into *store* on every order lifecycle event.
+
+    *store* needs only ``upsert(order)`` (satisfied by ``SQLiteOrderStore``).
+    Returns the number of subscriptions created.
+    """
+    has_fill_aware = hasattr(store, "upsert_from_event")
+
+    def _on_event(event: Any) -> None:
+        try:
+            if hasattr(event, "fill"):
+                order_id = event.fill.order_id
+            else:
+                order = getattr(event, "order", None)
+                order_id = order.order_id if order is not None else None
+            if order_id is None:
+                return
+            current = cache.get_order(order_id)
+            if current is not None:
+                store.upsert(current)
+        except Exception:  # noqa: BLE001 — persistence must never break trading
+            _log.exception("order persistence failed")
+
+    # If the store exposes a fill-aware entry point, the dedicated
+    # subscription below owns OrderFilled — the cache-mirror must NOT also
+    # write the same event (that would double-count the partial fill).
+    mirror_events = tuple(
+        t for t in _ORDER_EVENTS if not (has_fill_aware and t is OrderFilled)
+    )
+    for event_type in mirror_events:
+        bus.of_type(event_type).subscribe(_on_event)
+
+    subscriptions = len(mirror_events)
+    if has_fill_aware:
+
+        def _on_fill(event: Any) -> None:
+            try:
+                store.upsert_from_event(event)
+            except Exception:  # noqa: BLE001 — persistence must never break trading
+                _log.exception("fill-aware persistence failed")
+
+        bus.of_type(OrderFilled).subscribe(_on_fill)
+        subscriptions += 1
+
+    return subscriptions
+
+
+__all__ = [
+    "InMemoryOrderStore",
+    "OrderStore",
+    "SQLiteIdempotencyGuard",
+    "SQLiteOrderStore",
+    "attach_order_persistence",
+]
