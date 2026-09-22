@@ -1,8 +1,8 @@
 """Runtime filesystem paths for broker state and caches.
 
 Centralises the default directories used for token state, instrument caches,
-and other runtime artefacts so that all broker adapters use a consistent
-layout.
+and other runtime artefacts so that all broker adapters use a consistent,
+cwd-independent layout: one runtime root, never per-launch-cwd forks.
 """
 
 from __future__ import annotations
@@ -16,7 +16,16 @@ def default_runtime_dir() -> Path:
 
     Resolution order:
     1. ``$TRADEX_RUNTIME_DIR`` environment variable if set.
-    2. ``./runtime`` relative to the current working directory.
+    2. ``<repo>/runtime`` anchored from this file — cwd-independent, the
+       exact pattern ``tradex_trading.datalake.paths`` uses for the lake.
+
+    Why anchored: the old fallback (``Path.cwd() / "runtime"``) forked the
+    *same* token/totp/instrument state into a different directory for every
+    launch cwd — ``trading/runtime/`` when a process started from
+    ``trading/``, ``brokers/runtime/`` likewise — so two writers could each
+    believe they owned the session (the same cwd bug that created the shadow
+    ``trading/data/`` lake, fixed for the lake by ``datalake/paths.py`` on
+    2026-09-02; this closes it for runtime state).
 
     The directory is created if it does not exist.
     """
@@ -24,7 +33,8 @@ def default_runtime_dir() -> Path:
     if env_dir:
         path = Path(env_dir)
     else:
-        path = Path.cwd() / "runtime"
+        # parents: common -> tradex_brokers -> src -> brokers -> repo root
+        path = Path(__file__).resolve().parents[4] / "runtime"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
