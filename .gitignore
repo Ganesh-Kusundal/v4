@@ -28,10 +28,22 @@ htmlcov/
 .coverage
 
 # Tool caches & generated output
-.mypy_cache/
+**/.mypy_cache/
 .ruff_cache/
 graphify-out/
 .freebuff/
+.kilo/
+.benchmarks/
+.complexipy_cache/
+.hypothesis/
+.poolside/
+.workbuddy-ai/
+
+# Typo duplicate of openalgo-charts/ (never commit)
+referances/
+
+# Root Playwright deps (restore via npm ci; package.json + lockfile tracked)
+/node_modules/
 
 # OS
 .DS_Store
