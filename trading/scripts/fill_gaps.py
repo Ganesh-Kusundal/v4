@@ -146,7 +146,14 @@ def main(argv: list[str] | None = None) -> int:
     for (c_start, c_end), insts in sorted(
         clusters.items(), key=lambda kv: len(kv[1]), reverse=True
     ):
-        uniq = list(dict.fromkeys(insts))
+        # Instruments aren't hashable (metadata dict); dedupe by symbol.
+        seen: set[str] = set()
+        uniq = []
+        for i in insts:
+            if i.symbol in seen:
+                continue
+            seen.add(i.symbol)
+            uniq.append(i)
         ranges = {
             str(i.instrument_id): gap_map[str(i.instrument_id)]
             for i in uniq if str(i.instrument_id) in gap_map
