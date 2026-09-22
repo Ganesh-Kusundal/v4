@@ -183,18 +183,14 @@ def main(argv: list[str] | None = None) -> int:
         key=lambda kv: (_ORDER[kv[1]["kind"]], -len(kv[1]["symbols"])),
     )
 
-    brokers = {}
-    for name in ("dhan", "upstox"):
-        try:
-            b = build_broker_from_env(name)
-            b.connect()
-            brokers[name] = b
-        except Exception as exc:
-            print(f"[repair] {name} unavailable: {exc}", flush=True)
-    if not brokers:
+    try:
+        dhan = build_broker_from_env("dhan")
+        dhan.connect()
+    except Exception as exc:
+        print(f"[repair] dhan unavailable: {exc}", flush=True)
         return 1
-    primary, failover = brokers["dhan"], {k: v for k, v in brokers.items() if k != "dhan"}
 
+    gap_map = {inst.symbol: r for inst, r in found.gaps}
     written = done = 0
     stop = False
     for (first, last), bucket in order:
@@ -207,14 +203,17 @@ def main(argv: list[str] | None = None) -> int:
                 stop = True
                 break
             t0 = time.monotonic()
+            ranges = {
+                str(i.instrument_id): gap_map[i.symbol]
+                for i in chunk if i.symbol in gap_map
+            }
             result = simple_sync(
-                primary, store, chunk, args.timeframe, ws, we,
-                gaps=detector,
-                failover_brokers=failover or None,
+                dhan, store, list(chunk), args.timeframe, ws, we, ranges=ranges,
             )
             written += result.written
             print(f"[repair] {first} [{bucket['kind']}]: {len(chunk)}/{len(insts)} symbols, "
                   f"{result.fetched} fetched, {result.written} rows, "
+                  f"skipped={len(result.skipped)}, "
                   f"{time.monotonic() - t0:.1f}s", flush=True)
         done += 1
         if stop:

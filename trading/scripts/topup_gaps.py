@@ -96,9 +96,8 @@ def main(argv: list[str] | None = None) -> int:
         log.info("Nothing to top up.")
         return 0
 
-    # Fill through the one sync path: the filler broker is the primary, gap
-    # planning scopes the fetch to the detected ranges, and the fetcher's
-    # auto-chunking handles the filler's own poll caps.
+    # Filler broker (default Upstox) — this is the residual/tail path, not
+    # the Dhan sync path. Caller-owned ranges; no re-detect inside sync.
     from tradex_trading.config.env import load_env_file
     load_env_file(str(ROOT / ".env.local"))
     from tradex_trading.runtime.live import build_broker_from_env
@@ -106,15 +105,18 @@ def main(argv: list[str] | None = None) -> int:
     filler.connect()
 
     targets = [instruments[inst.symbol] for inst, _ in gaps]
+    ranges = {str(inst.instrument_id): r for inst, r in gaps}
     result = simple_sync(
         filler, store, targets, args.timeframe, start, end,
-        gaps=detector, max_workers=args.workers,
+        ranges=ranges, max_workers=args.workers,
     )
 
     log.info("=" * 60)
-    log.info("Top-up complete: %d rows written, %d failed: %s",
-             result.written, len(result.failed), result.failed[:5])
-    return 0
+    log.info(
+        "Top-up complete: %d rows written, %d failed, %d skipped: %s",
+        result.written, len(result.failed), len(result.skipped), result.failed[:5],
+    )
+    return 0 if not result.failed else 1
 
 
 if __name__ == "__main__":

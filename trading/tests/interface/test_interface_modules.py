@@ -191,7 +191,7 @@ class TestRunCli:
         """
         with patch("tradex_trading.datalake.simple_sync.simple_sync") as simple:
             simple.return_value = MagicMock(
-                requested=50, fetched=0, written=0, failed=[]
+                requested=50, fetched=0, written=0, failed=[], skipped=[]
             )
             result = run_cli(
                 ["sync", "--dry-run", "--universe", "nifty50",

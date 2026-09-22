@@ -25,25 +25,18 @@ from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 
 def main() -> int:
     store = ParquetStorage(ROOT / "data")
-    brokers = {}
-    for name in ("dhan", "upstox"):
-        try:
-            b = build_broker_from_env(name)
-            b.connect()
-            brokers[name] = b
-            logging.info("connected: %s", name)
-        except Exception as e:
-            logging.warning("skip %s: %s", name, e)
-
-    if not brokers:
-        logging.error("no brokers available")
+    try:
+        dhan = build_broker_from_env("dhan")
+        dhan.connect()
+        logging.info("connected: dhan")
+    except Exception as e:
+        logging.error("dhan unavailable: %s", e)
         return 1
 
     from datetime import UTC, datetime
 
     from tradex_domain.market_calendar import MARKET_OPEN, to_ist_naive
 
-    primary, failover = brokers["dhan"], {k: v for k, v in brokers.items() if k != "dhan"}
     instruments = load_universe("nifty500")
 
     # sync_today's window: 09:15 to now, IST. Pre-open there is nothing to do.
@@ -54,16 +47,22 @@ def main() -> int:
         print("[today-topup] pre-open, nothing to do")
         return 0
 
+    found = GapDetector(store).scan(
+        instruments, start=day_start, end=now, timeframe="1m", bar_freq="1min",
+    )
+    if not found.gaps:
+        print("[today-topup] nothing to sync")
+        return 0
+    targets = [inst for inst, _ in found.gaps]
+    ranges = {str(inst.instrument_id): r for inst, r in found.gaps}
     result = simple_sync(
-        primary, store, instruments, "1m", day_start, now,
-        gaps=GapDetector(store),
-        failover_brokers=failover or None,
+        dhan, store, targets, "1m", day_start, now, ranges=ranges,
     )
     print(
         f"[today-topup] DONE fetched={result.fetched} written={result.written} "
-        f"failed={len(result.failed)}"
+        f"failed={len(result.failed)} skipped={len(result.skipped)}"
     )
-    return 0
+    return 0 if not result.failed else 1
 
 
 if __name__ == "__main__":

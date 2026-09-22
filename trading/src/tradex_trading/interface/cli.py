@@ -474,49 +474,56 @@ def cmd_sync(args: Any) -> int:
         print(f"Nothing to sync — end date ({end.date()}) is before start ({start.date()})")
         return 0
 
-    # Build brokers
-    brokers: dict[str, Any] = {}
+    # Dhan-only (paper under the same fetcher key for dry-run).
     if args.dry_run:
         from tradex_brokers.paper.adapter import PaperBroker
-        brokers["paper"] = PaperBroker()
+        broker = PaperBroker()
+        logging.info("connected: paper (dry-run)")
     else:
-        for name in (["dhan", "upstox"] if args.broker == "both" else [args.broker]):
-            try:
-                b = build_broker_from_env(name)
-                b.connect()
-                brokers[name] = b
-                logging.info("connected: %s", name)
-            except Exception as e:
-                logging.warning("skip %s: %s", name, e)
-
-    if not brokers:
-        print("error: no brokers available")
-        return 1
+        name = "dhan" if args.broker in ("both", "dhan") else args.broker
+        if name != "dhan":
+            print("error: sync is Dhan-only (use trading/scripts/topup_gaps.py for Upstox fill)")
+            return 1
+        try:
+            broker = build_broker_from_env("dhan")
+            broker.connect()
+            logging.info("connected: dhan")
+        except Exception as e:
+            print(f"error: dhan unavailable: {e}")
+            return 1
 
     # Load universe
     instruments = load_universe(args.universe)
     print(f"Universe: {args.universe} ({len(instruments)} instruments)")
     print(f"Window:   {start.date()} -> {end.date()} ({args.timeframe})")
 
-    # Build sync pipeline — simple_sync is the one fill path (fetch + failover + gaps)
     from tradex_trading.datalake.simple_sync import simple_sync
 
-    gaps = GapDetector(store) if args.skip_existing else None
-    broker = brokers.get("dhan") or next(iter(brokers.values()))
+    ranges = None
+    targets = instruments
+    if args.skip_existing:
+        bar_freq = {"1m": "1min", "5m": "5min", "15m": "15min"}.get(args.timeframe, "1min")
+        found = GapDetector(store).scan(
+            instruments, start=start, end=end,
+            timeframe=args.timeframe, bar_freq=bar_freq,
+        )
+        targets = [inst for inst, _ in found.gaps]
+        ranges = {str(inst.instrument_id): r for inst, r in found.gaps} or None
+        print(f"Gaps:     {len(targets)} symbols need fetch")
 
-    # Run sync
     result = simple_sync(
-        broker, store, instruments, args.timeframe, start, end,
+        broker, store, targets, args.timeframe, start, end,
         batch_size=args.batch_size,
         max_workers=args.workers,
-        gaps=gaps,
+        ranges=ranges,
     )
 
-    # Report
     print(f"\nSync complete:")
     print(f"  Requested: {result.requested}")
     print(f"  Fetched:   {result.fetched}")
     print(f"  Written:   {result.written} rows")
+    if result.skipped:
+        print(f"  Skipped:   {len(result.skipped)} (no data)")
     if result.failed:
         print(f"  Failed:    {len(result.failed)} symbols")
         print(f"  Examples:  {result.failed[:5]}")

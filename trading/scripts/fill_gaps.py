@@ -131,36 +131,34 @@ def main(argv: list[str] | None = None) -> int:
             clusters[key].append(inst)
     log.info("%d gap clusters", len(clusters))
 
-    # ---- broker: prefer whichever serves this span (same-day -> dhan) ----
-    brokers = {}
-    for name in ("dhan", "upstox"):
-        try:
-            b = build_broker_from_env(name)
-            b.connect()
-            brokers[name] = b
-        except Exception as e:
-            log.warning("%s unavailable: %s", name, e)
-    if not brokers:
+    # Dhan-only sync. Upstox close-side tails are a separate repair script.
+    try:
+        dhan = build_broker_from_env("dhan")
+        dhan.connect()
+    except Exception as e:
+        log.error("dhan unavailable: %s", e)
         return 1
 
-    # The primary serves the window; the other broker is handed to the fetcher
-    # as failover, so a clipped tail or a dead primary falls back instead of
-    # leaving a permanent gap. One path, no separate orchestrator.
-    primary, failover = brokers["dhan"], {k: v for k, v in brokers.items() if k != "dhan"}
-
+    gap_map = {str(inst.instrument_id): r for inst, r in gaps}
     total_written = 0
     # Biggest clusters first: fills the most symbols earliest and pushes
     # dead singletons (permanent broker failures) to the very end.
     for (c_start, c_end), insts in sorted(
         clusters.items(), key=lambda kv: len(kv[1]), reverse=True
     ):
-        log.info("cluster %s -> %s (%d symbols)", c_start.date(), c_end.date(), len(insts))
+        uniq = list(dict.fromkeys(insts))
+        ranges = {
+            str(i.instrument_id): gap_map[str(i.instrument_id)]
+            for i in uniq if str(i.instrument_id) in gap_map
+        }
+        log.info("cluster %s -> %s (%d symbols)", c_start.date(), c_end.date(), len(uniq))
         result = simple_sync(
-            primary, store, insts, "1m", c_start, c_end,
-            gaps=detector,
-            failover_brokers=failover or None,
+            dhan, store, uniq, "1m", c_start, c_end, ranges=ranges,
         )
         total_written += result.written
+        if result.skipped:
+            log.info("cluster skipped %d (no data): %s",
+                     len(result.skipped), result.skipped[:5])
         log.info("cluster done; total written so far=%d", total_written)
 
     # ---- verify ----
