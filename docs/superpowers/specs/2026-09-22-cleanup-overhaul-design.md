@@ -3,7 +3,40 @@
 **Date:** 2026-09-22
 **Branch:** `chore/cleanup-overhaul` (to be cut from `refactor/simple-sync-consolidation` @ `0b2ce8e`)
 **Source:** architecture review report `architecture-review-20260922-130000.html` (6 candidates)
-**Status:** approved for planning
+**Status:** phases 0–4A done and gated; 4B/4C, 5, 6 pending
+
+## Progress
+
+Each row was a full-suite gate
+(`.venv/bin/python -m pytest domain/tests brokers/tests trading/tests tests
+-p no:cacheprovider --import-mode=importlib -c pyproject.toml -q`) run before
+the commit it describes.
+
+| Commit | Phase | Suite |
+|---|---|---|
+| — | baseline `0b2ce8e` | 3169 passed / 3 skipped |
+| `b62dfc0` | 1 — purge dead mass, one experiment home | 3169 / 3 |
+| `49cd3ef` | 2 — one runtime root | 3174 / 3 |
+| `ee566bd` | 3 — order persistence seam | 3171 / 3 |
+| `2aa65c3` | 4A — retire superseded probe, guard moves to CI | 3176 / 3 |
+
+**Still open:** 4B/4C (sync wrappers → delegates; `quick_start_live.py`
+decision), 5 (analytics re-cut), 6 (goldens, only if triggered by 1–5).
+
+**Findings recorded for later, not acted on:**
+
+- `AppConfig.runtime_dir` (`trading/src/tradex_trading/config/schema.py`) is
+  declared, env-populated, `from_dict`-allowed and docstring-documented, but has
+  **zero reads** anywhere in the repo. Its default `.tradex_v4` also disagrees
+  with the real runtime root `runtime/`. Removing it is a config-surface change
+  (a caller config carrying the key would start failing validation), so it needs
+  a deliberate caller decision rather than a drive-by deletion.
+- `runtime/audit_master_parity.py` is a source script living inside the
+  gitignored state directory, so no review sees it, and it hardcodes a
+  machine-specific `/Users/apple/Downloads/v3` interpreter path. It should move
+  into the tree or be deleted.
+- `runtime/` (32 MB) plus `trading/data/` remain as state trees; only the
+  fork-causing *code* paths were fixed in phase 2.
 
 ## Goal
 
@@ -21,8 +54,12 @@ independently revertible.
   --import-mode=importlib -c pyproject.toml`. Without `-c pyproject.toml`,
   rootdir discovery walks up to the parent directory and hits a sandbox
   PermissionError.
-- **Baseline:** 3185 passed / 3 skipped (domain + brokers + trading + root);
-  brokers 789 passed / 2 skipped; frontend `tsc --noEmit` clean.
+- **Baseline:** 3169 passed / 3 skipped (domain + brokers + trading + root);
+  brokers 789 passed / 2 skipped; frontend `tsc --noEmit` clean. (This spec
+  first carried 3185 — a stale figure from an older commit, corrected here once
+  the real gate was run. The apparent shortfall against it during phases 1–3 was
+  an accounting artefact, not lost coverage: no test file was deleted in any
+  phase, and the final count is baseline + the 7 tests the phases add.)
 - **Dependency direction unchanged:** `domain ← brokers ← trading` (never reverse).
 - The 2026-09-17 review's six candidates are done; this spec does not re-litigate them.
 - Vocabulary: `CLAUDE.md` is the domain guide (no root `CONTEXT.md`, no ADRs).
