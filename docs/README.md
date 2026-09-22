@@ -53,27 +53,24 @@ Authoritative sources (always current):
 ## Specs & plans (design history, newest last)
 
 `superpowers/specs/` and `superpowers/plans/` hold one file per designed
-sub-project, named `YYYY-MM-DD-<topic>`. Key recent items:
+sub-project, named `YYYY-MM-DD-<topic>`. Current set:
 
-- `2026-09-08-indicator-parity-2-1-0` — full 102-indicator parity with
-  openalgo-charts 2.1.0 (differential harness, 12 ports, drift fixes)
+- **Active:** `plans/2026-09-21-simple-sync-consolidation` — finish sync
+  unification on `simple_sync` (supersedes the deleted sync-facade plan)
+- `2026-09-08-indicator-parity-2-1-0` — full indicator parity with
+  openalgo-charts (differential harness, ports, drift fixes)
 - `2026-09-09-depth-conformance` — WS depth frames match engine MarketDepth
 - `2026-09-09-ws-indicator-push` — Tier-2 subscribe seam (bar-close + tick)
 - `2026-09-09-workspace-persistence` — opaque-blob chart-state CRUD
 - `2026-09-09-study-strategies` — five chart-study signal strategies
-- `2026-09-08-sync-facade`, `2026-09-07-*` — datalake sync and hardening
+- `plans/2026-09-09-frontend-host-plan` — chart host wiring
+- `plans/2026-09-04-execution-hardening-and-safety-fixes` — landed hardening
 
-## Reviews
+## Reviews (archived)
 
-`reviews/` holds dated architecture/code reviews. Reviews are records of
-their date — superseded verdicts live in `archive/<year-month>/`:
+Point-in-time architecture/code reviews live under `archive/<year-month>/`
+only — there is no live `reviews/` directory:
 
 - `archive/2026-08/` — pre-hardening reviews (2026-08-29)
-- `archive/2026-09/` — execution-state review + fix status (2026-09-01),
-  both superseded by the landed hardening work
-
-## Superseded
-
-- `ui-zero-parity-plan.md` / `superpowers/specs/2026-09-05-ui-zero-parity-*`
-  describe the deleted `frontend/`; they remain as history for the future
-  frontend rebuild (frontend rebuild is the one open workstream).
+- `archive/2026-09/` — execution-state (2026-09-01), architecture flow /
+  principal / quant verification reviews (2026-09-04..07)

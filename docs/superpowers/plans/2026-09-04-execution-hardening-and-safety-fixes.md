@@ -3,8 +3,8 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (Recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Date:** 2026-09-04
-**Source findings:** `docs/reviews/architecture-flow-verification-2026-09-04.md` (N1–N8) — an independent source-verified review of the working tree on branch `refactor/execution-state`.
-**Companion docs:** `docs/design/tradex-target-architecture-and-refactoring-plan-2026-09-04.md` (long-term target), `docs/reviews/principal-architecture-review-2026-09-04.md`.
+**Source findings:** `docs/archive/2026-09/architecture-flow-verification-2026-09-04.md` (N1–N8) — an independent source-verified review of the working tree on branch `refactor/execution-state`.
+**Companion docs:** `docs/archive/2026-09/principal-architecture-review-2026-09-04.md` (the Sep-04 target-architecture mega-plan was removed in the 2026-09-22 hygiene pass).
 
 **Goal:** Land the review's findings as small, tested, behavior-preserving fixes in the **active `execution/` spine** — the real-money safety defects first (live cancel never reaches the venue, idempotency gaps on modify/cancel, kill-switch cancel ordering), then the P2 hardening items, then the known cleanups. No architecture rewrite; the target-architecture phases (delete `trading/events/`, session drivers, wire envelope, frontend separation) remain gated follow-on work referenced in §6.
 
@@ -240,7 +240,7 @@
 
 ## Phase 4: Gated follow-on (NOT in this plan's scope)
 
-From `docs/design/tradex-target-architecture-and-refactoring-plan-2026-09-04.md` — do not start without a new plan and a fresh baseline:
+Gated follow-ons from the retired Sep-04 target-architecture mega-plan — do not start without a new plan and a fresh baseline:
 
 1. **Delete `trading/events/`** (entire package + `trading/scripts/probe_review_fixes.py`) after porting its durable `EventStore` concepts into `execution/` (Phase 3 of the target plan).
 2. **Replay-scoped session driver** — full C4 fix replacing the Task 5 interim gate.

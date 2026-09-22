@@ -2,7 +2,7 @@
 
 **Purpose:** Single source for the platform's current design posture. Update after every architectural commit.
 **Source of truth for:** invariants, known gaps, in-flight work, sequencing.
-**Companion:** `docs/reviews/architecture-design-review-2026-08-29.md` is the *baseline* design review; this file is *current state*.
+**Companion:** `docs/archive/2026-08/architecture-design-review-2026-08-29.md` is the *baseline* design review; this file is *current state*.
 
 ---
 
@@ -62,8 +62,8 @@ Every item below has a test pin and a commit. Suite at completion: **2808 passed
 ### 2026-09-04 — Refactoring-plan Phase 1 (Safety: C1 + C2) — in working tree
 
 Status: implemented in the uncommitted working tree (branch `refactor/execution-state`);
-companion docs: `docs/design/tradex-target-architecture-and-refactoring-plan-2026-09-04.md`
-and `docs/reviews/principal-architecture-review-2026-09-04.md`.
+companion review: `docs/archive/2026-09/principal-architecture-review-2026-09-04.md`
+(the Sep-04 target-architecture mega-plan was removed in the 2026-09-22 hygiene pass).
 
 - ✅ **C1 end-to-end idempotency** — `frontend/src/trade-feed.ts` forwards
   `clientToken`/generated keys as `Idempotency-Key` on POST/PUT/DELETE;
@@ -138,7 +138,7 @@ From `tradexv2-org`: architecture first, then contracts, then tests, then implem
 
 ## Update log
 
-- 2026-08-29 — design state initialized; baseline = `docs/reviews/architecture-design-review-2026-08-29.md`.
+- 2026-08-29 — design state initialized; baseline = `docs/archive/2026-08/architecture-design-review-2026-08-29.md`.
 - 2026-08-29 — Sprint 1 revised: principal-architect review surfaced 5 new 🔴 (C1–C5) and 8 🟠 (H1–H8) findings.
 - 2026-08-29 — C1 GREEN (`d6f65ea`); C1 follow-up (`df61073`); C2 (`29e527e`); C3 (`e766fb1`); C4 (`91ab3dd`); C5 (`0254054`). All 5 Sprint-1 criticals closed.
 - 2026-08-29 — H1+H5+H7+H8 batch (`ab0808b`); H2 (`dc5e0aa`); G3 (`0c9678e`); G2 (`aeb7c7b`).
