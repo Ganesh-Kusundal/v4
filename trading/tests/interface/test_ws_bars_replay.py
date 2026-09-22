@@ -280,6 +280,48 @@ class TestReplayControl:
             assert saw_step_ack, "replay_stepped acknowledgment was not emitted"
             assert saw_step_bar, "replay_stepped arrived before the stepped bar frame"
 
+            ws.send_json({"type": "replay_stop"})
+            deadline = __import__("time").monotonic() + 5
+            stopped = False
+            while __import__("time").monotonic() < deadline:
+                msg = ws.receive_json()
+                if msg["type"] == "replay_stopped":
+                    stopped = True
+                    break
+            assert stopped, "expected replay_stopped after stop"
+
+    def test_replay_start_aggregator_failure_errors(self):
+        """Aggregator construction failure must not start replay."""
+        from unittest.mock import patch
+
+        class _BadStore:
+            def __init__(self, _base_path) -> None: pass
+            def read(self, *_args, **_kwargs):
+                class _Df:
+                    empty = True
+                return _Df()
+            def date_range(self, _symbol):
+                return None
+
+        client = TestClient(_app())
+        with client.websocket_connect("/ws/stream") as ws:
+            with patch("tradex_trading.datalake.parquet_storage.ParquetStorage", _BadStore):
+                ws.send_json({
+                    "type": "replay_start",
+                    "instrument": "NSE:NOSUCH",
+                    "interval": "1m",
+                    "minutes": 10,
+                })
+                msgs = []
+                deadline = __import__("time").monotonic() + 5
+                while __import__("time").monotonic() < deadline:
+                    msg = ws.receive_json()
+                    msgs.append(msg)
+                    if msg["type"] in ("error", "replay_done"):
+                        break
+                assert any(m["type"] == "error" for m in msgs)
+                assert not any(m["type"] == "replay_started" for m in msgs)
+
 
 class TestWriterControlUnderFlood:
     """Regression: the outbound writer used ``done.pop()`` on
