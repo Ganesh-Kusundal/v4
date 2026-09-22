@@ -106,62 +106,24 @@ def bench_single_broker_parallel(instruments, latency_ms, days):
     t0 = time.monotonic()
     results, _ = fetcher.fetch(instruments, Timeframe.M1, BASE, end)
     wall = time.monotonic() - t0
-    return wall, len(results)
+    return wall, len(results), broker.history.call_count
 
 
-def bench_dual_broker_parallel(instruments, latency_ms, days):
-    """Two brokers, 4 parallel workers, instruments split across both."""
-    dhan = _make_broker("dhan", latency_ms)
-    upstox = _make_broker("upstox", latency_ms)
-    fetcher = ParallelHistoryFetcher({"dhan": dhan, "upstox": upstox}, max_workers=4)
-    end = BASE + timedelta(days=days)
-    t0 = time.monotonic()
-    results, _ = fetcher.fetch(instruments, Timeframe.M1, BASE, end)
-    wall = time.monotonic() - t0
-    # Count calls per broker
-    return wall, len(results), dhan.history.call_count, upstox.history.call_count
-
-
-QUOTA_N = 40          # calls; dhan bucket = rate 5/s cap 1 -> ~8s solo
-QUOTA_LATENCY_MS = 2  # small enough that buckets dominate wall time
+QUOTA_N = 40
+QUOTA_LATENCY_MS = 2
 
 
 def bench_quota_bound():
-    """Rate-limit-bound regime: dhan's 5/s bucket binds, upstox's doesn't.
-
-    Fresh limiters per fetcher instance make this deterministic.  Solo Dhan
-    drains its own bucket (~8s for QUOTA_N calls); split across two brokers
-    each side serves half, so Dhan's bucket refills while Upstox runs —
-    roughly half the wall time.  This is the win the split routing exists for.
-    """
+    """Rate-limit-bound regime: dhan's 5/s bucket binds wall time."""
     instruments = [Equity.of("NSE", f"QB{i:03d}") for i in range(QUOTA_N)]
     end = BASE + timedelta(days=7)
-
-    # Delete the permissive mock limiter so the fetcher falls back to the real
-    # provider limiter with pre-acquire (the mock history() doesn't acquire internally).
     solo = _make_broker("dhan", QUOTA_LATENCY_MS)
     del solo.rate_limiter
     t0 = time.monotonic()
     ParallelHistoryFetcher({"dhan": solo}, max_workers=4).fetch(
         instruments, Timeframe.M1, BASE, end)
-    t_single = time.monotonic() - t0
+    return time.monotonic() - t0, solo.history.call_count
 
-    dhan = _make_broker("dhan", QUOTA_LATENCY_MS)
-    del dhan.rate_limiter
-    upstox = _make_broker("upstox", QUOTA_LATENCY_MS)
-    del upstox.rate_limiter
-    t0 = time.monotonic()
-    ParallelHistoryFetcher({"dhan": dhan, "upstox": upstox}, max_workers=4).fetch(
-        instruments, Timeframe.M1, BASE, end)
-    t_dual = time.monotonic() - t0
-
-    return (t_single, t_dual,
-            dhan.history.call_count, upstox.history.call_count)
-
-
-# --------------------------------------------------------------------------- #
-# Main
-# --------------------------------------------------------------------------- #
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Benchmark ParallelHistoryFetcher")
@@ -183,84 +145,62 @@ def main() -> int:
     for n in args.instruments:
         instruments = [Equity.of("NSE", f"BENCH{i:04d}") for i in range(n)]
 
-        # --- Short range (7 days): split routing, no chunking ---
-        print(f"\n--- {n} instruments, 7 days (split across brokers) ---")
-
+        print(f"\n--- {n} instruments, 7 days ---")
         t_seq, n_seq = bench_single_broker_sequential(instruments, latency, 7)
         print(f"  Sequential (1 broker):  {t_seq:.2f}s  ({n_seq} calls)")
 
-        t_sp, n_sp = bench_single_broker_parallel(instruments, latency, 7)
+        t_sp, n_sp, calls = bench_single_broker_parallel(instruments, latency, 7)
         speedup_sp = t_seq / t_sp if t_sp > 0 else 0
-        print(f"  Parallel (1 broker, 4w): {t_sp:.2f}s  ({n_sp} results, {speedup_sp:.1f}x)")
-
-        t_dp, n_dp, dhan_calls, upstox_calls = bench_dual_broker_parallel(instruments, latency, 7)
-        speedup_dp = t_seq / t_dp if t_dp > 0 else 0
-        print(f"  Parallel (2 brokers, 4w): {t_dp:.2f}s  ({n_dp} results, {speedup_dp:.1f}x)")
-        print(f"    Dhan: {dhan_calls} calls, Upstox: {upstox_calls} calls")
+        print(f"  Parallel (1 broker, 4w): {t_sp:.2f}s  ({n_sp} results, {speedup_sp:.1f}x, {calls} calls)")
 
         results.append({
             "scenario": "latency_bound",
             "n_instruments": n, "days": 7, "latency_ms": latency,
             "sequential_s": round(t_seq, 3),
             "single_parallel_s": round(t_sp, 3),
-            "dual_parallel_s": round(t_dp, 3),
-            "dual_speedup": round(speedup_dp, 2),
-            "dhan_calls": dhan_calls, "upstox_calls": upstox_calls,
+            "speedup": round(speedup_sp, 2),
+            "calls": calls,
         })
 
-        # --- Long range (90 days): split + auto-chunked windows ---
-        print(f"\n--- {n} instruments, 90 days (split, auto-chunked) ---")
-
+        print(f"\n--- {n} instruments, 90 days (auto-chunked) ---")
         t_seq90, _ = bench_single_broker_sequential(instruments, latency, 90)
-        t_dp90, n_dp90, dhan90, upstox90 = bench_dual_broker_parallel(instruments, latency, 90)
-        speedup_90 = t_seq90 / t_dp90 if t_dp90 > 0 else 0
+        t_sp90, n_sp90, calls90 = bench_single_broker_parallel(instruments, latency, 90)
+        speedup_90 = t_seq90 / t_sp90 if t_sp90 > 0 else 0
         print(f"  Sequential: {t_seq90:.2f}s")
-        print(f"  Parallel (split, 4w): {t_dp90:.2f}s  ({speedup_90:.1f}x)")
-        print(f"    Dhan: {dhan90} calls, Upstox: {upstox90} calls (chunked)")
+        print(f"  Parallel (4w): {t_sp90:.2f}s  ({speedup_90:.1f}x, {calls90} calls)")
 
         results.append({
             "scenario": "latency_bound",
             "n_instruments": n, "days": 90, "latency_ms": latency,
             "sequential_s": round(t_seq90, 3),
-            "dual_parallel_s": round(t_dp90, 3),
-            "dual_speedup": round(speedup_90, 2),
-            "dhan_calls": dhan90, "upstox_calls": upstox90,
+            "single_parallel_s": round(t_sp90, 3),
+            "speedup": round(speedup_90, 2),
+            "calls": calls90,
         })
 
-    # --- Quota-bound regime: where the split actually wins ---
-    print(f"\n--- quota-bound: {QUOTA_N} instruments @ {QUOTA_LATENCY_MS:.0f}ms "
-          f"(per-broker buckets bind) ---")
-    q_single, q_dual, q_dhan, q_upstox = bench_quota_bound()
-    q_speedup = q_single / q_dual if q_dual > 0 else 0
-    print(f"  Single broker (Dhan bucket binds): {q_single:.2f}s")
-    print(f"  Split across both brokers:         {q_dual:.2f}s  ({q_speedup:.1f}x)")
-    print(f"    Dhan: {q_dhan} calls, Upstox: {q_upstox} calls")
+    print(f"\n--- quota-bound: {QUOTA_N} instruments @ {QUOTA_LATENCY_MS:.0f}ms ---")
+    q_wall, q_calls = bench_quota_bound()
+    print(f"  Single broker (Dhan bucket): {q_wall:.2f}s  ({q_calls} calls)")
     results.append({
         "scenario": "quota_bound",
         "n_instruments": QUOTA_N, "days": 7,
         "latency_ms": QUOTA_LATENCY_MS,
-        "single_parallel_s": round(q_single, 3),
-        "dual_parallel_s": round(q_dual, 3),
-        "dual_speedup": round(q_speedup, 2),
-        "dhan_calls": q_dhan, "upstox_calls": q_upstox,
+        "single_parallel_s": round(q_wall, 3),
+        "calls": q_calls,
     })
 
-    # --- Summary ---
     print(f"\n{'=' * 72}")
-    print("SUMMARY (latency-bound ranges — speedup caps at worker count there)")
+    print("SUMMARY")
     print(f"{'=' * 72}")
-    print(f"{'N':>5} {'Days':>4} {'Seq(s)':>8} {'Par(s)':>8} {'Speedup':>8} {'Route':>12}")
-    print("-" * 50)
+    print(f"{'N':>5} {'Days':>4} {'Seq(s)':>8} {'Par(s)':>8} {'Speedup':>8}")
+    print("-" * 40)
     for r in results:
         if r.get("scenario") != "latency_bound":
             continue
         print(f"{r['n_instruments']:>5} {r['days']:>4} "
-              f"{r['sequential_s']:>8.2f} {r['dual_parallel_s']:>8.2f} "
-              f"{r['dual_speedup']:>7.1f}x {'split':>12}")
-    print(f"\nQuota-bound: single={q_single:.2f}s  split={q_dual:.2f}s  "
-          f"speedup={q_speedup:.1f}x  <- the win split routing targets")
+              f"{r['sequential_s']:>8.2f} {r['single_parallel_s']:>8.2f} "
+              f"{r['speedup']:>7.1f}x")
 
-    # --- Write JSON ---
     out_path = Path(args.out) if args.out else ROOT / ".benchmarks" / "parallel_fetch.json"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
