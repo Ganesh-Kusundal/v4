@@ -17,7 +17,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
-from tradex_domain.capabilities import BrokerCapabilities, require_capability
+from tradex_domain.capabilities import require_capability
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, Timeframe
 from tradex_domain.errors import (
     BrokerUnavailableError,
