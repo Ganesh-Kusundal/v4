@@ -89,32 +89,38 @@ class SyntheticTickGenerator:
         self._depth_levels = depth_levels
         self._rng = random.Random(seed)
 
-    def feed_bar(self, candle: Candle) -> None:
-        """Generate and publish the ticks for one 1-minute candle."""
+    def iter_ticks(self, candle: Candle) -> list[Quote]:
+        """Generate and return the Quote ticks for one 1-minute candle."""
         if candle.timeframe != Timeframe.M1:
             raise ValueError(
                 f"only M1 candles supported, got {candle.timeframe}"
             )
         prices = self._walk(candle)
         volumes = self._split_volume(candle)
+        quotes: list[Quote] = []
         for i, (price, volume) in enumerate(zip(prices, volumes)):
             mid = Decimal(str(price))
             half = max(mid * _SPREAD_FRACTION, _SPREAD_FLOOR)
             self._clock.advance(timedelta(seconds=1))
-            self._bus.publish(
+            quotes.append(
                 Quote(
                     instrument=candle.instrument,
                     ltp=Price(value=mid),
                     bid=Price(value=mid - half),
                     ask=Price(value=mid + half),
                     volume=volume,
-                    # no ohlc: bar-level OHLC on a 1-second quote would mislead
-                    # consumers computing per-tick ranges.
                     timestamp=candle.timestamp + timedelta(seconds=i),
                 )
             )
+        return quotes
+
+    def feed_bar(self, candle: Candle) -> None:
+        """Generate and publish the ticks for one 1-minute candle."""
+        for quote in self.iter_ticks(candle):
+            self._bus.publish(quote)
         # Emit Depth snapshot at bar close when depth is enabled
         if self._depth_levels > 0:
+            prices = self._walk(candle)
             self._emit_depth(candle, prices[-1])
 
     # -- internals ----------------------------------------------------------

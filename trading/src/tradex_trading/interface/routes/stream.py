@@ -331,6 +331,8 @@ async def ws_stream(
                 await _replay_resume()
             elif msg_type == "replay_speed":
                 await _replay_speed(msg)
+            elif msg_type == "replay_step":
+                await _replay_step()
             elif msg_type == "replay_stop":
                 await _replay_stop()
             elif msg_type == "stats":
@@ -573,18 +575,118 @@ async def ws_stream(
                 return
             await _replay_stop(silent=True)
 
+            # Ensure aggregator exists for (instrument, interval)
+            agg_key = (instrument, interval)
+            if agg_key not in bar_aggregators:
+                try:
+                    bar_aggregators[agg_key] = _make_aggregator(instrument, interval)
+                except Exception:
+                    pass
+
             async def _run() -> None:
+                from datetime import datetime as _dt
+                from datetime import timedelta as _td
                 from zoneinfo import ZoneInfo
 
+                from tradex_brokers.common.market_builders import candles_from_dataframe
+                from tradex_domain.enums import Timeframe as _TF
+                from tradex_domain.instruments import Equity
+                from tradex_trading.datalake.parquet_storage import ParquetStorage
+                from tradex_trading.datalake.paths import DATALAKE_ROOT
                 from tradex_trading.reactive.bus import ReactiveBus
                 from tradex_trading.replay.synthetic_ticks import SyntheticTickGenerator
 
-                mini_bus = ReactiveBus()
                 ist = ZoneInfo("Asia/Kolkata")
+                store = ParquetStorage(DATALAKE_ROOT)
+                symbol = instrument.split(":")[-1]
+                minutes = int(msg.get("minutes", 390))
 
+                # Optional client-selected start bar (Unix seconds, IST epoch)
+                client_start_ts: int | None = None
+                raw_start_time = msg.get("start_time")
+                if raw_start_time is not None:
+                    try:
+                        client_start_ts = int(raw_start_time)
+                    except (TypeError, ValueError):
+                        client_start_ts = None
+
+                to_dt = _dt.now()
+                if client_start_ts is not None:
+                    # Build a read window around the client-chosen bar:
+                    # start 3 extra trading-days before it so the store query hits,
+                    # end at "now" so we capture the full session.
+                    from_dt = _dt.fromtimestamp(client_start_ts, tz=ist) - _td(days=3)
+                    df = store.read(symbols=[symbol], start=from_dt, end=to_dt)
+                else:
+                    df = store.read(symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt)
+
+                if df.empty:
+                    rng = store.date_range(symbol)
+                    hi = rng[1] if isinstance(rng, tuple) else None
+                    if hi is None:
+                        _ack({"type": "error", "message": f"no datalake history for {symbol}"})
+                        return
+                    to_dt = hi
+                    if client_start_ts is not None:
+                        from_dt = _dt.fromtimestamp(client_start_ts, tz=ist) - _td(days=3)
+                        df = store.read(symbols=[symbol], start=from_dt, end=to_dt)
+                    else:
+                        df = store.read(
+                            symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt
+                        )
+                if df.empty:
+                    _ack({
+                        "type": "error",
+                        "message": f"no datalake history in last {minutes}m for {symbol}",
+                    })
+                    return
+
+                sim_instrument = Equity.of(instrument.split(":")[0], symbol)
+                candles = candles_from_dataframe(sim_instrument, df, timeframe=_TF.M1)
+                if not candles:
+                    _ack({"type": "error", "message": f"no candles found for {symbol}"})
+                    return
+
+                # If the client pinned a specific bar, filter candles to start from it
+                if client_start_ts is not None:
+                    def _candle_unix(c: Any) -> int:
+                        ts = c.timestamp
+                        if ts is None:
+                            return 0
+                        return int(
+                            ts.astimezone(ist).timestamp()
+                            if ts.tzinfo is not None
+                            else ts.replace(tzinfo=ist).timestamp()
+                        )
+                    candles = [c for c in candles if _candle_unix(c) >= client_start_ts]
+                    if not candles:
+                        _ack({
+                            "type": "error",
+                            "message": f"no candles at or after selected start bar for {symbol}",
+                        })
+                        return
+
+                start_candle_ts = candles[0].timestamp
+                start_chart_time = int(
+                    start_candle_ts.astimezone(ist).replace(tzinfo=ist).timestamp()
+                    if start_candle_ts.tzinfo is not None
+                    else start_candle_ts.replace(tzinfo=ist).timestamp()
+                )
+
+                _ack({
+                    "type": "replay_started",
+                    "instrument": instrument,
+                    "interval": interval,
+                    "start_time": start_chart_time,
+                    "total_bars": len(candles),
+                })
+
+
+                mini_bus = ReactiveBus()
+                ticks_per_candle = max(int(msg.get("ticks_per_bar", 10)), 2)
                 gen = SyntheticTickGenerator(
                     mini_bus,
-                    ticks_per_bar=int(msg.get("ticks_per_bar", 60)),
+                    ticks_per_bar=ticks_per_candle,
                     seed=seed if seed is None else int(seed),
                     method=method,
                 )
@@ -598,6 +700,8 @@ async def ws_stream(
                         ts.astimezone(ist).replace(tzinfo=None)
                         if ts.tzinfo is not None else ts
                     )
+                    # Forward quote to client so LTP line and tickers update live
+                    _send_quote(quote)
                     for (bar_iid, _iv), agg in list(bar_aggregators.items()):
                         if bar_iid == iid:
                             try:
@@ -612,60 +716,36 @@ async def ws_stream(
 
                 mini_bus.of_type(Quote).subscribe(_on_sim_quote)
 
-                # Load the requested window from the datalake and drive it.
-                from datetime import datetime as _dt
-                from datetime import timedelta as _td
-
-                from tradex_brokers.common.market_builders import candles_from_dataframe
-                from tradex_domain.enums import Timeframe as _TF
-
-                from tradex_trading.datalake.parquet_storage import ParquetStorage
-                from tradex_trading.datalake.paths import DATALAKE_ROOT
-
-                store = ParquetStorage(DATALAKE_ROOT)
-                symbol = instrument.split(":")[-1]
-                minutes = int(msg.get("minutes", 390))
-                # Anchor on the datalake's own last day when the trailing
-                # wall-clock window misses it (weekends, stale lake): a
-                # sim replays *recorded* history, so "latest available"
-                # beats "right now".
-                to_dt = _dt.now()
-                df = store.read(symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt)
-                if df.empty:
-                    # Unknown symbol: date_range returns None (not a
-                    # 2-tuple) — treat any non-tuple as "no coverage".
-                    rng = store.date_range(symbol)
-                    hi = rng[1] if isinstance(rng, tuple) else None
-                    if hi is None:
-                        _ack({"type": "error", "message": f"no datalake history for {symbol}"})
-                        return
-                    to_dt = hi
-                    df = store.read(
-                        symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt
-                    )
-                if df.empty:
-                    _ack({
-                        "type": "error",
-                        "message": f"no datalake history in last {minutes}m for {symbol}",
-                    })
-                    return
-                from tradex_domain.instruments import Equity
-
-                sim_instrument = Equity.of(instrument.split(":")[0], symbol)
-                candles = candles_from_dataframe(sim_instrument, df, timeframe=_TF.M1)
-
-                def _current_delay() -> float:
-                    # Read live so a mid-run replay_speed takes effect on
-                    # the next bar instead of being ignored.
-                    return 1.0 / max(float(replay_state.get("speed", speed)), 0.01) / 60.0
-
                 for candle in candles:
                     if replay_state["task"] is None:
                         return  # stopped
                     while replay_state.get("paused"):
+                        if replay_state.get("step"):
+                            break
                         await _asyncio.sleep(0.05)
-                    gen.feed_bar(candle)
-                    await _asyncio.sleep(_current_delay())
+
+                    is_step = bool(replay_state.get("step"))
+                    if is_step:
+                        replay_state["step"] = False
+
+                    candle_ticks = gen.iter_ticks(candle)
+                    for q in candle_ticks:
+                        if replay_state["task"] is None:
+                            return
+                        _on_sim_quote(q)
+                        if not is_step:
+                            cur_speed = max(float(replay_state.get("speed", speed)), 0.01)
+                            tick_delay = 1.0 / cur_speed / len(candle_ticks)
+                            if tick_delay > 0.001:
+                                await _asyncio.sleep(tick_delay)
+
+                    if is_step:
+                        replay_state["paused"] = True
+                        # Lifecycle acknowledgments that depend on bar output ride
+                        # the tick queue so control priority cannot overtake it.
+                        _enqueue_drop_oldest(ticks, {"type": "replay_stepped"})
+                        _ack({"type": "replay_paused"})
+
                 # Flat-close whatever is open.
                 for agg in bar_aggregators.values():
                     try:
@@ -677,7 +757,6 @@ async def ws_stream(
             replay_state["task"] = _asyncio.create_task(_run())
             replay_state["paused"] = False
             replay_state["speed"] = speed
-            _ack({"type": "replay_started", "instrument": instrument, "interval": interval})
 
         async def _replay_pause() -> None:
             replay_state["paused"] = True
@@ -686,6 +765,9 @@ async def ws_stream(
         async def _replay_resume() -> None:
             replay_state["paused"] = False
             _ack({"type": "replay_resumed"})
+
+        async def _replay_step() -> None:
+            replay_state["step"] = True
 
         async def _replay_speed(msg: dict[str, Any]) -> None:
             try:

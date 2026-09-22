@@ -71,29 +71,42 @@
         <span class="hint">right-click chart to order</span>
       </div>
 
-      <!-- Market Replay Transport Strip -->
-      <div id="replay-strip" class="replay-strip" hidden>
-        <span class="replay-badge"><span id="replay-dot" class="replay-dot"></span> MARKET REPLAY</span>
-        <div class="replay-group">
-          <button id="replay-start" class="btn btn--primary" title="Start market replay">▶ Play</button>
-          <button id="replay-pause" class="btn" disabled title="Pause replay">⏸ Pause</button>
-          <button id="replay-resume" class="btn" disabled title="Resume replay">▶ Resume</button>
-          <button id="replay-stop" class="btn btn--ghost" disabled title="Stop replay">⏹ Stop</button>
-          <select id="replay-speed" class="field" title="Replay Speed">
-            <option value="0.5">0.5x</option>
-            <option value="1" selected>1x</option>
-            <option value="2">2x</option>
-            <option value="5">5x</option>
-            <option value="10">10x</option>
-          </select>
-        </div>
-        <span id="replay-status" class="chip">Ready</span>
-        <span class="spacer"></span>
-        <button id="replay-close" class="modal-close-btn" title="Exit Replay">✕ Close Replay</button>
-      </div>
-
       <main class="stage">
         <div id="chart"></div>
+
+        <!-- Market-replay transport bar (docked at bottom of chart) -->
+        <div id="replaybar" role="toolbar" aria-label="Replay transport" hidden>
+          <button id="rp-exit" type="button" title="Exit replay (restore chart)">✕ Exit</button>
+          <span class="vsep"></span>
+          <button id="rp-back" type="button" title="Step back one bar">⏮</button>
+          <button id="rp-play" type="button" class="is-on" title="Pause / Play">⏸</button>
+          <button id="rp-fwd" type="button" title="Step forward one bar">⏭</button>
+          <span class="vsep"></span>
+          <input type="range" id="rp-scrub" min="0" max="100" value="0" step="1" title="Scrub the session" />
+          <span class="rcount" id="rp-count">0 / 0</span>
+          <span class="rclock" id="rp-clock"></span>
+          <span class="vsep"></span>
+          <button id="rp-speed" type="button" title="Playback speed (click to cycle)">1x</button>
+        </div>
+
+        <!-- Select-bar prompt (floats at bottom of chart during bar selection) -->
+        <div id="replaypick" role="status" hidden>
+          <span><strong>Select a bar</strong> <span class="hint">to replay from</span></span>
+          <span class="hint" id="rp-picked"></span>
+          <button id="rp-pick-cancel" type="button">Cancel</button>
+        </div>
+
+        <!-- Leave replay confirmation dialog -->
+        <div id="replayleave" hidden>
+          <div class="box" role="alertdialog" aria-modal="true" aria-labelledby="rp-leave-title">
+            <h4 id="rp-leave-title">Leave replay?</h4>
+            <p id="rp-leave-text">The chart goes back to the live session and the playhead is lost.</p>
+            <div class="row">
+              <button id="rp-leave-stay" type="button">Stay</button>
+              <button id="rp-leave-go" class="primary" type="button">Leave</button>
+            </div>
+          </div>
+        </div>
       </main>
 
       <!-- right-click order menu (price under the cursor) -->

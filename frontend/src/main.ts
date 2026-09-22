@@ -92,6 +92,16 @@ let liveAgg = false;
 let lastLtp: number | null = null;
 let ctxPrice = 0;
 let lastReq: { symbol: string; exchange: string; interval: string } | null = null;
+let isReplaying = false;
+let replayPicking = false;
+let replayPickIndex: number | null = null;
+let replayShade: ReplayShade | null = null;
+let replayFullBars: RawBar[] | null = null;
+let replayTotalBars = 0;
+let replayCurrentIndex = 0;
+let replayIsPlaying = false;
+let replaySpeed = 1;
+const REPLAY_SPEEDS = [0.5, 1, 2, 5, 10];
 
 let bookTimer: any = null;
 const orderLines = new Map<string, { line: any; order: BookOrder; dragFrom?: number | null }>();
@@ -498,6 +508,12 @@ function wireChart(): void {
       cancelOrder(id.slice(6, -7));
     }
   });
+
+  chart.subscribeCrosshairMove((e: any) => {
+    if (replayPicking) {
+      movePick(e.index);
+    }
+  });
 }
 
 function buildChart(): void {
@@ -529,6 +545,14 @@ function buildChart(): void {
     } catch (_) {}
   }
   renderActiveChips();
+
+  // Re-attach replay shade if picking
+  if (replayPicking && replayPickIndex !== null) {
+    replayShade = new ReplayShade({ index: replayPickIndex });
+    chart.addPrimitive(replayShade, 0);
+  } else {
+    replayShade = null;
+  }
 
   const lastBar = rawBars.length > 0 ? rawBars[rawBars.length - 1] : undefined;
   const lp = lastLtp != null ? lastLtp : lastBar ? lastBar.close : null;
@@ -681,33 +705,73 @@ async function connect(): Promise<void> {
 
     const onBarUpdate = (b: Bar) => {
       if (!b || b.close == null || isNaN(b.close) || b.close <= 0) return;
-      const lastBar = rawBars.length > 0 ? rawBars[rawBars.length - 1] : undefined;
-      if (lastBar && lastBar.close > 0) {
-        const ratio = b.close / lastBar.close;
-        if (ratio < 0.4 || ratio > 2.5) {
-          console.warn(`Ignoring out-of-range bar ${b.close} (last close ${lastBar.close})`);
-          return;
+      if (!isReplaying) {
+        const lastBar = rawBars.length > 0 ? rawBars[rawBars.length - 1] : undefined;
+        if (lastBar && lastBar.close > 0) {
+          const ratio = b.close / lastBar.close;
+          if (ratio < 0.4 || ratio > 2.5) {
+            console.warn(`Ignoring out-of-range bar ${b.close} (last close ${lastBar.close})`);
+            return;
+          }
         }
       }
       tickN += 1;
-      el('wsstate').textContent = 'WS live';
+      el('wsstate').textContent = isReplaying ? 'Replay live' : 'WS live';
       el('ticks').textContent = `${tickN} ticks`;
       lastLtp = b.close;
       el('ltp').textContent = `LTP ${fmt(b.close)}`;
       if (ltpLine) ltpLine.setPrice(b.close);
       if (position && posLine) posLine.setLeftLabel(posLabel());
-      if (rawBars.length && b) {
+
+      if (rawBars.length === 0) {
+        rawBars.push(b as RawBar);
+        setPriceData();
+      } else {
         const last = rawBars[rawBars.length - 1];
         if (last && b.time === last.time) {
-          rawBars[rawBars.length - 1] = { ...last, ...b };
+          // Intra-bar forming update: stretch high/low and update close & volume
+          rawBars[rawBars.length - 1] = {
+            time: last.time,
+            open: b.open != null ? b.open : last.open,
+            high: Math.max(last.high, b.high != null ? b.high : b.close),
+            low: Math.min(last.low, b.low != null ? b.low : b.close),
+            close: b.close,
+            volume: b.volume != null ? b.volume : last.volume,
+          };
+          setPriceData();
+          if (isReplaying) {
+            syncReplayBarUI(rawBars.length - 1, replayTotalBars, rawBars[rawBars.length - 1], replayIsPlaying, replaySpeed);
+          }
         } else if (last && b.time > last.time) {
+          // New candle started
           rawBars.push(b as RawBar);
+          setPriceData();
+          if (isReplaying) {
+            replayCurrentIndex = rawBars.length - 1;
+            syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[replayCurrentIndex], replayIsPlaying, replaySpeed);
+          }
+        } else if (isReplaying) {
+          const idx = rawBars.findIndex((r) => r.time === b.time);
+          const target = idx >= 0 ? rawBars[idx] : undefined;
+          if (target) {
+            rawBars[idx] = {
+              time: b.time,
+              open: b.open != null ? b.open : target.open,
+              high: Math.max(target.high, b.high != null ? b.high : b.close),
+              low: Math.min(target.low, b.low != null ? b.low : b.close),
+              close: b.close,
+              volume: b.volume != null ? b.volume : target.volume,
+            };
+          } else {
+            rawBars.push(b as RawBar);
+            rawBars.sort((x, y) => x.time - y.time);
+          }
+          setPriceData();
         }
-        setPriceData();
-        const curLast = rawBars[rawBars.length - 1];
-        if (curLast && lastReq) {
-          setLegend(lastReq.symbol, lastReq.exchange, lastReq.interval, curLast, lastLtp);
-        }
+      }
+      const curLast = rawBars[rawBars.length - 1];
+      if (curLast && lastReq) {
+        setLegend(lastReq.symbol, lastReq.exchange, lastReq.interval, curLast, lastLtp);
       }
     };
 
@@ -1124,110 +1188,356 @@ if (modeEl) {
   modeEl.className = 'chip analyze';
 }
 
-// ── Market Replay Controls ──────────────────────────────────
-const replayBtn = el('replay-btn');
-const replayStrip = el('replay-strip');
-const replayStartBtn = el<HTMLButtonElement>('replay-start');
-const replayPauseBtn = el<HTMLButtonElement>('replay-pause');
-const replayResumeBtn = el<HTMLButtonElement>('replay-resume');
-const replayStopBtn = el<HTMLButtonElement>('replay-stop');
-const replaySpeedSelect = el<HTMLSelectElement>('replay-speed');
-const replayStatus = el('replay-status');
-const replayDot = el('replay-dot');
-const replayClose = el('replay-close');
-
-let isReplaying = false;
-
-function setReplayState(running: boolean, paused: boolean): void {
-  isReplaying = running;
-  replayStartBtn.disabled = running;
-  replayPauseBtn.disabled = !running || paused;
-  replayResumeBtn.disabled = !running || !paused;
-  replayStopBtn.disabled = !running;
-  replayDot.classList.toggle('playing', running && !paused);
+// ── Market Replay (openalgo-charts reference implementation) ──────────────────
+interface ReplayShadeOptions {
+  index: number | null;
+  color?: string;
+  lineColor?: string;
+  lineWidth?: number;
+  lineVisible?: boolean;
 }
 
-replayBtn.addEventListener('click', () => {
-  replayStrip.hidden = !replayStrip.hidden;
-  replayBtn.classList.toggle('active', !replayStrip.hidden);
-  if (!replayStrip.hidden) {
-    replayStatus.textContent = 'Ready (click Play to replay history)';
-  }
-});
+class ReplayShade {
+  private _opts: Required<Omit<ReplayShadeOptions, 'index'>> & { index: number | null };
+  private _host?: any;
 
-replayClose.addEventListener('click', () => {
-  if (isReplaying) {
-    barSocket.send({ type: 'replay_stop' });
+  constructor(opts: ReplayShadeOptions) {
+    this._opts = {
+      index: opts.index,
+      color: opts.color ?? 'rgba(12, 14, 20, 0.62)',
+      lineColor: opts.lineColor ?? '#3b82f6',
+      lineWidth: opts.lineWidth ?? 1,
+      lineVisible: opts.lineVisible ?? true,
+    };
   }
-  replayStrip.hidden = true;
+
+  zOrder() { return 'top' as const; }
+  autoscaleInfo() { return null; }
+  hitTest() { return null; }
+  attached(host: any) { this._host = host; }
+  detached() { this._host = undefined; }
+
+  setOptions(patch: Partial<ReplayShadeOptions>): void {
+    this._opts = { ...this._opts, ...patch };
+    this._host?.requestUpdate?.();
+  }
+
+  draw(ctx: CanvasRenderingContext2D, rc: any): void {
+    const o = this._opts;
+    if (o.index === null) return;
+    const dpr = rc.dpr || 1;
+    const w = rc.plotWidth * dpr;
+    const h = rc.plotHeight * dpr;
+    if (w <= 0 || h <= 0) return;
+
+    const barSpacing = rc.timeScale?.barSpacing ?? 6;
+    const half = (barSpacing * dpr) / 2;
+    const barX = rc.timeScale?.indexToX ? rc.timeScale.indexToX(o.index) : null;
+    if (barX == null || isNaN(barX)) return;
+    const x = Math.round(barX * dpr + half);
+    if (x >= w) return;
+
+    const from = Math.max(0, x);
+    ctx.save();
+    ctx.fillStyle = o.color;
+    ctx.fillRect(from, 0, w - from, h);
+    if (o.lineVisible && x >= 0) {
+      ctx.strokeStyle = o.lineColor;
+      ctx.lineWidth = Math.max(1, Math.round(o.lineWidth * dpr));
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, h);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function formatBarTime(ts: number): string {
+  const d = new Date(ts * 1000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+const replayBtn = el('replay-btn');
+const replayBar = el('replaybar');
+const replayPickPrompt = el('replaypick');
+const replayLeaveModal = el('replayleave');
+const rpExit = el('rp-exit');
+const rpBack = el('rp-back');
+const rpPlay = el('rp-play');
+const rpFwd = el('rp-fwd');
+const rpScrub = el<HTMLInputElement>('rp-scrub');
+const rpSpeed = el('rp-speed');
+const rpCount = el('rp-count');
+const rpClock = el('rp-clock');
+const rpPickCancel = el('rp-pick-cancel');
+const rpPicked = el('rp-picked');
+const rpLeaveStay = el('rp-leave-stay');
+const rpLeaveGo = el('rp-leave-go');
+
+function enterReplay(): void {
+  if (isReplaying || replayPicking || !chart) return;
+  if (rawBars.length < 2) {
+    setStatus('Replay needs bars (load chart first)');
+    return;
+  }
+  replayPicking = true;
+  replayBtn.classList.add('active');
+  el('chart').classList.add('is-picking');
+
+  let from = 0;
+  try {
+    const range = chart.timeScale?.getVisibleLogicalRange?.();
+    if (range) from = Math.round(range.from);
+  } catch (_) {
+    from = 0;
+  }
+  const floor = Math.min(20, rawBars.length - 1);
+  replayPickIndex = Math.max(floor, Math.min(rawBars.length - 1, from));
+
+  if (!replayShade) {
+    replayShade = new ReplayShade({ index: replayPickIndex });
+    chart.addPrimitive(replayShade, 0);
+  } else {
+    replayShade.setOptions({ index: replayPickIndex });
+  }
+
+  replayPickPrompt.hidden = false;
+  syncPickHint();
+  setStatus('Replay: click a bar to start from (Esc to cancel)');
+}
+
+function cancelPick(): void {
+  if (!replayPicking) return;
+  replayPicking = false;
+  replayPickIndex = null;
+  if (replayShade) {
+    replayShade.setOptions({ index: null });
+  }
+  el('chart').classList.remove('is-picking');
+  replayPickPrompt.hidden = true;
   replayBtn.classList.remove('active');
-});
+  setStatus('Replay cancelled');
+}
 
-replayStartBtn.addEventListener('click', () => {
+function movePick(index: number | null | undefined): void {
+  if (!replayPicking || index === null || index === undefined || !chart) return;
+  const total = rawBars.length;
+  if (total === 0) return;
+  const clamped = Math.max(0, Math.min(total - 1, Math.round(index)));
+  if (clamped === replayPickIndex) return;
+  replayPickIndex = clamped;
+  if (replayShade) {
+    replayShade.setOptions({ index: clamped });
+  }
+  syncPickHint();
+}
+
+function syncPickHint(): void {
+  const b = rawBars[replayPickIndex ?? 0];
+  if (rpPicked) {
+    rpPicked.textContent = b ? formatBarTime(b.time) : '';
+  }
+}
+
+function startReplayAt(index: number): void {
+  if (!chart || isReplaying) return;
+  if (rawBars.length < 2) return;
+
+  replayPicking = false;
+  el('chart').classList.remove('is-picking');
+  replayPickPrompt.hidden = true;
+  if (replayShade) {
+    replayShade.setOptions({ index: null });
+  }
+
+  if (!replayFullBars || replayFullBars.length === 0) {
+    replayFullBars = [...rawBars];
+  }
+
+  replayCurrentIndex = index;
+  replayTotalBars = replayFullBars.length;
+  const chosenBar = replayFullBars[index];
+  const startTime = chosenBar ? chosenBar.time : rawBars[0].time;
+
+  // Truncate chart bars to the selected start bar
+  rawBars = replayFullBars.slice(0, index + 1);
+  setPriceData();
+  chart.fitContent();
+
+  // Show replay transport bar
+  isReplaying = true;
+  replayIsPlaying = true;
+  replayBar.hidden = false;
+  replayBtn.classList.add('active');
+
+  syncReplayBarUI(index, replayTotalBars, chosenBar, true, replaySpeed);
+
   const symbol = el<HTMLInputElement>('symbol').value.trim().toUpperCase();
   const exchange = el<HTMLSelectElement>('exchange').value;
   const interval = el<HTMLSelectElement>('interval').value;
-  const speed = Number(replaySpeedSelect.value) || 1;
   const instrument = `${exchange}:${symbol}`;
 
-  setStatus(`Starting replay for ${instrument} (${speed}x)...`, true);
-  replayStatus.textContent = `Starting ${symbol}...`;
+  setStatus(`Replaying ${instrument} from ${formatBarTime(startTime)} (${replaySpeed}x)...`, true);
+
   barSocket.send({
     type: 'replay_start',
     instrument,
     interval: interval === 'D' ? '1d' : interval,
-    speed,
+    speed: replaySpeed,
+    ticks_per_bar: 10,
+    start_time: startTime,
   });
+}
+
+function syncReplayBarUI(index: number, total: number, bar: RawBar | null, playing: boolean, speed: number): void {
+  if (rpScrub) {
+    rpScrub.max = String(Math.max(0, total - 1));
+    if (Number(rpScrub.value) !== index) rpScrub.value = String(index);
+  }
+  if (rpCount) rpCount.textContent = `${index + 1} / ${total}`;
+  if (rpClock && bar) rpClock.textContent = formatBarTime(bar.time);
+  if (rpPlay) {
+    rpPlay.innerHTML = playing ? '⏸' : '▶';
+    rpPlay.title = playing ? 'Pause' : 'Play';
+    rpPlay.classList.toggle('is-on', playing);
+  }
+  if (rpSpeed) rpSpeed.textContent = `${speed}x`;
+}
+
+function askExitReplay(): void {
+  if (replayPicking) {
+    cancelPick();
+    return;
+  }
+  if (!isReplaying) return;
+  replayLeaveModal.hidden = false;
+}
+
+function exitReplay(): void {
+  cancelPick();
+  replayLeaveModal.hidden = true;
+  if (isReplaying) {
+    barSocket.send({ type: 'replay_stop' });
+  }
+  isReplaying = false;
+  replayIsPlaying = false;
+  replayBar.hidden = true;
+  replayBtn.classList.remove('active');
+
+  if (replayFullBars && replayFullBars.length > 0) {
+    rawBars = [...replayFullBars];
+    replayFullBars = null;
+    setPriceData();
+    chart.fitContent();
+  }
+  setStatus('Exited replay — live chart restored');
+}
+
+// Chart canvas click -> start replay at hovered bar when in picking mode
+el('chart').addEventListener('click', () => {
+  if (replayPicking && replayPickIndex !== null) {
+    startReplayAt(replayPickIndex);
+  }
 });
 
-replayPauseBtn.addEventListener('click', () => {
+// Replay button toggle
+replayBtn.addEventListener('click', () => {
+  if (isReplaying || replayPicking) {
+    askExitReplay();
+  } else {
+    enterReplay();
+  }
+});
+
+rpPickCancel.addEventListener('click', cancelPick);
+rpExit.addEventListener('click', askExitReplay);
+rpLeaveStay.addEventListener('click', () => { replayLeaveModal.hidden = true; });
+rpLeaveGo.addEventListener('click', exitReplay);
+
+rpPlay.addEventListener('click', () => {
+  if (!isReplaying) return;
+  if (replayIsPlaying) {
+    barSocket.send({ type: 'replay_pause' });
+  } else {
+    barSocket.send({ type: 'replay_resume' });
+  }
+});
+
+rpBack.addEventListener('click', () => {
+  if (!isReplaying || !replayFullBars || replayCurrentIndex <= 0) return;
+  replayCurrentIndex--;
+  rawBars = replayFullBars.slice(0, replayCurrentIndex + 1);
+  setPriceData();
+  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[replayCurrentIndex], false, replaySpeed);
   barSocket.send({ type: 'replay_pause' });
 });
 
-replayResumeBtn.addEventListener('click', () => {
-  barSocket.send({ type: 'replay_resume' });
+rpFwd.addEventListener('click', () => {
+  if (!isReplaying) return;
+  barSocket.send({ type: 'replay_step' });
 });
 
-replayStopBtn.addEventListener('click', () => {
-  barSocket.send({ type: 'replay_stop' });
+rpScrub.addEventListener('input', () => {
+  if (!isReplaying || !replayFullBars) return;
+  const target = Math.max(0, Math.min(replayTotalBars - 1, Number(rpScrub.value)));
+  replayCurrentIndex = target;
+  rawBars = replayFullBars.slice(0, target + 1);
+  setPriceData();
+  syncReplayBarUI(target, replayTotalBars, rawBars[target], false, replaySpeed);
+  barSocket.send({ type: 'replay_pause' });
 });
 
-replaySpeedSelect.addEventListener('change', () => {
-  const speed = Number(replaySpeedSelect.value) || 1;
-  barSocket.send({ type: 'replay_speed', speed });
-  if (isReplaying) {
-    replayStatus.textContent = `Speed: ${speed}x`;
+rpSpeed.addEventListener('click', () => {
+  const at = REPLAY_SPEEDS.indexOf(replaySpeed);
+  replaySpeed = REPLAY_SPEEDS[(at + 1) % REPLAY_SPEEDS.length];
+  barSocket.send({ type: 'replay_speed', speed: replaySpeed });
+  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[rawBars.length - 1] ?? null, replayIsPlaying, replaySpeed);
+});
+
+window.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Escape') {
+    if (!replayLeaveModal.hidden) { replayLeaveModal.hidden = true; return; }
+    if (replayPicking) cancelPick();
   }
 });
 
 barSocket.on('replay_started', (msg: any) => {
-  setReplayState(true, false);
-  replayStatus.textContent = `Replaying ${msg?.instrument || ''} (${replaySpeedSelect.value}x)`;
+  isReplaying = true;
+  replayIsPlaying = true;
+  if (msg?.total_bars) replayTotalBars = Number(msg.total_bars);
+  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[rawBars.length - 1] ?? null, true, replaySpeed);
   setStatus(`Replay active: ${msg?.instrument || ''}`, true);
 });
 
 barSocket.on('replay_paused', () => {
-  setReplayState(true, true);
-  replayStatus.textContent = 'Paused';
+  replayIsPlaying = false;
+  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[rawBars.length - 1] ?? null, false, replaySpeed);
   setStatus('Replay paused');
 });
 
 barSocket.on('replay_resumed', () => {
-  setReplayState(true, false);
-  replayStatus.textContent = `Replaying (${replaySpeedSelect.value}x)`;
+  replayIsPlaying = true;
+  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[rawBars.length - 1] ?? null, true, replaySpeed);
   setStatus('Replay running', true);
 });
 
+barSocket.on('replay_stepped', () => {
+  replayIsPlaying = false;
+  replayCurrentIndex = rawBars.length - 1;
+  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[replayCurrentIndex] ?? null, false, replaySpeed);
+  setStatus('Stepped 1 bar');
+});
+
 barSocket.on('replay_stopped', () => {
-  setReplayState(false, false);
-  replayStatus.textContent = 'Stopped';
-  setStatus('Replay stopped');
+  exitReplay();
 });
 
 barSocket.on('replay_done', () => {
-  setReplayState(false, false);
-  replayStatus.textContent = 'Replay completed';
-  setStatus('Replay finished');
+  replayIsPlaying = false;
+  syncReplayBarUI(replayTotalBars - 1, replayTotalBars, rawBars[rawBars.length - 1] ?? null, false, replaySpeed);
+  setStatus('Replay completed');
 });
 
 // Initial connection

@@ -134,9 +134,10 @@ class BarAggregator:
         else:
             self._bucket.absorb(p, v)
 
-        # Forming-bar updates are throttled; closed-bar emission above is not.
+        # Forming-bar updates are throttled for live broker quotes; simulation / replay
+        # ticks must emit every intra-candle update so candle formation is visible on the chart.
         now = self._now()
-        if now - self._last_forming_emit >= FORMING_FRAME_MIN_INTERVAL:
+        if source == "sim" or now - self._last_forming_emit >= FORMING_FRAME_MIN_INTERVAL:
             self._last_forming_emit = now
             self._emit(closed=False)
 

@@ -249,64 +249,165 @@ select.field {
   z-index: 15;
 }
 
-/* ── Replay Transport Strip ─────────────────────────────────── */
-.replay-strip {
+/* ── Market Replay (openalgo-charts reference style) ────────── */
+
+/* Floating transport bar docked at bottom center of chart */
+#replaybar {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  z-index: 26;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  background: var(--panel, #0f121a);
+  border: 1px solid var(--bd, #232a3a);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  animation: replayFadeIn .18s ease-out;
+}
+#replaybar[hidden] { display: none; }
+#replaybar button {
+  height: 26px;
+  min-width: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--mut, #8b93a7);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all .15s;
+}
+#replaybar button:hover {
+  background: var(--elev-2, #1b2030);
+  color: var(--tx, #d7dce8);
+}
+#replaybar button.is-on {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
+}
+#replaybar input[type=range] {
+  width: 170px;
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+#replaybar .rcount {
+  color: var(--tx, #d7dce8);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+#replaybar .rclock {
+  color: var(--faint, #5b6376);
+  font-size: 11px;
+  white-space: nowrap;
+}
+#replaybar .vsep {
+  width: 1px;
+  height: 18px;
+  background: var(--bd-soft, #1a1f2c);
+  flex: none;
+}
+#replaybar .rsub {
+  color: #3b82f6;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Select-bar prompt: docked at bottom center during bar selection */
+#replaypick {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  z-index: 26;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 14px;
-  background: linear-gradient(180deg, #131926, #0d121c);
-  border-bottom: 1px solid #223247;
-  flex: none;
-  z-index: 15;
-  animation: replaySlide .18s ease-out;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: var(--panel, #0f121a);
+  border: 1px solid var(--bd, #232a3a);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: var(--tx, #d7dce8);
+  font-size: 12px;
+  white-space: nowrap;
+  animation: replayFadeIn .15s ease-out;
+}
+#replaypick[hidden] { display: none; }
+#replaypick .hint { color: var(--faint, #5b6376); }
+#replaypick button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--elev-2, #1b2030);
+  border: 1px solid var(--bd, #232a3a);
+  color: var(--tx, #d7dce8);
+  font: inherit;
+  font-size: 12px;
+}
+#replaypick button:hover {
+  background: var(--elev, #151925);
+}
+@keyframes replayFadeIn {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
-@keyframes replaySlide {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Pick cursor: crosshair on chart canvas */
+#chart.is-picking,
+#chart.is-picking canvas {
+  cursor: crosshair !important;
 }
 
-.replay-badge {
-  display: inline-flex;
+/* Leave replay confirmation dialog */
+#replayleave {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .8px;
-  text-transform: uppercase;
-  color: var(--amber);
-  background: rgba(224, 176, 32, 0.12);
-  border: 1px solid rgba(224, 176, 32, 0.35);
-  padding: 2px 8px;
-  border-radius: 5px;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(2px);
 }
-
-.replay-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--amber);
-  box-shadow: 0 0 6px var(--amber);
-  transition: all .2s;
+#replayleave[hidden] { display: none; }
+#replayleave .box {
+  width: 340px;
+  padding: 18px;
+  border-radius: 10px;
+  background: var(--panel, #0f121a);
+  border: 1px solid var(--bd, #232a3a);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
 }
-
-.replay-dot.playing {
-  background: var(--acc);
-  box-shadow: 0 0 8px var(--acc);
-  animation: replayPulse 1.2s infinite;
+#replayleave h4 { margin: 0 0 8px; font-size: 14px; color: var(--tx, #d7dce8); }
+#replayleave p { margin: 0 0 16px; font-size: 12px; color: var(--faint, #8b93a7); line-height: 1.5; }
+#replayleave .row { display: flex; justify-content: flex-end; gap: 8px; }
+#replayleave button {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 1px solid var(--bd, #232a3a);
+  background: var(--elev-2, #1b2030);
+  color: var(--tx, #d7dce8);
+  font: inherit;
+  font-size: 12px;
 }
-
-@keyframes replayPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
-}
-
-.replay-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
+#replayleave button:hover { background: var(--elev, #151925); }
+#replayleave button.primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+#replayleave button.primary:hover { filter: brightness(1.1); }
 
 .chip {
   display: inline-flex;

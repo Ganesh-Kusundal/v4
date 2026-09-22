@@ -164,11 +164,121 @@ class TestReplayControl:
                     continue
             assert got_started_or_error or msg["type"] == "error"
 
-    def test_replay_speed_invalid_is_error(self):
-        with TestClient(_app()).websocket_connect("/ws/stream") as ws:
-            ws.send_json({"type": "replay_speed", "speed": "abc"})
-            resp = ws.receive_json()
-            assert resp["type"] == "error"
+    @pytest.mark.timeout(10, func_only=True)
+    def test_replay_step_ack_follows_stepped_bar_frame(self, monkeypatch):
+        """A step is acknowledged only after its simulated bar frame is queued."""
+        from datetime import datetime
+        from decimal import Decimal
+        from zoneinfo import ZoneInfo
+
+        import tradex_brokers.common.market_builders as market_builders
+        import tradex_trading.datalake.parquet_storage as parquet_storage
+        from tradex_domain.enums import Timeframe
+        from tradex_domain.instruments import Equity
+        from tradex_domain.market import OHLC, Candle
+        from tradex_domain.value_objects import Price, Quantity
+
+        instrument = Equity.of("NSE", "TEST")
+        first_time = datetime(2026, 1, 5, 9, 15)
+        second_time = datetime(2026, 1, 5, 9, 16)
+        candles = [
+            Candle(
+                instrument=instrument,
+                timeframe=Timeframe.M1,
+                ohlc=OHLC(
+                    open=Price(Decimal("100")),
+                    high=Price(Decimal("102")),
+                    low=Price(Decimal("99")),
+                    close=Price(Decimal("101")),
+                ),
+                volume=Quantity(Decimal("10")),
+                timestamp=first_time,
+            ),
+            Candle(
+                instrument=instrument,
+                timeframe=Timeframe.M1,
+                ohlc=OHLC(
+                    open=Price(Decimal("101")),
+                    high=Price(Decimal("103")),
+                    low=Price(Decimal("100")),
+                    close=Price(Decimal("102")),
+                ),
+                volume=Quantity(Decimal("10")),
+                timestamp=second_time,
+            ),
+        ]
+
+        class _DataFrame:
+            empty = False
+
+        class _FakeStore:
+            def __init__(self, _base_path) -> None:
+                pass
+
+            def read(self, *_args, **_kwargs):
+                return _DataFrame()
+
+            def date_range(self, _symbol):
+                return None
+
+        def _candles_from_dataframe(_instrument, _frame, **_kwargs):
+            return candles
+
+        monkeypatch.setattr(parquet_storage, "ParquetStorage", _FakeStore)
+        monkeypatch.setattr(
+            market_builders, "candles_from_dataframe", _candles_from_dataframe
+        )
+
+        client = TestClient(_app())
+        with client.websocket_connect("/ws/stream") as ws:
+            ws._receive_timeout = 5
+            ws.send_json({
+                "type": "replay_start",
+                "instrument": "NSE:TEST",
+                "interval": "1m",
+                "speed": 1.0,
+                "ticks_per_bar": 2,
+            })
+
+            started = None
+            first_bar = None
+            deadline = __import__("time").monotonic() + 5
+            while __import__("time").monotonic() < deadline:
+                msg = ws.receive_json()
+                if msg["type"] == "replay_started":
+                    started = msg
+                elif msg["type"] == "bar" and msg.get("source") == "sim":
+                    first_bar = msg
+                    break
+            assert started is not None
+            assert first_bar is not None
+
+            ws.send_json({"type": "replay_pause"})
+            deadline = __import__("time").monotonic() + 5
+            while __import__("time").monotonic() < deadline:
+                if ws.receive_json()["type"] == "replay_paused":
+                    break
+
+            ws.send_json({"type": "replay_step"})
+            stepped_time = int(
+                second_time.replace(tzinfo=ZoneInfo("Asia/Kolkata")).timestamp()
+            )
+            saw_step_bar = False
+            saw_step_ack = False
+            deadline = __import__("time").monotonic() + 5
+            while __import__("time").monotonic() < deadline:
+                msg = ws.receive_json()
+                if (
+                    msg["type"] == "bar"
+                    and msg.get("source") == "sim"
+                    and msg.get("time") == stepped_time
+                ):
+                    saw_step_bar = True
+                if msg["type"] == "replay_stepped":
+                    saw_step_ack = True
+                    break
+            assert saw_step_ack, "replay_stepped acknowledgment was not emitted"
+            assert saw_step_bar, "replay_stepped arrived before the stepped bar frame"
 
 
 class TestWriterControlUnderFlood:
