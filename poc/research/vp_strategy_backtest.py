@@ -7,7 +7,7 @@ implementation, not two) over many sessions and reports what a real account
 would have done — net of trading costs.
 
 Usage:
-    .venv/bin/python research/vp_strategy_backtest.py [sessions] [tf]
+    .venv/bin/python poc/research/vp_strategy_backtest.py [sessions] [tf]
 
 Outputs a per-day CSV to /tmp/vp_backtest.csv plus a summary on stdout.
 """
@@ -31,7 +31,7 @@ K = 3               # scanner picks per day
 
 def _load_app():
     """Import apps/top_gainers/app.py as a module (it is a Streamlit script)."""
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     spec = importlib.util.spec_from_file_location(
         "appmod", root / "apps" / "top_gainers" / "app.py"
     )

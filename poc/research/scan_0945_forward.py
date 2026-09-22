@@ -5,7 +5,7 @@ and a forward outcome (09:45→15:15 return). We then test each feature's daily
 rank-IC vs the forward move, decile spreads (Q10−Q1), and hit rates for picking
 +2%+ movers. Output: a ranked table of features and composite score variants.
 
-Usage:  .venv/bin/python research/scan_0945_forward.py [N_DAYS]
+Usage:  .venv/bin/python poc/research/scan_0945_forward.py [N_DAYS]
         N_DAYS: use only the N most recent lake sessions (default: all)
 """
 

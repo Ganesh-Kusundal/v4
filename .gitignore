@@ -78,15 +78,14 @@ frontend/playwright-report/
 # Nested engine clone (independent repo; build via npm ci + npm run build)
 openalgo-charts/
 
-# Time-series model experiment scratch
+# Time-series model experiment scratch (single experiment home: poc/)
 poc/*
-!poc/
 !poc/README.md
-!poc/data/
-poc/data/*
-!poc/data/build_0950_dataset.py
+!poc/research/
 !poc/rank_0950.py
 !poc/timesfm_0950.py
+poc/data/*
+!poc/data/build_0950_dataset.py
 
 # Runtime state (tokens, instrument dumps; regenerate via broker connect)
 trading/runtime/

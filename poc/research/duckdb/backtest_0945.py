@@ -25,7 +25,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "services" / "duckdb-analytics" / "src"))
 
 from duck_analytics.catalog import DuckDBCatalog, default_config_for  # noqa: E402
 from duck_analytics.query import QueryService  # noqa: E402

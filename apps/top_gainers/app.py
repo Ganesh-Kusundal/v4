@@ -180,7 +180,7 @@ def scanner_0945(d: date) -> pd.DataFrame:
     if not isinstance(scan, pd.DataFrame) or scan.empty:
         return pd.DataFrame()
     # Full-lake IC study (171 sessions × 500 symbols, ~85k symbol-days,
-    # research/scan_0945_forward.py — LOOK-AHEAD-FREE): no pre-09:45
+    # poc/research/scan_0945_forward.py — LOOK-AHEAD-FREE): no pre-09:45
     # OHLCV feature predicts the *direction* of the 09:45→15:15 move
     # (all |IC| < 0.05, ICIR < 0.6). Elevated ≥+2% hit rates from
     # ranking by range/volume are volatility selection, not edge —
@@ -1389,7 +1389,7 @@ if show_scanner and vp_on and scan_top5:
         )
         st.caption(
             "⚠️ Rule attribution, 15 sessions × k=3 (5m, ₹1cr, 4.75×, net of "
-            "5 bps/side — research/vp_strategy_backtest.py): the 09:50 opening "
+            "5 bps/side — poc/research/vp_strategy_backtest.py): the 09:50 opening "
             "day-type entry ALONE was +14.1% on just 12 trades, while the "
             "intraday rules drag: edge fades −11.1%, acceptance breakouts "
             "−62.9%, re-entry −4.0%, and all rules together with no target "

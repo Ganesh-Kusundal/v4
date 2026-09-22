@@ -21,13 +21,13 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "duckdb-analytics" / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "services" / "duckdb-analytics" / "src"))
 
 from duck_analytics.catalog import DuckDBCatalog, default_config_for  # noqa: E402
 from duck_analytics.query import QueryService  # noqa: E402
 from duck_analytics.scanners import scan_screener  # noqa: E402
 
-REPO = Path(__file__).resolve().parents[1]
+REPO = Path(__file__).resolve().parents[3]  # repo root (.../v4)
 
 
 def zscore(series: list[float]) -> list[float]:

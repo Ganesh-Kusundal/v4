@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "services" / "duckdb-analytics" / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from rs_dtw_topgainer_study import load_n_bars, rs_scores_per_day  # noqa

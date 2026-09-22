@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "services" / "duckdb-analytics" / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from opening_drive_study import FEATURE_SQL, RULES  # noqa: E402
