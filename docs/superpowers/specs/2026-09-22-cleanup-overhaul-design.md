@@ -132,15 +132,29 @@ persistence via `OrderManager`/`sqlite_store`; no module imports the deleted nam
 
 **Part A — orphan deletion (tracked; verify-then-delete):**
 
-Candidates: `trading/scripts/probe_review_fixes.py`, `quick_start_live.py`,
-`backfill_2025.py`, `e2e_smoke.py` (zero test references — grep-verified).
+The deletion gate ran on 2026-09-22 and **overturned the original candidate list**.
+Recorded here because the correction is the point: three of the four names are
+live, and deleting them would have broken documented flows.
 
-For each, run the deletion gate **before** removal:
+| Script | Verdict | Evidence |
+| --- | --- | --- |
+| `probe_review_fixes.py` | **deleted** | Superseded. Guarded that nothing re-imports the retired `tradex_trading.events` stack; that package is confirmed gone. The guard's *unique* check was ported into `tests/test_import_boundaries.py` first (the layer tests there split on `.`, so `tradex_trading.events` collapsed to a legal self-import and was never covered). Manual diagnostic → CI-enforced test. |
+| `e2e_smoke.py` | **kept** | Live. `frontend/scripts/artifact-stamp.mjs` names it as the stamp's consumer ("a caller — `trading/scripts/e2e_smoke.py` — can check one served response body against the stamp"); also documented in `CLAUDE.md` and `docs/design/2026-09-13-stale-artifact-verification.md`. Deleting it orphans the UI-artifact verification flow. |
+| `backfill_2025.py` | **kept** | Live. A modify-target of the in-flight `docs/superpowers/plans/2026-09-21-simple-sync-consolidation.md` (lines 32, 156, 178) and has its own `.gitignore` entry (`data/backfill_2025.json`). Deleting it collides with an open plan. |
+| `quick_start_live.py` | **deferred** | Zero CI/doc invocations, but it is a live-mode operator entry point that funnels into `runtime/startup.py::boot()`. No automated consumer, but a human one may exist — needs an explicit decision rather than a silent removal. |
+
+The gate steps (kept as the reusable procedure):
 
 1. grep `.github/` workflows, `Makefile`, `package.json`, docs for invocations;
-2. grep `trading/tests`, `tests` for imports (currently 0 for all four);
-3. if a workflow references one, either update the workflow in the same commit
-   or keep the script — record the decision in the commit message.
+2. grep `trading/tests`, `tests` for imports;
+3. grep the frontend build for the script name (this is what saved `e2e_smoke.py`);
+4. if anything references it, either update that caller in the same commit or keep
+   the script — record the decision in the commit message.
+
+**Note on tooling:** the reference grep must exclude the datalake
+(`trading/data/`, `poc/data/`). A naive `grep -rn .` walks ~277 MB of parquet and
+appears to hang. Prefer `git grep`, which scans tracked files only.
+
 
 **Part B — thin delegates (no doc breakage):**
 

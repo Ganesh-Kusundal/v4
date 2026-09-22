@@ -170,3 +170,85 @@ def test_single_execution_authority_in_active_spine() -> None:
         "apply_fill is defined in more than one execution module. "
         "Money path duplication detected:\n" + "\n".join(owners_of_apply_fill)
     )
+
+
+# ---------------------------------------------------------------------------
+# Retired-stack guard: ``tradex_trading.events`` must not come back
+# ---------------------------------------------------------------------------
+
+# Ported from ``trading/scripts/probe_review_fixes.py``, deleted 2026-09-22.
+#
+# The legacy ``tradex_trading.events`` OMS stack (~2.7k LoC: its own FSM, risk
+# engine, event store, recovery, kill switch with *different* semantics) was
+# retired and the package was removed. ``probe_review_fixes.py`` was a
+# manually-run diagnostic asserting that nothing in production or scripts
+# re-imports it. A manual script only helps if someone remembers to run it, so
+# the check now lives here, where the suite runs it on every build.
+#
+# Why the layer tests above do not already cover this: they compare *top-level*
+# module names (``alias.name.split(".")[0]``), so ``tradex_trading.events``
+# collapses to the legitimate self-import ``tradex_trading`` and passes.
+
+_RETIRED_PREFIX = "tradex_trading.events"
+
+_RETIRED_SCAN_ROOTS = (
+    _ROOT / "trading/src",
+    _ROOT / "trading/scripts",
+)
+
+
+def _imported_dotted(tree: ast.AST) -> set[str]:
+    """Collect full dotted module names imported by *tree*."""
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module:
+                modules.add(node.module)
+    return modules
+
+
+def test_retired_events_stack_is_not_imported() -> None:
+    """Nothing in trading production code or scripts imports the retired stack.
+
+    The package is gone, so today an import would raise ``ImportError`` at
+    runtime anyway. The point of stating it as a test is that re-creating the
+    stack — or sneaking a reference back in behind a lazy import — fails the
+    build instead of silently reintroducing a second order-management universe.
+    """
+    offenders: list[str] = []
+    for root in _RETIRED_SCAN_ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            imported = _imported_dotted(
+                ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            )
+            hits = sorted(
+                name
+                for name in imported
+                if name == _RETIRED_PREFIX or name.startswith(f"{_RETIRED_PREFIX}.")
+            )
+            if hits:
+                offenders.append(f"{path.relative_to(_ROOT)}: {hits}")
+
+    assert not offenders, (
+        "the retired ``tradex_trading.events`` stack is imported again; it was "
+        "deleted deliberately (second OMS universe) and must not be revived:\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_retired_events_stack_is_actually_gone() -> None:
+    """Guard the scan above against silently passing on an empty file set."""
+    assert not (_ROOT / "trading/src/tradex_trading/events").exists(), (
+        "tradex_trading/events was re-created; if that is intentional the "
+        "retirement decision must be revisited explicitly."
+    )
+    for root in _RETIRED_SCAN_ROOTS:
+        assert _py_files(root), (
+            f"no .py files found under {root.relative_to(_ROOT)}; the retired-stack "
+            "scan is not looking at anything."
+        )
+
