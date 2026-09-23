@@ -232,7 +232,10 @@ class BacktestEngine:
             cache=cache,
             fee_calculator=self._fee_calculator,
         )
-        ledger = CashLedger(initial_capital)
+        # Preserve the historical no-risk-manager mode's unlimited buying
+        # power. When a RiskManager is supplied it is bound to this ledger
+        # below, so its cash gate rejects the same orders as reactive mode.
+        ledger = CashLedger(initial_capital, allow_negative=self._risk_manager is None)
 
         # Cash ledger subscribes to fills (orchestrated cash tracking).
         recorded_fills: list[dict[str, Any]] = []
