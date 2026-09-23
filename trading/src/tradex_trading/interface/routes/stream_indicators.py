@@ -178,31 +178,22 @@ class IndicatorStreamRegistry:
 
     def _load_datalake_tail(self, frame: Any) -> list[dict[str, Any]]:
         try:
-            from tradex_brokers.common.market_builders import candles_from_dataframe
             from tradex_domain.enums import Timeframe
             from tradex_domain.instruments import Equity
-            from tradex_domain.market import HistoricalSeries
 
             from tradex_trading.datalake.paths import DATALAKE_ROOT
-            from tradex_trading.datalake.parquet_storage import ParquetStorage
+            from tradex_trading.datalake.market_provider import ParquetMarketProvider
 
             exchange, symbol = frame.instrument.split(":", 1) if ":" in frame.instrument else ("NSE", frame.instrument)
             tf = Timeframe(frame.timeframe)
             end = datetime.fromtimestamp(frame.time, tz=_IST_ZONE()) + timedelta(seconds=_tf_seconds(tf))
-            store = ParquetStorage(str(DATALAKE_ROOT))
-            df = store.read(symbols=[symbol], start=end - timedelta(days=30), end=end)
-            if df.empty:
-                return []
             instrument = Equity.of(exchange, symbol)
-            series = HistoricalSeries(
-                instrument=instrument,
-                timeframe=Timeframe.M1,
-                candles=candles_from_dataframe(instrument, df, timeframe=Timeframe.M1),
-                start=end - timedelta(days=30),
-                end=end,
+            series = ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
+                instrument,
+                tf,
+                end - timedelta(days=30),
+                end,
             )
-            if tf != Timeframe.M1:
-                series = series.resample(tf)
             candles = series.candles[-_TAIL_LIMIT:]
             return [
                 {
