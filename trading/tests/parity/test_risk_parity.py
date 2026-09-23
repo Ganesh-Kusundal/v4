@@ -155,6 +155,20 @@ class TestBacktestRiskGate:
         # Filled (3 points) — not rejected (1 point) — with no risk manager.
         assert len(bt.equity_curve) == 3
 
+    def test_cash_gate_uses_backtest_ledger(self) -> None:
+        """A configured risk manager rejects buys beyond backtest cash."""
+        risk = RiskManager()
+        bt = BacktestEngine(
+            risk_manager=risk,
+            initial_capital=Decimal("100"),
+        ).run(
+            _SignalEmitter(INSTRUMENT, buys=1, strength=2.0),
+            _candles([10.0, 100.0]),
+        )
+
+        assert bt.num_rejected == 1
+        assert bt.num_trades == 0
+
     def test_master_gate_rejects_everything(self) -> None:
         """live_orders_enabled=False (kill switch) rejects all orders."""
         risk = RiskManager(live_orders_enabled=False)

@@ -303,6 +303,8 @@ class BacktestEngine:
                 self._risk_manager.set_positions_provider(
                     lambda: list(cache.all_positions()),
                 )
+            if not getattr(self._risk_manager, "cash_provider_bound", False):
+                self._risk_manager.bind_cash_provider(lambda: ledger.cash)
             self._risk_manager.reset_rate_window()
 
         # Corp actions: applied to the shared PositionManager (and the ledger's
