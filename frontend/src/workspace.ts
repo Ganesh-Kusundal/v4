@@ -172,37 +172,6 @@ const newestLayout = (metas: unknown): WorkspaceMeta | null => {
   return best;
 };
 
-/** Split a stored payload into its envelope and its widget state. */
-const parseStored = (raw: unknown): { envelope: StoredBlob | null; state: unknown } => {
-  if (isRecord(raw) && typeof raw.v === 'number' && 'state' in raw) {
-    return { envelope: raw as unknown as StoredBlob, state: raw.state };
-  }
-  // A pre-versioning blob: the bare engine state, no fingerprint.
-  return { envelope: null, state: raw };
-};
-
-/** The instrument a stored state was captured on, validated against what we serve. */
-const instrumentOf = (state: unknown, fallback: BootOptions): BootInstrument => {
-  if (!isRecord(state)) {
-    return { symbol: fallback.symbol, exchange: fallback.exchange, interval: fallback.interval };
-  }
-  const symbol =
-    typeof state.symbol === 'string' && state.symbol.trim() !== ''
-      ? state.symbol.trim().toUpperCase()
-      : fallback.symbol;
-  const exchange =
-    typeof state.exchange === 'string' && state.exchange.trim() !== ''
-      ? state.exchange.trim().toUpperCase()
-      : fallback.exchange;
-  // An interval the host does not serve would make the widget reload onto its
-  // own default, so treat it as absent rather than booting into it.
-  const interval =
-    typeof state.interval === 'string' && fallback.intervals.includes(state.interval)
-      ? state.interval
-      : fallback.interval;
-  return { symbol, exchange, interval };
-};
-
 /** Keep the layout, drop the view — the engine's own rule for newer data. */
 const stripViewOf = (state: unknown): unknown =>
   isRecord(state) && isRecord(state.chart)
@@ -263,10 +232,9 @@ export async function loadActiveWorkspace(options: BootOptions): Promise<BootWor
         const res = await fetch(`${API_BASE}/api/charts/workspace/${encodeURIComponent(id)}`);
         if (res.ok) {
           const payload = (await res.json()) as { data?: unknown };
-          const parsed = parseStored(payload.data);
-          envelope = parsed.envelope;
-          state = parsed.state;
-          storedInstrument = instrumentOf(state, options);
+          envelope = payload.data as StoredBlob | null;
+          state = envelope?.state ?? null;
+          storedInstrument = { symbol: options.symbol, exchange: options.exchange, interval: options.interval };
         }
       }
     }
