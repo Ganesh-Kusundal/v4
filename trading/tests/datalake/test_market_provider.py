@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pandas as pd
-import pytest
-
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.market import HistoricalSeries

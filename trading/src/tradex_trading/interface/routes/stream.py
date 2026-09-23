@@ -18,19 +18,19 @@ import asyncio
 import json
 import logging
 import secrets
+from datetime import UTC
 from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import WebSocket, WebSocketDisconnect
 from tradex_domain.errors import CapabilityNotSupportedError
 
-from tradex_trading.interface.routes.stream_indicators import IndicatorStreamRegistry
-
 from tradex_trading.interface.queueing import (
     CONTROL_QUEUE_MAX,
     _enqueue_control_drop_oldest,
     _enqueue_drop_oldest,
 )
+from tradex_trading.interface.routes.stream_indicators import IndicatorStreamRegistry
 
 log = logging.getLogger(__name__)
 
@@ -603,6 +603,7 @@ async def ws_stream(
 
                 from tradex_domain.enums import Timeframe as _TF
                 from tradex_domain.instruments import Equity
+
                 from tradex_trading.datalake.market_provider import ParquetMarketProvider
                 from tradex_trading.datalake.parquet_storage import ParquetStorage
                 from tradex_trading.datalake.paths import DATALAKE_ROOT
@@ -676,7 +677,6 @@ async def ws_stream(
                     })
                     return
 
-                sim_instrument = Equity.of(instrument.split(":")[0], symbol)
                 candles = series.candles
                 if not candles:
                     _ack({"type": "error", "message": f"no candles found for {symbol}"})
@@ -853,12 +853,13 @@ async def ws_stream(
                     getattr(session, "mode", None) == "paper" and float(quote.ltp.value) == 100.0
                 ):
                     try:
-                        from datetime import datetime, timedelta, timezone
+                        from datetime import datetime, timedelta
                         from decimal import Decimal
 
                         from tradex_domain.enums import Timeframe
                         from tradex_domain.market import Quote
                         from tradex_domain.value_objects import Price
+
                         from tradex_trading.datalake.market_provider import ParquetMarketProvider
                         from tradex_trading.datalake.parquet_storage import ParquetStorage
                         from tradex_trading.datalake.paths import DATALAKE_ROOT
@@ -886,8 +887,10 @@ async def ws_stream(
                                     ltp=p_ltp,
                                     bid=p_bid,
                                     ask=p_ask,
-                                    timestamp=datetime.now(timezone.utc),
-                                    exchange=getattr(getattr(inst, "exchange", None), "value", "NSE"),
+                                    timestamp=datetime.now(UTC),
+                                    exchange=getattr(
+                                        getattr(inst, "exchange", None), "value", "NSE"
+                                    ),
                                     provider="paper",
                                 )
                                 if hasattr(session.broker, "set_quote"):

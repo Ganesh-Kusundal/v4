@@ -22,8 +22,8 @@ def _client() -> TestClient:
 
 class TestHistoryContract:
     def test_history_loads_parquet_through_market_provider(self):
-        from tradex_trading.interface.fastapi_app import create_app
         from tradex_trading.datalake import market_provider
+        from tradex_trading.interface.fastapi_app import create_app
 
         with patch.object(market_provider, "ParquetMarketProvider") as provider:
             provider.return_value.history.return_value.candles = []
@@ -69,6 +69,7 @@ class TestHistoryContract:
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import HistoricalSeries
+
         from tradex_trading.datalake.parquet_storage import ParquetStorage
 
         store = ParquetStorage("data/")

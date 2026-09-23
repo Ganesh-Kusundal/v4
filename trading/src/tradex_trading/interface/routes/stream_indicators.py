@@ -181,12 +181,18 @@ class IndicatorStreamRegistry:
             from tradex_domain.enums import Timeframe
             from tradex_domain.instruments import Equity
 
-            from tradex_trading.datalake.paths import DATALAKE_ROOT
             from tradex_trading.datalake.market_provider import ParquetMarketProvider
+            from tradex_trading.datalake.paths import DATALAKE_ROOT
 
-            exchange, symbol = frame.instrument.split(":", 1) if ":" in frame.instrument else ("NSE", frame.instrument)
+            exchange, symbol = (
+                frame.instrument.split(":", 1)
+                if ":" in frame.instrument
+                else ("NSE", frame.instrument)
+            )
             tf = Timeframe(frame.timeframe)
-            end = datetime.fromtimestamp(frame.time, tz=_IST_ZONE()) + timedelta(seconds=_tf_seconds(tf))
+            end = datetime.fromtimestamp(
+                frame.time, tz=_IST_ZONE()
+            ) + timedelta(seconds=_tf_seconds(tf))
             instrument = Equity.of(exchange, symbol)
             series = ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
                 instrument,

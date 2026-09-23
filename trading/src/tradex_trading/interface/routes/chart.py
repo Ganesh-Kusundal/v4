@@ -174,8 +174,8 @@ def _build_strategy(name: str, instrument: Any, params: dict[str, Any]) -> Any:
 
 def _backtest_candles(instrument: Any, tf: Timeframe, start: datetime, end: datetime) -> list[Any]:
     """Load resampled candles for a backtest window from the datalake."""
-    from tradex_trading.datalake.paths import DATALAKE_ROOT
     from tradex_trading.datalake.market_provider import ParquetMarketProvider
+    from tradex_trading.datalake.paths import DATALAKE_ROOT
 
     return ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
         instrument, tf, start, end
@@ -892,8 +892,8 @@ def create_chart_router(
         edge conversion on top. The store is anchored to the repo root
         (``datalake.paths.DATALAKE_ROOT``) so serve works from any cwd.
         """
-        from tradex_trading.datalake.paths import DATALAKE_ROOT
         from tradex_trading.datalake.market_provider import ParquetMarketProvider
+        from tradex_trading.datalake.paths import DATALAKE_ROOT
 
         series = ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
             instrument, tf, start, end
