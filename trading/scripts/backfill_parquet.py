@@ -48,6 +48,7 @@ from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402 — sys.pat
 from tradex_trading.datalake.parquet_storage import (  # noqa: E402 — sys.path setup above
     ParquetStorage,
 )
+from tradex_trading.datalake.paths import datalake_root  # noqa: E402 — sys.path setup above
 from tradex_trading.datalake.universe import load_universe  # noqa: E402 — sys.path setup above
 
 log = logging.getLogger("tradex.scripts.backfill")
@@ -184,7 +185,7 @@ def main(argv: list[str] | None = None) -> int:
         log.error("No brokers available")
         return 1
     fetcher = ParallelHistoryFetcher(brokers, max_workers=args.workers)
-    data_root = Path(args.data_root) if args.data_root else ROOT / "data"
+    data_root = Path(args.data_root) if args.data_root else Path(datalake_root())
     store = ParquetStorage(data_root)
     gap_detector = GapDetector(store)
 

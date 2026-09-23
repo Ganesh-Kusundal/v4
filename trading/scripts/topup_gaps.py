@@ -33,6 +33,7 @@ from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402 — s
 from tradex_trading.datalake.parquet_storage import (  # noqa: E402 — sys.path setup above
     ParquetStorage,
 )
+from tradex_trading.datalake.paths import datalake_root  # noqa: E402 — sys.path setup above
 from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402 — sys.path setup above
 from tradex_trading.datalake.universe import load_universe  # noqa: E402 — sys.path setup above
 
@@ -69,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     end = datetime.now()
 
     instruments = {i.symbol: i for i in load_universe(args.universe)}
-    data_root = Path(args.data_root) if args.data_root else ROOT / "data"
+    data_root = Path(args.data_root) if args.data_root else Path(datalake_root())
     store = ParquetStorage(data_root)
     detector = GapDetector(store)
 

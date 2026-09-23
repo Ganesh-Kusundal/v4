@@ -18,13 +18,14 @@ load_env_file(str(ROOT / ".env.local"))
 
 from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_trading.datalake.paths import datalake_root  # noqa: E402
 from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402
 from tradex_trading.datalake.universe import load_universe  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 
 
 def main() -> int:
-    store = ParquetStorage(ROOT / "data")
+    store = ParquetStorage(Path(datalake_root()))
     try:
         dhan = build_broker_from_env("dhan")
         dhan.connect()

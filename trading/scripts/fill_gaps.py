@@ -28,6 +28,7 @@ from tradex_domain.market_calendar import NSE_HOLIDAYS_2026  # noqa: E402
 
 from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_trading.datalake.paths import datalake_root  # noqa: E402
 from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402
 from tradex_trading.datalake.universe import load_universe  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
@@ -87,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:
                         "window; use 0 to repair older holes) (default: 7)")
     args = p.parse_args(argv)
 
-    store = ParquetStorage(ROOT / "data")
+    store = ParquetStorage(Path(datalake_root()))
     detector = GapDetector(store)
     instruments = load_universe("nifty500")
     now = datetime.now().replace(second=0, microsecond=0)

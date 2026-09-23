@@ -52,6 +52,7 @@ load_env_file(str(ROOT / ".env.local"))
 
 from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_trading.datalake.paths import datalake_root  # noqa: E402
 from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402
 from tradex_trading.datalake.universe import load_universe  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
@@ -132,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     started = time.monotonic()
-    store = ParquetStorage(Path(args.data_root) if args.data_root else ROOT / "data")
+    store = ParquetStorage(Path(args.data_root) if args.data_root else Path(datalake_root()))
     detector = GapDetector(store)
     skipped = {s.strip().upper() for s in args.skip_symbols.split(",") if s.strip()}
     only = {s.strip().upper() for s in args.only_symbols.split(",") if s.strip()}

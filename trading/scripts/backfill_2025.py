@@ -30,8 +30,12 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 for sub in ("domain/src", "brokers/src", "trading/src"):
     sys.path.insert(0, str(ROOT / sub))
 
+from tradex_trading.datalake.paths import datalake_root  # noqa: E402
+
 IST = timezone(timedelta(hours=5, minutes=30))
-PROGRESS_FILE = ROOT / "data" / "backfill_2025.json"
+#: Progress state follows the lake, not the repo, so a run pointed at an
+#: override root ($TRADEX_DATALAKE_ROOT) resumes against that root's own book.
+PROGRESS_FILE = Path(datalake_root()) / "backfill_2025.json"
 BATCH_SIZE = 120  # safe now that the limiter serializes Dhan at 5/s
 
 QUARTERS = {
@@ -76,7 +80,7 @@ def _save_progress(done: set[str]) -> None:
 
 
 def main(argv: list[str]) -> int:
-    store = ParquetStorage(ROOT / "data")
+    store = ParquetStorage(Path(datalake_root()))
     instruments = load_universe("nifty500")
     brokers = {}
     for name in ("dhan", "upstox"):

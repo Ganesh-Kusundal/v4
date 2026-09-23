@@ -48,6 +48,7 @@ for sub in ("domain/src", "brokers/src", "trading/src"):
 from tradex_domain import Equity, Timeframe  # noqa: E402
 
 from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader  # noqa: E402
+from tradex_trading.datalake.paths import datalake_root  # noqa: E402
 from tradex_trading.execution.fees import FeeCalculator  # noqa: E402
 from tradex_trading.execution.slippage import PercentageSlippageModel  # noqa: E402
 from tradex_trading.replay.backtest import BacktestEngine  # noqa: E402
@@ -211,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
             if sym.strip()
         }
     loader = ParquetBacktestLoader(
-        base_path=args.data_root or str(ROOT / "data"),
+        base_path=args.data_root or datalake_root(),
         gap_strict=args.strict_gaps,
         calendar=NSETradingCalendar(holidays=holiday_dates) if holiday_dates else None,
         delisted=delisted_symbols,

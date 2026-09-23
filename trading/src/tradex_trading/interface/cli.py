@@ -442,6 +442,7 @@ def cmd_sync(args: Any) -> int:
     from tradex_trading.config.env import load_env_file
     from tradex_trading.datalake.gap_detector import GapDetector
     from tradex_trading.datalake.parquet_storage import ParquetStorage
+    from tradex_trading.datalake.paths import datalake_root
     from tradex_trading.datalake.universe import load_universe
     from tradex_trading.runtime.live import build_broker_from_env
 
@@ -454,8 +455,11 @@ def cmd_sync(args: Any) -> int:
     else:
         logging.warning(".env.local not found at %s — broker credentials may be missing", env_path)
 
-    # Build store early so we can auto-detect start date
-    store = ParquetStorage(ROOT / "data")
+    # Build store early so we can auto-detect start date.
+    # Resolved through the shared seam, not a second ROOT/"data" literal: the
+    # readers (chart/stream routes) honour $TRADEX_DATALAKE_ROOT, so a sync that
+    # hardcoded ROOT/"data" would write bars into a lake the server never reads.
+    store = ParquetStorage(Path(datalake_root()))
 
     # Auto-detect start date from store if not provided
     if args.start:

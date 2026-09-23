@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 from pathlib import Path
 
@@ -15,7 +16,13 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from tradex_trading.datalake.parquet_storage import market_session_mask
+# Ensure project packages are importable (same bootstrap as the sibling scripts)
+ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
+for sub in ("domain/src", "brokers/src", "trading/src"):
+    sys.path.insert(0, str(ROOT / sub))
+
+from tradex_trading.datalake.parquet_storage import market_session_mask  # noqa: E402
+from tradex_trading.datalake.paths import datalake_root  # noqa: E402
 
 
 def clean_parquet_file(path: Path) -> tuple[int, int]:
@@ -41,7 +48,11 @@ def clean_parquet_file(path: Path) -> tuple[int, int]:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Clean datalake: strip phantom post-market bars")
-    p.add_argument("--data-root", default="data/", help="Parquet base path (default: data/)")
+    p.add_argument(
+        "--data-root",
+        default=datalake_root(),
+        help="Parquet base path (default: the repo-anchored lake the server reads)",
+    )
     p.add_argument("--dry-run", action="store_true", help="Count only, don't rewrite")
     args = p.parse_args()
 

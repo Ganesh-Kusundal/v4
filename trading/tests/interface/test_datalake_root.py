@@ -14,6 +14,7 @@ process working directory.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,59 @@ def _repo_root() -> Path:
     pkg_dir = Path(routes.__file__).resolve().parent
     # interface/routes -> interface -> tradex_trading -> src -> trading -> repo
     return pkg_dir.parents[4]
+
+
+def _callee_name(func: ast.expr) -> str:
+    """Bare or attribute callee name, e.g. ``ParquetStorage`` from ``x.P(...)``."""
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return ""
+
+
+#: Constructors that take a datalake root as their first argument.
+_LAKE_CONSTRUCTORS = ("ParquetStorage", "ParquetBacktestLoader")
+
+
+def _second_root_definitions(tree: ast.AST) -> set[str]:
+    """Lake-root literals this module *defines in code*.
+
+    Parsed, not regex-scanned. The first version searched the raw text and
+    failed on ``cli.py``'s own explanatory comment quoting the retired
+    ``ROOT/"data"`` literal — a comment describing a bug is documentation, not a
+    second definition. Only expressions count: a division producing a path, a
+    ``default=`` keyword, or a lake constructor handed a bare relative string.
+    """
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, ast.Div)
+            and isinstance(node.left, ast.Name)
+            and node.left.id == "ROOT"
+            and isinstance(node.right, ast.Constant)
+            and node.right.value in ("data", "data/")
+        ):
+            found.add('ROOT / "data"')
+
+        if (
+            isinstance(node, ast.keyword)
+            and node.arg == "default"
+            and isinstance(node.value, ast.Constant)
+            and node.value.value in ("data", "data/")
+        ):
+            found.add('default="data"')
+
+        if (
+            isinstance(node, ast.Call)
+            and _callee_name(node.func) in _LAKE_CONSTRUCTORS
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in ("data", "data/")
+        ):
+            found.add(f'{_callee_name(node.func)}("data")')
+    return found
 
 
 class TestDatalakeRoot:
@@ -71,18 +125,62 @@ class TestDatalakeRoot:
     def test_no_cwd_relative_data_literals_in_interface(self, modpath):
         """Interface routes must not hand ParquetStorage a bare relative path.
 
-        Grep-level contract: any literal "data/" inside the interface package
-        re-introduces the cwd fragility (serve from trading/ -> empty chart).
-        The only sanctioned default is paths._DATALAKE_ROOT.
+        Any ``"data/"`` literal in a route re-introduces the cwd fragility
+        (serve from trading/ -> empty chart). The only sanctioned default is
+        ``paths.DATALAKE_ROOT``, so a route resolves its handle through
+        ``datalake_root()`` rather than spelling the path itself.
+
+        Parsed, not text-matched: the module must stay free to *describe* the
+        retired literal in a comment without tripping its own check.
         """
         import importlib
-        import inspect
 
         mod = importlib.import_module(modpath)
-        src = inspect.getsource(mod)
-        assert 'ParquetStorage("data/")' not in src, (
-            f"{modpath} still constructs ParquetStorage from a cwd-relative "
-            'literal "data/" — use tradex_trading.datalake.paths.datalake_root()'
+        tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+        found = _second_root_definitions(tree)
+        assert not found, (
+            f"{modpath} defines the lake root itself ({sorted(found)}) instead of "
+            "resolving it through tradex_trading.datalake.paths.datalake_root()"
+        )
+
+    def test_no_module_in_interface_defines_the_lake_root(self):
+        """No module in the interface package may define the lake root itself.
+
+        The route-scoped guard above covers only ``chart`` and ``stream``, and
+        it matches one exact literal. That left ``tradex sync`` in ``cli.py``
+        free to hardcode ``ROOT / "data"`` (phase 4B) — a *writer* in the
+        production CLI that ignored ``$TRADEX_DATALAKE_ROOT`` while the *reader*
+        routes honoured it. With the variable set, bars landed in a lake the
+        server never read: the same empty-chart failure as the 2026-09-02
+        ``trading/data/`` shadow lake, reached from the other side.
+
+        So this scans every module under ``interface/``, recursively, for any
+        second *definition* of the root, and it does so on the *parse tree*:
+        the first attempt searched raw text and failed on ``cli.py``'s own
+        explanatory comment quoting the retired literal. A comment describing a
+        bug is documentation, not a second definition, and only a syntax-aware
+        scan can tell the two apart.
+        """
+        import tradex_trading.interface as pkg
+
+        pkg_dir = Path(pkg.__file__).resolve().parent
+        offenders: list[str] = []
+        scanned = 0
+        for path in sorted(pkg_dir.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            scanned += 1
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            found = _second_root_definitions(tree)
+            if found:
+                offenders.append(f"{path.relative_to(pkg_dir)}: {sorted(found)}")
+
+        assert scanned, f"no modules found under {pkg_dir}"
+        assert not offenders, (
+            "these interface modules define the datalake root themselves instead "
+            "of calling tradex_trading.datalake.paths.datalake_root(), so "
+            "$TRADEX_DATALAKE_ROOT cannot move their reads or writes:\n"
+            + "\n".join(offenders)
         )
 
     def test_serve_finds_bars_from_foreign_cwd(self, monkeypatch, tmp_path):
