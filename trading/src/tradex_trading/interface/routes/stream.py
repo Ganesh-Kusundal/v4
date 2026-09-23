@@ -601,9 +601,9 @@ async def ws_stream(
                 from datetime import timedelta as _td
                 from zoneinfo import ZoneInfo
 
-                from tradex_brokers.common.market_builders import candles_from_dataframe
                 from tradex_domain.enums import Timeframe as _TF
                 from tradex_domain.instruments import Equity
+                from tradex_trading.datalake.market_provider import ParquetMarketProvider
                 from tradex_trading.datalake.parquet_storage import ParquetStorage
                 from tradex_trading.datalake.paths import DATALAKE_ROOT
                 from tradex_trading.reactive.bus import ReactiveBus
@@ -611,8 +611,10 @@ async def ws_stream(
 
                 ist = ZoneInfo("Asia/Kolkata")
                 store = ParquetStorage(DATALAKE_ROOT)
+                provider = ParquetMarketProvider(store=store)
                 symbol = instrument.split(":")[-1]
                 minutes = int(msg.get("minutes", 390))
+                replay_tf = _TF(interval)
 
                 # Optional client-selected start bar (Unix seconds, IST epoch)
                 client_start_ts: int | None = None
@@ -629,11 +631,22 @@ async def ws_stream(
                     # start 3 extra trading-days before it so the store query hits,
                     # end at "now" so we capture the full session.
                     from_dt = _dt.fromtimestamp(client_start_ts, tz=ist) - _td(days=3)
-                    df = store.read(symbols=[symbol], start=from_dt, end=to_dt)
+                    series = provider.history(
+                        Equity.of(instrument.split(":")[0], symbol),
+                        replay_tf,
+                        from_dt,
+                        to_dt,
+                    )
                 else:
-                    df = store.read(symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt)
+                    from_dt = to_dt - _td(minutes=minutes)
+                    series = provider.history(
+                        Equity.of(instrument.split(":")[0], symbol),
+                        replay_tf,
+                        from_dt,
+                        to_dt,
+                    )
 
-                if df.empty:
+                if not series.candles:
                     rng = store.date_range(symbol)
                     hi = rng[1] if isinstance(rng, tuple) else None
                     if hi is None:
@@ -642,12 +655,21 @@ async def ws_stream(
                     to_dt = hi
                     if client_start_ts is not None:
                         from_dt = _dt.fromtimestamp(client_start_ts, tz=ist) - _td(days=3)
-                        df = store.read(symbols=[symbol], start=from_dt, end=to_dt)
-                    else:
-                        df = store.read(
-                            symbols=[symbol], start=to_dt - _td(minutes=minutes), end=to_dt
+                        series = provider.history(
+                            Equity.of(instrument.split(":")[0], symbol),
+                            replay_tf,
+                            from_dt,
+                            to_dt,
                         )
-                if df.empty:
+                    else:
+                        from_dt = to_dt - _td(minutes=minutes)
+                        series = provider.history(
+                            Equity.of(instrument.split(":")[0], symbol),
+                            replay_tf,
+                            from_dt,
+                            to_dt,
+                        )
+                if not series.candles:
                     _ack({
                         "type": "error",
                         "message": f"no datalake history in last {minutes}m for {symbol}",
@@ -655,7 +677,7 @@ async def ws_stream(
                     return
 
                 sim_instrument = Equity.of(instrument.split(":")[0], symbol)
-                candles = candles_from_dataframe(sim_instrument, df, timeframe=_TF.M1)
+                candles = series.candles
                 if not candles:
                     _ack({"type": "error", "message": f"no candles found for {symbol}"})
                     return
