@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
@@ -29,6 +29,37 @@ def _upsert_minute_bars(store: ParquetStorage, symbol: str = "RELIANCE") -> None
 
 
 class TestParquetMarketProvider:
+    def test_history_preserves_requested_metadata_and_inclusive_bounds(self, tmp_path):
+        store = ParquetStorage(tmp_path)
+        _upsert_minute_bars(store)
+        provider = ParquetMarketProvider(store=store)
+        start = datetime(2026, 7, 1, 9, 15)
+        end = datetime(2026, 7, 2, 9, 15)
+
+        series = provider.history(Equity.of("NSE", "RELIANCE"), Timeframe.M1, start, end)
+
+        assert series.instrument.symbol == "RELIANCE"
+        assert series.timeframe == Timeframe.M1
+        assert series.start == start
+        assert series.end == end
+        assert [c.timestamp for c in series.candles] == [
+            datetime(2026, 7, 1, 9, 15),
+            datetime(2026, 7, 2, 9, 15),
+        ]
+
+    def test_history_normalizes_timezone_aware_window_without_changing_metadata(self, tmp_path):
+        store = ParquetStorage(tmp_path)
+        _upsert_minute_bars(store)
+        provider = ParquetMarketProvider(store=store)
+        start = datetime(2026, 7, 1, 9, 15, tzinfo=UTC)
+        end = datetime(2026, 7, 2, 9, 15, tzinfo=UTC)
+
+        series = provider.history(Equity.of("NSE", "RELIANCE"), Timeframe.M1, start, end)
+
+        assert len(series.candles) == 2
+        assert series.start == start
+        assert series.end == end
+
     def test_history_returns_m1_candles(self, tmp_path):
         store = ParquetStorage(tmp_path)
         _upsert_minute_bars(store)
