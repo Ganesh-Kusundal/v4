@@ -856,18 +856,28 @@ async def ws_stream(
                         from datetime import datetime, timedelta, timezone
                         from decimal import Decimal
 
+                        from tradex_domain.enums import Timeframe
                         from tradex_domain.market import Quote
                         from tradex_domain.value_objects import Price
+                        from tradex_trading.datalake.market_provider import ParquetMarketProvider
                         from tradex_trading.datalake.parquet_storage import ParquetStorage
                         from tradex_trading.datalake.paths import DATALAKE_ROOT
 
                         store = ParquetStorage(DATALAKE_ROOT)
+                        provider = ParquetMarketProvider(store=store)
                         sym = getattr(inst, "symbol", None) or str(iid).split(":")[-1]
                         rng = store.date_range(sym)
                         if rng and rng[1]:
-                            df = store.read(symbols=[sym], start=rng[1] - timedelta(days=2), end=rng[1])
-                            if not df.empty:
-                                last_c = Decimal(str(round(float(df["close"].iloc[-1]), 2)))
+                            series = provider.history(
+                                inst,
+                                Timeframe.M1,
+                                rng[1] - timedelta(days=2),
+                                rng[1],
+                            )
+                            if series.candles:
+                                last_c = Decimal(
+                                    str(round(float(series.candles[-1].ohlc.close.value), 2))
+                                )
                                 p_ltp = Price(last_c)
                                 p_bid = Price(last_c - Decimal("0.05"))
                                 p_ask = Price(last_c + Decimal("0.05"))
