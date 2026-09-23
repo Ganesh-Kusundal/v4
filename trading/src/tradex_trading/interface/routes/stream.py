@@ -615,7 +615,6 @@ async def ws_stream(
                 provider = ParquetMarketProvider(store=store)
                 symbol = instrument.split(":")[-1]
                 minutes = int(msg.get("minutes", 390))
-                replay_tf = _TF(interval)
 
                 # Optional client-selected start bar (Unix seconds, IST epoch)
                 client_start_ts: int | None = None
@@ -634,7 +633,7 @@ async def ws_stream(
                     from_dt = _dt.fromtimestamp(client_start_ts, tz=ist) - _td(days=3)
                     series = provider.history(
                         Equity.of(instrument.split(":")[0], symbol),
-                        replay_tf,
+                        _TF.M1,
                         from_dt,
                         to_dt,
                     )
@@ -642,7 +641,7 @@ async def ws_stream(
                     from_dt = to_dt - _td(minutes=minutes)
                     series = provider.history(
                         Equity.of(instrument.split(":")[0], symbol),
-                        replay_tf,
+                        _TF.M1,
                         from_dt,
                         to_dt,
                     )
@@ -658,7 +657,7 @@ async def ws_stream(
                         from_dt = _dt.fromtimestamp(client_start_ts, tz=ist) - _td(days=3)
                         series = provider.history(
                             Equity.of(instrument.split(":")[0], symbol),
-                            replay_tf,
+                            _TF.M1,
                             from_dt,
                             to_dt,
                         )
@@ -666,7 +665,7 @@ async def ws_stream(
                         from_dt = to_dt - _td(minutes=minutes)
                         series = provider.history(
                             Equity.of(instrument.split(":")[0], symbol),
-                            replay_tf,
+                            _TF.M1,
                             from_dt,
                             to_dt,
                         )
