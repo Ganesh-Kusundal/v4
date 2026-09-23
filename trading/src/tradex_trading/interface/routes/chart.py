@@ -174,25 +174,12 @@ def _build_strategy(name: str, instrument: Any, params: dict[str, Any]) -> Any:
 
 def _backtest_candles(instrument: Any, tf: Timeframe, start: datetime, end: datetime) -> list[Any]:
     """Load resampled candles for a backtest window from the datalake."""
-    from tradex_brokers.common.market_builders import candles_from_dataframe
-    from tradex_domain.market import HistoricalSeries
-
     from tradex_trading.datalake.paths import DATALAKE_ROOT
+    from tradex_trading.datalake.market_provider import ParquetMarketProvider
 
-    store = _get_store(DATALAKE_ROOT)
-    df = store.read(symbols=[instrument.symbol], start=start, end=end)
-    if df.empty:
-        return []
-    series = HistoricalSeries(
-        instrument=instrument,
-        timeframe=Timeframe.M1,
-        candles=candles_from_dataframe(instrument, df, timeframe=Timeframe.M1),
-        start=start,
-        end=end,
-    )
-    if tf != Timeframe.M1:
-        series = series.resample(tf)
-    return series.candles
+    return ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
+        instrument, tf, start, end
+    ).candles
 
 
 def _ist_to_utc_seconds(ts: datetime) -> int:
@@ -905,28 +892,12 @@ def create_chart_router(
         edge conversion on top. The store is anchored to the repo root
         (``datalake.paths.DATALAKE_ROOT``) so serve works from any cwd.
         """
-        from tradex_brokers.common.market_builders import candles_from_dataframe
-        from tradex_domain.market import HistoricalSeries
-
         from tradex_trading.datalake.paths import DATALAKE_ROOT
+        from tradex_trading.datalake.market_provider import ParquetMarketProvider
 
-        store = _get_store(DATALAKE_ROOT)
-        df = store.read(
-            symbols=[instrument.symbol],
-            start=start,
-            end=end,
+        series = ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
+            instrument, tf, start, end
         )
-        if df.empty:
-            return [], None
-        series = HistoricalSeries(
-            instrument=instrument,
-            timeframe=Timeframe.M1,
-            candles=candles_from_dataframe(instrument, df, timeframe=Timeframe.M1),
-            start=start,
-            end=end,
-        )
-        if tf != Timeframe.M1:
-            series = series.resample(tf)
         return _serialize_series(series, limit)
 
     def _bars_from_broker(

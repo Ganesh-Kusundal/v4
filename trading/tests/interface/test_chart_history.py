@@ -21,6 +21,22 @@ def _client() -> TestClient:
 
 
 class TestHistoryContract:
+    def test_history_loads_parquet_through_market_provider(self):
+        from tradex_trading.interface.fastapi_app import create_app
+        from tradex_trading.datalake import market_provider
+
+        with patch.object(market_provider, "ParquetMarketProvider") as provider:
+            provider.return_value.history.return_value.candles = []
+            response = TestClient(create_app(session=None)).get(
+                "/api/charts/history/NSE:NOSUCHSTOCK",
+                params={"interval": "5m", "from": 1780000000, "to": 1780003600},
+            )
+
+        assert response.status_code == 200
+        provider.return_value.history.assert_called_once()
+        args = provider.return_value.history.call_args.args
+        assert args[1].value == "5m"
+
     def test_unsupported_interval_is_422(self):
         client = _client()
         resp = client.get("/api/charts/history/NSE:RELIANCE", params={"interval": "M"})
