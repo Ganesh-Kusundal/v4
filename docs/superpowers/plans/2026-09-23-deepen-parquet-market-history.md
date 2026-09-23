@@ -168,7 +168,7 @@
   `.venv/bin/python -m pytest trading/tests/datalake/test_market_provider.py -p no:cacheprovider --import-mode=importlib -c pyproject.toml -q`
 - [ ] Run interface tests:
   `.venv/bin/python -m pytest trading/tests/interface/test_chart_history.py trading/tests/interface/test_chart_backtest.py trading/tests/interface/test_ws_indicator_push.py trading/tests/interface/test_ws_bars_replay.py trading/tests/interface/test_replay_order_gate.py -p no:cacheprovider --import-mode=importlib -c pyproject.toml -q`
-- [ ] Run the sanctioned full suite:
+- [ ] Run the sanctioned full suite, satisfying **AC-7**:
   `.venv/bin/python -m pytest domain/tests brokers/tests trading/tests tests -p no:cacheprovider --import-mode=importlib -c pyproject.toml -q`
 - [ ] Run `ruff check` on modified source and tests.
 - [ ] Run frontend typecheck only as a sanity check because frontend source is not changed.
