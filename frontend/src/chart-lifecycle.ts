@@ -280,6 +280,7 @@ export function buildChart(): void {
     btn.addEventListener('click', (e) => { e.stopPropagation(); const id = (btn as HTMLElement).getAttribute('data-id'); if (id && chart) { chart.removeIndicator(id); renderActiveChips(); } });
   });
 }
+  renderActiveChips();
   if (replayPicking && replayPickIndex !== null) { setReplayShade(new ReplayShade({ index: replayPickIndex })); chart.addPrimitive(replayShade, 0); } else { setReplayShade(null); }
   const lastBar = rawBars.length > 0 ? rawBars[rawBars.length - 1] : undefined;
   const lp = lastLtp != null ? lastLtp : lastBar ? lastBar.close : null;
