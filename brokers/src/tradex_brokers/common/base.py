@@ -169,7 +169,12 @@ class BaseBroker:
     # ------------------------------------------------------------------
 
     def connect(self) -> None:
-        """Establish connection; load instruments from the loader if present."""
+        """Establish connection; load instruments from the loader if present.
+
+        Does not authenticate against the venue. Call ``verify_connection()``
+        for a wire probe, or rely on per-request token inject + 401-once retry
+        (including ``cache_read=True`` market POSTs).
+        """
         if self._transport is None:
             # No transport — stay capability-loud but logically connected.
             self._connected = True

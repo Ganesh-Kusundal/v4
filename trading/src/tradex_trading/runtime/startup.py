@@ -408,6 +408,14 @@ def _boot_tail(
 
     # 7. Connect broker (loads instruments/registry for live brokers)
     broker.connect()
+    # Live must prove wire auth before the session is READY. connect() only
+    # loads instruments; a locally-unexpired JWT can still 401 at the venue.
+    if cfg.mode == "live":
+        verify = getattr(broker, "verify_connection", None)
+        if not callable(verify) or not verify():
+            raise RuntimeError(
+                "live broker failed wire authentication probe (verify_connection)"
+            )
 
     # 7b. Bind the order/portfolio stream backend (live brokers only) so
     # callers using session.bus for OrderPlaced/OrderCancelled/OrderModified

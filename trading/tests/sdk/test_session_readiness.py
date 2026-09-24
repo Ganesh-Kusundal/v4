@@ -135,6 +135,36 @@ def test_boot_live_returns_ready(monkeypatch, tmp_path) -> None:
     session.stop()
 
 
+def test_boot_live_fails_when_verify_connection_false(monkeypatch, tmp_path) -> None:
+    """Live boot must fail closed when the wire auth probe fails."""
+    from tradex_trading.runtime import live as live_mod
+    from tradex_trading.runtime import startup
+
+    fake = _fake_live_broker()
+    fake.verify_connection.return_value = False
+
+    monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _broker_id, **_kw: fake)
+    monkeypatch.setattr(
+        startup,
+        "AppConfig",
+        lambda **kwargs: AppConfig(
+            **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="wire authentication|verify_connection"):
+        startup.boot(
+            AppConfig(
+                broker_id=BrokerId.DHAN,
+                mode="live",
+                live_enabled=True,
+                persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+            )
+        )
+    assert fake.connect.called
+    assert fake.verify_connection.called
+
+
 def test_boot_context_returns_ready_session() -> None:
     from tradex_trading.runtime.startup import boot_context
 

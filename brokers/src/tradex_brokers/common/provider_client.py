@@ -25,6 +25,8 @@ log = logging.getLogger(__name__)
 
 _SUCCESS_STATUS = frozenset(range(200, 300))
 _SAFE_AUTH_RETRY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+# POST/PUT market reads declare cache_read=True (idempotent); those get 401-once
+# too. Order mutations must not set cache_read=True — they stay one-shot.
 
 # Transport failures that can occur AFTER the request crossed the wire: the
 # venue may have accepted the mutation even though no response came back.
@@ -227,7 +229,8 @@ class ProviderHttpClient:
         result = self._pipeline.send(method, url, **kwargs)
         # Auth retry on 401/403 (v3 401-once): notify the token provider of the
         # rejection so it mints a fresh generation, then replay exactly once.
-        # Restricted to idempotent methods — POST order mutations stay one-shot.
+        # Eligible: safe HTTP methods, or explicit idempotent reads (cache_read=
+        # True) such as Dhan POST /marketfeed/ltp. Order mutations stay one-shot.
         transport_auth = (
             getattr(self._transport, "_token_provider", None) is not None
             and getattr(self._transport, "_on_auth_failure", None) is not None
@@ -236,7 +239,10 @@ class ProviderHttpClient:
             transport_auth
             or (self._auth_retry is not None and self._token_manager is not None)
         )
-        if retry_enabled and method.upper() in _SAFE_AUTH_RETRY_METHODS:
+        auth_retry_eligible = (
+            method.upper() in _SAFE_AUTH_RETRY_METHODS or cache_read is True
+        )
+        if retry_enabled and auth_retry_eligible:
             from tradex_brokers.common.provider_common import is_token_rejection_response
 
             http_status = result.get("_http_status")

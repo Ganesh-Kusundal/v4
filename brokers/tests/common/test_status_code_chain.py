@@ -148,6 +148,41 @@ class TestAuthRetryPolicy:
         client.request("GET", "/test")
         assert mock_pipeline.send.call_count == 2
 
+    def test_provider_client_auth_retry_on_401_post_cache_read(self):
+        """Idempotent market POSTs (e.g. Dhan LTP) must get 401-once like GETs."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.send.side_effect = [
+            {"_http_status": 401},
+            {"_http_status": 200, "data": "ok"},
+        ]
+        mock_transport = HttpTransport(base_url="https://example.com")
+        mock_token_mgr = MagicMock()
+        mock_token_mgr.get_token.return_value = "token"
+        client = ProviderHttpClient(
+            transport=mock_transport,
+            pipeline=mock_pipeline,
+            token_manager=mock_token_mgr,
+            auth_retry_policy=AuthRetryPolicy(),
+        )
+        client.request("POST", "/marketfeed/ltp", cache_read=True, json={"NSE_EQ": [1]})
+        assert mock_pipeline.send.call_count == 2
+
+    def test_provider_client_no_auth_retry_on_post_without_cache_read(self):
+        """Mutating / non-declared POSTs stay one-shot — never auth-replay."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.send.return_value = {"_http_status": 401}
+        mock_transport = HttpTransport(base_url="https://example.com")
+        mock_token_mgr = MagicMock()
+        mock_token_mgr.get_token.return_value = "token"
+        client = ProviderHttpClient(
+            transport=mock_transport,
+            pipeline=mock_pipeline,
+            token_manager=mock_token_mgr,
+            auth_retry_policy=AuthRetryPolicy(),
+        )
+        client.request("POST", "/orders", json={"qty": 1})
+        assert mock_pipeline.send.call_count == 1
+
     def test_provider_client_no_auth_retry_without_policy(self):
         mock_pipeline = MagicMock()
         mock_pipeline.send.return_value = {"_http_status": 401}
