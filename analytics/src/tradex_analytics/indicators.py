@@ -407,7 +407,6 @@ def linreg_slope(values: list, period: int) -> list[float | None]:
 
 def _hull_series(values: list[float], mode: str, length: int) -> list[float | None]:
     """Hull core for one mode (openalgo-charts parity, overlay.ts)."""
-    n = len(values)
     if mode == "Ehma":
         span_len = max(1, math.floor(length / 2))
         fast = _sma_seeded_ema(values, span_len)

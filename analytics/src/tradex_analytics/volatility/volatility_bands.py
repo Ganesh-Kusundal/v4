@@ -497,7 +497,6 @@ def ma_channel(
     Matches ``MA_CHANNEL`` (src/indicators/overlay.ts): ``upper =
     shift(sma(high, upperLength), upperOffset)`` and mirror for lows.
     """
-    n = len(candles)
     highs = [_to_float(c.ohlc.high.value) for c in candles]
     lows = [_to_float(c.ohlc.low.value) for c in candles]
     return {
