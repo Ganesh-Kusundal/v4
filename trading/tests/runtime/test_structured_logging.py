@@ -22,14 +22,14 @@ class TestCorrelationId:
         assert get_correlation_id() is None
 
     def test_set_and_get(self) -> None:
-        token = set_correlation_id("req-123")
+        set_correlation_id("req-123")
         try:
             assert get_correlation_id() == "req-123"
         finally:
             set_correlation_id(None)
 
     def test_reset_via_token(self) -> None:
-        token = set_correlation_id("req-456")
+        set_correlation_id("req-456")
         assert get_correlation_id() == "req-456"
         # Reset using the token
         # Just set to None explicitly
@@ -46,7 +46,7 @@ class TestCorrelationIdFilter:
             msg="hello", args=(), exc_info=None,
         )
         f = CorrelationIdFilter()
-        token = set_correlation_id("abc-123")
+        set_correlation_id("abc-123")
         try:
             f.filter(record)
             assert record.correlation_id == "abc-123"

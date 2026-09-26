@@ -25,4 +25,5 @@ def test_runbook_files_exist() -> None:
 
 def test_metrics_catalog_exists() -> None:
     assert METRICS_CATALOG.is_file()
-    assert "feed_age" in METRICS_CATALOG.read_text() or "feed" in METRICS_CATALOG.read_text().lower()
+    catalog = METRICS_CATALOG.read_text()
+    assert "feed_age" in catalog or "feed" in catalog.lower()

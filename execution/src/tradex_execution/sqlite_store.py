@@ -13,9 +13,6 @@ import json
 import logging
 import pickle
 import sqlite3
-
-#: Marker prefix for pickle-encoded idempotency results (Order objects).
-_PICKLE_PREFIX = "__tradex_pickle__:"
 import threading
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -31,6 +28,9 @@ from tradex_domain.events import (
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
+
+#: Marker prefix for pickle-encoded idempotency results (Order objects).
+_PICKLE_PREFIX = "__tradex_pickle__:"
 
 #: Extra ``orders`` columns carrying bracket protective legs. Stored as
 #: TEXT (the same convention as ``price``) so a bracket order recovered from

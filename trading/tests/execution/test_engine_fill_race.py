@@ -51,8 +51,8 @@ def test_apply_fill_idempotent_when_sync_path_already_filled() -> None:
     # Synchronous submit (the same code path _run_pipeline uses for
     # non-CQRS submit). For SimulatedFillSource this returns a fill
     # and the engine publishes OrderFilled.
-    receipt = engine.submit(_request())
     # SimulatedFillSource always returns a fill; the pipeline publishes it.
+    engine.submit(_request())
     assert len(captured) == 1
     first_event = captured[0]
 

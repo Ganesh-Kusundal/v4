@@ -1188,7 +1188,8 @@ def _patch_store(monkeypatch, candles):
     class _Store:
         def __init__(self, _): pass
         def read(self, *a, **kw): return _Frame()
-        def date_range(self, _): return (candles[0].timestamp, candles[-1].timestamp) if candles else None
+        def date_range(self, _):
+            return (candles[0].timestamp, candles[-1].timestamp) if candles else None
 
     monkeypatch.setattr(parquet_storage, "ParquetStorage", _Store)
     monkeypatch.setattr(market_builders, "candles_from_dataframe", lambda *a, **k: list(candles))
@@ -1460,7 +1461,8 @@ class TestTerminalPathIsolation:
         # Send two extra stop commands.
         replay_fixture.send({"type": "replay_stop"})
         replay_fixture.send({"type": "replay_stop"})
-        import time; time.sleep(0.1)
+        import time
+        time.sleep(0.1)
 
         assert not replay_fixture.guard.active, "repeated stop commands must not re-lock the guard"
 

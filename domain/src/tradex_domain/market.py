@@ -28,7 +28,8 @@ def require_depth_supported(instrument: Instrument) -> None:
     """Raise ``CapabilityNotSupportedError`` unless *instrument* can carry a book."""
     if str(instrument.exchange) not in _DEPTH_SUPPORTED_EXCHANGES:
         raise CapabilityNotSupportedError(
-            f"market depth is not supported on {instrument.exchange} (supported: {sorted(_DEPTH_SUPPORTED_EXCHANGES)})"
+            f"market depth is not supported on {instrument.exchange} "
+            f"(supported: {sorted(_DEPTH_SUPPORTED_EXCHANGES)})"
         )
 
 

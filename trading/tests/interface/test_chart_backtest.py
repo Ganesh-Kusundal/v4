@@ -96,7 +96,8 @@ class TestBacktestEndpoint:
     def test_unknown_param_is_422(self):
         resp = _client().post(
             "/api/charts/backtest",
-            json={**_WINDOW, "strategy": "sma_cross", "params": {"fast": 5, "slow": 20, "bogus": 1}},
+            json={**_WINDOW, "strategy": "sma_cross",
+                  "params": {"fast": 5, "slow": 20, "bogus": 1}},
         )
         assert resp.status_code == 422
 

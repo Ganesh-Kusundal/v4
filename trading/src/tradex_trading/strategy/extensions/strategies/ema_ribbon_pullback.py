@@ -1,4 +1,7 @@
-"""Compatibility shim — implementation lives in ``tradex_strategy.extensions.strategies.ema_ribbon_pullback``."""
+"""Compatibility shim.
+
+Implementation lives in ``tradex_strategy.extensions.strategies.ema_ribbon_pullback``.
+"""
 
 from importlib import import_module as _import_module
 

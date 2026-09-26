@@ -420,7 +420,11 @@ class MarketFeed:
         if violations:
             self._publish_violations(None, violations)
 
-    def _publish_violations(self, instrument: Instrument | None, violations: tuple[Any, ...]) -> None:
+    def _publish_violations(
+        self,
+        instrument: Instrument | None,
+        violations: tuple[Any, ...],
+    ) -> None:
         """Surface integrity violations on the bus as observation-only events.
 
         After publishing each event, checks whether any violation warrants an

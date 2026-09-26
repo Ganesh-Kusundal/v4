@@ -106,9 +106,9 @@ def twap(candles: list) -> list[float | None]:
             count = 0
         o = c.ohlc.open.value
         h = c.ohlc.high.value
-        l = c.ohlc.low.value
+        lo = c.ohlc.low.value
         cl = c.ohlc.close.value
-        total += float(o + h + l + cl) / 4.0
+        total += float(o + h + lo + cl) / 4.0
         count += 1
         out.append(total / count)
     return out

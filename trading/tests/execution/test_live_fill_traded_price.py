@@ -76,7 +76,9 @@ def test_live_fill_uses_average_traded_price() -> None:
         bridge._on_order(order)
         assert len(bus.published) == 1
         fill = bus.published[0].fill
-        assert fill.price.value == Decimal("100.5"), f"Fill used reference price {fill.price.value} instead of traded 100.5"
+        assert fill.price.value == Decimal("100.5"), (
+            f"Fill used reference price {fill.price.value} instead of traded 100.5"
+        )
         assert fill.quantity.value == Decimal("5")
     finally:
         bridge.close()

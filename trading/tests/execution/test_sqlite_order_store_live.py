@@ -34,7 +34,6 @@ from tradex_domain import (
     TimeInForce,
 )
 from tradex_domain.events import OrderFilled
-from tradex_domain.instruments import Equity
 
 from tradex_trading.execution.sqlite_store import SQLiteOrderStore
 

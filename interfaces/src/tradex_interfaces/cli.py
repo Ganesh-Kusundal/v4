@@ -100,13 +100,15 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # sync command — historical OHLCV data sync
     sync_parser = sub.add_parser("sync", help="Sync historical OHLCV data")
-    sync_parser.add_argument("--start", default=None,
-                             help="Start date YYYY-MM-DD (default: auto-detect from latest stored data)")
+    sync_parser.add_argument(
+        "--start", default=None,
+        help="Start date YYYY-MM-DD (default: auto-detect from latest stored data)")
     sync_parser.add_argument("--end", default=None,
                              help="End date YYYY-MM-DD (default: today)")
-    sync_parser.add_argument("--universe", default="nifty500",
-                             choices=["nifty50", "nifty100", "nifty200", "nifty500"],
-                             help="Universe to sync (default: nifty500)")
+    sync_parser.add_argument(
+        "--universe", default="nifty500",
+        choices=["nifty50", "nifty100", "nifty200", "nifty500"],
+        help="Universe to sync (default: nifty500)")
     sync_parser.add_argument("--timeframe", default="1m",
                              help="Bar resolution (default: 1m)")
     sync_parser.add_argument("--broker", default="dhan",

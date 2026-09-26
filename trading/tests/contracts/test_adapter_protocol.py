@@ -278,7 +278,10 @@ def test_real_stream_backends_satisfy_ports() -> None:
         "ws_fetch": lambda *a, **k: (200, {"data": {"authorized_redirect_uri": "wss://x"}}),
         "token_provider": tok,
     }
-    assert isinstance(UpstoxPortfolioStreamBackend(map_order=lambda row: None, **upx_ws), OrderStreamPort)
+    assert isinstance(
+        UpstoxPortfolioStreamBackend(map_order=lambda row: None, **upx_ws),
+        OrderStreamPort,
+    )
     assert isinstance(
         UpstoxMarketDataStreamBackend(registry=reg, **upx_ws), MarketStreamPort
     )

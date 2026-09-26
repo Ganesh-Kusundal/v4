@@ -426,9 +426,6 @@ def test_live_fill_bridge_appends_order_filled() -> None:
     receipt = engine.submit(_request())
     assert receipt.status is not OrderStatus.REJECTED
 
-    # Count store events before live fill
-    pre_count = sum(1 for _ in store.replay("*"))
-
     # Simulate an inbound fill from broker stream
     live_fill = Fill(
         order_id=receipt.order_id,

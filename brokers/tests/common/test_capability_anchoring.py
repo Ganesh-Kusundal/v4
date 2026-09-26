@@ -116,15 +116,17 @@ _GATED_CALLS = {
 #: The same calls, keyed by method name for the paper surface test. The ones
 #: with no zero-arg form take a real argument so the gate is reached, not a
 #: TypeError from a missing parameter.
+#: For the calls that take arguments, the gate fires before the argument is
+#: consulted — so a `None` placeholder still reaches the capability check.
 _GATED_CALLS_BY_METHOD = {
     "list_super_orders": lambda b: b.list_super_orders(),
-    "submit_super_order": lambda b: b.submit_super_order(None),  # the gate fires before the argument is consulted
+    "submit_super_order": lambda b: b.submit_super_order(None),
     "list_forever_orders": lambda b: b.list_forever_orders(),
-    "submit_forever_order": lambda b: b.submit_forever_order(None),  # the gate fires before the argument is consulted
+    "submit_forever_order": lambda b: b.submit_forever_order(None),
     "status_kill_switch": lambda b: b.status_kill_switch(),
     "kill_switch": lambda b: b.kill_switch(),
-    "submit_slice_order": lambda b: b.submit_slice_order(None, []),  # the gate fires before the args are consulted
-    "submit_edis": lambda b: b.submit_edis(None),  # the gate fires before the argument is consulted
+    "submit_slice_order": lambda b: b.submit_slice_order(None, []),
+    "submit_edis": lambda b: b.submit_edis(None),
     "future_chain": lambda b: b.future_chain(Equity.of("NSE", "RELIANCE")),
     "ltp_batch": lambda b: b.ltp_batch([Equity.of("NSE", "RELIANCE")]),
 }

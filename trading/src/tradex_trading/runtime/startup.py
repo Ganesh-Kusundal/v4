@@ -38,7 +38,12 @@ from here, and they were accidents of the copy.
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from tradex_runtime.startup import (
+    # These exist so mypy can see what this shim re-exports at runtime (the
+    # PEP 562 __getattr__ below resolves them lazily). The three underscore
+    # names are private to the real module but are imported from here by the
+    # OMS boot-recovery tests, so they are part of this shim's surface and must
+    # stay declared. They look unused to ruff but are not.
+    from tradex_runtime.startup import (  # noqa: F401
         RuntimeContext,
         _attach_event_store,
         _broker_matches_config,

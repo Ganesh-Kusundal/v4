@@ -62,7 +62,9 @@ from tradex_trading.datalake.paths import datalake_root  # noqa: E402 — sys.pa
 
 def _shifted_str(base: time, minutes: int) -> str:
     """``base`` wall time shifted by *minutes*, as ``HH:MM:SS``."""
-    return (datetime.combine(date(2026, 1, 1), base) + timedelta(minutes=minutes)).time().isoformat()
+    return (
+        datetime.combine(date(2026, 1, 1), base) + timedelta(minutes=minutes)
+    ).time().isoformat()
 
 
 #: Session-edge stamps, straight from the canonical calendar.
@@ -133,7 +135,8 @@ WITH per_symbol AS (
     SELECT CAST(timestamp AS DATE) AS d,
            symbol,
            count(*) FILTER (
-               WHERE CAST(timestamp AS TIME) BETWEEN TIME '{INTERIOR_OPEN_STR}' AND TIME '{INTERIOR_CLOSE_STR}'
+               WHERE CAST(timestamp AS TIME)
+                     BETWEEN TIME '{INTERIOR_OPEN_STR}' AND TIME '{INTERIOR_CLOSE_STR}'
            ) AS interior_bars,
            count(*) FILTER (WHERE CAST(timestamp AS TIME) = TIME '{OPEN_STR}')
                AS open_bars,
@@ -301,7 +304,8 @@ def render(report: dict[str, Any], *, top: int = 5) -> str:
     sessions = f"{lens[0]}–{lens[-1]}" if len(lens) > 1 else str(lens[0])
     if report["days_with_interior_shortfall"]:
         out.append(f"  density      {report['interior_short_bars_total']:,} bars missing "
-                   f"inside {INTERIOR_OPEN_LABEL}–{INTERIOR_CLOSE_LABEL} (vs each day's densest symbol, "
+                   f"inside {INTERIOR_OPEN_LABEL}–{INTERIOR_CLOSE_LABEL} "
+                   f"(vs each day's densest symbol, "
                    f"{sessions} bars when complete), on "
                    f"{report['days_with_interior_shortfall']} of {report['days']} days")
         for d in report["worst_days"][:top]:

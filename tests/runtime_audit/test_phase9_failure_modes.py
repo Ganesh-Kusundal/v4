@@ -87,7 +87,8 @@ def test_broker_timeout_transitions_order_to_unknown_never_rejected():
 
     # Invariant: Must be UNKNOWN or PENDING. MUST NEVER BE REJECTED OR REMOVED.
     assert recorded_order.status in (OrderStatus.UNKNOWN, OrderStatus.PENDING), (
-        f"Order state corrupted to {recorded_order.status}! High risk of duplicate real-money execution!"
+        f"Order state corrupted to {recorded_order.status}! "
+        "High risk of duplicate real-money execution!"
     )
 
     # The uncertainty is preserved, not resolved by guesswork: admission is

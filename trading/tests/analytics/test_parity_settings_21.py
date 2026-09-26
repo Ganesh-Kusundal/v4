@@ -41,7 +41,10 @@ PARAM_MAP_21 = {
     "sma": {"length": "period", "source": "source"},
     "ema": {"length": "period", "source": "source"},
     "rsi": {"length": "period", "source": "source"},
-    "macd": {"fastPeriod": "fast", "slowPeriod": "slow", "signalPeriod": "signal", "source": "source"},
+    "macd": {
+        "fastPeriod": "fast", "slowPeriod": "slow",
+        "signalPeriod": "signal", "source": "source",
+    },
     "bollinger": {"length": "period", "stdDev": "num_std", "source": "source"},
     # Legacy PARAM_MAP has "atr": {} and "supertrend": {}, which only works
     # when engine defaults coincide with backend defaults. At alternate
@@ -81,8 +84,11 @@ PLOT_MAP_21 = {
 
 
 class _OHLC:
-    def __init__(self, o, h, l, c):
-        self.open = _P(o); self.high = _P(h); self.low = _P(l); self.close = _P(c)
+    def __init__(self, o, h, low, c):
+        self.open = _P(o)
+        self.high = _P(h)
+        self.low = _P(low)
+        self.close = _P(c)
 
 
 class _P:
@@ -96,10 +102,10 @@ class _Vol:
 
 
 class _Candle:
-    def __init__(self, time, o, h, l, c, v):
+    def __init__(self, time, o, h, low, c, v):
         IST = timezone(timedelta(hours=5, minutes=30))
         self.timestamp = datetime.fromtimestamp(time, tz=IST).replace(tzinfo=None)
-        self.ohlc = _OHLC(o, h, l, c)
+        self.ohlc = _OHLC(o, h, low, c)
         self.volume = _Vol(v)
 
 

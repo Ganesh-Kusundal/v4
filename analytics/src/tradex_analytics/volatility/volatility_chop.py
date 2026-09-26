@@ -195,16 +195,16 @@ def chop_zone(candles: list) -> dict[str, list]:
     angle: list[float | None] = [None] * n
     for i in range(1, n):
         h = hi[i]
-        l = lo[i]
+        low = lo[i]
         e0 = ema34[i - 1]
         e1 = ema34[i]
-        if h is None or l is None or e0 is None or e1 is None:
+        if h is None or low is None or e0 is None or e1 is None:
             continue
-        rng = h - l
+        rng = h - low
         avg = (highs[i] + lows[i] + closes[i]) / 3.0
         if not (rng > 0) or avg == 0:
             continue
-        span = (25.0 / rng) * l
+        span = (25.0 / rng) * low
         dy = ((e0 - e1) / avg) * span
         if not math.isfinite(dy):
             continue
@@ -254,7 +254,12 @@ def standard_deviation(candles: list, periods: int = 5, deviations: float = 1.0)
     Bollinger set would draw. None before index ``periods - 1``.
     """
     closes = _closes(candles)
-    return {"stdDev": [None if v is None else v * float(deviations) for v in _stdev_gapped(closes, int(periods))]}
+    return {
+        "stdDev": [
+            None if v is None else v * float(deviations)
+            for v in _stdev_gapped(closes, int(periods))
+        ]
+    }
 
 
 def standard_error(candles: list, length: int = 14) -> dict[str, list]:

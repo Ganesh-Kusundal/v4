@@ -558,7 +558,8 @@ def wavetrend(
     wt1 = _ema_of_gapped(ci, n2)
     wt2 = _sma_of_gapped(wt1, sig_len)
     mom: list[float | None] = [
-        None if wt1[i] is None or wt2[i] is None else cast(float, wt1[i]) - cast(float, wt2[i]) for i in range(n)
+        None if wt1[i] is None or wt2[i] is None else cast(float, wt1[i]) - cast(float, wt2[i])
+        for i in range(n)
     ]
     return {"mom": mom, "wt1": wt1, "wt2": wt2}
 
@@ -651,7 +652,11 @@ def consolidation_breakout(candles: list) -> dict[str, list]:
     }
 
 
-def _fn_consolidation_breakout(candles: list, markbreakout: bool = True, colorinside: bool = True) -> dict[str, list]:
+def _fn_consolidation_breakout(
+    candles: list,
+    markbreakout: bool = True,
+    colorinside: bool = True,
+) -> dict[str, list]:
     # markbreakout/colorinside drive markers/barColors hooks in the engine;
     # the backend always computes the full signal set (presentation-only).
     return consolidation_breakout(candles)

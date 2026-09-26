@@ -1,4 +1,7 @@
-"""Compatibility shim — implementation lives in ``tradex_strategy.extensions.scanners.pullback``."""
+"""Compatibility shim.
+
+Implementation lives in ``tradex_strategy.extensions.scanners.pullback``.
+"""
 
 from importlib import import_module as _import_module
 

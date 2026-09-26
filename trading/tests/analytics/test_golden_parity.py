@@ -25,11 +25,19 @@ PARAM_MAP = {
     "ema": {"length": "period", "source": "source"},
     "rsi": {"length": "period", "source": "source"},
     "roc": {"length": "period"},
-    "macd": {"fastPeriod": "fast", "slowPeriod": "slow", "signalPeriod": "signal", "source": "source"},
+    "macd": {
+        "fastPeriod": "fast", "slowPeriod": "slow",
+        "signalPeriod": "signal", "source": "source",
+    },
     "bollinger": {"length": "period", "stdDev": "num_std", "source": "source"},
     "atr": {"period": "period"},
     "obv": {"maType": "ma_type", "maLength": "ma_length", "bbMult": "bb_mult"},
-    "vwap": {"anchor": "anchor", "source": "source", "offset": "offset", "calcMode": "calcMode", "showBand1": "showBand1", "bandMult1": "bandMult1", "showBand2": "showBand2", "bandMult2": "bandMult2", "showBand3": "showBand3", "bandMult3": "bandMult3"},
+    "vwap": {
+        "anchor": "anchor", "source": "source", "offset": "offset",
+        "calcMode": "calcMode", "showBand1": "showBand1", "bandMult1": "bandMult1",
+        "showBand2": "showBand2", "bandMult2": "bandMult2",
+        "showBand3": "showBand3", "bandMult3": "bandMult3",
+    },
     "stochastic": {"kPeriod": "k_period", "kSmoothing": "smooth_k", "dPeriod": "d_period"},
     "supertrend": {"period": "period", "multiplier": "multiplier"},
     "wma": {"length": "period"},
@@ -53,7 +61,10 @@ PARAM_MAP = {
     "aroon": {"length": "length"},
     "aroon-oscillator": {"length": "length"},
     "awesome-oscillator": {},
-    "cci": {"period": "period", "constant": "constant", "maType": "ma_type", "maLength": "ma_length", "bbMult": "bb_mult"},
+    "cci": {
+        "period": "period", "constant": "constant",
+        "maType": "ma_type", "maLength": "ma_length", "bbMult": "bb_mult",
+    },
     "mfi": {"period": "period"},
     "ppo": {
         "fastLength": "fast_length",
@@ -65,8 +76,12 @@ PARAM_MAP = {
     "trix": {"length": "period"},
     "tsi": {"long": "long_length", "short": "short_length", "signal": "signal_length"},
     "smi": {"lengthK": "length_k", "lengthD": "length_d", "lengthEMA": "length_ema"},
-    "smi-ergodic-indicator": {"longlen": "long_length", "shortlen": "short_length", "siglen": "signal_length"},
-    "smi-ergodic-oscillator": {"longlen": "long_length", "shortlen": "short_length", "siglen": "signal_length"},
+    "smi-ergodic-indicator": {
+        "longlen": "long_length", "shortlen": "short_length", "siglen": "signal_length",
+    },
+    "smi-ergodic-oscillator": {
+        "longlen": "long_length", "shortlen": "short_length", "siglen": "signal_length",
+    },
     "stochastic-rsi": {
         "smoothK": "smooth_k",
         "smoothD": "smooth_d",
@@ -90,14 +105,20 @@ PARAM_MAP = {
         "length": "length", "mult": "mult",
         "expansionLength": "expansionLength", "contractionLength": "contractionLength",
     },
-    "bb-trend": {"shortLength": "short_length", "longLength": "long_length", "stdDevMult": "std_dev_mult"},
-    "kama": {"erLength": "er_length", "fastLength": "fast_length", "slowLength": "slow_length"},
+    "bb-trend": {
+        "shortLength": "short_length", "longLength": "long_length", "stdDevMult": "std_dev_mult",
+    },
+    "kama": {
+        "erLength": "er_length", "fastLength": "fast_length", "slowLength": "slow_length",
+    },
     "choppiness-index": {"length": "length", "offset": "offset"},
     "historical-volatility": {"length": "length", "per": "per"},
     "average-daily-range": {"length": "length"},
     "chop-zone": {},
     "volatility-stop": {"length": "length", "factor": "factor", "source": "source"},
-    "chandelier-exit": {"length": "length", "atrLength": "atr_length", "atrMultiplier": "atr_multiplier"},
+    "chandelier-exit": {
+        "length": "length", "atrLength": "atr_length", "atrMultiplier": "atr_multiplier",
+    },
     "chande-kroll-stop": {"p": "p", "x": "x", "q": "q"},
     "adl": {},
     "volume": {},
@@ -169,7 +190,10 @@ PARAM_MAP = {
     },
     "wavetrend": {"n1": "n1", "n2": "n2", "sigLen": "sig_len"},
     "smma": {"length": "length", "source": "source"},
-    "t3": {"length": "length", "factor": "factor", "source": "source", "highlightMovements": "highlightMovements"},
+    "t3": {
+        "length": "length", "factor": "factor", "source": "source",
+        "highlightMovements": "highlightMovements",
+    },
     "linreg-slope": {"periods": "periods"},
     "hull-suite": {
         "source": "source", "mode": "mode", "length": "length",
@@ -217,7 +241,12 @@ PLOT_MAP = {
     "roc": {"value": "roc"},
     "atr": {"value": "atr"},
     "obv": {"value": "obv", "ma": "ma", "bbUpper": "bbUpper", "bbLower": "bbLower"},
-    "vwap": {"value": "vwap", "upper1": "upper1", "lower1": "lower1", "upper2": "upper2", "lower2": "lower2", "upper3": "upper3", "lower3": "lower3"},
+    "vwap": {
+        "value": "vwap",
+        "upper1": "upper1", "lower1": "lower1",
+        "upper2": "upper2", "lower2": "lower2",
+        "upper3": "upper3", "lower3": "lower3",
+    },
     "wma": {"value": "ma"},
     "hma": {"value": "hma"},
     "dema": {"value": "dema"},
@@ -258,7 +287,9 @@ PLOT_MAP = {
     "connors-rsi": {"crsi": "crsi"},
     "balance-of-power": {"bop": "bop"},
     "bollinger-percent-b": {"value": "percentB"},
-    "bollinger-bandwidth": {"bandwidth": "bandwidth", "expansion": "expansion", "contraction": "contraction"},
+    "bollinger-bandwidth": {
+        "bandwidth": "bandwidth", "expansion": "expansion", "contraction": "contraction",
+    },
     "bb-trend": {"value": "bbtrend"},
     "kama": {"value": "kama"},
     "choppiness-index": {"value": "chop"},
@@ -297,7 +328,10 @@ PLOT_MAP = {
         "up": "up", "down": "down", "atr_high": "atrHigh", "atr_low": "atrLow",
         "buy_signal": "buySignal", "sell_signal": "sellSignal",
     },
-    "alphatrend": {"alphatrend": "alphatrend", "lagged": "lagged", "buy_signal": "buySignal", "sell_signal": "sellSignal"},
+    "alphatrend": {
+        "alphatrend": "alphatrend", "lagged": "lagged",
+        "buy_signal": "buySignal", "sell_signal": "sellSignal",
+    },
     "cpr": {
         "dPivot": "dPivot", "dS1": "dS1", "dS2": "dS2", "dS3": "dS3",
         "dR1": "dR1", "dR2": "dR2", "dR3": "dR3", "dBc": "dBc", "dTc": "dTc",
@@ -312,9 +346,14 @@ PLOT_MAP = {
     "relative-volatility-index": {
         "rvi": "rvi", "ma": "ma", "bb_upper": "bbUpper", "bb_lower": "bbLower",
     },
-    "rsi-divergence": {"rsi": "rsi", "bull": "bull", "hiddenBull": "hiddenBull", "bear": "bear", "hiddenBear": "hiddenBear"},
+    "rsi-divergence": {
+        "rsi": "rsi", "bull": "bull", "hiddenBull": "hiddenBull",
+        "bear": "bear", "hiddenBear": "hiddenBear",
+    },
     "trend-strength-index": {"tsi": "tsi"},
-    "williams-fractals": {"fractals": "fractals", "upFractal": "upFractal", "downFractal": "downFractal"},
+    "williams-fractals": {
+        "fractals": "fractals", "upFractal": "upFractal", "downFractal": "downFractal",
+    },
     "williams-vix-fix": {
         "wvf": "wvf", "range_high": "rangeHigh",
         "range_low": "rangeLow", "upper_band": "upperBand",
@@ -342,8 +381,11 @@ PLOT_MAP = {
 
 
 class _OHLC:
-    def __init__(self, o, h, l, c):
-        self.open = _P(o); self.high = _P(h); self.low = _P(l); self.close = _P(c)
+    def __init__(self, o, h, low, c):
+        self.open = _P(o)
+        self.high = _P(h)
+        self.low = _P(low)
+        self.close = _P(c)
 
 
 class _P:
@@ -357,10 +399,10 @@ class _Vol:
 
 
 class _Candle:
-    def __init__(self, time, o, h, l, c, v):
+    def __init__(self, time, o, h, low, c, v):
         IST = timezone(timedelta(hours=5, minutes=30))
         self.timestamp = datetime.fromtimestamp(time, tz=IST).replace(tzinfo=None)
-        self.ohlc = _OHLC(o, h, l, c)
+        self.ohlc = _OHLC(o, h, low, c)
         self.volume = _Vol(v)
 
 
@@ -427,7 +469,9 @@ DIVERGENCES = {
         "alertUpper/alertHigh alongside the range and the backend emits only "
         "wvf, range_high, range_low, upper_band"
     ),
-    ("williams-vix-fix", "alertHigh"): "see williams-vix-fix.alertUpper: the same unimplemented alert column",
+    ("williams-vix-fix", "alertHigh"): (
+        "see williams-vix-fix.alertUpper: the same unimplemented alert column"
+    ),
 }
 
 # The shape an indicator golden has. PROVENANCE.json and fixtures.json share
@@ -546,7 +590,9 @@ def _check_plots(ts_id, golden, spec, got, plot_map=None):
         f"reproduced; the old one-directional loop skipped it silently"
     )
     for gk, bk in compared.items():
-        assert bk in got, f"{ts_id}: golden plot {gk!r} maps to backend {bk!r}, which is not emitted"
+        assert bk in got, (
+            f"{ts_id}: golden plot {gk!r} maps to backend {bk!r}, which is not emitted"
+        )
         _compare(f"{ts_id}.{gk}", got[bk], golden["plots"][gk])
     for gk, level in levels.items():
         # The level *value* is the classifier's precondition, so restating
@@ -643,7 +689,9 @@ def _same_indicators(registry, goldens):
     indicator under test and no message anywhere.
     """
     assert registry - goldens == set(), f"registered with no golden: {sorted(registry - goldens)}"
-    assert goldens - registry == set(), f"golden with no registered indicator: {sorted(goldens - registry)}"
+    assert goldens - registry == set(), (
+        f"golden with no registered indicator: {sorted(goldens - registry)}"
+    )
 
 
 def test_sidecars_are_not_mistaken_for_indicators(tmp_path):
@@ -672,7 +720,9 @@ def test_sidecars_are_not_mistaken_for_indicators(tmp_path):
     assert not _is_indicator_golden(bars_shaped), "a fixture under an unknown name was collected"
 
     indicator_shaped = tmp_path / "brand_new_indicator.json"
-    indicator_shaped.write_text(json.dumps({"id": "brand_new_indicator", "settings": {}, "plots": {"value": []}}))
+    indicator_shaped.write_text(
+        json.dumps({"id": "brand_new_indicator", "settings": {}, "plots": {"value": []}})
+    )
     assert _is_indicator_golden(indicator_shaped), (
         "an indicator-shaped golden under an unknown name was skipped; the "
         "gate would report a coverage gap that does not exist"
@@ -683,7 +733,9 @@ def test_sidecars_are_not_mistaken_for_indicators(tmp_path):
 
 def test_every_backend_indicator_has_param_mapping():
     """Registry ids beyond Batch 0 must be explicitly mapped or skipped."""
-    for entry in __import__("tradex_analytics.indicators", fromlist=["indicator_catalogue"]).indicator_catalogue():
+    from tradex_analytics.indicators import indicator_catalogue
+
+    for entry in indicator_catalogue():
         assert entry["id"] in PARAM_MAP, f"{entry['id']} missing from PARAM_MAP"
 
 
@@ -819,7 +871,9 @@ def test_every_recorded_divergence_is_strictly_xfailed():
         )
         assert mark.kwargs.get("reason"), "a divergence is xfailed with no reason recorded"
     for (ts_id, plot) in DIVERGENCES:
-        assert plot in _load(ts_id)["plots"], f"DIVERGENCES names {ts_id}.{plot}, which is not a golden plot"
+        assert plot in _load(ts_id)["plots"], (
+            f"DIVERGENCES names {ts_id}.{plot}, which is not a golden plot"
+        )
 
 
 def test_the_old_one_directional_loop_was_blind_to_a_missing_plot():

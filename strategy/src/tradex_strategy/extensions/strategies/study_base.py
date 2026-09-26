@@ -39,7 +39,15 @@ class CandleShim:
         def __init__(self, v: float) -> None:
             self.value = v
 
-    def __init__(self, ts: datetime, o: float, h: float, lo: float, c: float, v: float = 0.0) -> None:
+    def __init__(
+        self,
+        ts: datetime,
+        o: float,
+        h: float,
+        lo: float,
+        c: float,
+        v: float = 0.0,
+    ) -> None:
         self.timestamp = ts
         self.ohlc = CandleShim._O(o, h, lo, c)
         self.volume = CandleShim._V(v)
@@ -120,5 +128,12 @@ class StudyStrategyBase:
         return signal
 
     @staticmethod
-    def _shim(o: float, h: float, lo: float, c: float, v: float = 0.0, ts: datetime | None = None) -> CandleShim:
+    def _shim(
+        o: float,
+        h: float,
+        lo: float,
+        c: float,
+        v: float = 0.0,
+        ts: datetime | None = None,
+    ) -> CandleShim:
         return CandleShim(ts or datetime.min, o, h, lo, c, v)

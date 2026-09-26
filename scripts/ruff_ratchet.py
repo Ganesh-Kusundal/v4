@@ -19,7 +19,6 @@ baseline on purpose (after a cleanup), run:
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import subprocess
 import sys
@@ -48,14 +47,20 @@ def current_count() -> tuple[int, str]:
 
 
 def top_rules() -> str:
-    proc = subprocess.run(["ruff", "check", "--statistics"], capture_output=True, text=True, check=False)
+    proc = subprocess.run(
+        ["ruff", "check", "--statistics"], capture_output=True, text=True, check=False
+    )
     lines = (proc.stdout + proc.stderr).strip().splitlines()[:8]
     return "\n".join("  " + line for line in lines)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--set-baseline", action="store_true", help="record the current count as the new baseline")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--set-baseline", action="store_true", help="record the current count as the new baseline"
+    )
     args = parser.parse_args()
 
     count, _ = current_count()
@@ -67,12 +72,17 @@ def main() -> int:
         print(f"ruff ratchet: baseline set to {count}")
         return 0
 
-    baseline = int(BASELINE_FILE.read_text(encoding="utf-8").strip()) if BASELINE_FILE.exists() else None
+    baseline = (
+        int(BASELINE_FILE.read_text(encoding="utf-8").strip()) if BASELINE_FILE.exists() else None
+    )
     if baseline is None:
         # No baseline committed yet: record the current count and pass, so the
         # first run installs the ratchet rather than failing the build.
         BASELINE_FILE.write_text(f"{count}\n", encoding="utf-8")
-        print(f"ruff ratchet: no baseline yet, recorded {count} and passing. Commit {BASELINE_FILE}.")
+        print(
+            f"ruff ratchet: no baseline yet, recorded {count} and passing. "
+            f"Commit {BASELINE_FILE}."
+        )
         return 0
 
     if count > baseline:
@@ -84,7 +94,10 @@ def main() -> int:
         return 1
 
     if count < baseline:
-        print(f"ruff ratchet: wall shrank {baseline} → {count}. Run --set-baseline to record the lower baseline.")
+        print(
+            f"ruff ratchet: wall shrank {baseline} → {count}. "
+            "Run --set-baseline to record the lower baseline."
+        )
         return 0
 
     print(f"ruff ratchet: OK — {count} errors, at baseline.")

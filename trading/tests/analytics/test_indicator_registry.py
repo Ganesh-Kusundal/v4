@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -36,10 +36,10 @@ from tradex_trading.analytics.ma_vol import lsma, mcginley, twap, vwma
 
 
 class _OHLC:
-    def __init__(self, o: float, h: float, l: float, c: float) -> None:
+    def __init__(self, o: float, h: float, low: float, c: float) -> None:
         self.open = _P(o)
         self.high = _P(h)
-        self.low = _P(l)
+        self.low = _P(low)
         self.close = _P(c)
 
 
@@ -56,18 +56,18 @@ class _Vol:
 def _candle(
     o: float,
     h: float,
-    l: float,
+    low: float,
     c: float,
     v: float = 100.0,
     ts: datetime | None = None,
 ):
-    """A duck-typed candle: only .ohlc.{o,h,l,c}, .volume, .timestamp are read."""
+    """A duck-typed candle: only .ohlc.{o,h,low,c}, .volume, .timestamp are read."""
 
     class C:
         pass
 
     inst = C()
-    inst.ohlc = _OHLC(o, h, l, c)
+    inst.ohlc = _OHLC(o, h, low, c)
     inst.volume = _Vol(v)
     inst.timestamp = ts or datetime(2026, 7, 15, 9, 15)
     return inst
@@ -81,7 +81,7 @@ def _candles_from_closes(closes: list[float]) -> list:
     minute = 0
     for c in closes:
         out.append(_candle(c - 0.5, c + 0.5, c - 1.0, c, 100.0,
-                           datetime(2026, 7, 15, 9, 15) + __import__("datetime").timedelta(minutes=minute)))
+                           datetime(2026, 7, 15, 9, 15) + timedelta(minutes=minute)))
         minute += 1
     return out
 
@@ -619,8 +619,9 @@ class TestOscillatorsRangeA:
             assert -100.0 <= v <= 0.0, f"Williams %R out of bounds: {v}"
         # Fresh window high -> exactly 0 (close == HH)
         rising = _candles_from_closes([10.0 + i for i in range(10)])
-        res2 = williams_percent_r(rising, length=3)
-        # at index 9, window highs = close+0.5, but close is below high, so not 0; check clamped rather than exact
+        # at index 9, window highs = close+0.5, but close is below high, so not
+        # 0; check clamped rather than exact
+        williams_percent_r(rising, length=3)
 
     def test_ultimate_oscillator_range_and_first_print(self):
         from tradex_trading.analytics.oscillators.oscillators_range_a import ultimate_oscillator
@@ -651,7 +652,9 @@ class TestOscillatorsRangeA:
         centered = dpo(candles, period=period, is_centered=True)
         plain = dpo(candles, period=period, is_centered=False)
         # centered starts earlier and stops short of the right edge
-        assert centered["dpo"][barsback - 1] is None or centered["dpo"][period - 1 - barsback] is not None
+        assert centered["dpo"][barsback - 1] is None or (
+            centered["dpo"][period - 1 - barsback] is not None
+        )
         # non-centered has None before its warmup
         assert all(v is None for v in plain["dpo"][: period - 1 + barsback])
         # centered tail is None for last barsback bars
@@ -735,7 +738,9 @@ class TestVolatilityChop:
         assert finite_tr and max(finite_tr) < 45.0
 
         # Ranging: wide oscillation -> high CHOP (near 100)
-        ranging = _candles_from_closes([10.0 + (5 if i % 2 == 0 else -5) + i * 0.01 for i in range(40)])
+        ranging = _candles_from_closes(
+            [10.0 + (5 if i % 2 == 0 else -5) + i * 0.01 for i in range(40)]
+        )
         rg = choppiness_index(ranging, length=14, offset=0)
         finite_rg = [v for v in rg if v is not None]
         assert finite_rg and (min(finite_rg) > 55.0 or max(finite_rg) > 60.0)

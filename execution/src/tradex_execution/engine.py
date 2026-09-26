@@ -527,7 +527,8 @@ class ExecutionEngine:
             if self._metrics is not None:
                 self._metrics.counter("orders.rejected").inc()
                 self._metrics.counter("risk.rejected").inc()
-            # M2: release the reservation on risk-reject so the cid is            # immediately reusable. Risk rejection is a terminal state for
+            # M2: release the reservation on risk-reject so the cid is
+            # immediately reusable. Risk rejection is a terminal state for
             # the request — the order never reaches the cancel path and
             # would otherwise leak the cid forever.
             if reserved_cid is not None and self._guard is not None:
@@ -1097,7 +1098,11 @@ class ExecutionEngine:
         # reconciliation-drift runbook alert can fire on HIGH+ items.
         if self._metrics is not None and drifts:
             for item in drifts:
-                severity = item.severity.value if hasattr(item.severity, "value") else str(item.severity)
+                severity = (
+                    item.severity.value
+                    if hasattr(item.severity, "value")
+                    else str(item.severity)
+                )
                 kind = item.kind or "position"
                 self._metrics.counter(
                     f"reconciliation_drift_total.{severity.lower()}.{kind}"

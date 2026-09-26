@@ -285,7 +285,11 @@ def cci(
     if n == 0:
         return {"cci": [], "ma": [], "bbUpper": [], "bbLower": []}
     tp = [
-        (_to_float(c.ohlc.high.value) + _to_float(c.ohlc.low.value) + _to_float(c.ohlc.close.value)) / 3.0
+        (
+            _to_float(c.ohlc.high.value)
+            + _to_float(c.ohlc.low.value)
+            + _to_float(c.ohlc.close.value)
+        ) / 3.0
         for c in candles
     ]
     avg = sma(tp, int(period))

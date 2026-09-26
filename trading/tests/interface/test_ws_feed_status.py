@@ -120,7 +120,9 @@ def test_queue_drops_increment_feed_queue_drops_total() -> None:
     bus = ReactiveBus(metrics=metrics)
     broker = PaperBroker()
     broker.connect()
-    engine = ExecutionEngine(bus=bus, fill_source=MagicMock(), risk_manager=RiskManager(), metrics=metrics)
+    engine = ExecutionEngine(
+        bus=bus, fill_source=MagicMock(), risk_manager=RiskManager(), metrics=metrics
+    )
     session = TradingSession(
         broker=broker,
         bus=bus,

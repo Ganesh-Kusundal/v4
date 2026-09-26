@@ -27,16 +27,16 @@ class EmaRibbonPullbackStrategy(StudyStrategyBase):
         instrument,
         lengths: tuple[int, int, int, int] = (9, 21, 50, 100),
     ) -> None:
-        if len(lengths) != 4 or any(l <= 0 for l in lengths):
+        if len(lengths) != 4 or any(length <= 0 for length in lengths):
             raise ValueError("need exactly 4 positive lengths")
         if not all(lengths[i] < lengths[i + 1] for i in range(3)):
             raise ValueError("lengths must be strictly increasing")
         super().__init__(strategy_id, instrument, warmup=max(lengths) + 1)
-        self._lengths = tuple(int(l) for l in lengths)
+        self._lengths = tuple(int(length) for length in lengths)
 
     def _on_bar_ready(self, context, candles: list[Any]):
         closes = [float(c.ohlc.close.value) for c in candles]
-        emas = [_sma_seeded_ema(closes, l) for l in self._lengths]
+        emas = [_sma_seeded_ema(closes, length) for length in self._lengths]
         fast = emas[0]
         if any(e[-1] is None for e in emas):
             return None

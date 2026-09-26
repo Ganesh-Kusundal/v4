@@ -263,7 +263,10 @@ class TestModuleEntryPoint:
 
         trading_src = Path(tradex_cli_file()).parents[2]  # .../trading/src
         repo_pkgs = trading_src.parent  # v4/trading
-        srcs = os.pathsep.join(str(x / "src") for x in (repo_pkgs, repo_pkgs.parent / "domain", repo_pkgs.parent / "brokers"))
+        srcs = os.pathsep.join(
+            str(x / "src")
+            for x in (repo_pkgs, repo_pkgs.parent / "domain", repo_pkgs.parent / "brokers")
+        )
         env = dict(os.environ)
         env["PYTHONPATH"] = srcs + os.pathsep + env.get("PYTHONPATH", "")
         proc = subprocess.run(

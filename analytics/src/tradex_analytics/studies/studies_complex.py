@@ -121,7 +121,10 @@ def _swma(values: Sequence[float | None]) -> list[float | None]:
     out: list[float | None] = [None] * n
     for i in range(3, n):
         out[i] = (
-            cast(float, values[i - 3]) + 2.0 * cast(float, values[i - 2]) + 2.0 * cast(float, values[i - 1]) + cast(float, values[i])
+            cast(float, values[i - 3])
+            + 2.0 * cast(float, values[i - 2])
+            + 2.0 * cast(float, values[i - 1])
+            + cast(float, values[i])
         ) / 6.0
     return out
 

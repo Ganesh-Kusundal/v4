@@ -1,4 +1,7 @@
-"""Compatibility shim — implementation lives in ``tradex_strategy.extensions.strategies.bracket_breakout``."""
+"""Compatibility shim.
+
+Implementation lives in ``tradex_strategy.extensions.strategies.bracket_breakout``.
+"""
 
 from importlib import import_module as _import_module
 

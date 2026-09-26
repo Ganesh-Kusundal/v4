@@ -147,7 +147,13 @@ def volatility_stop(
     for i in range(n):
         v = values[i]
         atr_val = band[i]
-        atr_m = (atr_val * float(factor)) if atr_val is not None else float(tr[i]) if i < len(tr) else float("nan")
+        atr_m = (
+            (atr_val * float(factor))
+            if atr_val is not None
+            else float(tr[i])
+            if i < len(tr)
+            else float("nan")
+        )
         # ratchet toward price
         max_v = max(max_v, v)
         min_v = min(min_v, v)

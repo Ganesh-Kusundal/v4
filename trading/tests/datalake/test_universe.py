@@ -40,6 +40,9 @@ class TestAvailableUniverses:
     def test_custom_dir(self, tmp_path):
         # Create a fake universe CSV
         csv_file = tmp_path / "nifty25_list.csv"
-        csv_file.write_text("Company Name,Industry,Symbol,Series,ISIN Code\nTest Co,Test,TEST,EQ,INE001\n")
+        csv_file.write_text(
+            "Company Name,Industry,Symbol,Series,ISIN Code\n"
+            "Test Co,Test,TEST,EQ,INE001\n"
+        )
         universes = available_universes(csv_dir=tmp_path)
         assert "nifty25" in universes

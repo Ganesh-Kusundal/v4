@@ -57,7 +57,9 @@ _results: list[tuple[bool, str]] = []
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
-    _results.append((ok, f"{'PASS' if ok else 'FAIL'} {name}" + (f" :: {detail}" if detail else "")))
+    _results.append(
+        (ok, f"{'PASS' if ok else 'FAIL'} {name}" + (f" :: {detail}" if detail else ""))
+    )
     print(_results[-1][1], flush=True)
 
 
@@ -219,7 +221,8 @@ def main() -> int:
 
     code, body = http("GET", f"/api/charts/history/{EXCHANGE}:{SYMBOL}?interval=5m")
     bars = body.get("bars", []) if isinstance(body, dict) else []
-    check("history.bars>0", code == 200 and len(bars) > 0, f"{len(bars)} bars source={body.get('source')}")
+    check("history.bars>0", code == 200 and len(bars) > 0,
+          f"{len(bars)} bars source={body.get('source')}")
     check("history.closed_only_shape",
           all(all(k in b for k in ("time", "open", "high", "low", "close")) for b in bars[:5]))
 
@@ -243,10 +246,15 @@ def main() -> int:
                       {"exchange": EXCHANGE, "symbol": SYMBOL, "interval": "D",
                        "strategy": "sma_cross", "params": {"fast": 3, "slow": 7}})
     m = body.get("metrics")
-    check("backtest.metrics", code == 200 and m is not None, json.dumps(m) if m else str(body)[:120])
-    check("backtest.equity+fills", bool(body.get("equity_curve")) and isinstance(body.get("trades"), list))
+    check("backtest.metrics", code == 200 and m is not None,
+          json.dumps(m) if m else str(body)[:120])
+    check("backtest.equity+fills",
+          bool(body.get("equity_curve")) and isinstance(body.get("trades"), list))
 
-    scan_id = next((s for s in scanners if s.startswith("momentum")), scanners[0] if scanners else "")
+    scan_id = next(
+        (s for s in scanners if s.startswith("momentum")),
+        scanners[0] if scanners else "",
+    )
     code, body = http("POST", "/api/charts/scanner/run", {"id": scan_id})
     check(f"scanner.{scan_id}", code == 200 and isinstance(body.get("results"), list),
           f"{len(body.get('results', []))} results")

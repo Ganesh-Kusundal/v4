@@ -1,4 +1,7 @@
-"""Compatibility shim — implementation lives in ``tradex_analytics.oscillators.oscillators_range_a``."""
+"""Compatibility shim.
+
+Implementation lives in ``tradex_analytics.oscillators.oscillators_range_a``.
+"""
 
 from importlib import import_module as _import_module
 

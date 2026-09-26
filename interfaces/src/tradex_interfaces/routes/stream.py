@@ -326,7 +326,11 @@ async def ws_stream(
                     frame = ticks.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-                if frame.get("type") != "bar" or frame.get("source") != "sim" or frame.get("run_id") != run_id:
+                if (
+                    frame.get("type") != "bar"
+                    or frame.get("source") != "sim"
+                    or frame.get("run_id") != run_id
+                ):
                     retained.append(frame)
             for frame in retained:
                 ticks.put_nowait(frame)
@@ -579,7 +583,10 @@ async def ws_stream(
             # A1 leftover: wire live closed bars into MISSING_BAR integrity tracker.
             # Sim bars (source="sim") must never reach the integrity tracker — replay
             # quotes are synthetic and gap detection against them is meaningless.
-            if getattr(frame, "closed", False) is True and getattr(frame, "source", "live") == "live":
+            if (
+                getattr(frame, "closed", False) is True
+                and getattr(frame, "source", "live") == "live"
+            ):
                 _mf = getattr(session, "market_feed", None)
                 if _mf is not None:
                     try:

@@ -452,9 +452,15 @@ class TestRiskExposureGauges:
             metrics=reg,
         )
         ts = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
-        stage[0] = 0; rm.check(_req(), now=ts)   # seed baseline at 0
-        stage[0] = 1; rm.check(_req(), now=ts)   # net=1000, peak=1000, dd=0
-        stage[0] = 2; rm.check(_req(), now=ts)   # net=800, dd = (1000-800)/1000 = 0.2
+        # seed baseline at 0
+        stage[0] = 0
+        rm.check(_req(), now=ts)
+        # net=1000, peak=1000, dd=0
+        stage[0] = 1
+        rm.check(_req(), now=ts)
+        # net=800, dd = (1000-800)/1000 = 0.2
+        stage[0] = 2
+        rm.check(_req(), now=ts)
         assert reg.get("drawdown_pct") == pytest.approx(0.2, rel=0.01)
 
     def test_no_gauges_without_metrics(self) -> None:

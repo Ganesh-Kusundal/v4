@@ -173,7 +173,7 @@ def test_engine_order_id_lookup_does_not_scan_engine_cache() -> None:
                 correlation_id=CorrelationId(value="cid-foreign"),
             )
         )
-        other_order_id = other_engine.cache.all_orders()[0].order_id.value
+        other_engine.cache.all_orders()
         # The bridge has never seen this engine; the index has no entry
         # for cid-foreign, so a stream order for it resolves to None
         # without consulting the other engine's cache.

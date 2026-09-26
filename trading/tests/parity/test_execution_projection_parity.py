@@ -41,11 +41,19 @@ class _Ladder:
 
     def on_bar(self, context, candle):
         self.bar += 1
-        plan = {1: (OrderSide.BUY, 2), 2: (OrderSide.BUY, 1), 3: (OrderSide.SELL, 1), 4: (OrderSide.SELL, 2)}.get(self.bar)
+        plan = {
+            1: (OrderSide.BUY, 2),
+            2: (OrderSide.BUY, 1),
+            3: (OrderSide.SELL, 1),
+            4: (OrderSide.SELL, 2),
+        }.get(self.bar)
         if plan is None:
             return None
         side, strength = plan
-        signal = Signal(instrument=INSTRUMENT, direction=side, strength=strength, reason="projection", timestamp=candle.timestamp)
+        signal = Signal(
+            instrument=INSTRUMENT, direction=side, strength=strength,
+            reason="projection", timestamp=candle.timestamp,
+        )
         self.signals.append(signal)
         return signal
 
@@ -60,7 +68,10 @@ class _Ladder:
 
 
 def test_reactive_and_replay_projections_have_same_economics() -> None:
-    candles = [_candle("100", 1), _candle("110", 2), _candle("120", 3), _candle("130", 4), _candle("140", 5)]
+    candles = [
+        _candle("100", 1), _candle("110", 2), _candle("120", 3),
+        _candle("130", 4), _candle("140", 5),
+    ]
     bus = ReactiveBus()
     engine = ExecutionEngine(bus, SimulatedFillSource(), cash=Decimal("1000"))
     strategy = ReactiveStrategyEngine(bus)
@@ -103,7 +114,12 @@ def test_reactive_and_replay_projections_have_same_economics() -> None:
             {"instrument": "NSE:RELIANCE", "side": "SELL", "quantity": "1", "price": "130"},
             {"instrument": "NSE:RELIANCE", "side": "SELL", "quantity": "2", "price": "140"},
         ],
-        "positions": [{"instrument": "NSE:RELIANCE", "quantity": "0", "avg_price": "113.33", "realized_pnl": "70.01", "unrealized_pnl": "0"}],
+        "positions": [
+            {
+                "instrument": "NSE:RELIANCE", "quantity": "0",
+                "avg_price": "113.33", "realized_pnl": "70.01", "unrealized_pnl": "0",
+            }
+        ],
         "cash": "1070",
     }
     strategy.dispose_all()

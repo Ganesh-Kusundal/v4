@@ -69,7 +69,9 @@ def _order(row: dict[str, Any]) -> Order:
 def _drift_key(item: DriftItem) -> tuple[str, str, str, str]:
     kind = item.kind or "position"
     key = item.key or item.symbol
-    severity = item.severity.value if isinstance(item.severity, DriftSeverity) else str(item.severity)
+    severity = (
+        item.severity.value if isinstance(item.severity, DriftSeverity) else str(item.severity)
+    )
     return (kind, key, severity, item.reason or "")
 
 
@@ -144,7 +146,9 @@ def test_golden_reconciliation_engine_drifts(scenario: dict[str, Any]) -> None:
     )
     expected = {_expected_key(row) for row in scenario["expected_drift_keys"]}
     actual = {_drift_key(d) for d in drifts}
-    assert actual == expected, f"drift keys mismatch: extra={actual - expected} missing={expected - actual}"
+    assert actual == expected, (
+        f"drift keys mismatch: extra={actual - expected} missing={expected - actual}"
+    )
 
 
 @pytest.mark.parametrize("scenario", _load_golden()["scenarios"], ids=lambda s: s["name"])
@@ -185,7 +189,9 @@ def test_critical_severity_trips_kill_switch(golden: dict[str, Any]) -> None:
         reason=row["reason"],
     )
     policy = golden["kill_switch_policy"]
-    assert _startup_blocks([item], policy) is golden["critical_kill_trip_fixture"]["expect_kill_trip"]
+    assert _startup_blocks([item], policy) is (
+        golden["critical_kill_trip_fixture"]["expect_kill_trip"]
+    )
 
     bus = ReactiveBus()
     engine = ExecutionEngine(bus=bus, fill_source=SimulatedFillSource())

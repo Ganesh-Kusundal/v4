@@ -88,7 +88,11 @@ def test_every_engine_plot_key_reachable():
         spec = get_indicator_spec(tid)
         own = {p[0] for p in spec.plots}
         bridge = {gk for bk, gk in PLOT_MAP.get(tid, {}).items()}
-        missing = [k for k in desc["plots"] if k not in own and k not in bridge and k not in KNOWN_GAPS.get(tid, set())]
+        missing = [
+            k
+            for k in desc["plots"]
+            if k not in own and k not in bridge and k not in KNOWN_GAPS.get(tid, set())
+        ]
         if missing:
             gaps[tid] = missing
     assert not gaps, f"engine plot keys unreachable: {gaps}"
@@ -105,14 +109,14 @@ def test_points_finite_null_padded_and_aligned():
             self.value = Decimal(str(v))
 
     class _C:
-        def __init__(self, t, o, h, l, c, v):
+        def __init__(self, t, o, h, low, c, v):
             self.timestamp = datetime.fromtimestamp(t, tz=IST).replace(tzinfo=None)
 
             class _O:
                 pass
 
             ohlc = _O()
-            ohlc.open, ohlc.high, ohlc.low, ohlc.close = _P(o), _P(h), _P(l), _P(c)
+            ohlc.open, ohlc.high, ohlc.low, ohlc.close = _P(o), _P(h), _P(low), _P(c)
 
             class _V:
                 pass
@@ -123,7 +127,6 @@ def test_points_finite_null_padded_and_aligned():
 
     candles = [_C(*b) for b in bars]
     for tid in ENGINE:
-        spec = get_indicator_spec(tid)
         pmap = PARAM_MAP.get(tid)
         assert pmap is not None, f"{tid} missing PARAM_MAP entry"
         golden = json.loads((GOLDENS / f"{tid}.json").read_text())

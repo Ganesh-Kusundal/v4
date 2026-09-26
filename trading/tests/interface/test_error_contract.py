@@ -12,7 +12,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from tradex_trading.interface._helpers import is_ready, readiness
+from tradex_trading.interface._helpers import is_ready, readiness  # noqa: E402
 from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
 
 

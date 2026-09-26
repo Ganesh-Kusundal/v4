@@ -854,7 +854,9 @@ class TestAutoRecoveryTriggers:
         feed.on_bar_frame(BarFrame("NSE:RELIANCE", "1m", base, 1.0, 1.0, 1.0, 1.0, 1.0, True))
         feed.on_bar_frame(BarFrame("NSE:RELIANCE", "1m", base, 1.0, 1.0, 1.0, 1.0, 1.0, True))
 
-        assert not recovery_called.wait(timeout=0.2), "Recovery incorrectly triggered on duplicate bar"
+        assert not recovery_called.wait(timeout=0.2), (
+            "Recovery incorrectly triggered on duplicate bar"
+        )
 
     def test_no_recovery_without_coordinator(self) -> None:
         """Violations without a wired coordinator are observation-only (no crash)."""
@@ -880,4 +882,6 @@ class TestAutoRecoveryTriggers:
         fake = _FakeBroker()
         feed = MarketFeed(broker=fake, bus=ReactiveBus())  # no integrity tracker
         # Must not raise.
-        feed.on_bar_frame(BarFrame("NSE:RELIANCE", "1m", 1_774_000_000, 1.0, 1.0, 1.0, 1.0, 1.0, True))
+        feed.on_bar_frame(
+            BarFrame("NSE:RELIANCE", "1m", 1_774_000_000, 1.0, 1.0, 1.0, 1.0, 1.0, True)
+        )

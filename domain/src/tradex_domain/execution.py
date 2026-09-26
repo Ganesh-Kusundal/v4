@@ -36,7 +36,9 @@ _LEGAL_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
         # be able to record that uncertainty.
         OrderStatus.UNKNOWN,
     }),
-    OrderStatus.PENDING: frozenset({OrderStatus.ACK, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.UNKNOWN}),
+    OrderStatus.PENDING: frozenset(
+        {OrderStatus.ACK, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.UNKNOWN}
+    ),
     OrderStatus.ACK: frozenset({
         OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED,
         OrderStatus.CANCELLED, OrderStatus.REJECTED,

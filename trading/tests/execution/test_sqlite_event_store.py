@@ -181,7 +181,7 @@ def test_count_and_last_sequence(tmp_path: Path) -> None:
     assert store.count() == 0
     assert store.last_sequence() == 0
 
-    seq1 = store.append(OrderPlaced(order=_order("o-1")))
+    store.append(OrderPlaced(order=_order("o-1")))
     seq2 = store.append(OrderPlaced(order=_order("o-2")))
 
     assert store.count() == 2

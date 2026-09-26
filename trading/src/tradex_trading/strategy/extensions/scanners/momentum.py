@@ -1,4 +1,7 @@
-"""Compatibility shim — implementation lives in ``tradex_strategy.extensions.scanners.momentum``."""
+"""Compatibility shim.
+
+Implementation lives in ``tradex_strategy.extensions.scanners.momentum``.
+"""
 
 from importlib import import_module as _import_module
 

@@ -349,7 +349,11 @@ def smma(values: list, period: int) -> list[float | None]:
     return _rma(floats, int(period))
 
 
-def _generalized_double(values: Sequence[float | None], length: int, factor: float) -> list[float | None]:
+def _generalized_double(
+    values: Sequence[float | None],
+    length: int,
+    factor: float,
+) -> list[float | None]:
     """One T3 layer: ``e1*(1+f) - e2*f`` (openalgo-charts parity).
 
     Matches ``generalizedDouble`` (src/indicators/averages.ts). At factor 0
@@ -1364,7 +1368,10 @@ def _builtin_specs() -> list[IndicatorSpec]:
     def _fn_linreg_slope(candles, periods):
         return {"slope": linreg_slope(closes_only(candles), int(periods))}
 
-    def _fn_hull_suite(candles, source, mode, length, lengthMult, visualSwitch, switchColor=True, candleCol=False):
+    def _fn_hull_suite(
+        candles, source, mode, length, lengthMult, visualSwitch,
+        switchColor=True, candleCol=False,
+    ):
         return hull_suite(
             _source_values(candles, source), str(mode), int(length),
             float(lengthMult), bool(visualSwitch),
@@ -1377,7 +1384,9 @@ def _builtin_specs() -> list[IndicatorSpec]:
         return roc(closes_only(candles), int(length))
 
     def _fn_macd(candles, fastPeriod, slowPeriod, signalPeriod, source="close"):
-        return macd(_source_values(candles, source), int(fastPeriod), int(slowPeriod), int(signalPeriod))
+        return macd(
+            _source_values(candles, source), int(fastPeriod), int(slowPeriod), int(signalPeriod)
+        )
 
     def _fn_stochastic(candles, kPeriod=14, kSmoothing=3, dPeriod=3):
         return stochastic(candles, int(kPeriod), int(kSmoothing), int(dPeriod))
@@ -1433,7 +1442,12 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="t3", name="T3", category="Trend", placement="overlay",
-            params=(("length", "int", 5), ("factor", "float", 0.7), ("source", "source", "close"), ("highlightMovements", "bool", True)),
+            params=(
+                ("length", "int", 5),
+                ("factor", "float", 0.7),
+                ("source", "source", "close"),
+                ("highlightMovements", "bool", True),
+            ),
             plots=(("t3", "line", "T3"),),
             fn=_fn_t3,
         ),
@@ -1474,7 +1488,12 @@ def _builtin_specs() -> list[IndicatorSpec]:
         ),
         IndicatorSpec(
             id="macd", name="MACD", category="Momentum", placement="pane",
-            params=(("fastPeriod", "int", 12), ("slowPeriod", "int", 26), ("signalPeriod", "int", 9), ("source", "source", "close")),
+            params=(
+                ("fastPeriod", "int", 12),
+                ("slowPeriod", "int", 26),
+                ("signalPeriod", "int", 9),
+                ("source", "source", "close"),
+            ),
             plots=(
                 ("macd", "line", "MACD"),
                 ("signal", "line", "Signal"),
@@ -1573,9 +1592,17 @@ LEGACY_PARAM_ALIASES["tema"] = {"period": "length"}
 LEGACY_PARAM_ALIASES["alma"] = {"period": "length"}
 LEGACY_PARAM_ALIASES["rsi"] = {"period": "length"}
 LEGACY_PARAM_ALIASES["roc"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["macd"] = {"fast": "fastPeriod", "slow": "slowPeriod", "signal": "signalPeriod"}
+LEGACY_PARAM_ALIASES["macd"] = {
+    "fast": "fastPeriod",
+    "slow": "slowPeriod",
+    "signal": "signalPeriod",
+}
 LEGACY_PARAM_ALIASES["bollinger"] = {"period": "length", "num_std": "stdDev"}
-LEGACY_PARAM_ALIASES["stochastic"] = {"k_period": "kPeriod", "smooth_k": "kSmoothing", "d_period": "dPeriod"}
+LEGACY_PARAM_ALIASES["stochastic"] = {
+    "k_period": "kPeriod",
+    "smooth_k": "kSmoothing",
+    "d_period": "dPeriod",
+}
 LEGACY_PARAM_ALIASES["obv"] = {"ma_type": "maType", "ma_length": "maLength", "bb_mult": "bbMult"}
 
 

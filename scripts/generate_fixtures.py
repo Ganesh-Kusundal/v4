@@ -6,7 +6,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 IST = timezone(timedelta(hours=5, minutes=30))
-OUT = Path(__file__).resolve().parents[1] / "trading" / "tests" / "analytics" / "goldens" / "fixtures.json"
+OUT = (
+    Path(__file__).resolve().parents[1]
+    / "trading"
+    / "tests"
+    / "analytics"
+    / "goldens"
+    / "fixtures.json"
+)
 
 
 def main() -> None:

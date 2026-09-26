@@ -266,7 +266,9 @@ class TestBaseBrokerFanout:
         """Both _ws_backend and _depth_backend receive the hook."""
         broker, ws_backend, depth_backend = self._make_dhan_broker_with_fake_backends()
 
-        cb = lambda: None
+        def cb() -> None:
+            return None
+
         broker.set_reconnect_hook(cb)
         assert ws_backend.hook is cb, "_ws_backend must receive the hook"
         assert depth_backend.hook is cb, "_depth_backend must receive the hook"

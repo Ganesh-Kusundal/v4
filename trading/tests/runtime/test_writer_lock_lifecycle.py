@@ -484,7 +484,7 @@ def test_live_pid_in_unlocked_file_still_refused(tmp_path) -> None:
 def test_stale_lock_is_reclaimable(tmp_path) -> None:
     """A genuinely dead holder is reclaimed (auto-clear)."""
     lock_path = tmp_path / "dhan.writer.lock"
-    dead = _dead_writer_lock(lock_path)  # reaped: os.kill(dead, 0) fails
+    _dead_writer_lock(lock_path)  # reaped: os.kill(dead, 0) fails
 
     lock = SingleWriterLock(lock_path)
     lock.acquire()
@@ -566,7 +566,7 @@ def test_first_lock_leaks_after_second_close(monkeypatch, tmp_path) -> None:
 
     # Both locks are acquired.
     assert len(locks) == 2
-    assert all(not l.released for l in locks)
+    assert all(not lock.released for lock in locks)
 
     # Closing the second context releases only the second's lock.
     rc2.close()

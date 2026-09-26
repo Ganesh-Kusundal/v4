@@ -396,7 +396,7 @@ class TestRoundTrip:
 
     def test_place_order_via_envelope_reaches_engine(self) -> None:
         bus = ReactiveBus()
-        engine = ExecutionEngine(bus=bus, fill_source=SimulatedFillSource())
+        ExecutionEngine(bus=bus, fill_source=SimulatedFillSource())
         translator = EnvelopeTranslator()
 
         received_placed: list[OrderPlaced] = []
@@ -446,7 +446,7 @@ class TestRoundTrip:
         engine1.submit(_request())
 
         bus2 = ReactiveBus()
-        engine2 = ExecutionEngine(bus=bus2, fill_source=SimulatedFillSource())
+        ExecutionEngine(bus=bus2, fill_source=SimulatedFillSource())
         filled2: list[OrderFilled] = []
         bus2.of_type(OrderFilled).subscribe(on_next=filled2.append)
         env = PlaceOrderEnvelope(request=_request())

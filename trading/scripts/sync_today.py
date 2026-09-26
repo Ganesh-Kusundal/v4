@@ -48,7 +48,9 @@ def main() -> int:
 
     # sync_today's window: 09:15 to now, IST. Pre-open there is nothing to do.
     now = to_ist_naive(datetime.now(UTC)).replace(second=0, microsecond=0)
-    day_start = now.replace(hour=MARKET_OPEN.hour, minute=MARKET_OPEN.minute, second=0, microsecond=0)
+    day_start = now.replace(
+        hour=MARKET_OPEN.hour, minute=MARKET_OPEN.minute, second=0, microsecond=0
+    )
     if now <= day_start:
         logging.info("pre-open — nothing to sync today")
         print("[today-topup] pre-open, nothing to do")

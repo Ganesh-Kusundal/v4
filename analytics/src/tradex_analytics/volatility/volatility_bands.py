@@ -506,11 +506,15 @@ def ma_channel(
 
 
 def _fn_standard_error_bands(candles, periods, errors, method, averagePeriods):
-    return standard_error_bands(candles, int(periods), float(errors), str(method), int(averagePeriods))
+    return standard_error_bands(
+        candles, int(periods), float(errors), str(method), int(averagePeriods)
+    )
 
 
 def _fn_ma_channel(candles, upperLength, lowerLength, upperOffset, lowerOffset):
-    return ma_channel(candles, int(upperLength), int(lowerLength), int(upperOffset), int(lowerOffset))
+    return ma_channel(
+        candles, int(upperLength), int(lowerLength), int(upperOffset), int(lowerOffset)
+    )
 
 
 SPEC_STANDARD_ERROR_BANDS = IndicatorSpec(

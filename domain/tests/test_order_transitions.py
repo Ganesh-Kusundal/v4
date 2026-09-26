@@ -144,7 +144,16 @@ class TestCancelledFillAfterCancel:
 
     def test_cancelled_still_rejects_other_transitions(self):
         order = _make_order(OrderStatus.CANCELLED)
-        for target in (OrderStatus.NEW, OrderStatus.PENDING, OrderStatus.ACK, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.SUBMITTED, OrderStatus.UNKNOWN):
+        rejected_from_cancelled = (
+            OrderStatus.NEW,
+            OrderStatus.PENDING,
+            OrderStatus.ACK,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+            OrderStatus.SUBMITTED,
+            OrderStatus.UNKNOWN,
+        )
+        for target in rejected_from_cancelled:
             with pytest.raises(SessionStateError):
                 order.transition_to(target)
 

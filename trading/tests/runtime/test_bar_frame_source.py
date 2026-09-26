@@ -49,7 +49,7 @@ def test_replay_quote_emits_source_sim():
 def test_wire_frame_carries_live_source():
     """A quote published on a real session bus reaches the WS as source='live'
     (paper mode has no market feed, so this drives the bus directly)."""
-    fastapi = pytest.importorskip("fastapi")
+    pytest.importorskip("fastapi")
 
     from fastapi.testclient import TestClient
     from tradex_domain.instruments import Equity

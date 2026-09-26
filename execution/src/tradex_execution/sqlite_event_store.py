@@ -182,7 +182,8 @@ class SQLiteEventStore:
         with self._lock:
             cur = self._conn.execute(
                 """INSERT INTO events
-                   (stream_id, event_type, event_id, correlation_id, payload, created_at, schema_version)
+                   (stream_id, event_type, event_id, correlation_id,
+                    payload, created_at, schema_version)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (sid, event_type, event_id, corr, payload, created_at, SCHEMA_VERSION),
             )

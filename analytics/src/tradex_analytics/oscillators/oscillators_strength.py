@@ -126,7 +126,10 @@ def mfi(candles: list, period: int = 14) -> list[float | None]:
     out: list[float | None] = [None] * n
     if n == 0:
         return out
-    tp = [(_f(c.ohlc.high.value) + _f(c.ohlc.low.value) + _f(c.ohlc.close.value)) / 3.0 for c in candles]
+    tp = [
+        (_f(c.ohlc.high.value) + _f(c.ohlc.low.value) + _f(c.ohlc.close.value)) / 3.0
+        for c in candles
+    ]
     vols = [_f(c.volume.value) for c in candles]
     pos = [0.0] * n
     neg = [0.0] * n
@@ -254,7 +257,12 @@ def tsi(
 # SMI
 # ---------------------------------------------------------------------------
 
-def smi(candles: list, length_k: int = 10, length_d: int = 3, length_ema: int = 3) -> dict[str, list]:
+def smi(
+    candles: list,
+    length_k: int = 10,
+    length_d: int = 3,
+    length_ema: int = 3,
+) -> dict[str, list]:
     """Stochastic Momentum Index (openalgo-charts ``SMI`` parity).
 
     Double-EMA of (close - median) over double-EMA of range, scaled by 200.
@@ -347,7 +355,9 @@ def _fn_mfi(candles, period):
 
 
 def _fn_ppo(candles, fastLength, slowLength, signalLength, oscType, sigType):
-    return ppo(candles, int(fastLength), int(slowLength), int(signalLength), str(oscType), str(sigType))
+    return ppo(
+        candles, int(fastLength), int(slowLength), int(signalLength), str(oscType), str(sigType)
+    )
 
 
 def _fn_trix(candles, length):

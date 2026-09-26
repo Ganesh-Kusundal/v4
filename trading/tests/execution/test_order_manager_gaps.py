@@ -42,7 +42,6 @@ def test_overfill_clamped() -> None:
     """H5: order qty 10 filled 8, new fill qty 5 -> clamped to 2."""
     cache = TradingCache()
     om = OrderManager(cache)
-    pm = PositionManager(cache)
     instrument = Equity.of("NSE", "TEST")
     order = Order(
         order_id=OrderId(value="overfill-oid"),

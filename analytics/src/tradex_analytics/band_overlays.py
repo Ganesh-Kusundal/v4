@@ -77,8 +77,8 @@ def donchian(
     upper = _highest(highs, period)
     lower = _lowest(lows, period)
     mid = [
-        None if u is None or l is None else (u + l) / 2.0
-        for u, l in zip(upper, lower, strict=True)
+        None if top is None or bottom is None else (top + bottom) / 2.0
+        for top, bottom in zip(upper, lower, strict=True)
     ]
     k = round(offset)
     return {
