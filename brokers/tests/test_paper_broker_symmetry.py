@@ -18,20 +18,38 @@ from tradex_brokers.paper.adapter import PaperBroker
 
 
 class TestDepthGate:
-    """Depth is NSE-only platform-wide (venue constraint)."""
+    """Depth is gated venue-wide by ``tradex_domain.market.require_depth_supported``.
+
+    The supported set is NSE, NFO, BSE, BFO and MCX — depth is not an
+    NSE-only capability. This test previously asserted an NSE-only policy and
+    listed MCX/BSE as unsupported; both are now supported, so those cases
+    moved to the returns-a-book test below.
+    """
 
     @pytest.mark.parametrize(
         "instrument",
         [
-            Equity.of("MCX", "CRUDEOIL"),
-            Equity.of("BSE", "RELIANCE"),
             Index.of("IDX", "NIFTY"),
         ],
     )
-    def test_non_nse_depth_raises(self, instrument) -> None:
+    def test_unsupported_exchange_depth_raises(self, instrument) -> None:
         broker = PaperBroker(auto_fill=False)
-        with pytest.raises(CapabilityNotSupportedError, match="NSE"):
+        with pytest.raises(CapabilityNotSupportedError, match="not supported"):
             broker.depth(instrument)
+
+    @pytest.mark.parametrize(
+        "exchange,symbol",
+        [
+            ("NSE", "RELIANCE"),
+            ("BSE", "RELIANCE"),
+            ("MCX", "CRUDEOIL"),
+        ],
+    )
+    def test_supported_exchange_depth_returns_book(self, exchange, symbol) -> None:
+        broker = PaperBroker(auto_fill=False)
+        eq = Equity.of(exchange, symbol)
+        broker.set_quote(eq, ltp=Price(value=Decimal("100")))
+        assert broker.depth(eq).instrument.instrument_id == eq.instrument_id
 
     def test_nse_depth_returns_book(self) -> None:
         broker = PaperBroker(auto_fill=False)

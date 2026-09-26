@@ -110,12 +110,14 @@ def test_concurrent_same_instrument_fills_atomic() -> None:
     assert pos.quantity.value == Decimal("10"), f"lost update: qty={pos.quantity.value}"
 
     # ponytail: assert lock infrastructure exists on the accountant
-    # (deterministic even if race not triggered)
-    acct = pm.accountant
-    assert hasattr(acct, "_instrument_locks")
-    assert hasattr(acct, "_locks_guard")
-    assert hasattr(acct, "_lock")
-    assert callable(acct._lock)
+    # (deterministic even if race not triggered).
+    # PositionManager is an alias of PositionAccountant
+    # (execution/position_manager.py), so the accountant IS `pm` — there is no
+    # `.accountant` wrapper attribute. `_lock` is a method that returns the
+    # per-instrument RLock, not a stored lock object.
+    assert hasattr(pm, "_instrument_locks")
+    assert hasattr(pm, "_locks_guard")
+    assert callable(pm._lock)
     key = str(instrument.instrument_id)
-    lock = acct._lock(key)
-    assert lock is acct._lock(key)
+    lock = pm._lock(key)
+    assert lock is pm._lock(key), "per-instrument lock must be stable across lookups"

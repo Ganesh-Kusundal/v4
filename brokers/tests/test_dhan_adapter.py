@@ -325,14 +325,18 @@ class TestMarketDataDelegation:
     @pytest.mark.parametrize(
         "instrument",
         [
-            Equity.of("MCX", "CRUDEOIL"),
-            Equity.of("BSE", "RELIANCE"),
             Index.of("IDX", "NIFTY"),
         ],
     )
-    def test_depth_gates_non_nse(self, instrument):
+    def test_depth_gates_unsupported_exchange(self, instrument):
+        """Depth is gated by require_depth_supported, not limited to NSE.
+
+        MCX and BSE were removed from this list when the venue-wide supported
+        set (NSE/NFO/BSE/BFO/MCX) replaced the old NSE-only policy; they are
+        now covered by test_depth.
+        """
         broker, _ = _make_broker()
-        with pytest.raises(CapabilityNotSupportedError, match="NSE"):
+        with pytest.raises(CapabilityNotSupportedError, match="not supported"):
             broker.depth(instrument)
 
     def test_ltp(self):

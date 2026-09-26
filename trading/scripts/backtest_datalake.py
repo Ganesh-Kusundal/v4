@@ -42,17 +42,24 @@ from pathlib import Path
 
 # Ensure project packages are importable
 ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
-for sub in ("domain/src", "brokers/src", "trading/src"):
+for sub in (
+    "domain/src",
+    "brokers/src",
+    "execution/src",
+    "replay/src",
+    "market_data/src",
+    "strategy/src",
+    "trading/src",
+):
     sys.path.insert(0, str(ROOT / sub))
 
 from tradex_domain import Equity, Timeframe  # noqa: E402
-
-from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader  # noqa: E402
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402
-from tradex_trading.execution.fees import FeeCalculator  # noqa: E402
-from tradex_trading.execution.slippage import PercentageSlippageModel  # noqa: E402
-from tradex_trading.replay.backtest import BacktestEngine  # noqa: E402
-from tradex_trading.runtime.calendar import NSETradingCalendar  # noqa: E402
+from tradex_execution.fees import FeeCalculator  # noqa: E402
+from tradex_execution.slippage import PercentageSlippageModel  # noqa: E402
+from tradex_replay.backtest import BacktestEngine  # noqa: E402
+from tradex_domain.trading_calendar import NSETradingCalendar  # noqa: E402
+from tradex_market_data.backtest_loader import ParquetBacktestLoader  # noqa: E402
+from tradex_market_data.paths import datalake_root  # noqa: E402
 
 log = logging.getLogger("tradex.scripts.backtest_datalake")
 
@@ -65,7 +72,7 @@ def _make_strategy(name: str, symbol: str, args, **overrides) -> object:
     """
     inst = Equity.of("NSE", symbol)
     if name == "sma_cross":
-        from tradex_trading.strategy.extensions.strategies.sma_cross import (
+        from tradex_strategy.extensions.strategies.sma_cross import (
             SmaCrossStrategy,
         )
         return SmaCrossStrategy(
@@ -75,7 +82,7 @@ def _make_strategy(name: str, symbol: str, args, **overrides) -> object:
             slow=overrides.get("slow", args.slow),
         )
     if name == "mean_reversion":
-        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+        from tradex_strategy.extensions.strategies.mean_reversion import (
             MeanReversionStrategy,
         )
         return MeanReversionStrategy(
@@ -90,7 +97,7 @@ def _make_strategy(name: str, symbol: str, args, **overrides) -> object:
 
 def _make_portfolio_strategy(args, **overrides) -> object:
     """Instantiate the portfolio strategy (one pass over the whole universe)."""
-    from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+    from tradex_strategy.extensions.strategies.multi_symbol_sma_cross import (
         MultiSymbolSmaCross,
     )
     return MultiSymbolSmaCross(
