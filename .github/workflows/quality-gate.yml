@@ -35,13 +35,19 @@ jobs:
       # of them installed. --no-sync keeps the frozen lock authoritative instead
       # of letting `uv run` silently re-resolve.
       #
-      # WARNING: this step currently FAILS. `ruff check` reports hundreds of
-      # pre-existing violations of the E/F/W/I/UP set the root pyproject.toml
-      # declares (measured: 437). It is left failing rather than suppressed —
-      # see the ratchet proposal before touching it. Because it is a hard step,
-      # the mypy and pytest steps below it are still unreachable on a runner.
-      - name: Ruff lint
-        run: uv run --no-sync ruff check
+      # Ratchet, not a hard wall. `ruff check` currently reports 233 pre-existing
+      # violations of the E/F/W/I/UP set the root pyproject declares. Clearing
+      # them all is a cleanup project; what the gate must protect is that the
+      # number never grows. This step reads the committed baseline in
+      # `.ruff_baseline` and fails only if the count went UP, so the wall can
+      # only shrink. To lower the baseline on purpose after a cleanup:
+      # `python scripts/ruff_ratchet.py --set-baseline`.
+      #
+      # This replaces the previous hard `ruff check` step, which could never go
+      # green and therefore made every step below it (mypy, pytest) unreachable
+      # on a runner — a gate that reports on style and never on behaviour.
+      - name: Ruff ratchet (no new lint errors)
+        run: uv run --no-sync python scripts/ruff_ratchet.py
 
       - name: Mypy (domain)
         run: uv run --no-sync mypy domain/src/tradex_domain

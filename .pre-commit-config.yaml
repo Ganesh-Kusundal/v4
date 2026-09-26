@@ -3,3 +3,20 @@ repos:
     rev: v0.16.2
     hooks:
       - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # The ratchet is only worth installing if it is free to run locally. Ruff is
+  # the fast guard; the import-boundary test is the architectural one (it is
+  # what keeps domain pure and the package graph acyclic) and still runs in a
+  # couple of seconds, so it belongs in the pre-commit loop rather than only in
+  # CI where a failure is expensive to discover.
+  - repo: local
+    hooks:
+      - id: import-boundaries
+        name: package import boundaries
+        entry: uv run --no-sync python -m pytest tests/test_import_boundaries.py -q
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]
