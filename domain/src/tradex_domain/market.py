@@ -13,21 +13,22 @@ from tradex_domain.instruments import Instrument
 from tradex_domain.serialization import Serializable
 from tradex_domain.value_objects import Price, Quantity
 
-#: Venue-wide depth constraint: every broker provides order-book depth for
-#: NSE instruments only. BSE/MCX/NFO/… quotes stream but carry no depth feed.
-_DEPTH_SUPPORTED_EXCHANGES: frozenset[str] = frozenset({ExchangeId.NSE})
+#: Venue-wide depth constraint: order-book depth for supported liquid exchanges.
+#: NSE, NFO (derivatives), BSE, BFO, MCX (commodities).
+_DEPTH_SUPPORTED_EXCHANGES: frozenset[str] = frozenset({
+    ExchangeId.NSE,
+    ExchangeId.NFO,
+    ExchangeId.BSE,
+    ExchangeId.BFO,
+    ExchangeId.MCX,
+})
 
 
 def require_depth_supported(instrument: Instrument) -> None:
-    """Raise ``CapabilityNotSupportedError`` unless *instrument* can carry a book.
-
-    Market depth (order-book levels) is only provided on NSE across all
-    brokers; requesting depth on any other exchange fails loudly instead of
-    silently streaming an empty book.
-    """
+    """Raise ``CapabilityNotSupportedError`` unless *instrument* can carry a book."""
     if str(instrument.exchange) not in _DEPTH_SUPPORTED_EXCHANGES:
         raise CapabilityNotSupportedError(
-            f"market depth is not supported on {instrument.exchange} (NSE only)"
+            f"market depth is not supported on {instrument.exchange} (supported: {sorted(_DEPTH_SUPPORTED_EXCHANGES)})"
         )
 
 

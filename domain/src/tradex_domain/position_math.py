@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from tradex_domain.enums import OrderSide
 from tradex_domain.execution import Fill, Position
 from tradex_domain.utils import q2
 from tradex_domain.value_objects import Money, Price, Quantity
@@ -101,7 +102,7 @@ def apply_fill(position: Position | None, fill: Fill) -> Position:
     """
     if position is None:
         qty = (
-            fill.quantity.value if fill.side.value == "BUY" else -fill.quantity.value
+            fill.quantity.value if fill.side is OrderSide.BUY else -fill.quantity.value
         )
         return Position(
             instrument=fill.instrument,
@@ -116,7 +117,7 @@ def apply_fill(position: Position | None, fill: Fill) -> Position:
 
     old_qty = position.quantity.value
     signed_fill = (
-        fill.quantity.value if fill.side.value == "BUY" else -fill.quantity.value
+        fill.quantity.value if fill.side is OrderSide.BUY else -fill.quantity.value
     )
     new_qty = old_qty + signed_fill
     old_avg = position.avg_price.value

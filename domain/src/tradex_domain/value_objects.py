@@ -13,6 +13,13 @@ from uuid import UUID
 from tradex_domain.enums import AssetClass, ExchangeId
 from tradex_domain.serialization import from_dict, to_dict
 
+#: ``strftime``/``strptime`` format for the expiry segment of an instrument key.
+#: This is a WIRE contract, not a generic date format: it is baked into every
+#: stored provider key and into keys held by external clients.  It is distinct
+#: from the dashed ``%Y-%m-%d`` form used by the CLI and the datalake — do not
+#: merge the two.
+INSTRUMENT_KEY_EXPIRY_FORMAT = "%Y%m%d"
+
 
 def normalize_symbol(value: str, *, strip_provider_suffixes: bool = True) -> str:
     """Upper-case and strip whitespace; optionally drop provider suffixes.
@@ -120,7 +127,7 @@ class InstrumentId:
                 right = "FUT"
             elif len(parts[2]) == 8:
                 try:
-                    expiry = datetime.strptime(parts[2], "%Y%m%d").date()
+                    expiry = datetime.strptime(parts[2], INSTRUMENT_KEY_EXPIRY_FORMAT).date()
                 except ValueError as exc:
                     raise ValueError(f"Invalid InstrumentId format: {value!r}") from exc
             else:
@@ -151,7 +158,7 @@ class InstrumentId:
     def __str__(self) -> str:
         parts = [self.exchange, self.underlying]
         if self.expiry is not None:
-            parts.append(self.expiry.strftime("%Y%m%d"))
+            parts.append(self.expiry.strftime(INSTRUMENT_KEY_EXPIRY_FORMAT))
         if self.strike is not None:
             parts.append(
                 str(int(self.strike))
@@ -437,6 +444,7 @@ class Money:
 
 
 __all__ = [
+    "INSTRUMENT_KEY_EXPIRY_FORMAT",
     "AccountId",
     "CorrelationId",
     "InstrumentId",

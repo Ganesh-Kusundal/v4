@@ -90,14 +90,41 @@ class TestIllegalTransitions:
 
 class TestTerminalStates:
     @pytest.mark.parametrize(
-        "terminal",
-        [OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.UNKNOWN],
+        "terminal", [OrderStatus.FILLED, OrderStatus.REJECTED],
     )
     def test_terminal_state_has_no_outgoing(self, terminal: OrderStatus):
         order = _make_order(terminal)
         for target in OrderStatus:
             with pytest.raises(SessionStateError):
                 order.transition_to(target)
+
+
+class TestUnknownIsUnresolvedNotTerminal:
+    """UNKNOWN means the venue's answer is unknown, not that the order is over.
+
+    A submission that crossed the broker boundary and failed may still be live
+    at the venue. The uncertainty is resolved when the venue reports back, so
+    UNKNOWN must reach a settled state; a sink would strand the order in
+    doubt forever and no reconciliation could ever clear it.
+    """
+
+    @pytest.mark.parametrize(
+        "resolved",
+        [
+            OrderStatus.PARTIALLY_FILLED,
+            OrderStatus.FILLED,
+            OrderStatus.CANCELLED,
+            OrderStatus.REJECTED,
+        ],
+    )
+    def test_unknown_can_reach_a_settled_state(self, resolved: OrderStatus):
+        order = _make_order(OrderStatus.UNKNOWN)
+        assert order.transition_to(resolved).status is resolved
+
+    def test_a_submission_can_become_unknown(self):
+        """A failed boundary-crossing submission is UNKNOWN, not REJECTED."""
+        order = _make_order(OrderStatus.NEW)
+        assert order.transition_to(OrderStatus.UNKNOWN).status is OrderStatus.UNKNOWN
 
 
 class TestCancelledFillAfterCancel:

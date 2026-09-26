@@ -23,7 +23,11 @@ from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.errors import SDKError
-from tradex_domain.value_objects import InstrumentId, normalize_symbol
+from tradex_domain.value_objects import (
+    INSTRUMENT_KEY_EXPIRY_FORMAT,
+    InstrumentId,
+    normalize_symbol,
+)
 
 _TAG_BY_ASSET_CLASS = {
     "EQUITY": "EQ",
@@ -83,7 +87,7 @@ class InstrumentRegistry:
         iid = instrument_id
         suffix = ""
         if iid.expiry is not None:
-            suffix += ":" + iid.expiry.strftime("%Y%m%d")
+            suffix += ":" + iid.expiry.strftime(INSTRUMENT_KEY_EXPIRY_FORMAT)
         if iid.strike is not None:
             suffix += ":" + str(iid.strike)
         if iid.right is not None:

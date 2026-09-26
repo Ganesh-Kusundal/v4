@@ -44,6 +44,27 @@ class ProductType(StrEnum):
     MTF = "MTF"
     COVER_ORDER = "COVER_ORDER"
 
+    @classmethod
+    def from_wire(cls, value: str | ProductType | None) -> ProductType:
+        """Parse wire token (MIS, CNC, NRML, MTF) into canonical ProductType."""
+        if value is None:
+            return cls.INTRADAY
+        if isinstance(value, cls):
+            return value
+        token = str(value).strip().upper()
+        mapping = {
+            "MIS": cls.INTRADAY,
+            "CNC": cls.DELIVERY,
+            "NRML": cls.MARGIN,
+            "MTF": cls.MTF,
+            "INTRADAY": cls.INTRADAY,
+            "DELIVERY": cls.DELIVERY,
+            "MARGIN": cls.MARGIN,
+        }
+        if token in mapping:
+            return mapping[token]
+        raise ValueError(f"unknown product type: {value!r}")
+
 
 class AssetClass(StrEnum):
     EQUITY = "EQUITY"

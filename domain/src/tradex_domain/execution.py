@@ -31,8 +31,12 @@ _LEGAL_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
         OrderStatus.PARTIALLY_FILLED,
         OrderStatus.CANCELLED,
         OrderStatus.REJECTED,
+        # A submission that crossed the broker boundary and failed is
+        # UNKNOWN, not REJECTED: the venue may have accepted it. The OMS must
+        # be able to record that uncertainty.
+        OrderStatus.UNKNOWN,
     }),
-    OrderStatus.PENDING: frozenset({OrderStatus.ACK, OrderStatus.CANCELLED, OrderStatus.REJECTED}),
+    OrderStatus.PENDING: frozenset({OrderStatus.ACK, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.UNKNOWN}),
     OrderStatus.ACK: frozenset({
         OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED,
         OrderStatus.CANCELLED, OrderStatus.REJECTED,
@@ -46,7 +50,16 @@ _LEGAL_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
     OrderStatus.SUBMITTED: frozenset(
         {OrderStatus.PARTIALLY_FILLED, OrderStatus.FILLED, OrderStatus.CANCELLED}
     ),
-    OrderStatus.UNKNOWN: frozenset(),
+    # UNKNOWN is not terminal: the uncertainty is resolved once the venue
+    # reports back — a fill moves it to FILLED/PARTIALLY_FILLED, and a
+    # definitive absence moves it to CANCELLED/REJECTED. A sink here would
+    # strand the order in uncertainty forever.
+    OrderStatus.UNKNOWN: frozenset({
+        OrderStatus.PARTIALLY_FILLED,
+        OrderStatus.FILLED,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+    }),
 }
 
 
