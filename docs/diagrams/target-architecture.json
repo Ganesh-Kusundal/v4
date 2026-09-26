@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "TradeX v4 — Proposed Target Architecture",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "domain", "type": "backend", "label": "tradex_domain", "sublabel": "pure kernel", "pos": [430, 60], "size": [180, 62] },
+
+    { "id": "brokers", "type": "external", "label": "tradex_brokers", "sublabel": "Dhan / Upstox / Paper", "pos": [40, 250], "size": [180, 62] },
+    { "id": "execution", "type": "backend", "label": "tradex_execution", "sublabel": "money path / OMS", "pos": [290, 250], "size": [180, 62] },
+    { "id": "market_data", "type": "database", "label": "tradex_market_data", "sublabel": "ParquetMarketProvider", "pos": [540, 250], "size": [180, 62] },
+    { "id": "strategy", "type": "backend", "label": "tradex_strategy", "sublabel": "signals only", "pos": [790, 250], "size": [180, 62] },
+    { "id": "analytics", "type": "backend", "label": "tradex_analytics", "sublabel": "indicator compute", "pos": [1040, 250], "size": [180, 62] },
+
+    { "id": "reactive", "type": "messagebus", "label": "tradex_reactive", "sublabel": "ReactiveBus seam", "pos": [290, 390], "size": [180, 62] },
+
+    { "id": "runtime", "type": "backend", "label": "tradex_runtime", "sublabel": "ONLY composition root", "pos": [490, 560], "size": [190, 66] },
+    { "id": "interfaces", "type": "backend", "label": "tradex_interfaces", "sublabel": "HTTP / WS / CLI", "pos": [850, 560], "size": [180, 62] },
+    { "id": "frontend", "type": "frontend", "label": "Frontend", "sublabel": "openalgo-charts", "pos": [1120, 560], "size": [160, 62] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Pure kernel (zero internal imports)", "wraps": ["domain"] },
+    { "kind": "region", "label": "Domain services (each imports only tradex_domain + lower)", "wraps": ["brokers", "execution", "market_data", "strategy", "analytics"] },
+    { "kind": "region", "label": "Composition & delivery (imports only domain + runtime)", "wraps": ["runtime", "interfaces", "frontend"] }
+  ],
+  "connections": [
+    { "id": "i-boot", "from": "interfaces", "to": "runtime", "label": "boot(cfg)", "variant": "emphasis", "labelAt": [800, 593] },
+    { "id": "i-ws", "from": "frontend", "to": "interfaces", "label": "REST / WS", "variant": "emphasis" },
+
+    { "id": "rt-exec", "from": "runtime", "to": "execution", "label": "wire engine", "labelAt": [430, 470] },
+    { "id": "rt-strategy", "from": "runtime", "to": "strategy", "label": "discover", "labelAt": [880, 420] },
+    { "id": "rt-bus", "from": "runtime", "to": "reactive", "label": "one bus", "labelAt": [300, 480] },
+
+    { "id": "ex-broker", "from": "execution", "to": "brokers", "label": "BrokerAdapter", "labelAt": [255, 226], "variant": "security" },
+    { "id": "ex-bus", "from": "execution", "to": "reactive", "label": "publish", "labelAt": [380, 320] }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Enforced dependency rules",
+      "items": [
+        "domain imports nothing internal",
+        "Exactly one composition root (runtime)",
+        "interfaces imports only domain + runtime",
+        "No cross-package private reads; Protocols complete"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Ports — the missing contract",
+      "items": [
+        "MarketDataPort / ExecutionCommandPort / RiskPort",
+        "One owner per concern: engine=orders, lake=bars, adapter=venue truth",
+        "Adding these before the move is what removes interface churn"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Collapsed 17 → 12 packages",
+      "items": [
+        "trading/ shim tree deleted; TradingSession → runtime",
+        "persistence / application / operations / research folded in",
+        "interfaces fan-in 11 → 2 (domain + runtime only)"
+      ]
+    }
+  ]
+}

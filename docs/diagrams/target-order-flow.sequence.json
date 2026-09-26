@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Target Live Order Flow (reactive spine, complete)",
+    "quality_profile": "showcase",
+    "column_fit": "fixed",
+    "viewBox": [980, 820]
+  },
+  "participants": [
+    { "id": "feed", "type": "external", "label": "Feed", "sublabel": "broker ticks" },
+    { "id": "bus", "type": "messagebus", "label": "Bus", "sublabel": "tick→candle spine" },
+    { "id": "strategy", "type": "backend", "label": "Strategy", "sublabel": "signals" },
+    { "id": "engine", "type": "backend", "label": "Execution", "sublabel": "money pipeline" },
+    { "id": "risk", "type": "security", "label": "Risk", "sublabel": "fail-closed" },
+    { "id": "oms", "type": "database", "label": "OMS", "sublabel": "store + cache" }
+  ],
+  "segments": [
+    { "from": 160, "to": 300, "label": "Market data (the fixed reactive wire)" },
+    { "from": 316, "to": 720, "label": "Order lifecycle → ordered shutdown" }
+  ],
+  "messages": [
+    { "from": "feed", "to": "bus", "y": 180, "label": "tick → publish Candle (bar close)", "variant": "emphasis", "note": "The missing wire: every mode publishes a typed Candle, not per-client frames." },
+    { "from": "bus", "to": "strategy", "y": 226, "label": "on_bar → Signal", "variant": "emphasis" },
+
+    { "from": "strategy", "to": "bus", "y": 288, "label": "PlaceOrderCommand", "variant": "emphasis" },
+    { "from": "bus", "to": "engine", "y": 322, "label": "submit(command)", "variant": "default" },
+    { "from": "engine", "to": "risk", "y": 356, "label": "reserve + check (kill switch, feed, exposure)", "variant": "security" },
+    { "from": "risk", "to": "engine", "y": 390, "label": "approved / rejected", "variant": "return" },
+    { "from": "engine", "to": "oms", "y": 424, "label": "append intent (durable first)", "variant": "emphasis" },
+    { "from": "engine", "to": "feed", "y": 458, "label": "place_order via adapter (venue-first)", "variant": "security" },
+    { "from": "feed", "to": "engine", "y": 492, "label": "fill ack (or UNKNOWN)", "variant": "return" },
+    { "from": "engine", "to": "oms", "y": 526, "label": "apply_fill → position, cash, fees", "variant": "emphasis", "note": "Single mutator: PositionAccountant under its per-instrument lock. No second writer." },
+    { "from": "engine", "to": "bus", "y": 560, "label": "publish Fill / OrderUpdated", "variant": "dashed" },
+
+    { "from": "feed", "to": "engine", "y": 606, "label": "SIGTERM: stop intake, kill switch", "variant": "security" },
+    { "from": "engine", "to": "feed", "y": 640, "label": "close broker", "variant": "security" },
+    { "from": "engine", "to": "oms", "y": 674, "label": "close guard + event store", "variant": "security" }
+  ],
+  "activations": [
+    { "participant": "strategy", "from": 220, "to": 288, "type": "backend" },
+    { "participant": "engine", "from": 316, "to": 560, "type": "backend" },
+    { "participant": "risk", "from": 350, "to": 390, "type": "security" },
+    { "participant": "oms", "from": 418, "to": 526, "type": "database" },
+    { "participant": "engine", "from": 600, "to": 674, "type": "backend" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "The fixed reactive wire", "items": ["Every mode publishes a typed Candle on the bus", "Bar-driven strategies work live and paper", "No per-client BarAggregator duplicating aggregation"] },
+    { "dot": "cyan", "title": "Money + shutdown", "items": ["Durable append before the venue call; UNKNOWN reconciled, never retried blind", "One position mutator under its lock", "ShutdownCoordinator in session.stop(): kill switch, guard, store closed"] }
+  ]
+}

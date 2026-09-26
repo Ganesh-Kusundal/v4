@@ -19,13 +19,33 @@ jobs:
         with:
           python-version: "3.12"
           cache: "pip"
-      - name: Install packages
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e ./domain -e ./brokers -e ./trading
+
+      # Why uv and not `pip install -e ./domain -e ./brokers -e ./trading`:
+      # the 17 packages are a uv workspace. Their manifests depend on each
+      # other by name (`tradex-trading` requires `tradex-analytics`, which
+      # requires `tradex-domain`, …) and none of those names exist on PyPI, so
+      # plain pip resolved them from the index and died at install:
+      #   ERROR: No matching distribution found for tradex-analytics<0.2,>=0.1.0
+      # pip has no uv-workspace concept, so it cannot express "these siblings
+      # are the ones in this repo". uv can, via [tool.uv.sources] workspace =
+      # true in the root manifest. That is why this job never ran a test.
+      #
+      # `--frozen` keeps the lock authoritative: if a manifest has drifted from
+      # uv.lock the sync fails loudly instead of silently re-resolving.
+      - name: Install uv
+        run: pip install uv
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      # `uv run --no-sync` is what actually puts .venv/bin on PATH. A bare
+      # `python -m pytest` here would use the setup-python interpreter, which
+      # has none of these packages installed.
       - name: Parity + CQRS gate
-        run: python -m pytest trading/tests/parity trading/tests/contracts -q
+        run: uv run --no-sync python -m pytest trading/tests/parity trading/tests/contracts -q
+
       - name: Reconciliation golden (C2)
-        run: python -m pytest trading/tests/parity/test_recon_golden.py -q
+        run: uv run --no-sync python -m pytest trading/tests/parity/test_recon_golden.py -q
+
       - name: Shared accounting contract
-        run: python -m pytest trading/tests/execution/test_position_math.py -q
+        run: uv run --no-sync python -m pytest trading/tests/execution/test_position_math.py -q

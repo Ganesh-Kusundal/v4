@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "TradeX v4 — Current Architecture",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    { "id": "frontend", "type": "frontend", "label": "Frontend", "sublabel": "openalgo-charts", "pos": [40, 250], "size": [140, 60] },
+    { "id": "interfaces", "type": "backend", "label": "Interfaces", "sublabel": "CLI + FastAPI", "pos": [250, 250], "size": [140, 60] },
+    { "id": "runtime", "type": "backend", "label": "Runtime", "sublabel": "boot / feed", "pos": [470, 250], "size": [140, 60] },
+    { "id": "execution", "type": "backend", "label": "Execution", "sublabel": "engine / OMS", "pos": [690, 250], "size": [140, 60] },
+    { "id": "brokers", "type": "external", "label": "Brokers", "sublabel": "Dhan / Upstox", "pos": [910, 250], "size": [140, 60] },
+
+    { "id": "reactive", "type": "messagebus", "label": "Reactive Bus", "sublabel": "RxPY spine", "pos": [470, 60], "size": [140, 60] },
+    { "id": "strategy", "type": "backend", "label": "Strategy", "sublabel": "signals", "pos": [690, 60], "size": [140, 60] },
+
+    { "id": "market_data", "type": "database", "label": "Market Data", "sublabel": "parquet lake", "pos": [470, 400], "size": [140, 60] },
+    { "id": "persistence", "type": "database", "label": "Persistence", "sublabel": "SQLite stores", "pos": [690, 400], "size": [140, 60] },
+
+    { "id": "domain", "type": "backend", "label": "Domain", "sublabel": "shared kernel", "pos": [250, 400], "size": [140, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Interface & UI", "wraps": ["frontend", "interfaces"] },
+    { "kind": "region", "label": "Composition & Execution", "wraps": ["runtime", "execution", "strategy", "reactive"] },
+    { "kind": "region", "label": "Data & Foundation", "wraps": ["market_data", "persistence", "domain"] }
+  ],
+  "connections": [
+    { "id": "ui-api", "from": "frontend", "to": "interfaces", "label": "REST / WS", "variant": "emphasis" },
+    { "id": "cli-boot", "from": "interfaces", "to": "runtime", "label": "boot(config)", "variant": "emphasis" },
+    { "id": "order-flow", "from": "runtime", "to": "execution", "label": "commands", "labelAt": [580, 236] },
+    { "id": "exec-broker", "from": "execution", "to": "brokers", "label": "place / cancel", "variant": "security" },
+
+    { "id": "strategy-signal", "from": "strategy", "to": "execution", "label": "PlaceOrderCommand", "labelDy": 24 },
+    { "id": "exec-bus", "from": "execution", "to": "reactive", "label": "publish fill" },
+    { "id": "exec-market", "from": "execution", "to": "market_data", "label": "history()", "labelDy": 24 },
+    { "id": "exec-persist", "from": "execution", "to": "persistence", "label": "order events", "labelDy": 24 }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Composition root",
+      "items": [
+        "boot() in runtime/startup.py is the only wiring point",
+        "live mode requires live_enabled + persistence path (fail-closed)"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Order flow",
+      "items": [
+        "Strategy → PlaceOrderCommand → ExecutionEngine",
+        "FillSource (Paper / Simulated / Broker) → OMS cache"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Dependency direction",
+      "items": [
+        "Domain ← Brokers ← … ← Interfaces (never reverse)",
+        "Domain is the shared kernel every layer imports",
+        "runtime → trading is a temporary, allowed exception"
+      ]
+    }
+  ]
+}
