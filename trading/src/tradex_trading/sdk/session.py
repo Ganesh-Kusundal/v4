@@ -384,6 +384,15 @@ class TradingSession:
         # for a non-PAPER label; everything else is boot()'s wiring.
         from tradex_brokers.paper.adapter import PaperBroker
 
+        # Keep this import going through the tradex_trading.runtime.startup
+        # shim, not tradex_runtime directly. Both are function-local, but the
+        # static import-cycle guard (tests/test_import_boundaries.py) walks all
+        # ImportFrom nodes regardless of scope, so a direct tradex_runtime
+        # import here closes the runtime -> trading -> runtime ring
+        # (tradex_runtime.startup imports this module). The shim is a leaf that
+        # resolves tradex_runtime lazily at runtime, so the static graph stays
+        # acyclic. This indirection retires when TradingSession moves into
+        # tradex_runtime, which is the documented plan.
         from tradex_trading.runtime.startup import boot
 
         cfg = config or AppConfig()
@@ -487,6 +496,9 @@ class TradingSession:
         # Thin wrapper over the single composition root [REF-6]: boot() owns
         # broker construction (env auth), the thread-safe bus, fill source,
         # stream backend, fill bridge, market feed and master scheduler.
+        # See the note in paper() above: this must stay behind the
+        # tradex_trading.runtime.startup shim to keep the static import graph
+        # acyclic until TradingSession moves into tradex_runtime.
         from tradex_trading.runtime.startup import boot
 
         cfg = AppConfig(

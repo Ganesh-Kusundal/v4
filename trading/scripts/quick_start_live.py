@@ -92,7 +92,7 @@ def _boot_session(broker: str, environment: str) -> tuple[object, str | None]:
     from tradex_domain import BrokerId
 
     from tradex_config.schema import AppConfig
-    from tradex_trading.runtime.startup import boot
+    from tradex_runtime.startup import boot
 
     cfg = AppConfig(
         broker_id=BrokerId[broker.upper()],
