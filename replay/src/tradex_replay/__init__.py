@@ -3,3 +3,9 @@
 from tradex_replay.backtest import BacktestEngine, BacktestResult
 from tradex_replay.synthetic_ticks import SyntheticTickGenerator
 
+__all__ = [
+    "BacktestEngine",
+    "BacktestResult",
+    "SyntheticTickGenerator",
+]
+

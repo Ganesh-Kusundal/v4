@@ -52,38 +52,45 @@ jobs:
       - name: Mypy (domain)
         run: uv run --no-sync mypy domain/src/tradex_domain
 
+      # A typing ratchet: each package is promoted to hard-fail the moment it
+      # reaches 0 errors, and never softened again. As of this commit domain,
+      # config, execution, interfaces, runtime, strategy, trading, analytics,
+      # market_data, replay and reactive are all at 0 and hard-fail. Only
+      # brokers remains soft, and only because of the depth-port protocol gap
+      # recorded in docs/specs/remediation-and-hardening.md; it is 2 errors.
       - name: Mypy (brokers)
-        continue-on-error: true  # 10 errors, tracked typing debt
+        continue-on-error: true  # 2 errors: MarketStreamPort depth-port protocol gap
         run: uv run --no-sync mypy brokers/src/tradex_brokers
 
       - name: Mypy (config)
-        continue-on-error: true  # now 0 errors; kept soft so the flag still means
-                                 # "B3 typing debt is open repo-wide" — safe to drop
         run: uv run --no-sync mypy config/src/tradex_config
 
       - name: Mypy (execution)
-        continue-on-error: true  # 4 errors, tracked typing debt (B3 goal)
         run: uv run --no-sync mypy execution/src/tradex_execution
 
       - name: Mypy (analytics)
-        continue-on-error: true  # 1 error, tracked typing debt (B3 goal)
         run: uv run --no-sync mypy analytics/src/tradex_analytics
 
       - name: Mypy (strategy)
-        continue-on-error: true  # 3 errors, tracked typing debt (B3 goal)
         run: uv run --no-sync mypy strategy/src/tradex_strategy
 
       - name: Mypy (interfaces)
-        continue-on-error: true  # 6 errors, tracked typing debt (B3 goal)
         run: uv run --no-sync mypy interfaces/src/tradex_interfaces
 
       - name: Mypy (runtime)
-        continue-on-error: true  # 10 errors, tracked typing debt (B3 goal)
         run: uv run --no-sync mypy runtime/src/tradex_runtime
 
       - name: Mypy (trading)
-        continue-on-error: true  # 2 errors, tracked typing debt (PE-3)
         run: uv run --no-sync mypy trading/src/tradex_trading
+
+      - name: Mypy (market_data)
+        run: uv run --no-sync mypy market_data/src/tradex_market_data
+
+      - name: Mypy (replay)
+        run: uv run --no-sync mypy replay/src/tradex_replay
+
+      - name: Mypy (reactive)
+        run: uv run --no-sync mypy reactive/src/tradex_reactive
 
       # Coverage names the 17 importable packages, not the 17 top-level
       # directories. The directory form (`--cov=trading`) matches no module and
