@@ -16,6 +16,7 @@ from typing import cast
 
 from .indicators import IndicatorSpec, _rolling_sma, _sma_seeded_ema
 
+
 def vwma(values: list[float], volumes: list[float], period: int) -> list[float | None]:
     """Volume Weighted Moving Average (openalgo-charts parity).
 

@@ -26,6 +26,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 import pytest
+from tradex_brokers.dhan.adapter import DhanBroker
+from tradex_brokers.paper.adapter import PaperBroker
+from tradex_brokers.upstox.adapter import UpstoxBroker
 from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from tradex_domain.errors import CapabilityNotSupportedError, OrderRejectedError
@@ -38,10 +41,6 @@ from tradex_domain.value_objects import (
     Price,
     Quantity,
 )
-
-from tradex_brokers.dhan.adapter import DhanBroker
-from tradex_brokers.paper.adapter import PaperBroker
-from tradex_brokers.upstox.adapter import UpstoxBroker
 
 _RELIANCE = Equity.of("NSE", "RELIANCE")
 

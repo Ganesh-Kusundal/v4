@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from tradex_interfaces.auth.deps import require_auth
-
 from tradex_interfaces.models import AccountResponse
 from tradex_interfaces.routes.deps import get_session
 

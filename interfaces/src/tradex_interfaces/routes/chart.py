@@ -14,20 +14,18 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-
-from tradex_interfaces.auth.deps import require_auth
 from pydantic import BaseModel
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.timezones import IST_ZONE
-from tradex_domain.value_objects import Money
 from tradex_execution.projection import execution_projection
+
+from tradex_interfaces.auth.deps import require_auth
 
 #: Interval codes the chart may request, mapped to canonical Timeframes.
 #: Deliberately no monthly code: neither side has calendar-month bucketing yet
@@ -641,12 +639,17 @@ def create_chart_router(
         # Economic values come from the canonical projection so this route
         # cannot disagree with the numbers the parity suite pins across modes.
         # The wire shape stays numeric because the chart does arithmetic on it.
-        canonical = {
-            row["instrument"]: row
-            for row in execution_projection(
-                [], session.engine.cache.all_positions(),
-            )["positions"]  # type: ignore[index]
-        }
+        # ``execution_projection`` returns ``dict[str, object]`` on purpose
+        # (its payload is heterogeneous), so the ``"positions"`` entry needs
+        # narrowing to the row shape before it can be indexed. The rows are
+        # ``dict[str, Any]`` with an ``"instrument"`` key — exactly what the
+        # comprehension reads. This replaces the previous ``type: ignore`` with
+        # a real type.
+        _position_rows = cast(
+            list[dict[str, Any]],
+            execution_projection([], session.engine.cache.all_positions())["positions"],
+        )
+        canonical = {row["instrument"]: row for row in _position_rows}
         for p in session.engine.cache.all_positions():
             try:
                 if p.quantity.value == 0:
@@ -744,7 +747,12 @@ def create_chart_router(
         (ExecutionEngine + PositionManager + fees); this endpoint only wires
         datalake bars into it. Trades come back as chart markers; the equity
         curve as an overlayable line.
+
+        The engine grinds the window bar by bar, so ``run`` is handed to a
+        worker thread: ``/ws/stream`` shares this event loop, and a backtest
+        left on it stalls the live feed for its whole duration.
         """
+        import asyncio
         from datetime import timedelta
 
         from tradex_execution.fees import FeeCalculator
@@ -784,7 +792,7 @@ def create_chart_router(
             initial_capital=body.get("initial_capital", 100000),
             **kwargs,
         )
-        result = engine.run(strategy, candles)
+        result = await asyncio.to_thread(engine.run, strategy, candles)
 
         # Equity curve points ride bar timestamps where available; the curve
         # is per-event, so down-map by index onto the candle list.

@@ -25,11 +25,11 @@ Parity notes
 
 from __future__ import annotations
 
-from typing import cast, Any
+from typing import Any, cast
 
 from tradex_analytics.indicators import (
-    IndicatorSpec,
     LEGACY_PARAM_ALIASES,
+    IndicatorSpec,
     _bars_since,
     _highest,
     _isfinite,

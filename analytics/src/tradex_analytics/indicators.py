@@ -1598,6 +1598,7 @@ from .ma_vol import (  # noqa: E402
 )
 from .median_study import SPEC_MEDIAN  # noqa: E402
 
+
 def _register_specs(*specs: Any) -> None:
     """Register IndicatorSpec objects; avoids circular-import type issues."""
     for s in specs:
@@ -1745,6 +1746,7 @@ _register_specs(
 )
 
 # Batch 5 ports — complex studies
+from .seasonality import SPEC_SEASONALITY  # noqa: E402
 from .studies.studies_complex import (  # noqa: E402
     SPEC_CPR,
     SPEC_RANGE_ANALYSIS,
@@ -1774,7 +1776,6 @@ from .studies.studies_trend import (  # noqa: E402
     SPEC_ICHIMOKU,
     SPEC_PARABOLIC_SAR,
 )
-from .seasonality import SPEC_SEASONALITY  # noqa: E402
 
 _register_specs(
     SPEC_MOMENTUM,  # type: ignore[has-type]

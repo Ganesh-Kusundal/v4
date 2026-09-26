@@ -16,6 +16,13 @@ packages = ["src/tradex_research"]
 target-version = "py312"
 line-length = 100
 
+[tool.ruff.lint]
+# This block existed with no `select`, so research/ was the one tree in the repo
+# linted under ruff's *defaults* rather than the E/F/W/I/UP set the root and the
+# other packages declare — which is how DTZ/C4/RUF rules turned up in a gate
+# documented as running E,F,W,I,UP. Declared explicitly to match the root.
+select = ["E", "F", "W", "I", "UP"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"

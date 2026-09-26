@@ -32,7 +32,7 @@ from tradex_domain.timeframe import bucket_seconds
 try:  # pragma: no cover - zoneinfo is stdlib on 3.9+
     from zoneinfo import ZoneInfo
 
-    _IST = ZoneInfo("Asia/Kolkata")
+    _IST: ZoneInfo | None = ZoneInfo("Asia/Kolkata")
 except Exception:  # pragma: no cover - exotic platforms without tzdata
     _IST = None
 

@@ -18,9 +18,10 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from enum import StrEnum
-from datetime import date, datetime, UTC
 from typing import Any
+
 
 class ApprovalState(StrEnum):
     DRAFT = "draft"

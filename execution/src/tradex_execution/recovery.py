@@ -246,20 +246,24 @@ def fold_cash(events: Sequence[DomainEvent]) -> CashState:
     # before it are already included in the figure and must not be applied
     # again. Folding from the first anchor would resume with a stale balance;
     # folding every fill from the latest would double-count the history.
-    last_anchor = max(
-        (
-            index
-            for index, event in enumerate(events)
-            if isinstance(event, CashAccountInitialized)
-        ),
-        default=None,
-    )
-    if last_anchor is None:
+    # Collect the (index, event) pairs of every opening anchor, not just the
+    # indices: the max() below picks the LAST anchor in log order, and holding
+    # the event alongside its index keeps the ``isinstance`` narrowing that
+    # gives ``.amount`` its type. ``events[last_anchor]`` re-indexed back into
+    # ``Sequence[DomainEvent]`` and lost it. The selected event is the same one
+    # ``max()`` chose.
+    anchors = [
+        (index, event)
+        for index, event in enumerate(events)
+        if isinstance(event, CashAccountInitialized)
+    ]
+    if not anchors:
         raise CashStateUnknownError(
             "event log has no CashAccountInitialized anchor; cash cannot be "
             "reconstructed (unknown is not zero)",
         )
-    opening = events[last_anchor].amount
+    last_anchor, anchor = anchors[-1]
+    opening = anchor.amount
     ledger = CashLedger(initial=opening, allow_negative=True)
 
     order_totals = _order_totals(events)

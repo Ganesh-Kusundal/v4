@@ -25,8 +25,8 @@ Parity notes:
 from __future__ import annotations
 
 from tradex_analytics.indicators import (
-    IndicatorSpec,
     LEGACY_PARAM_ALIASES,
+    IndicatorSpec,
     _rolling_sma,
     _to_float,
     roc,

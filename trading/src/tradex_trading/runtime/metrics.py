@@ -1,11 +1,19 @@
-"""Compatibility shim — implementation lives in ``tradex_observability.metrics``."""
+"""Compatibility shim — implementation lives in ``tradex_observability.metrics``.
 
-from importlib import import_module as _import_module
+``MetricsRegistry`` is the public metric registry; ``_Counter``/``_Gauge``/
+``_Histogram`` are the metric handle types, re-exported here because
+``trading/tests/runtime/test_v3_port_gaps.py`` asserts on the counter/gauge/
+histogram ports the registry hands back. These were previously forwarded
+dynamically, via a ``globals().update(...)`` copy that mypy cannot see through.
+The explicit re-exports preserve every name the copy provided, so the test's
+imports keep working, and are visible to mypy.
+"""
 
-_impl = _import_module("tradex_observability.metrics")
-globals().update(
-    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+from tradex_observability.metrics import (
+    MetricsRegistry,
+    _Counter,
+    _Gauge,
+    _Histogram,
 )
-if hasattr(_impl, "__all__"):
-    __all__ = list(_impl.__all__)
-del _import_module, _impl
+
+__all__ = ["MetricsRegistry", "_Counter", "_Gauge", "_Histogram"]

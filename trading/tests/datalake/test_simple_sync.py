@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import pandas as pd
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity

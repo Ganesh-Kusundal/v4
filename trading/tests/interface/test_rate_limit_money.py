@@ -25,7 +25,6 @@ from tradex_trading.interface.auth.rate_limit import (  # noqa: E402
 from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
 from tradex_trading.reactive.bus import ReactiveBus  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

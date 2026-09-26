@@ -747,7 +747,15 @@ def _boot_tail(
         def _stop_with_registry_teardown():
             _reg.stop_all()
             _orig_stop()
-        session.stop = _stop_with_registry_teardown  # ponytail: closure on instance; upgrade to session ctor param if registry grows a public API
+        # Intentional per-instance method substitution: stop_all must run before
+        # the normal teardown on every stop path. Rewriting an attribute that is
+        # a method on the class is a method-assign, which mypy flags because
+        # assigning over a bound method is unsafe in general. It is safe here —
+        # ``session`` is a freshly booted instance, and the closure captures the
+        # original bound ``stop``. Converting this to a constructor parameter is
+        # a session-API change (a product decision), so the substitution is kept
+        # and the error suppressed at this one line with that reasoning.
+        session.stop = _stop_with_registry_teardown  # type: ignore[method-assign]  # ponytail: closure on instance; upgrade to session ctor param if registry grows a public API
 
     # 10. Start session, then the refresh daemon (started last so nothing
     # after it can strand it).

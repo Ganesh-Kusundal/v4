@@ -54,12 +54,12 @@ for sub in (
     sys.path.insert(0, str(ROOT / sub))
 
 from tradex_domain import Equity, Timeframe  # noqa: E402
+from tradex_domain.trading_calendar import NSETradingCalendar  # noqa: E402
 from tradex_execution.fees import FeeCalculator  # noqa: E402
 from tradex_execution.slippage import PercentageSlippageModel  # noqa: E402
-from tradex_replay.backtest import BacktestEngine  # noqa: E402
-from tradex_domain.trading_calendar import NSETradingCalendar  # noqa: E402
 from tradex_market_data.backtest_loader import ParquetBacktestLoader  # noqa: E402
 from tradex_market_data.paths import datalake_root  # noqa: E402
+from tradex_replay.backtest import BacktestEngine  # noqa: E402
 
 log = logging.getLogger("tradex.scripts.backtest_datalake")
 

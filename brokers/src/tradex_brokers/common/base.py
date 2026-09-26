@@ -36,7 +36,10 @@ import logging
 import threading
 from collections.abc import Callable, Iterable, Mapping
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from tradex_domain.enums import Timeframe
 
 from tradex_domain.capabilities import BrokerCapabilities, require_capability
 from tradex_domain.errors import BrokerUnavailableError, OrderRejectedError
@@ -604,7 +607,7 @@ class BaseBroker:
     def history(
         self,
         instrument: Instrument,
-        timeframe: object = None,
+        timeframe: Timeframe | str | None = None,
         start: datetime | None = None,
         end: datetime | None = None,
         *,
@@ -623,7 +626,11 @@ class BaseBroker:
         if timeframe is None:
             raise ValueError("history requires a timeframe or interval")
         if not isinstance(timeframe, Timeframe):
-            timeframe = Timeframe(timeframe)
+            # ``timeframe`` is declared ``object`` (it may arrive as a raw
+            # interval string like ``"5m"``); a non-``Timeframe`` value here is
+            # that string, so build the enum from its string form. ``str()`` is
+            # identity for the string case the callers actually pass.
+            timeframe = Timeframe(str(timeframe))
         if start is None or end is None:
             if lookback_days is None:
                 lookback_days = 30

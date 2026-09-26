@@ -9,21 +9,18 @@ carry naive datetimes and it always passes clean params.
 """
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 
 import pytest
-
-from tradex_domain.instruments import Equity
-from tradex_domain.enums import Timeframe
 from tradex_brokers.common.market_builders import make_candle
+from tradex_domain.enums import Timeframe
+from tradex_domain.instruments import Equity
+
 from tradex_trading.analytics.indicators import (
     compute_indicator,
     get_indicator_spec,
     indicator_catalogue,
 )
-
 
 BARS = None  # replaced by deterministic in-module generator below
 
@@ -41,7 +38,7 @@ def _make_bars(n: int = 225) -> list[dict]:
     bars: list[dict] = []
     price = 1000.0
     for d in range(3):
-        base = datetime(2024, 1, 1 + d, 3, 45, tzinfo=timezone.utc).timestamp()
+        base = datetime(2024, 1, 1 + d, 3, 45, tzinfo=UTC).timestamp()
         for m in range(75):
             if len(bars) >= n:
                 break
@@ -75,7 +72,7 @@ def api_shaped_candles():
             Timeframe.M1,
             open=b["open"], high=b["high"], low=b["low"], close=b["close"],
             volume=int(b["volume"] or 0),
-            timestamp=datetime.fromtimestamp(b["time"], tz=timezone.utc),
+            timestamp=datetime.fromtimestamp(b["time"], tz=UTC),
         )
         for b in BARS
     ]

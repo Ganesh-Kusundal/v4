@@ -8,10 +8,10 @@ from unittest.mock import MagicMock
 from tradex_domain import Equity
 from tradex_domain.instruments import InstrumentMeta
 from tradex_domain.value_objects import InstrumentId
+from tradex_market_data.universe import load_universe
 
 from tradex_trading.datalake.simple_sync import _classify_fetch_error, simple_sync
 from tradex_trading.datalake.symbol_resolve import resolve_universe_symbols
-from tradex_market_data.universe import load_universe
 
 
 def test_universe_attaches_isin_from_csv(tmp_path):

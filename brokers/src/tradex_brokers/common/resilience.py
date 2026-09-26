@@ -48,9 +48,20 @@ import urllib.request
 from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from tradex_domain import BrokerUnavailableError, RateLimitError
+
+if TYPE_CHECKING:
+    # The per-provider rate tables are re-exported lazily by the module-level
+    # ``__getattr__`` below. A PEP 562 ``__getattr__`` is typed ``-> object``,
+    # so mypy would otherwise see each table as a bare ``object``. Importing
+    # them here — for the type checker only — gives it their real mapping
+    # types. At runtime this block never executes and the lazy ``__getattr__``
+    # resolves the names.
+    from tradex_brokers.dhan.rate_table import DHAN_RATE_LIMITS
+    from tradex_brokers.paper.rate_table import PAPER_RATE_LIMITS
+    from tradex_brokers.upstox.rate_table import UPSTOX_RATE_LIMITS
 
 log = logging.getLogger(__name__)
 

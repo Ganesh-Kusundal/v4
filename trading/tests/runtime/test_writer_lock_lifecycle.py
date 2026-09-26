@@ -42,14 +42,12 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
 import tradex_runtime.startup as startup_mod
 from tradex_domain import BrokerId
 from tradex_runtime.startup import RuntimeContext
 from tradex_runtime.writer_lock import SingleWriterLock, WriterLockHeldError
 
 from tradex_trading.config.schema import AppConfig, PersistenceConfig
-
 
 # --------------------------------------------------------------------------
 # Helpers shared by the stale-lock takeover race tests

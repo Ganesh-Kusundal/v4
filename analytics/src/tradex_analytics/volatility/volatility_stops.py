@@ -22,7 +22,14 @@ from __future__ import annotations
 
 import math
 
-from tradex_analytics.indicators import IndicatorSpec, LEGACY_PARAM_ALIASES, _to_float, atr, true_ranges
+from tradex_analytics.indicators import (
+    LEGACY_PARAM_ALIASES,
+    IndicatorSpec,
+    _to_float,
+    atr,
+    true_ranges,
+)
+
 
 def _source_values(candles: list, source: str) -> list[float]:
     src = (source or "close").lower()

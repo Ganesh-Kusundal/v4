@@ -8,22 +8,21 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, cast
 
+from tradex_analytics.reports import max_drawdown, sharpe_ratio, total_return
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, Timeframe
 from tradex_domain.events import OrderFilled, OrderPlaced, OrderRejected, PlaceOrderCommand
 from tradex_domain.execution import OrderRequest
 from tradex_domain.utils import q2
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
-
-from tradex_analytics.reports import max_drawdown, sharpe_ratio, total_return
-from tradex_market_data.corporate_actions import CorporateActionStore
 from tradex_execution.cash_ledger import CashLedger
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fees import FeeCalculator
-from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_execution.fill_sources import FillSource, SimulatedFillSource
 from tradex_execution.position_manager import PositionManager
 from tradex_execution.slippage import SlippageModel
 from tradex_execution.trading_cache import TradingCache
+from tradex_market_data.corporate_actions import CorporateActionStore
 from tradex_reactive.bus import ReactiveBus
 from tradex_strategy.core.brackets import _brackets, protective_request
 from tradex_strategy.core.engine import ReactiveStrategyEngine
@@ -256,8 +255,18 @@ class BacktestEngine:
         bus = ReactiveBus()
         cache = TradingCache()
         position_manager = PositionManager(cache)
-        fill_source = self._fill_source or SimulatedFillSource(
-            slippage_model=self._slippage_model,
+        # ``self._fill_source`` is deliberately ``Any`` (fill sources vary). The
+        # original ``self._fill_source or SimulatedFillSource(...)`` was ``Any``
+        # only because the left operand was; with a supplied source the value
+        # is that source, and otherwise a fresh SimulatedFillSource. The engine
+        # wants a ``FillSource``; both branches satisfy it at runtime, but mypy
+        # cannot collapse the ``Any | SimulatedFillSource`` union on its own, so
+        # the whole expression is narrowed once here. A bare annotation is not
+        # enough (the ``Any`` member survives it). Runtime is unchanged — same
+        # object, same construction, same pass-through.
+        fill_source = cast(
+            FillSource,
+            self._fill_source or SimulatedFillSource(slippage_model=self._slippage_model),
         )
         engine = ExecutionEngine(
             bus,

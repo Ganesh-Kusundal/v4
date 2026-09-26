@@ -377,7 +377,13 @@ def compute_statistics(
         gross_profit=gross_profit,
         gross_loss=gross_loss,
         total_costs=total_costs,
-        profit_factor=(gross_profit / abs_loss) if abs_loss > 0 else 0.0,
+        # The ratio of two quantized Decimals is a Decimal, but
+        # ``Statistics.profit_factor`` is declared ``float`` and ``to_dict``
+        # emits it straight into a JSON payload. Converting here makes the
+        # stored value match its declared type (and the JSON-ready contract)
+        # instead of parking a Decimal in a float field. The all-winner branch
+        # is already a float literal, so the whole expression is float.
+        profit_factor=float(gross_profit / abs_loss) if abs_loss > 0 else 0.0,
         # Reuses the one shared win-rate definition rather than re-deriving it.
         win_rate=win_rate([float(p) for p in net_pnls]),
         loss_rate=(len(losers) / len(trades)) if trades else 0.0,

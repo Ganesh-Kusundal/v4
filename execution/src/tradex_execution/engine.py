@@ -152,15 +152,15 @@ def _request_fingerprint(
         reference.isoformat() if reference is not None else "",
         _canonical_decimal(
             request.stop_loss_price.value
-            if getattr(request, "stop_loss_price", None) is not None else None
+            if request.stop_loss_price is not None else None
         ),
         _canonical_decimal(
             request.target_price.value
-            if getattr(request, "target_price", None) is not None else None
+            if request.target_price is not None else None
         ),
         _canonical_decimal(
             request.trailing_jump.value
-            if getattr(request, "trailing_jump", None) is not None else None
+            if request.trailing_jump is not None else None
         ),
     ])
 

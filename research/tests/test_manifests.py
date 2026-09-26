@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, UTC
+from datetime import UTC, date, datetime
 
 import pytest
 
 from tradex_research.manifests import (
+    ApprovalState,
     CostModelManifest,
     DatasetManifest,
     FeatureManifest,
@@ -14,8 +15,6 @@ from tradex_research.manifests import (
     SimulationManifest,
     UniverseManifest,
 )
-from tradex_research.manifests import ApprovalState
-
 
 # ---------------------------------------------------------------------------
 # DatasetManifest

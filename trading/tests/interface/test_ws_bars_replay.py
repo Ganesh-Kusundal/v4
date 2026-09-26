@@ -15,9 +15,9 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
+from tradex_reactive.bus import ReactiveBus  # noqa: E402
 
 from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
-from tradex_reactive.bus import ReactiveBus  # noqa: E402
 
 
 def _app() -> object:
@@ -324,12 +324,11 @@ class TestReplayControl:
         from zoneinfo import ZoneInfo
 
         import tradex_brokers.common.market_builders as market_builders
+        import tradex_market_data.parquet_storage as parquet_storage
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import OHLC, Candle
         from tradex_domain.value_objects import Price, Quantity
-
-        import tradex_market_data.parquet_storage as parquet_storage
 
         instrument = Equity.of("NSE", "TEST")
         first_time = datetime(2026, 1, 5, 9, 15)
@@ -484,12 +483,11 @@ class TestReplayControl:
         from decimal import Decimal
 
         import tradex_brokers.common.market_builders as market_builders
+        import tradex_market_data.parquet_storage as parquet_storage
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import OHLC, Candle
         from tradex_domain.value_objects import Price, Quantity
-
-        import tradex_market_data.parquet_storage as parquet_storage
 
         _candle = Candle(
             instrument=Equity.of("NSE", "TEST"),
@@ -570,12 +568,11 @@ class TestReplayControl:
         from zoneinfo import ZoneInfo
 
         import tradex_brokers.common.market_builders as market_builders
+        import tradex_market_data.parquet_storage as parquet_storage
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import OHLC, Candle, Quote
         from tradex_domain.value_objects import Price, Quantity
-
-        import tradex_market_data.parquet_storage as parquet_storage
 
         _candle = Candle(
             instrument=Equity.of("NSE", "TEST"),
@@ -713,7 +710,6 @@ class TestReplayCursorContract:
     @staticmethod
     def _patch_lake(monkeypatch, candles):
         import tradex_brokers.common.market_builders as market_builders
-
         import tradex_market_data.parquet_storage as parquet_storage
 
         class _DataFrame:
@@ -932,7 +928,6 @@ class _ReplayFixture:
 
     def _patch_lake(self, monkeypatch):
         import tradex_brokers.common.market_builders as market_builders
-
         import tradex_market_data.parquet_storage as parquet_storage
         from tradex_market_data.market_provider import ParquetMarketProvider
 

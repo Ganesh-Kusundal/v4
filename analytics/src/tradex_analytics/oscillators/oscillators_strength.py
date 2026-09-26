@@ -8,14 +8,12 @@ Batch-2 tasks stay merge-clean.
 
 from __future__ import annotations
 
-from typing import cast
-
 import math
-from typing import Any
+from typing import Any, cast
 
 from tradex_analytics.indicators import (
-    IndicatorSpec,
     LEGACY_PARAM_ALIASES,
+    IndicatorSpec,
     _change,
     _ema_of_gapped,
     _highest,

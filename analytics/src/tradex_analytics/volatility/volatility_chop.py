@@ -15,10 +15,9 @@ Helpers are imported from ``indicators.py`` — never redefined here.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from typing import cast
-
-import math
 
 from tradex_analytics.indicators import (  # noqa: F401
     IndicatorSpec,

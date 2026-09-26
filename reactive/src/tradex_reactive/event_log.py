@@ -20,7 +20,7 @@ import sqlite3
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS events (
@@ -37,8 +37,16 @@ def _serialize(event: object) -> bytes:
     Falls back to ``repr()`` (with a timestamp key) when the value isn't
     JSON-serialisable directly or via ``tradex_domain.serialization.to_dict``.
     """
+    # ``None`` is a real state here, not a placeholder: the guard below tests
+    # it. Declaring the name with a union type *before* the try (rather than
+    # annotating the alias inside the except) is what lets ``None`` through
+    # mypy — it infers a plain function type from the try-branch import and
+    # would reject a re-annotation of that same name.
+    _to_dict: Callable[..., Any] | None
     try:  # pragma: no cover - exercised via integration tests
-        from tradex_domain.serialization import to_dict as _to_dict
+        from tradex_domain.serialization import to_dict as _to_dict_impl
+
+        _to_dict = _to_dict_impl
     except ImportError:  # pragma: no cover - tradex_domain optional
         _to_dict = None
 

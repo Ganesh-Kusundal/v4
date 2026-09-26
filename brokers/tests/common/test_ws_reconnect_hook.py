@@ -18,11 +18,10 @@ import time
 from typing import Any
 
 from tradex_domain.instruments import Equity, Instrument
-from tradex_domain.wire import InstrumentRegistry
 from tradex_domain.value_objects import InstrumentId
+from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.ws_reconnect import WSReconnectManager
-
 
 # ---------------------------------------------------------------------------
 # Shared helpers

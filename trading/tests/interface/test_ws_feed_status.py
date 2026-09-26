@@ -110,17 +110,17 @@ def test_queue_drops_increment_feed_queue_drops_total() -> None:
     """
     from unittest.mock import MagicMock
 
-    from tradex_trading.execution.engine import ExecutionEngine, MemoryIdempotencyGuard, RiskManager
-    from tradex_trading.reactive.bus import ReactiveBus
     from tradex_brokers.paper.adapter import PaperBroker
     from tradex_domain import BrokerId
+
+    from tradex_trading.execution.engine import ExecutionEngine, RiskManager
+    from tradex_trading.reactive.bus import ReactiveBus
 
     metrics = MetricsRegistry()
     bus = ReactiveBus(metrics=metrics)
     broker = PaperBroker()
     broker.connect()
     engine = ExecutionEngine(bus=bus, fill_source=MagicMock(), risk_manager=RiskManager(), metrics=metrics)
-    from tradex_trading.execution.trading_cache import TradingCache
     session = TradingSession(
         broker=broker,
         bus=bus,
@@ -133,10 +133,11 @@ def test_queue_drops_increment_feed_queue_drops_total() -> None:
 
     app = create_app(session=session, outbound_max=1)
     try:
+        from decimal import Decimal
+
         from tradex_domain.instruments import Equity
         from tradex_domain.market import Quote
         from tradex_domain.value_objects import Price
-        from decimal import Decimal
 
         # Subscribe and flood the socket with many quotes via bus publishes.
         # With outbound_max=1, the second publish into the full queue causes a drop.

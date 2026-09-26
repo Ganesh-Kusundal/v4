@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -21,8 +20,8 @@ from tradex_domain.execution import Fill, Position
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Quote
 from tradex_domain.position_math import apply_dividend, apply_fill, apply_split
-from tradex_domain.value_objects import Money, Price
 from tradex_domain.utils import q2
+from tradex_domain.value_objects import Money
 
 from tradex_execution.trading_cache import TradingCache
 

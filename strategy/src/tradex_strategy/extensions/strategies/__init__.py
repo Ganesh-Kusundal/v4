@@ -30,7 +30,6 @@ from tradex_strategy.extensions.strategies.supertrend_flip import (
     supertrend_flip_strategy,
 )
 
-
 __all__ = [
     "bollinger_breakout_strategy",
     "ema_ribbon_pullback_strategy",

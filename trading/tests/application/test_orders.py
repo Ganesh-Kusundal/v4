@@ -11,7 +11,6 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-
 from tradex_domain import (
     CorrelationId,
     Equity,
@@ -22,9 +21,9 @@ from tradex_domain import (
     Price,
     Quantity,
 )
+from tradex_domain.enums import TimeInForce
 from tradex_domain.errors import OrderRejectedError
 from tradex_domain.execution import BracketOrderRequest, Order
-from tradex_domain.enums import TimeInForce
 from tradex_domain.value_objects import OrderId
 
 from tradex_trading.application.orders import (
@@ -37,7 +36,6 @@ from tradex_trading.application.orders import (
 from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fill_sources import SimulatedFillSource
 from tradex_trading.reactive.bus import ReactiveBus
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -41,7 +41,6 @@ from tradex_domain.strategy import Signal
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

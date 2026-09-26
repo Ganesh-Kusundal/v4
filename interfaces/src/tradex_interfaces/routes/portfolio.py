@@ -5,11 +5,10 @@ from __future__ import annotations
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException
-
-from tradex_interfaces.auth.deps import require_auth
 from tradex_execution.projection import execution_projection
 
 from tradex_interfaces._helpers import serialize_position
+from tradex_interfaces.auth.deps import require_auth
 from tradex_interfaces.models import PositionResponse
 from tradex_interfaces.routes.deps import get_session
 

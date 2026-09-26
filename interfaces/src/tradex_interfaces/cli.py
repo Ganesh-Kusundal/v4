@@ -181,9 +181,8 @@ def run_cli(argv: list[str] | None = None, runtime: Any | None = None) -> int:
         return 1
 
     if args.command == "quote":
-        from tradex_domain import BrokerId, Equity
-
         from tradex_config.schema import AppConfig
+        from tradex_domain import BrokerId, Equity
         from tradex_runtime.startup import boot
 
         session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
@@ -202,6 +201,7 @@ def run_cli(argv: list[str] | None = None, runtime: Any | None = None) -> int:
         return 0
 
     if args.command == "order":
+        from tradex_config.schema import AppConfig
         from tradex_domain import (
             BrokerId,
             Equity,
@@ -211,8 +211,6 @@ def run_cli(argv: list[str] | None = None, runtime: Any | None = None) -> int:
             Price,
             Quantity,
         )
-
-        from tradex_config.schema import AppConfig
         from tradex_runtime.startup import boot
 
         session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
@@ -285,9 +283,8 @@ def main(argv: list[str] | None = None) -> int:
             names = load_env_file(env_path, override=True)
             print(f"env_file={env_path} ({len(names)} entries)")
 
-    from tradex_domain import BrokerId
-
     from tradex_config.schema import AppConfig
+    from tradex_domain import BrokerId
     from tradex_runtime.startup import boot
 
     session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
@@ -376,13 +373,13 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
     explicit CLI invocation is the confirmation gate.
     """
     from tradex_domain import BrokerId
+    from tradex_runtime.session import TradingSession
 
     from tradex_interfaces.fastapi_app import (
         _require_api_key_for_live,
         _require_live_bind_loopback,
         start_fastapi_server,
     )
-    from tradex_runtime.session import TradingSession
 
     broker_id = BrokerId(args.broker)
     mode = "paper" if broker_id is BrokerId.PAPER else "live"
@@ -428,11 +425,10 @@ def cmd_sync(args: Any) -> int:
     ``backfill_parquet.py`` and ``fill_gaps.py``.
     """
     import logging
-    from datetime import datetime
-    from pathlib import Path
 
     # Parse end date (default: today)
     from datetime import datetime, timedelta
+    from pathlib import Path
     try:
         end = datetime.strptime(args.end, "%Y-%m-%d") if args.end else datetime.now()
     except ValueError as e:
@@ -478,15 +474,24 @@ def cmd_sync(args: Any) -> int:
         # Default to 30 days ago — gap detection will skip symbols with full coverage
         start = end - timedelta(days=30)
         print(f"No --start provided. Syncing from: {start.date()} -> {end.date()}")
-        print(f"(Gap detection will skip symbols with full coverage)")
+        print("(Gap detection will skip symbols with full coverage)")
 
     if end <= start:
         print(f"Nothing to sync — end date ({end.date()}) is before start ({start.date()})")
         return 0
 
     # Dhan-only (paper under the same fetcher key for dry-run).
+    # ``broker`` is a PaperBroker on the dry-run path and a live
+    # DhanBroker/UpstoxBroker otherwise, so the declared type is that exact
+    # union (declaring it before the branches stops mypy from pinning the
+    # variable to whichever concrete type the first branch assigns). The
+    # BrokerAdapter protocol is deliberately NOT used here: it declares
+    # ``capabilities`` as a settable attribute, which the concrete brokers
+    # expose as a read-only property, so none of them structurally satisfy it.
+    from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
+
+    broker: PaperBroker | DhanBroker | UpstoxBroker
     if args.dry_run:
-        from tradex_brokers.paper.adapter import PaperBroker
         broker = PaperBroker()
         logging.info("connected: paper (dry-run)")
     else:
@@ -536,7 +541,7 @@ def cmd_sync(args: Any) -> int:
         ranges=ranges,
     )
 
-    print(f"\nSync complete:")
+    print("\nSync complete:")
     print(f"  Requested: {result.requested}")
     print(f"  Fetched:   {result.fetched}")
     print(f"  Written:   {result.written} rows")
@@ -553,7 +558,6 @@ def cmd_watch(args: object) -> None:
     """Watch live quotes for an instrument."""
     from tradex_domain import Equity
     from tradex_domain.value_objects import InstrumentId
-
     from tradex_runtime.session import TradingSession
 
     instrument_id = getattr(args, "instrument", "")

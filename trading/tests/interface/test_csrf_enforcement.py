@@ -18,7 +18,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
 from tradex_trading.reactive.bus import ReactiveBus  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

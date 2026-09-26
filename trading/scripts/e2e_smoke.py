@@ -109,7 +109,7 @@ async def ws_checks() -> None:
                         break
                 if t == "replay_done":
                     break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         check("ws.replay bar frames", saw_bar)
         check("ws.replay closed-bar frame", saw_closed)
@@ -128,10 +128,21 @@ async def ws_checks() -> None:
                     break
                 if t == "bar":
                     continue
-        except asyncio.TimeoutError:
+        except TimeoutError:
             silent = True
-        check("ws.replay_stop ack", stopped,
-              "ack received" if stopped else "no ack within drain window")
+        # `silent` separates the two ways the drain window can end without the
+        # ack, so a timeout is surfaced for what it is instead of a generic
+        # missing ack: a quiet stream means frames ceased, whereas exhausting
+        # the 300-iteration budget with frames still arriving means replay never
+        # stopped. Both are failures here (no ack), but only the second is a
+        # stop failure, and the detail must say which.
+        if stopped:
+            reason = "ack received"
+        elif silent:
+            reason = "drain window timed out; stream went quiet, no ack"
+        else:
+            reason = "no ack; frames still arriving when drain window expired"
+        check("ws.replay_stop ack", stopped, reason)
 
 
 def ui_artifact_checks() -> None:

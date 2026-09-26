@@ -307,8 +307,14 @@ class ReactiveBus:
             # Dispatch through the *source's own* _subscribe_core: Subject
             # overrides it to register the observer, and the Observable
             # base-class version would silently register nothing.
+            # ``_IsolatedObserver`` is a structural (duck-typed) delegate, not
+            # an rx ``Observer`` subclass — subclassing would shadow rx's
+            # private attrs (see its docstring) — so it satisfies the hook by
+            # shape, not by type. The ``Any`` annotation marks that genuinely
+            # dynamic boundary; the rest of the closure is untyped to match.
+            wrapped: Any = _IsolatedObserver(observer, isolate)
             return source._subscribe_core(  # noqa: SLF001 – rx has no public hook
-                _IsolatedObserver(observer, isolate), scheduler
+                wrapped, scheduler
             )
 
         return rx.core.Observable(subscribe_core)

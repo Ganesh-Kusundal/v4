@@ -62,11 +62,11 @@ load_env_file(str(ROOT / ".env.local"))
 
 import pandas as pd  # noqa: E402
 
-from tradex_trading.datalake.simple_sync import series_to_frame  # noqa: E402
 from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402
     ParallelHistoryFetcher,
 )
 from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_trading.datalake.simple_sync import series_to_frame  # noqa: E402
 from tradex_trading.datalake.universe import load_universe  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 

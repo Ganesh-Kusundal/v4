@@ -452,6 +452,11 @@ class MarketFeed:
         """
         if self._recovery is None:
             return
+        # Bind the checked, non-None recovery to a local. The ``_run`` closure
+        # below runs later on another thread, so mypy does not carry the
+        # ``is None`` guard on ``self._recovery`` (typed optional) into it; a
+        # local captured at the top is narrowed once and stays narrowed.
+        recovery = self._recovery
         with self._recovery_lock:
             if self._recovery_in_flight:
                 return
@@ -461,7 +466,7 @@ class MarketFeed:
 
         def _run() -> None:
             try:
-                self._recovery.recover()
+                recovery.recover()
             finally:
                 with self._recovery_lock:
                     self._recovery_in_flight = False

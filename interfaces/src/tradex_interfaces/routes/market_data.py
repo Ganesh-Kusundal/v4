@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from tradex_interfaces.auth.deps import require_auth
-
 from tradex_interfaces.routes._market_helpers import (
     enrich_chain_live,
     resolve_underlying_instrument,

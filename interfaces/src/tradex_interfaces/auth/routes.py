@@ -19,7 +19,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from .session_store import InMemorySessionStore, SESSION_ABSOLUTE_TTL
+from .session_store import SESSION_ABSOLUTE_TTL, InMemorySessionStore
 
 log = logging.getLogger(__name__)
 

@@ -167,7 +167,18 @@ def order_result_from_dict(
         order_id = OrderId(value="")
     status = str(raw.get("status", ""))
     message = str(raw.get("message", ""))
-    return OrderResult(order_id=order_id, status=status, message=message)
+    # ``OrderResult.status`` is declared ``OrderStatus``, but the dataclass's
+    # ``__post_init__`` deliberately coerces a raw provider string into the enum
+    # (``OrderStatus(value.upper())``, falling back to ``UNKNOWN`` for tokens it
+    # does not recognise — e.g. Upstox's "modified"). Passing the coerced string
+    # here and letting the domain normalise it is the intended contract, so this
+    # one call is allowed to hand it a ``str``; normalising again at the call
+    # site would duplicate the domain's own mapping and risk diverging from it.
+    return OrderResult(
+        order_id=order_id,
+        status=status,  # type: ignore[arg-type]  # coerced to OrderStatus by OrderResult.__post_init__
+        message=message,
+    )
 
 
 __all__ = [

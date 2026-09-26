@@ -21,7 +21,6 @@ factory invocation).
 
 from __future__ import annotations
 
-import signal
 import subprocess
 import sys
 import textwrap
@@ -29,7 +28,6 @@ from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
-
 from tradex_interfaces.fastapi_app import create_app
 
 

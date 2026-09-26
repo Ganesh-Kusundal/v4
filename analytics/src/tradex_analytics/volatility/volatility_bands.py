@@ -44,8 +44,8 @@ from __future__ import annotations
 import math
 
 from tradex_analytics.indicators import (
-    IndicatorSpec,
     LEGACY_PARAM_ALIASES,
+    IndicatorSpec,
     _change,
     _ema_of_gapped,
     _rolling_sum,

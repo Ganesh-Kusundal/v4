@@ -38,10 +38,10 @@ from tradex_brokers.common.endpoints import (
 from tradex_brokers.common.transport import Fetch
 from tradex_brokers.dhan.master import dhan_master_download, parse_dhan_master
 from tradex_brokers.upstox.master import parse_upstox_master, upstox_master_download
+from tradex_config.env import load_env_file  # noqa: F401 — re-exported for v3 parity
 from tradex_domain import AuthenticationError, SDKError
 from tradex_domain.wire import InstrumentRegistry
 
-from tradex_config.env import load_env_file  # noqa: F401 — re-exported for v3 parity
 from tradex_runtime.master_lifecycle import MasterFileCache, MasterLoader
 
 JsonFetch = Callable[..., tuple[int, Any]]

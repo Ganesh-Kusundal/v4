@@ -30,7 +30,6 @@ from tradex_trading.analytics.indicators import (
 )
 from tradex_trading.analytics.ma_vol import lsma, mcginley, twap, vwma
 
-
 # ---------------------------------------------------------------------------
 # Candle fixture — tiny domain-shaped objects (only what indicators read)
 # ---------------------------------------------------------------------------
@@ -1308,7 +1307,6 @@ class TestIndicatorRegistryContract:
         from tradex_trading.analytics.registry import (
             IndicatorRegistry,
             IndicatorSpec,
-            ParamSpec,
         )
 
         reg = IndicatorRegistry()
@@ -1374,10 +1372,10 @@ class TestIndicatorRegistryContract:
         from decimal import Decimal
 
         from tradex_domain import (
+            OHLC,
             Candle,
             Equity,
             HistoricalSeries,
-            OHLC,
             Price,
             Quantity,
             Timeframe,

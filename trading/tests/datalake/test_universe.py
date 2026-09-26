@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
-
-from tradex_market_data.universe import load_universe, available_universes
+from tradex_market_data.universe import available_universes, load_universe
 
 
 class TestLoadUniverse:

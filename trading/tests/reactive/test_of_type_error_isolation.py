@@ -28,7 +28,6 @@ from typing import Any
 from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
-
 from tradex_reactive.bus import ReactiveBus
 
 

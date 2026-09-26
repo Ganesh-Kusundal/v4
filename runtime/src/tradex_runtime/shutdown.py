@@ -12,7 +12,8 @@ not prevent the remaining phases from executing.
 from __future__ import annotations
 
 import logging
-from typing import Callable, NamedTuple
+from collections.abc import Callable
+from typing import NamedTuple
 
 log = logging.getLogger(__name__)
 

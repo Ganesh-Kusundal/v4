@@ -499,7 +499,6 @@ async def ws_stream(
                 # path StreamService used; inlined here per G8 since the
                 # service layer is gone).
                 from tradex_domain.events import OrderPlaced
-
                 from tradex_runtime.streaming import (
                     BackendStreamSubscription,
                     StreamSubscription,
@@ -662,7 +661,6 @@ async def ws_stream(
             provisional: bool = False,
         ) -> Any:
             from tradex_domain.enums import Timeframe
-
             from tradex_runtime.bar_aggregator import BarAggregator
 
             return BarAggregator(
@@ -964,7 +962,6 @@ async def ws_stream(
 
             from tradex_domain.enums import Timeframe
             from tradex_domain.instruments import Equity
-
             from tradex_market_data.market_provider import ParquetMarketProvider
             from tradex_market_data.parquet_storage import ParquetStorage
             from tradex_market_data.paths import DATALAKE_ROOT
@@ -1390,7 +1387,6 @@ async def ws_stream(
                         from tradex_domain.enums import Timeframe
                         from tradex_domain.market import Quote
                         from tradex_domain.value_objects import Price
-
                         from tradex_market_data.market_provider import ParquetMarketProvider
                         from tradex_market_data.parquet_storage import ParquetStorage
                         from tradex_market_data.paths import DATALAKE_ROOT

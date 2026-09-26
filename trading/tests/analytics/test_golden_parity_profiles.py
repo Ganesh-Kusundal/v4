@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from tradex_analytics.profiles import compute_profile
 from tradex_analytics.seasonality import compute_seasonality
 

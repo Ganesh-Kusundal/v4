@@ -9,13 +9,11 @@ from __future__ import annotations
 import pytest
 
 from tradex_trading.strategy.artifacts import (
-    ApprovalState,
     StrategyArtifact,
     StrategyRestoreResult,
     StrategySnapshot,
 )
 from tradex_trading.strategy.runtime import StrategyLifecycle, StrategyRuntime
-
 
 # ---------------------------------------------------------------------------
 # Minimal strategy stub — implements only what the runtime needs to hold a ref

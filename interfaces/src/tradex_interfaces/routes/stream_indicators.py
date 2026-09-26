@@ -176,7 +176,6 @@ class IndicatorStreamRegistry:
         try:
             from tradex_domain.enums import Timeframe
             from tradex_domain.instruments import Equity
-
             from tradex_market_data.market_provider import ParquetMarketProvider
             from tradex_market_data.paths import DATALAKE_ROOT
 

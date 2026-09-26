@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from tradex_analytics.indicators import _sma_seeded_ema
 from tradex_domain import OrderSide
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
 
-from tradex_analytics.indicators import _sma_seeded_ema
 from tradex_strategy.extensions.strategies.study_base import (
     StudyStrategyBase,
 )

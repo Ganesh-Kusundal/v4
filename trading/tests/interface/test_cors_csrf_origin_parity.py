@@ -23,13 +23,13 @@ import pytest
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
-
 from tradex_interfaces.auth.origin import (  # noqa: E402
     DEFAULT_UI_ORIGIN,
     UI_ORIGIN_ENV_VAR,
     resolve_ui_origin,
 )
 from tradex_interfaces.fastapi_app import create_app  # noqa: E402
+
 
 # Mirrors the _make_app helper in test_csrf_enforcement.py.
 def _make_app(api_key: str | None = "test-key") -> Any:

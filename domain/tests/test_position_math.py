@@ -21,10 +21,10 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from tradex_domain.enums import OrderSide
-from tradex_domain.execution import Fill, Position
+from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
 from tradex_domain.position_math import apply_dividend, apply_fill, apply_split
-from tradex_domain.value_objects import Money, OrderId, Price, Quantity
+from tradex_domain.value_objects import OrderId, Price, Quantity
 
 _INSTRUMENT = Equity.of("NSE", "PROP")
 _TS = datetime(2026, 9, 1, tzinfo=UTC)

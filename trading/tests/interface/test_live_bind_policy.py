@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from tradex_domain import BrokerId
-
 from tradex_interfaces import fastapi_app
 from tradex_interfaces.fastapi_app import _require_live_bind_loopback
 

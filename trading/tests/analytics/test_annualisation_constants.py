@@ -11,7 +11,6 @@ from __future__ import annotations
 import math
 
 import pytest
-
 from tradex_analytics.reports import (
     SESSION_MINUTES_PER_DAY,
     TRADING_DAYS_PER_YEAR,

@@ -4,7 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from tradex_analytics.transforms import compute_transform
 
 GOLDENS = Path(__file__).parent / "goldens" / "transforms"

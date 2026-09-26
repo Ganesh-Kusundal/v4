@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal, InvalidOperation
-from typing import Any, Final
+from typing import Any, Final, TypedDict
 
 from tradex_domain.enums import OrderSide, OrderType
 from tradex_domain.execution import BracketOrderRequest, OrderRequest
@@ -46,6 +46,24 @@ log = logging.getLogger(__name__)
 #: Metadata keys, identical to the ``OrderRequest`` fields they feed.
 STOP_KEY: Final = "stop_loss_price"
 TARGET_KEY: Final = "target_price"
+
+
+class _ProtectiveLegs(TypedDict, total=False):
+    """The two protective keyword arguments carried into an order constructor.
+
+    ``protective_request`` builds this dict and splats it as ``**legs`` into
+    either ``OrderRequest`` or ``BracketOrderRequest``. Typing it as a
+    ``TypedDict`` over the two known ``Price``-typed fields — rather than a
+    bare ``dict[str, Price]`` — tells mypy the only keys it can carry are
+    ``stop_loss_price`` and ``target_price``. As a bare dict, mypy has to assume
+    ``**legs`` might supply *any* keyword (so a ``Price`` against
+    ``time_in_force``/``product_type``/``quantity`` is a type error). The two
+    request classes declare both of these fields as ``Price | None``, so the
+    splat is genuinely type-correct; the TypedDict just makes that visible.
+    """
+
+    stop_loss_price: Price
+    target_price: Price
 
 
 def _as_price(value: Any, key: str) -> Price | None:
@@ -112,7 +130,7 @@ def protective_request(
     to carry.
     """
     stop, target = declared_levels(getattr(signal, "metadata", None))
-    legs: dict[str, Price] = {}
+    legs: _ProtectiveLegs = {}
     if stop is not None and target is not None:
         if _brackets(signal.direction, entry, stop, target):
             legs = {STOP_KEY: stop, TARGET_KEY: target}

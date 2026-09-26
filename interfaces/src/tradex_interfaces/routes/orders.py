@@ -12,20 +12,28 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from tradex_domain.enums import ProductType
-from tradex_domain.value_objects import CorrelationId, OrderId
-
 from tradex_application.orders import (
     BrokerCapabilityError,
+)
+from tradex_application.orders import (
     cancel_order as app_cancel_order,
+)
+from tradex_application.orders import (
     modify_order as app_modify_order,
+)
+from tradex_application.orders import (
     submit_bracket_order as app_submit_bracket_order,
+)
+from tradex_application.orders import (
     submit_order as app_submit_order,
 )
+from tradex_domain.enums import ProductType
+from tradex_domain.value_objects import CorrelationId, OrderId
 from tradex_execution.engine import (
     IdempotencyInflight,
     IdempotencyKeyReuseMismatch,
 )
+
 from tradex_interfaces.auth import (
     audit_identity,
     require_auth,

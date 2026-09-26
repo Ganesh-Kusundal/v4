@@ -27,12 +27,11 @@ Parity notes
 from __future__ import annotations
 
 from collections.abc import Sequence
-
-from typing import cast, Any
+from typing import Any, cast
 
 from tradex_analytics.indicators import (
-    IndicatorSpec,
     LEGACY_PARAM_ALIASES,
+    IndicatorSpec,
     _change,
     _rma,
     _sma_seeded_ema,

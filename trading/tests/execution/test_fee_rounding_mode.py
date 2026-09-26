@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal
 
 import pytest
+import tradex_execution.fees as _fees_impl
 from tradex_domain import (
     Equity,
     Fill,
@@ -29,7 +30,6 @@ from tradex_domain import (
 )
 from tradex_domain.utils import q2
 
-import tradex_execution.fees as _fees_impl
 from tradex_trading.execution.fees import FeeCalculator, PricingService
 
 _TS = datetime(2026, 8, 1, tzinfo=UTC)

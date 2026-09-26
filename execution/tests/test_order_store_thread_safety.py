@@ -14,13 +14,10 @@ only durable order record, with nothing to say the write had failed.
 
 from __future__ import annotations
 
-import sqlite3
 import threading
-from datetime import UTC, datetime
 from decimal import Decimal
 
-import pytest
-from tradex_domain.enums import OrderSide, OrderType, OrderStatus, TimeInForce
+from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
@@ -95,11 +92,11 @@ def test_persistence_failure_is_counted_not_only_logged(tmp_path) -> None:
     cannot break trading, and still returns a subscription count -- so a dead
     store used to look exactly like a healthy one.
     """
+    from tradex_domain.events import OrderPlaced
     from tradex_execution.sqlite_store import attach_order_persistence
+    from tradex_execution.trading_cache import TradingCache
     from tradex_observability.metrics import MetricsRegistry
     from tradex_reactive.bus import ReactiveBus
-    from tradex_execution.trading_cache import TradingCache
-    from tradex_domain.events import OrderPlaced
 
     class _BrokenStore:
         def upsert(self, order: Order) -> None:

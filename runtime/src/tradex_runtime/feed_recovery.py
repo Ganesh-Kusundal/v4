@@ -23,9 +23,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.events import FeedRecovered
@@ -48,10 +49,15 @@ class HistoryProvider(Protocol):
         self,
         instrument: Any,
         timeframe: str,
-        start: datetime | None,
+        start: datetime,
         end: datetime,
     ) -> Any:
-        """Return an iterable of bars (``Candle`` or ``BarFrame``) for the window."""
+        """Return an iterable of bars (``Candle`` or ``BarFrame``) for the window.
+
+        ``start`` is required: the only production caller derives it from
+        ``_start_for``, which always returns a real ``datetime``, and every
+        concrete provider forwards it to an API that needs a bound.
+        """
         ...
 
 
@@ -360,7 +366,7 @@ class ParquetHistoryProvider:
         self,
         instrument: Any,
         timeframe: str,
-        start: datetime | None,
+        start: datetime,
         end: datetime,
     ) -> tuple[Any, ...]:
         from tradex_market_data.market_provider import ParquetMarketProvider

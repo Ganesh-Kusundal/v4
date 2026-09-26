@@ -22,10 +22,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
 from tradex_domain.events import (
     OrderCancelled,
     OrderFilled,
@@ -35,8 +33,7 @@ from tradex_domain.events import (
     PlaceOrderCommand,
 )
 from tradex_domain.execution import Fill, Order, OrderRequest
-from tradex_domain.instruments import Instrument
-from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
+from tradex_domain.value_objects import CorrelationId, OrderId
 
 if TYPE_CHECKING:
     pass

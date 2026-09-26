@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 
 from tradex_domain import BrokerId
+
 from tradex_trading.config.schema import AppConfig
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.runtime.startup import boot

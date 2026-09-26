@@ -19,12 +19,12 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 from tradex_domain.enums import OrderStatus
-from tradex_domain.value_objects import OrderId
 
 if TYPE_CHECKING:
+    from tradex_observability.metrics import MetricsRegistry
+
     from tradex_execution.risk import RiskManager
     from tradex_execution.trading_cache import TradingCache
-    from tradex_observability.metrics import MetricsRegistry
 
 log = logging.getLogger(__name__)
 
@@ -54,9 +54,9 @@ class KillSwitch:
     def __init__(
         self,
         *,
-        metrics: "MetricsRegistry | None" = None,
-        risk: "RiskManager | None" = None,
-        cache: "TradingCache | None" = None,
+        metrics: MetricsRegistry | None = None,
+        risk: RiskManager | None = None,
+        cache: TradingCache | None = None,
     ) -> None:
         self._event = threading.Event()
         self._metrics = metrics
@@ -102,7 +102,7 @@ class KillSwitch:
         self,
         reason: str = "",
         *,
-        cancel: "Any | None" = None,
+        cancel: Any | None = None,
     ) -> list[str]:
         """Halt new submissions and cancel every open order.
 

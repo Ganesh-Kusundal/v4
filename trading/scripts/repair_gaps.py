@@ -227,11 +227,10 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[repair] after: {remaining.gapped_symbols} symbols gapped, "
           f"open_missing={remaining.open_missing_symbols}, "
           f"close_missing={remaining.close_missing_symbols}", flush=True)
-    for b in brokers.values():
-        try:
-            b.close()
-        except Exception:  # noqa: BLE001 — teardown is best effort
-            pass
+    try:
+        dhan.close()
+    except Exception:  # noqa: BLE001 — teardown is best effort
+        pass
     return 0
 
 

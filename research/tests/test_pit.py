@@ -17,7 +17,6 @@ from tradex_research.pit import (
     assert_price_series_labelled,
 )
 
-
 # ---------------------------------------------------------------------------
 # assert_no_future_candle / assert_feature_ts_leq_decision_ts
 # ---------------------------------------------------------------------------
@@ -179,6 +178,7 @@ def test_price_series_labelled_passes_for_adjusted() -> None:
 def test_price_series_labelled_is_explicit_guard_callable() -> None:
     """The guard is callable and importable — pipeline checkpoints can call it."""
     import inspect
+
     from tradex_research.pit import assert_price_series_labelled as guard
     assert callable(guard)
     sig = inspect.signature(guard)

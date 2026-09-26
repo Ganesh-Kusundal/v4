@@ -71,6 +71,11 @@ class SingleWriterLock:
     def acquire(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         while True:
+            # ``_takeover`` returns ``int | None`` (None == holder released
+            # between our O_EXCL and its open), so ``fd`` is optional until the
+            # ``is None`` guard below narrows it to ``int`` for the rest of the
+            # loop body.
+            fd: int | None
             try:
                 fd = os.open(self._path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
             except FileExistsError:

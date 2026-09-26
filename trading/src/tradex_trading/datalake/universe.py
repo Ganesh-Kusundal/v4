@@ -1,11 +1,13 @@
-"""Compatibility shim — implementation lives in ``tradex_market_data.universe``."""
+"""Compatibility shim — implementation lives in ``tradex_domain.universe``.
 
-from importlib import import_module as _import_module
+``load_universe`` (and its sibling ``available_universes``) are pure domain
+functions re-exported for the backfill/sync scripts and the datalake loader.
+The implementation moved to ``tradex_domain``; this module (and
+``tradex_market_data.universe``) forwards to it. These names used to be copied
+via an opaque ``globals().update(...)`` that mypy cannot follow; the explicit
+re-export below keeps the same public surface while being visible to mypy.
+"""
 
-_impl = _import_module("tradex_market_data.universe")
-globals().update(
-    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
-)
-if hasattr(_impl, "__all__"):
-    __all__ = list(_impl.__all__)
-del _import_module, _impl
+from tradex_domain.universe import available_universes, load_universe
+
+__all__ = ["load_universe", "available_universes"]

@@ -12,7 +12,6 @@ import json
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-import pytest
 from fastapi.testclient import TestClient
 
 from tradex_trading.interface.fastapi_app import create_app

@@ -18,6 +18,7 @@ from tradex_analytics.indicators import (
     atr,
 )
 
+
 def _percentile_nearest_rank(
     values: list[float | None], period: int, percentage: float = 50.0
 ) -> list[float | None]:

@@ -19,6 +19,7 @@ from datetime import date
 from typing import Any
 
 from tradex_analytics.reports import max_drawdown, sharpe_ratio
+
 from tradex_replay.backtest import BacktestResult
 
 

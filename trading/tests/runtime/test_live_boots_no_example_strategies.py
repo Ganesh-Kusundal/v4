@@ -21,14 +21,11 @@ is not consent to trade with them.
 
 from __future__ import annotations
 
-import datetime as dt
 from decimal import Decimal
 from unittest.mock import MagicMock
 
 from tradex_config.schema import AppConfig, PersistenceConfig
-from tradex_domain import BrokerId, Candle, OHLC, Timeframe
-from tradex_domain.events import PlaceOrderCommand
-from tradex_domain.value_objects import Price, Quantity
+from tradex_domain import BrokerId
 from tradex_strategy.extensions import all_strategies
 
 

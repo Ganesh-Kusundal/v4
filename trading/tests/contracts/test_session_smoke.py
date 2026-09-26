@@ -9,7 +9,6 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-import pytest
 from tradex_domain.enums import (
     BrokerId,
     OrderSide,

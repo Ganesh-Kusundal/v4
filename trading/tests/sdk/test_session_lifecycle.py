@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-import pytest
 from tradex_domain import BrokerId
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
 from tradex_domain.execution import OrderRequest
@@ -22,7 +21,7 @@ from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fill_sources import PaperFillSource, SimulatedFillSource
 from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.runtime.startup import boot
-from tradex_trading.sdk.session import SessionState, TradingSession
+from tradex_trading.sdk.session import SessionState
 
 
 def _make_equity() -> Equity:

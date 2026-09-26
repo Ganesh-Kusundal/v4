@@ -32,8 +32,7 @@ from tradex_trading.analytics import (
     total_return,
     win_rate,
 )
-from tradex_trading.analytics.indicators import _ema_of_gapped, _sma_seeded_ema
-from tradex_trading.analytics.indicators import compute_indicator
+from tradex_trading.analytics.indicators import _ema_of_gapped, _sma_seeded_ema, compute_indicator
 
 # Shared closes for standalone MACD checks (linear ramp).
 CLOSES = [float(i) for i in range(1, 30)]

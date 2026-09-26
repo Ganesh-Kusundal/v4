@@ -10,7 +10,6 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
-
 from tradex_domain.events import OrderFilled, OrderPlaced
 
 from tradex_trading.reactive.bus import ReactiveBus

@@ -11,6 +11,7 @@ ledger management.
 from __future__ import annotations
 
 import threading
+from collections.abc import Iterable, Mapping
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -539,8 +540,14 @@ class PaperBroker(BaseBroker):
     # instruments
     # ------------------------------------------------------------------
 
-    def load_instruments(self) -> None:
-        """No-op — paper broker has no external instrument source."""
+    def load_instruments(
+        self, rows: Iterable[Mapping[str, Any]] | None = None
+    ) -> None:
+        """No-op — paper broker has no external instrument source.
+
+        Accepts the same ``rows`` argument as :meth:`BaseBroker.load_instruments`
+        (and ignores it) so the override stays substitutable for the base class.
+        """
 
     def stream_backend(self, *, ws_factory: object | None = None) -> object:
         """Order/portfolio update stream backend (none for paper broker)."""
@@ -819,12 +826,19 @@ class PaperBroker(BaseBroker):
         instrument_id = str(order.instrument.instrument_id)
         current = self._positions.get(instrument_id)
 
+        # ``Fill.price`` is required, but ``Order.price`` is optional; the only
+        # caller (``_apply_fill``) has already rejected a price-less fill by the
+        # time it gets here. Re-checking and narrowing keeps the type honest
+        # without changing behaviour (the branch is unreachable via _apply_fill).
+        price = order.price
+        if price is None:
+            raise ValueError("filled paper order requires a price")
         fill = Fill(
             order_id=order.order_id,
             instrument=order.instrument,
             side=order.side,
             quantity=order.filled_quantity,
-            price=order.price,
+            price=price,
             timestamp=datetime.now(UTC),
         )
         self._positions[instrument_id] = _domain_apply_fill(current, fill)

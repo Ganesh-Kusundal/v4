@@ -27,8 +27,8 @@ Parity notes (openalgo-charts ``src/indicators/momentum.ts`` / ``oscillators.ts`
 from __future__ import annotations
 
 from tradex_analytics.indicators import (
-    IndicatorSpec,
     LEGACY_PARAM_ALIASES,
+    IndicatorSpec,
     _from_first_value,
     _smoothing_ma,
     _stdev,

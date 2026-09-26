@@ -14,6 +14,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.responses import Response
 
+#: One origin policy for the whole app: the CORS allow-list below and the CSRF
+#: guard in ``auth.deps`` both read this, so they cannot drift apart.
+from tradex_interfaces.auth.origin import resolve_ui_origin  # noqa: E402  (cycle-free leaf)
+
 # Pydantic response models and WebSocket queue helpers live in sibling
 # modules. They are re-exported from here so existing callers and tests that
 # import them off ``fastapi_app`` keep working; new code should import
@@ -33,10 +37,6 @@ from tradex_interfaces.queueing import (  # noqa: F401  (re-exported)
     _enqueue_drop_oldest,
 )
 from tradex_interfaces.replay_guard import ReplayGuard
-
-#: One origin policy for the whole app: the CORS allow-list below and the CSRF
-#: guard in ``auth.deps`` both read this, so they cannot drift apart.
-from tradex_interfaces.auth.origin import resolve_ui_origin  # noqa: E402  (cycle-free leaf)
 
 log = logging.getLogger(__name__)
 
@@ -160,8 +160,14 @@ def create_app(
     ) -> JSONResponse:
         code = _STATUS_CODE_MAP.get(exc.status_code, "error")
         # Forward exception-level headers (e.g. Retry-After from 429) so
-        # they reach the client. JSONResponse accepts headers as a plain dict.
-        extra_headers: dict[str, str] | None = exc.headers or None
+        # they reach the client. ``exc.headers`` is a read-only
+        # ``Mapping[str, str]``, but JSONResponse's headers parameter is
+        # declared ``dict[str, str] | None``; the runtime only ever calls
+        # ``.items()`` on it, so a plain dict copy is behaviour-identical and
+        # satisfies the declared contract.
+        extra_headers: dict[str, str] | None = (
+            dict(exc.headers) if exc.headers else None
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={"error": {"code": code, "message": str(exc.detail)}},
@@ -209,9 +215,9 @@ def create_app(
     # -- Session store and auth routes (B8) ------------------------------------
     # Always created; when no api_key is configured the store is present but
     # the login endpoint returns 503 (no credentials configured).
-    from tradex_interfaces.auth.session_store import InMemorySessionStore
-    from tradex_interfaces.auth.routes import router as _auth_router
     from tradex_interfaces.auth.rate_limit import InMemoryRateLimiter
+    from tradex_interfaces.auth.routes import router as _auth_router
+    from tradex_interfaces.auth.session_store import InMemorySessionStore
 
     app.state.session_store = InMemorySessionStore()
     # The one origin for this app. Assigned before the first request, which is
@@ -237,6 +243,12 @@ def create_app(
     # Stream route is intentionally NOT included — the WebSocket closure
     # depends on app.state.feed_registry + normalize_depth + outbound_max
     # and stays in this function below.
+    # C5: rate_limit_money is method-guarded (no-op on GET) so wiring it here
+    # at include_router level applies to all order routes safely.
+    from fastapi import Depends as _Depends
+    from tradex_runtime.market_feed import normalize_depth
+
+    from tradex_interfaces.auth.rate_limit import rate_limit_money as _rlm
     from tradex_interfaces.routes import (
         account as _account_route,
     )
@@ -255,12 +267,6 @@ def create_app(
     from tradex_interfaces.routes import (
         portfolio as _portfolio_route,
     )
-    from tradex_runtime.market_feed import normalize_depth
-
-    # C5: rate_limit_money is method-guarded (no-op on GET) so wiring it here
-    # at include_router level applies to all order routes safely.
-    from fastapi import Depends as _Depends
-    from tradex_interfaces.auth.rate_limit import rate_limit_money as _rlm
 
     app.include_router(
         _orders_route.create_orders_router(replay_guard=app.state.replay_guard),
@@ -482,7 +488,6 @@ def serve_app() -> FastAPI:
     import os
 
     from tradex_domain import BrokerId
-
     from tradex_runtime.session import TradingSession
 
     broker = os.environ.get(_SERVE_ENV_BROKER, "PAPER").strip().upper()

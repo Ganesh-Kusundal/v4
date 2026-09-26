@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
 from tradex_trading.runtime.metrics import MetricsRegistry  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # render_prometheus unit tests
 # ---------------------------------------------------------------------------

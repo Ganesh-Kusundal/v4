@@ -17,9 +17,9 @@ from typing import TYPE_CHECKING, Any
 from tradex_domain.events import PositionUpdated
 from tradex_domain.execution import Position
 from tradex_domain.market import Quote
+from tradex_domain.utils import q2
 from tradex_domain.value_objects import Money, Price
 
-from tradex_domain.utils import q2
 from tradex_execution.trading_cache import TradingCache
 
 if TYPE_CHECKING:

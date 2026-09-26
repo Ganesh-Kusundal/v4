@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 from tradex_trading.analytics.volume.volume_profile import (
-    poc, vah, val, lvn, value_area,
+    lvn,
+    poc,
+    vah,
+    val,
+    value_area,
 )
 
 

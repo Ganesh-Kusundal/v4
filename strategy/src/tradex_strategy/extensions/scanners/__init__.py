@@ -13,5 +13,4 @@ from tradex_strategy.extensions.scanners.nifty500_technical import (
 )
 from tradex_strategy.extensions.scanners.pullback import pullback_scanner
 
-
 __all__ = ["momentum_scanner", "nifty500_technical_scanner", "pullback_scanner"]

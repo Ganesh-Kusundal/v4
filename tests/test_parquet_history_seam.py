@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 ROUTES = Path(__file__).parents[1] / "interfaces" / "src" / "tradex_interfaces" / "routes"
 MIGRATED = ("chart.py", "stream.py", "stream_indicators.py")
 

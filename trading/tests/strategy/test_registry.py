@@ -11,7 +11,6 @@ from tradex_trading.strategy.artifacts import StrategyArtifact
 from tradex_trading.strategy.registry import StrategyRegistry
 from tradex_trading.strategy.runtime import StrategyLifecycle, StrategyRuntime
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

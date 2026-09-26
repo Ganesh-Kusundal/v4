@@ -23,7 +23,6 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-
 from tradex_market_data.backtest_loader import ParquetBacktestLoader
 from tradex_market_data.catalog import DataCatalog
 from tradex_market_data.market_provider import (

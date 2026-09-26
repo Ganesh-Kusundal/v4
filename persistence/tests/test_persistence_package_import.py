@@ -1,4 +1,5 @@
-from tradex_persistence import SQLiteEventStore, OrderStore
+from tradex_persistence import OrderStore, SQLiteEventStore
+
 
 def test_import_package() -> None:
     assert SQLiteEventStore is not None

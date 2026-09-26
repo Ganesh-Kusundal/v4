@@ -39,8 +39,8 @@ from collections.abc import Sequence
 from typing import cast
 
 from tradex_analytics.indicators import (
-    IndicatorSpec,
     LEGACY_PARAM_ALIASES,
+    IndicatorSpec,
     _bars_since,
     _ema_of_gapped,
     _shift,

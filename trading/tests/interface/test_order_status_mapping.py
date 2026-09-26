@@ -7,8 +7,8 @@ status must raise here rather than become `undefined` in the browser.
 from __future__ import annotations
 
 import pytest
-
 from tradex_domain.enums import OrderStatus, OrderType
+
 from tradex_trading.interface.routes.chart import _map_order_type, map_order_status
 
 

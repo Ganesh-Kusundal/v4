@@ -8,15 +8,15 @@ adapter protocol runtime checkability, and wire-level instrument mapping.
 from __future__ import annotations
 
 import pytest
-from tradex_domain import (
-    AssetClass,
-    Equity,
-    InstrumentId,
-)
 from tradex_brokers.common.capabilities import (
     dhan_capabilities,
     paper_capabilities,
     upstox_capabilities,
+)
+from tradex_domain import (
+    AssetClass,
+    Equity,
+    InstrumentId,
 )
 from tradex_domain.capabilities import (
     BrokerCapabilities,

@@ -3,14 +3,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-import pytest
-
 from tradex_trading.interface.auth.session_store import (
-    SESSION_ABSOLUTE_TTL,
-    SESSION_IDLE_TTL,
     InMemorySessionStore,
 )
-
 
 # ---------------------------------------------------------------------------
 # create / lookup basics
