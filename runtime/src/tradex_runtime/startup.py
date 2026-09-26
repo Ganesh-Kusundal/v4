@@ -458,7 +458,11 @@ def _boot_tail(
         from tradex_execution.sqlite_store import attach_order_persistence
 
         order_store.load_into(engine.cache)
-        attach_order_persistence(bus, engine.cache, order_store)
+        # metrics= so a store that stops being written shows up as a counter
+        # rather than only in the log: attach_order_persistence deliberately
+        # swallows persistence failures so they cannot break trading, which
+        # otherwise leaves a dead store indistinguishable from a healthy one.
+        attach_order_persistence(bus, engine.cache, order_store, metrics=metrics)
 
     # 6b. Event-sourced OMS recovery (B2/C1) — replay the durable event log to
     # rebuild the OMS projection. Runs after the snapshot restore (6a) so

@@ -144,7 +144,18 @@ class SQLiteOrderStore:
     }
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
-        self._conn = sqlite3.connect(str(db_path) if db_path != ":memory:" else ":memory:")
+        # check_same_thread=False: the store is written from the broker feed
+        # thread and by LiveFillBridge, not only from the thread that built it.
+        # SQLiteEventStore and SQLiteIdempotencyGuard already open this way;
+        # omitting it here made every cross-thread write raise ProgrammingError,
+        # which the persistence wrapper swallowed -- so the orders table
+        # silently stopped being written while the event log remained the only
+        # durable order record (M-7). Guarded by self._write_lock instead.
+        self._conn = sqlite3.connect(
+            str(db_path) if db_path != ":memory:" else ":memory:",
+            check_same_thread=False,
+        )
+        self._write_lock = threading.Lock()
         # WAL = concurrent readers don't block the writer (live tick ingestion
         # vs. API queries) and survives unclean shutdown on persistent stores.
         if db_path != ":memory:":
@@ -164,16 +175,20 @@ class SQLiteOrderStore:
     def save_order(self, order: Order) -> None:
         """Insert or update an order."""
         row = _order_to_row(order)
-        self._conn.execute(
-            """INSERT OR REPLACE INTO orders
-               (order_id, symbol, exchange, asset_class, side, order_type,
-                quantity, price, time_in_force, status, filled_quantity,
-                product_type, tag, correlation_id,
-                stop_loss_price, target_price, trailing_jump)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            row,
-        )
-        self._conn.commit()
+        # Under the write lock: the connection is shared across threads now that
+        # it is opened with check_same_thread=False, and execute+commit is two
+        # steps. The peer stores serialise their writes the same way.
+        with self._write_lock:
+            self._conn.execute(
+                """INSERT OR REPLACE INTO orders
+                   (order_id, symbol, exchange, asset_class, side, order_type,
+                    quantity, price, time_in_force, status, filled_quantity,
+                    product_type, tag, correlation_id,
+                    stop_loss_price, target_price, trailing_jump)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                row,
+            )
+            self._conn.commit()
 
     def upsert(self, order: Order) -> None:
         """Insert or update an order (alias for ``save_order``)."""
@@ -543,13 +558,29 @@ _log = logging.getLogger(__name__)
 _ORDER_EVENTS = (OrderPlaced, OrderFilled, OrderCancelled, OrderModified, OrderRejected)
 
 
-def attach_order_persistence(bus: Any, cache: Any, store: Any) -> int:
+def attach_order_persistence(
+    bus: Any, cache: Any, store: Any, metrics: Any | None = None
+) -> int:
     """Mirror cache state into *store* on every order lifecycle event.
 
     *store* needs only ``upsert(order)`` (satisfied by ``SQLiteOrderStore``).
     Returns the number of subscriptions created.
+
+    A persistence failure must never break trading, so it is caught and logged
+    rather than raised. Because that makes a dead store look like a healthy
+    one -- the caller still gets a subscription count back -- each failure also
+    increments a counter when *metrics* is supplied, so a store that stopped
+    being written is visible without scraping logs (M-7).
     """
     has_fill_aware = hasattr(store, "upsert_from_event")
+
+    def _note_failure(reason: str) -> None:
+        if metrics is None:
+            return
+        try:
+            metrics.counter(f"orders.persistence_failures.{reason}").inc()
+        except Exception:  # noqa: BLE001 - observability must not raise either
+            _log.debug("could not record persistence failure metric", exc_info=True)
 
     def _on_event(event: Any) -> None:
         try:
@@ -565,6 +596,7 @@ def attach_order_persistence(bus: Any, cache: Any, store: Any) -> int:
                 store.upsert(current)
         except Exception:  # noqa: BLE001 — persistence must never break trading
             _log.exception("order persistence failed")
+            _note_failure("mirror")
 
     # If the store exposes a fill-aware entry point, the dedicated
     # subscription below owns OrderFilled — the cache-mirror must NOT also
@@ -583,6 +615,7 @@ def attach_order_persistence(bus: Any, cache: Any, store: Any) -> int:
                 store.upsert_from_event(event)
             except Exception:  # noqa: BLE001 — persistence must never break trading
                 _log.exception("fill-aware persistence failed")
+                _note_failure("fill")
 
         bus.of_type(OrderFilled).subscribe(_on_fill)
         subscriptions += 1
