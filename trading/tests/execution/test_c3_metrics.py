@@ -298,6 +298,8 @@ class TestUnknownOutcomeTotal:
         bus = ReactiveBus(metrics=reg)
 
         class _BoundaryFill:
+            #: Models a source that reached the venue (it sets the boundary latch).
+            reaches_venue = True
             submission_boundary_crossed = True
 
             def submit(self, request: OrderRequest) -> tuple:
@@ -314,6 +316,8 @@ class TestUnknownOutcomeTotal:
         bus = ReactiveBus(metrics=reg)
 
         class _RejectFill:
+            #: Offline stub: never contacts a venue, so a failure is a rejection.
+            reaches_venue = False
             submission_boundary_crossed = False
 
             def submit(self, request: OrderRequest) -> tuple:

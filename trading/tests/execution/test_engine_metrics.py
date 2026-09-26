@@ -98,6 +98,8 @@ class TestEngineMetricsCounters:
         bus = ReactiveBus(metrics=reg)
 
         class FailingFill:
+            #: Offline stub: never contacts a venue, so a failure is a rejection.
+            reaches_venue = False
             def submit(self, request: OrderRequest) -> tuple:
                 raise RuntimeError("fill error")
 

@@ -586,17 +586,37 @@ class ExecutionEngine:
             # never left the process — halting the whole book and telling the
             # operator the venue may hold an order it never received.
             #
-            # `submission_boundary_crossed` is still honoured for third-party
-            # fill sources that only expose the flag, but a typed
-            # OrderSubmissionUnknownError is now sufficient on its own, so a
-            # source that never sets the flag is no longer misfiled.
+            # `reaches_venue` is the fail-safe axis, not the latch. A source
+            # that can leave this process is assumed to have crossed unless it
+            # says otherwise, so a live source that raises before it manages to
+            # set `submission_boundary_crossed` is still filed UNKNOWN. Treating
+            # it as REJECTED is what let a client retry place a second live
+            # order under one correlation id: the retry is safe only if the
+            # first attempt provably never reached the venue. Offline sources
+            # (backtest/paper/replay) declare reaches_venue=False, so a local
+            # failure there is still a definitive rejection.
             from tradex_domain.errors import OrderSubmissionUnknownError
 
-            boundary_crossed = getattr(
-                self._fill, "submission_boundary_crossed", False,
+            # Three states, not two. A source that can leave this process is
+            # assumed to have crossed the venue boundary *unless it proves
+            # otherwise*:
+            #   latch absent  -> we do not know -> UNKNOWN (fail safe)
+            #   latch True    -> crossed        -> UNKNOWN
+            #   latch False   -> provably local -> REJECTED
+            # The third state is what commit 6191b9e needed: the broker adapter
+            # validates lot size, capability gates and the live-order gate
+            # *before* sending, and those must stay rejections rather than
+            # halting the book. Only a source that never sets the latch at all
+            # is treated as unknown, which is the case that placed a second
+            # live order under one correlation id.
+            _ABSENT = object()
+            may_have_reached_venue = getattr(self._fill, "reaches_venue", True)
+            latch = getattr(self._fill, "submission_boundary_crossed", _ABSENT)
+            crossed_or_unknown = latch is _ABSENT or latch is True
+            boundary_crossed = (
+                may_have_reached_venue and crossed_or_unknown
             ) or isinstance(exc, OrderSubmissionUnknownError)
             if boundary_crossed:
-                # C3: unknown outcome — submitted but result uncertain
                 if self._metrics is not None:
                     self._metrics.counter("orders.unknown_outcome_total").inc()
                 # Wave C1: persist unknown submission before raising. The OMS

@@ -91,6 +91,8 @@ def _event_types(store: InMemoryEventStore) -> list[str]:
 
 class _FailFillSource:
     """Raises on submit (non-boundary: normal rejection)."""
+    #: Offline stub: never contacts a venue, so a failure is a rejection.
+    reaches_venue = False
     submission_boundary_crossed = False
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
@@ -105,6 +107,8 @@ class _FailFillSource:
 
 class _BoundaryCrossedFillSource:
     """Raises on submit with boundary_crossed=True — outcome is unknown."""
+    #: Models a source that reached the venue (it sets the boundary latch).
+    reaches_venue = True
     submission_boundary_crossed = True
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
@@ -216,6 +220,8 @@ def test_order_filled_appended_on_partial_fill() -> None:
     import uuid
 
     class _PartialFillSource:
+        #: Offline stub: never contacts a venue, so a failure is a rejection.
+        reaches_venue = False
         submission_boundary_crossed = False
         position_projection_owned = False
 
@@ -382,6 +388,8 @@ def test_live_fill_bridge_appends_order_filled() -> None:
     store = _store()
 
     class _AckOnlyFill:
+        #: Offline stub: never contacts a venue, so a failure is a rejection.
+        reaches_venue = False
         submission_boundary_crossed = False
         position_projection_owned = False
 

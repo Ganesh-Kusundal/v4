@@ -53,6 +53,8 @@ class _AckOnlyFillSource:
     Keeps the order in PENDING status so we can exercise
     ``cancel()`` on a live, un-filled order.
     """
+    #: Offline stub: never contacts a venue, so a failure is a rejection.
+    reaches_venue = False
 
     def __init__(self) -> None:
         self.position_projection_owned = False

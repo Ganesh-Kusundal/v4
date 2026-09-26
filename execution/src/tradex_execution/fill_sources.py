@@ -24,7 +24,32 @@ from tradex_execution.fill_model import FillModel
 
 @runtime_checkable
 class FillSource(Protocol):
-    """Source of order fills — the key abstraction for execution modes."""
+    """Source of order fills — the key abstraction for execution modes.
+
+    The three data members are capabilities the engine depends on, declared
+    here so they cannot be discovered by ``getattr`` probing. The engine reads
+    ``reaches_venue`` to decide how to classify a submission failure, and
+    ``position_projection_owned`` to decide whether it applies fills to the
+    book itself. ``@runtime_checkable`` only checks *method* presence, so an
+    undeclared data member is precisely how a probe default went unnoticed
+    (M-2).
+    """
+
+    #: True when a submit can leave this process and be accepted by a venue.
+    #: False for backtest/paper/replay, where every failure is definitively
+    #: local. A source that reaches a venue must be failed toward UNKNOWN on
+    #: error: a caller may retry a REJECTED order, and retrying one that the
+    #: venue actually accepted places a second live order.
+    reaches_venue: bool
+
+    #: True when this source already applies fills to its own OMS projection,
+    #: so the engine must not also project position and cash. Offline sources
+    #: own nothing and must declare False.
+    position_projection_owned: bool
+
+    #: Whether the current submit attempt crossed into the venue. Meaningful
+    #: only when ``reaches_venue`` is True.
+    submission_boundary_crossed: bool
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]: ...
 
@@ -96,6 +121,12 @@ class SimulatedFillSource(FillModel):
         Optional slippage model applied to the fill price.
     """
 
+    #: Never contacts a venue: every failure here is definitively local, so the
+    #: engine may file it as a rejection rather than an unknown outcome.
+    reaches_venue = False
+    #: Owns no OMS projection, so the engine applies position and cash itself.
+    position_projection_owned = False
+
     def __init__(
         self,
         portfolio_state: object | None = None,
@@ -162,6 +193,12 @@ class PaperFillSource(FillModel):
     resolution (shared with backtest/replay), while ``PaperBroker``
     simulates broker-specific order-book mechanics.
     """
+
+    #: Never contacts a venue: every failure here is definitively local, so the
+    #: engine may file it as a rejection rather than an unknown outcome.
+    reaches_venue = False
+    #: Owns no OMS projection, so the engine applies position and cash itself.
+    position_projection_owned = False
 
     def __init__(
         self,
@@ -234,6 +271,12 @@ class BrokerFillSource(FillModel):
         super().__init__()
         self._broker = broker
         self._submission_boundary_crossed = False
+
+    #: A submit can leave this process and be accepted by the venue, so a
+    #: failure here is failed toward UNKNOWN unless the adapter proves the
+    #: request never crossed. Declared on the class (not the instance) because
+    #: it is a property of the source, not of one attempt.
+    reaches_venue = True
 
     @property
     def submission_boundary_crossed(self) -> bool:
@@ -361,6 +404,12 @@ class ReplayFillSource(FillModel):
     actually charged, and replayed history would then disagree with the run it
     is replaying.
     """
+
+    #: Never contacts a venue: every failure here is definitively local, so the
+    #: engine may file it as a rejection rather than an unknown outcome.
+    reaches_venue = False
+    #: Owns no OMS projection, so the engine applies position and cash itself.
+    position_projection_owned = False
 
     def __init__(
         self,
