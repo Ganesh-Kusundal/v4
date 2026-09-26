@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 from tradex_domain.capabilities import require_capability
 from tradex_domain.enums import OrderSide, ProductType, Timeframe
@@ -21,6 +21,7 @@ from tradex_domain.errors import BrokerUnavailableError, CapabilityNotSupportedE
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import OHLC, HistoricalSeries
 from tradex_domain.options import OptionChain
+from tradex_domain.protocols import DepthStreamPort
 from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
 
@@ -217,13 +218,29 @@ class UpstoxBroker(BaseBroker):
     def subscribe_depth(self, instrument: object, handler: object) -> object:
         """Subscribe to 5-level depth via the market-data stream backend."""
         if self._ws_backend is not None:
-            return self._ws_backend.subscribe_depth(instrument, handler)
+            # Upstox serves depth on the market-data stream itself, so the same
+            # object is both the MarketStreamPort and the DepthStreamPort. The
+            # static type of _ws_backend (MarketStreamPort) does not declare
+            # subscribe_depth, because the Dhan market backend genuinely has no
+            # depth endpoint. The runtime value satisfies DepthStreamPort, so
+            # the cast is honest here; the cleaner fix (a provider-specific
+            # depth port, or splitting the market/depth seam) is tracked in
+            # docs/specs/remediation-and-hardening.md.
+            depth = cast(DepthStreamPort, self._ws_backend)
+            return depth.subscribe_depth(instrument, handler)
         return None
 
     def subscribe_depth_30(self, instrument: object, handler: object) -> object:
         """Subscribe to 30-level depth via the market-data stream backend."""
         if self._ws_backend is not None:
-            return self._ws_backend.subscribe_depth_30(instrument, handler)
+            # 30-level depth is a provider-specific capability: Upstox's market
+            # backend offers it, Dhan's does not (it has a dedicated 5-level
+            # depth socket), so it is not on the shared DepthStreamPort. The
+            # runtime object here is always the Upstox market backend, which has
+            # the method. A provider-specific depth port is the clean fix and is
+            # tracked in docs/specs/remediation-and-hardening.md.
+            depth = cast(Any, self._ws_backend)
+            return depth.subscribe_depth_30(instrument, handler)
         return None
 
     def unsubscribe(self, subscription: object) -> None:

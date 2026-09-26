@@ -53,13 +53,13 @@ jobs:
         run: uv run --no-sync mypy domain/src/tradex_domain
 
       # A typing ratchet: each package is promoted to hard-fail the moment it
-      # reaches 0 errors, and never softened again. As of this commit domain,
-      # config, execution, interfaces, runtime, strategy, trading, analytics,
-      # market_data, replay and reactive are all at 0 and hard-fail. Only
-      # brokers remains soft, and only because of the depth-port protocol gap
-      # recorded in docs/specs/remediation-and-hardening.md; it is 2 errors.
+      # reaches 0 errors, and never softened again. All 14 gated packages are
+      # now at 0 errors and hard-fail; the ratchet is complete. The two
+      # Upstox depth subscriptions are resolved with documented casts (the
+      # market backend is Upstox's depth backend at runtime, but 30-level depth
+      # is provider-specific); the cleaner provider-specific depth port is
+      # tracked in docs/specs/remediation-and-hardening.md.
       - name: Mypy (brokers)
-        continue-on-error: true  # 2 errors: MarketStreamPort depth-port protocol gap
         run: uv run --no-sync mypy brokers/src/tradex_brokers
 
       - name: Mypy (config)
