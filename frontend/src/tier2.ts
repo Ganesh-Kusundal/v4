@@ -19,6 +19,7 @@ import {
   type BacktestView,
 } from './backtest';
 import { API_BASE, FeedError } from './feed';
+import { authHeaders } from './apikey';
 
 // Backend-computed studies: their data never comes from the chart's bars, so
 // they ride the engine's Tier-2 lifecycle (fetch once per data-affecting
@@ -34,7 +35,7 @@ const INTERVAL_OPTIONS = ['1m', '5m', '15m', '30m', '1h', 'D'].map((v) => ({ lab
 async function post(path: string, body: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   });
   const data = (await res.json().catch(() => undefined)) as (ErrorEnvelope & Record<string, unknown>) | undefined;
@@ -100,7 +101,7 @@ export interface StrategyInfo {
  */
 export async function loadBacktestStrategies(): Promise<StrategyInfo[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/charts/strategies`);
+    const res = await fetch(`${API_BASE}/api/charts/strategies`, { headers: authHeaders() });
     if (!res.ok) return FALLBACK_STRATEGIES_INFO;
     const body = (await res.json()) as { backtestable?: Array<unknown> };
     const infos: StrategyInfo[] = [];

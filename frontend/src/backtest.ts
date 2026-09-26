@@ -2,6 +2,7 @@ import { IndicatorDrawings, type IndicatorDrawing, type TradingTrade } from 'ope
 import type { Tier2Point } from 'openalgo-charts/indicators';
 import type { Widget } from 'openalgo-charts/widget';
 import { API_BASE, FeedError } from './feed';
+import { authHeaders } from './apikey';
 
 /**
  * Backtest results as a first-class chart object.
@@ -120,7 +121,7 @@ export async function runBacktest(
   }
   const res = await fetch(`${API_BASE}/api/charts/backtest`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...authHeaders() },
     body: JSON.stringify(requestBody),
     signal,
   });

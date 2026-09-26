@@ -145,7 +145,7 @@ export function renderPosition(pos: BookPosition | null): void {
 export async function pollBook(): Promise<void> {
   if (!lastReq) return;
   try {
-    const res = await fetch(`${API_BASE}/api/charts/book`);
+    const res = await fetch(`${API_BASE}/api/charts/book`, { headers: authHeaders() });
     if (!res.ok) return;
     const data = await res.json();
     const orders: BookOrder[] = data.orders || [];

@@ -6,6 +6,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from tradex_interfaces.auth.deps import require_auth
+
 from tradex_interfaces.routes._market_helpers import (
     enrich_chain_live,
     resolve_underlying_instrument,
@@ -13,7 +15,7 @@ from tradex_interfaces.routes._market_helpers import (
 )
 from tradex_interfaces.routes.deps import get_session
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 @router.get("/quotes/{exchange}:{symbol}", response_model=dict[str, Any])

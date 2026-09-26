@@ -10,7 +10,7 @@ import {
   type MarketDepth,
   type UnsubscribeFn,
 } from 'openalgo-charts';
-import { getApiKey } from './apikey';
+import { authHeaders, getApiKey } from './apikey';
 
 // # ponytail: same-origin when FastAPI serves us, dev-server proxy target when vite runs on :5173
 export const API_BASE = typeof location === 'undefined' || location.port !== '5173' ? '' : 'http://127.0.0.1:8000';
@@ -150,7 +150,7 @@ async function fetchHistory(
     return await withHistorySignal(signal, Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 45_000, async requestSignal => {
       const res = await fetch(
         `${API_BASE}/api/charts/history/${exchange}:${symbol}?interval=${mapInterval(interval)}${window}`,
-        { signal: requestSignal },
+        { signal: requestSignal, headers: authHeaders() },
       );
       const body = (await res.json().catch((error: unknown) => {
         if (error instanceof Error && error.name === 'AbortError') throw error;

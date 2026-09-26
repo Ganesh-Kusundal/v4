@@ -1,5 +1,6 @@
 import { stripView, type Widget, type WidgetChartState } from 'openalgo-charts/widget';
 import { API_BASE, probeDatalakeAnchor } from './feed';
+import { authHeaders } from './apikey';
 
 /**
  * Chart-state persistence — **one store**.
@@ -268,7 +269,7 @@ export async function loadActiveWorkspace(options: BootOptions): Promise<BootWor
   let activeLayoutId: string | null = null;
 
   try {
-    const list = await fetch(`${API_BASE}/api/charts/workspace`);
+    const list = await fetch(`${API_BASE}/api/charts/workspace`, { headers: authHeaders() });
     if (list.ok) {
       const metas: unknown = await list.json();
       revisions = readRevisions(metas);
@@ -276,7 +277,9 @@ export async function loadActiveWorkspace(options: BootOptions): Promise<BootWor
       if (active !== null && typeof active.layout_id === 'string') {
         const id = active.layout_id;
         activeLayoutId = id;
-        const res = await fetch(`${API_BASE}/api/charts/workspace/${encodeURIComponent(id)}`);
+        const res = await fetch(`${API_BASE}/api/charts/workspace/${encodeURIComponent(id)}`, {
+          headers: authHeaders(),
+        });
         if (res.ok) {
           const payload = (await res.json()) as { data?: unknown };
           const parsed = parseStored(payload.data);

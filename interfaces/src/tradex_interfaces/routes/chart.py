@@ -19,7 +19,9 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from tradex_interfaces.auth.deps import require_auth
 from pydantic import BaseModel
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
@@ -250,7 +252,7 @@ def create_chart_router(
 
     # ---------------------------------------------------------------- symbols
 
-    @router.get("/symbols")
+    @router.get("/symbols", dependencies=[Depends(require_auth)])
     async def list_symbols(
         q: str | None = None, source: str = "datalake", universe: str = "nifty50"
     ) -> dict:
@@ -293,7 +295,7 @@ def create_chart_router(
 
     # ---------------------------------------------------------------- history
 
-    @router.get("/history/{exchange}:{symbol}")
+    @router.get("/history/{exchange}:{symbol}", dependencies=[Depends(require_auth)])
     async def get_history(
         exchange: str,
         symbol: str,
@@ -358,7 +360,7 @@ def create_chart_router(
 
     # ------------------------------------------------------------- indicators
 
-    @router.get("/indicators")
+    @router.get("/indicators", dependencies=[Depends(require_auth)])
     async def list_indicators() -> dict:
         """The whole indicator catalogue: ids, param schemas, plot shapes.
 
@@ -370,7 +372,7 @@ def create_chart_router(
 
         return {"indicators": indicator_catalogue()}
 
-    @router.post("/indicators/compute")
+    @router.post("/indicators/compute", dependencies=[Depends(require_auth)])
     async def compute_indicator_endpoint(body: dict) -> dict:
         """Compute one registered indicator over the SAME bar window the
         chart holds, so returned points are index-aligned with its bars.
@@ -428,7 +430,7 @@ def create_chart_router(
             "meta": {"source": "datalake", "params": params},
         }
 
-    @router.post("/transforms/{transform_id}")
+    @router.post("/transforms/{transform_id}", dependencies=[Depends(require_auth)])
     async def compute_transform_endpoint(transform_id: str, body: dict) -> dict:
         """Rebucket a bar window through one series transform (stateless).
 
@@ -452,7 +454,7 @@ def create_chart_router(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"id": transform_id, "bars": result}
 
-    @router.post("/profiles/{profile_id}")
+    @router.post("/profiles/{profile_id}", dependencies=[Depends(require_auth)])
     async def compute_profile_endpoint(profile_id: str, body: dict) -> dict:
         """Compute one profile study (or the seasonality table) over the bar
         window the chart holds (stateless).
@@ -480,7 +482,7 @@ def create_chart_router(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"id": profile_id, "result": result}
 
-    @router.post("/seasonality")
+    @router.post("/seasonality", dependencies=[Depends(require_auth)])
     async def compute_seasonality_endpoint(
         body: dict,
         startYear: int | None = Query(default=None),
@@ -559,7 +561,7 @@ def create_chart_router(
 
     # ------------------------------------------------------------------ trading
 
-    @router.get("/book")
+    @router.get("/book", dependencies=[Depends(require_auth)])
     async def get_book() -> dict:
         """Chart-shaped working book: orders + positions in the trade tier's
         vocabulary (openalgo-charts Order/Position). Read-only; writes go
@@ -614,7 +616,7 @@ def create_chart_router(
 
     # ---------------------------------------------------------------- account
 
-    @router.get("/account")
+    @router.get("/account", dependencies=[Depends(require_auth)])
     async def get_account() -> dict:
         """Account snapshot for the chart host's account panel.
 
@@ -679,7 +681,7 @@ def create_chart_router(
 
     # ---------------------------------------------------------------- strategies
 
-    @router.get("/strategies")
+    @router.get("/strategies", dependencies=[Depends(require_auth)])
     async def list_strategies() -> dict:
         """Auto-discovered strategies (extensions package) + scanners."""
         from tradex_strategy.extensions import all_scanners, all_strategies
@@ -733,7 +735,7 @@ def create_chart_router(
             "backtestable": backtestable,
         }
 
-    @router.post("/backtest")
+    @router.post("/backtest", dependencies=[Depends(require_auth)])
     async def run_backtest(body: dict) -> dict:
         """Backtest one strategy over a datalake window via BacktestEngine.
 
@@ -835,7 +837,7 @@ def create_chart_router(
             "trades": trades,
         }
 
-    @router.post("/scanner/run")
+    @router.post("/scanner/run", dependencies=[Depends(require_auth)])
     async def run_scanner(body: dict) -> dict:
         """Run one discovered scanner across its universe via ScannerEngine.
 
@@ -945,12 +947,12 @@ def create_chart_router(
 
     workspace = WorkspaceStore(workspace_db_path)
 
-    @router.get("/workspace")
+    @router.get("/workspace", dependencies=[Depends(require_auth)])
     async def list_workspaces() -> list[dict[str, Any]]:
         """Workspace metadata (no blobs): layout ids with revision + updated_at."""
         return workspace.list()
 
-    @router.get("/workspace/{layout_id}")
+    @router.get("/workspace/{layout_id}", dependencies=[Depends(require_auth)])
     async def get_workspace(layout_id: str) -> dict[str, Any]:
         _validate_layout_id(layout_id)
         stored = workspace.get(layout_id)

@@ -428,7 +428,7 @@ export function mountAccountPanel(
 
   const fetchAccount = async (): Promise<void> => {
     try {
-      const res = await fetch(`${API_BASE}/api/charts/account`);
+      const res = await fetch(`${API_BASE}/api/charts/account`, { headers: authHeaders() });
       if (!res.ok) return;
       const body = (await res.json()) as AccountSnapshot;
       balanceValue.textContent = money(body.balance);
@@ -450,7 +450,7 @@ export function mountAccountPanel(
 
   const fetchBook = async (): Promise<void> => {
     try {
-      const res = await fetch(`${API_BASE}/api/charts/book`);
+      const res = await fetch(`${API_BASE}/api/charts/book`, { headers: authHeaders() });
       if (!res.ok) return;
       const body = (await res.json().catch(() => undefined)) as { orders?: unknown; positions?: unknown } | undefined;
       if (Array.isArray(body?.orders)) {

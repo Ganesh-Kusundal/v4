@@ -6,9 +6,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from tradex_interfaces.auth.deps import require_auth
+
 from tradex_interfaces.routes.deps import get_session
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 @router.get("/extensions")

@@ -1,6 +1,7 @@
 import type { Widget } from 'openalgo-charts/widget';
 import type { Dock } from './dock';
 import { API_BASE } from './feed';
+import { authHeaders } from './apikey';
 
 /**
  * Screener panel — runs the backend's discovered scanners and surfaces the
@@ -38,7 +39,7 @@ interface ScannerRun {
 }
 
 async function fetchScanners(): Promise<ScannerMeta[]> {
-  const res = await fetch(`${API_BASE}/api/charts/strategies`);
+  const res = await fetch(`${API_BASE}/api/charts/strategies`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`strategies ${res.status}`);
   const data = await res.json();
   return data.scanners ?? [];
@@ -47,7 +48,7 @@ async function fetchScanners(): Promise<ScannerMeta[]> {
 async function runScanner(id: string, windowDays: number): Promise<ScannerRun> {
   const res = await fetch(`${API_BASE}/api/charts/scanner/run`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ id, window_days: windowDays }),
   });
   if (!res.ok) {

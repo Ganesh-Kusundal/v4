@@ -323,7 +323,7 @@ def _build_bracket_modify_request(
     )
 
 
-@_base_router.get("/orders", response_model=list[OrderResponse])
+@_base_router.get("/orders", response_model=list[OrderResponse], dependencies=[Depends(require_auth)])
 async def list_orders(
     status: str | None = None,
     limit: int = 50,
@@ -342,7 +342,7 @@ async def list_orders(
     return result[offset : offset + limit]
 
 
-@_base_router.get("/orders/{order_id}", response_model=OrderResponse)
+@_base_router.get("/orders/{order_id}", response_model=OrderResponse, dependencies=[Depends(require_auth)])
 async def get_order(
     order_id: str,
     session: Any | None = Depends(get_session),
