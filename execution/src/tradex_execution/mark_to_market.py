@@ -76,39 +76,46 @@ class MarkToMarketService:
         return None
 
     def on_quote(self, quote: Quote) -> Position | None:
-        """Update the quote and position mark, ignoring stale quote events."""
+        """Update the quote and position mark, ignoring stale quote events.
+
+        The position read and the write derived from it happen under the
+        cache's per-instrument lock. Without it a fill committing between the
+        two is overwritten by a mark computed from the pre-fill position, and
+        the fill is silently lost (M-1).
+        """
         current_quote = self._cache.get_quote(quote.instrument)
         if current_quote is not None and quote.timestamp < current_quote.timestamp:
             return None
         self._cache.update_quote(quote)
 
-        position = self._cache.get_position(quote.instrument)
-        if position is None or position.quantity.value == 0:
-            return None
-        selected = self.select_mark(position, quote)
-        if selected is None:
-            log.warning("No valid mark in quote for %s", quote.instrument)
-            return None
-        mark, source = selected
-        if position.marked_at is not None and quote.timestamp < position.marked_at:
-            return None
+        with self._cache.position_lock(quote.instrument):
+            position = self._cache.get_position(quote.instrument)
+            if position is None or position.quantity.value == 0:
+                return None
+            selected = self.select_mark(position, quote)
+            if selected is None:
+                log.warning("No valid mark in quote for %s", quote.instrument)
+                return None
+            mark, source = selected
+            if position.marked_at is not None and quote.timestamp < position.marked_at:
+                return None
 
-        signed_qty = position.quantity.value
-        unrealized = q2((mark.value - position.avg_price.value) * signed_qty)
-        updated = Position(
-            instrument=position.instrument,
-            quantity=position.quantity,
-            avg_price=position.avg_price,
-            realized_pnl=position.realized_pnl,
-            unrealized_pnl=Money(
-                amount=unrealized,
-                currency=position.realized_pnl.currency,
-            ),
-            mark_price=mark,
-            marked_at=quote.timestamp,
-            mark_source=source,
-        )
-        self._cache.update_position(updated)
+            signed_qty = position.quantity.value
+            unrealized = q2((mark.value - position.avg_price.value) * signed_qty)
+            updated = Position(
+                instrument=position.instrument,
+                quantity=position.quantity,
+                avg_price=position.avg_price,
+                realized_pnl=position.realized_pnl,
+                unrealized_pnl=Money(
+                    amount=unrealized,
+                    currency=position.realized_pnl.currency,
+                ),
+                mark_price=mark,
+                marked_at=quote.timestamp,
+                mark_source=source,
+            )
+            self._cache.update_position(updated)
         if self._bus is not None:
             self._bus.publish(PositionUpdated(position=updated, quote=quote))
         # C3: emit mark freshness gauge so staleness alerts work without

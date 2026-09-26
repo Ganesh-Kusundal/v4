@@ -39,14 +39,13 @@ class PositionAccountant:
 
     def __init__(self, cache: TradingCache) -> None:
         self._cache = cache
-        self._instrument_locks: dict[str, threading.RLock] = {}
-        self._locks_guard = threading.Lock()
+        # The per-instrument lock map lives on the cache, not here: the cache
+        # owns the position book, so every component that mutates it must take
+        # the same lock. A lock map kept per-component lets a mark service and
+        # this accountant write the same key under two unrelated locks (M-1).
 
     def _lock(self, key: str) -> threading.RLock:
-        with self._locks_guard:
-            if key not in self._instrument_locks:
-                self._instrument_locks[key] = threading.RLock()
-            return self._instrument_locks[key]
+        return self._cache.position_lock(key)
 
     # ------------------------------------------------------------------
     # Fill accounting

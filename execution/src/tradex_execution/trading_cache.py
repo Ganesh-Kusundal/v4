@@ -27,6 +27,13 @@ class TradingCache(TradingCacheProtocol):
         self._orders_lock = threading.RLock()
         self._positions_lock = threading.RLock()
         self._quotes_lock = threading.RLock()
+        #: Per-instrument locks for position read-modify-write. Owned here
+        #: because this cache owns the book: every component that mutates a
+        #: position (PositionAccountant, MarkToMarketService) must take the
+        #: same lock, and a lock map held per-component silently fails to
+        #: serialise anything (M-1).
+        self._position_locks: dict[str, threading.RLock] = {}
+        self._position_locks_guard = threading.Lock()
 
     # ------------------------------------------------------------------
     # Orders
@@ -65,6 +72,21 @@ class TradingCache(TradingCacheProtocol):
         if isinstance(instrument, InstrumentId):
             return str(instrument)
         return instrument
+
+    def position_lock(self, instrument: Instrument | InstrumentId | str) -> threading.RLock:
+        """Return the per-instrument lock guarding position read-modify-write.
+
+        Hold this across a *read* of a position and the *write* derived from
+        it, so a concurrent fill cannot be overwritten by a stale mark. Locks
+        are per instrument, so unrelated symbols do not contend.
+        """
+        key = self._instrument_key(instrument)
+        with self._position_locks_guard:
+            lock = self._position_locks.get(key)
+            if lock is None:
+                lock = threading.RLock()
+                self._position_locks[key] = lock
+            return lock
 
     def update_position(self, position: Position) -> None:
         """Insert or update a position keyed by instrument id."""

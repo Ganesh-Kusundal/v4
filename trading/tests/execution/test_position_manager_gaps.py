@@ -109,15 +109,21 @@ def test_concurrent_same_instrument_fills_atomic() -> None:
     assert pos is not None
     assert pos.quantity.value == Decimal("10"), f"lost update: qty={pos.quantity.value}"
 
-    # ponytail: assert lock infrastructure exists on the accountant
+    # ponytail: assert lock infrastructure exists and is owned by the cache
     # (deterministic even if race not triggered).
+    # The per-instrument lock map lives on the TradingCache, not on the
+    # accountant: the cache owns the position book, so a mark service and this
+    # accountant must take the SAME lock or a concurrent re-mark overwrites a
+    # committed fill (M-1). A lock map per component serialises nothing.
     # PositionManager is an alias of PositionAccountant
     # (execution/position_manager.py), so the accountant IS `pm` — there is no
     # `.accountant` wrapper attribute. `_lock` is a method that returns the
     # per-instrument RLock, not a stored lock object.
-    assert hasattr(pm, "_instrument_locks")
-    assert hasattr(pm, "_locks_guard")
     assert callable(pm._lock)
     key = str(instrument.instrument_id)
     lock = pm._lock(key)
     assert lock is pm._lock(key), "per-instrument lock must be stable across lookups"
+    assert lock is pm._cache.position_lock(instrument), (
+        "the accountant must take the cache's lock, not a private one — "
+        "otherwise components guarding the same book do not exclude each other"
+    )
