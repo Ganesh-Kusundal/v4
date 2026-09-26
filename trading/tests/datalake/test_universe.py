@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from tradex_trading.datalake.universe import load_universe, available_universes
+from tradex_market_data.universe import load_universe, available_universes
 
 
 class TestLoadUniverse:

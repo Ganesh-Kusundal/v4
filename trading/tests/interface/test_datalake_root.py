@@ -85,7 +85,7 @@ def _second_root_definitions(tree: ast.AST) -> set[str]:
 class TestDatalakeRoot:
     def test_root_is_repo_root_not_cwd(self):
         """Default datalake root points at <repo>/data regardless of cwd."""
-        from tradex_trading.datalake.paths import datalake_root
+        from tradex_market_data.paths import datalake_root
 
         root = Path(datalake_root())
         assert root == _repo_root() / "data"
@@ -96,7 +96,7 @@ class TestDatalakeRoot:
 
     def test_root_is_absolute(self):
         """Anchor is absolute so a chdir during the process can't move it."""
-        from tradex_trading.datalake.paths import datalake_root
+        from tradex_market_data.paths import datalake_root
 
         assert Path(datalake_root()).is_absolute()
 
@@ -118,8 +118,8 @@ class TestDatalakeRoot:
     @pytest.mark.parametrize(
         "modpath",
         [
-            "tradex_trading.interface.routes.chart",
-            "tradex_trading.interface.routes.stream",
+            "tradex_interfaces.routes.chart",
+            "tradex_interfaces.routes.stream",
         ],
     )
     def test_no_cwd_relative_data_literals_in_interface(self, modpath):

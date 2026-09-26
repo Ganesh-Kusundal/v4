@@ -7,147 +7,19 @@
          (fastapi_app.py `_root_with_key`); stays empty on keyless servers. -->
     <meta name="api-key" content="" data-applied="false" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <title>TradeX - Live Chart Trading</title>
+    <title>TradeX</title>
   </head>
   <body>
     <div id="app">
-        <header class="topbar">
-        <div class="brand"><span class="brand-dot"></span> TradeX <em>LIVE</em></div>
-        <div class="divider"></div>
-        <div class="legend" id="legend"></div>
-        <div class="divider"></div>
-        <div class="group">
-          <div class="sym-wrap">
-            <input type="text" id="symbol" class="field field--sym" value="RELIANCE" placeholder="SEARCH SYMBOL" autocomplete="off" spellcheck="false" title="Instrument symbol (datalake)" />
-            <div id="sym-dropdown" class="sym-dropdown" hidden></div>
-          </div>
-          <select id="exchange" class="field" title="exchange">
-            <option>NSE</option><option>NFO</option><option>BSE</option><option>BFO</option><option>MCX</option><option>NSE_INDEX</option>
-          </select>
-          <select id="interval" class="field" title="bar interval">
-            <option value="1m">1m</option><option value="5m" selected>5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="D">D</option>
-          </select>
-          <select id="ctype" class="field" title="chart type">
-            <option value="candlestick">Candles</option>
-            <option value="hollow-candle">Hollow Candles</option>
-            <option value="bar">Bars (OHLC)</option>
-            <option value="high-low">High-Low</option>
-            <option value="volume-candle">Volume Candles</option>
-            <option value="line">Line</option>
-            <option value="line-markers">Line + Markers</option>
-            <option value="step">Step</option>
-            <option value="area">Area</option>
-            <option value="hlc-area">HLC Area</option>
-            <option value="baseline">Baseline</option>
-            <option value="heikin-ashi">Heikin Ashi</option>
-            <option value="renko">Renko</option>
-            <option value="range">Range</option>
-            <option value="line-break">Line Break</option>
-          </select>
-        </div>
-        <div class="divider"></div>
-        <div class="group">
-          <button id="ind-btn" class="btn" title="Indicators & backend studies">📊 Indicators</button>
-          <button id="replay-btn" class="btn" title="Toggle Market Replay mode">⏪ Replay</button>
-          <button id="fit" class="btn" title="restore the default view (fit bars + auto price scale), same as double-click">Fit</button>
-          <button id="snap-btn" class="btn" title="Save snapshot PNG image">📷 PNG</button>
-          <button id="connect" class="btn btn--primary">Connect</button>
-          <button id="disconnect" class="btn btn--ghost">Disconnect</button>
-        </div>
-        <div class="status"><span class="status-dot"></span><span id="status">ready</span></div>
-      </header>
-
-      <div class="subbar">
-        <span class="chip">REST <code>/api/charts/history</code></span>
-        <label class="lbl">WS <input type="text" id="wsurl" class="field field--ws" value="ws://127.0.0.1:8000/ws/stream" title="WebSocket feed" /></label>
-        <span class="chip" id="wsstate">WS idle</span>
-        <span class="chip" id="ticks">0 ticks</span>
-        <span class="chip chip--ltp" id="ltp">LTP -</span>
-        <span class="spacer"></span>
-        <label class="lbl">Qty <input type="number" id="qty" class="field field--qty" value="1" min="1" title="order quantity" /></label>
-        <select id="product" class="field" title="product"><option>MIS</option><option>CNC</option><option>NRML</option></select>
-        <label class="chk"><input type="checkbox" id="arm" /> <span>Arm trading</span></label>
-        <span class="chip analyze" id="mode" title="Order routing mode">ANALYZE (sandbox)</span>
-        <span class="hint">right-click chart to order</span>
-      </div>
-
-      <main class="stage">
-        <div id="chart"></div>
-
-        <!-- Market-replay transport bar (docked at bottom of chart) -->
-        <div id="replaybar" role="toolbar" aria-label="Replay transport" hidden>
-          <button id="rp-exit" type="button" title="Exit replay (restore chart)">✕ Exit</button>
-          <span class="vsep"></span>
-          <button id="rp-back" type="button" title="Step back one bar">⏮</button>
-          <button id="rp-play" type="button" class="is-on" title="Pause / Play">⏸</button>
-          <button id="rp-fwd" type="button" title="Step forward one bar">⏭</button>
-          <span class="vsep"></span>
-          <input type="range" id="rp-scrub" min="0" max="100" value="0" step="1" title="Scrub the session" />
-          <span class="rcount" id="rp-count">0 / 0</span>
-          <span class="rclock" id="rp-clock"></span>
-          <span class="vsep"></span>
-          <button id="rp-speed" type="button" title="Playback speed (click to cycle)">1x</button>
-        </div>
-
-        <!-- Select-bar prompt (floats at bottom of chart during bar selection) -->
-        <div id="replaypick" role="status" hidden>
-          <span><strong>Select a bar</strong> <span class="hint">to replay from</span></span>
-          <span class="hint" id="rp-picked"></span>
-          <button id="rp-pick-cancel" type="button">Cancel</button>
-        </div>
-
-        <!-- Leave replay confirmation dialog -->
-        <div id="replayleave" hidden>
-          <div class="box" role="alertdialog" aria-modal="true" aria-labelledby="rp-leave-title">
-            <h4 id="rp-leave-title">Leave replay?</h4>
-            <p id="rp-leave-text">The chart goes back to the live session and the playhead is lost.</p>
-            <div class="row">
-              <button id="rp-leave-stay" type="button">Stay</button>
-              <button id="rp-leave-go" class="primary" type="button">Leave</button>
-            </div>
-          </div>
-        </div>
-      </main>
-
-      <!-- right-click order menu (price under the cursor) -->
-      <div id="ctxmenu" hidden>
-        <div class="ctx-head">Market</div>
-        <button class="buy" data-side="BUY" data-type="MARKET"><span>Buy Market</span></button>
-        <button class="sell" data-side="SELL" data-type="MARKET"><span>Sell Market</span></button>
-        <hr>
-        <div class="ctx-head">Limit</div>
-        <button class="buy" data-side="BUY" data-type="LIMIT"><span>Buy Limit</span></button>
-        <button class="sell" data-side="SELL" data-type="LIMIT"><span>Sell Limit</span></button>
-        <hr>
-        <div class="ctx-head">Stop</div>
-        <button class="buy" data-side="BUY" data-type="SL"><span>Buy Stop (SL)</span></button>
-        <button class="sell" data-side="SELL" data-type="SL"><span>Sell Stop (SL)</span></button>
-      </div>
-
-      <!-- Indicators Dialog -->
-      <div id="ind-backdrop" class="modal-backdrop" hidden>
-        <div class="modal-dialog">
-          <div class="modal-header">
-            <span class="modal-title">Indicators & Studies <span id="ind-count" class="modal-count">102</span></span>
-            <button id="ind-close" class="modal-close-btn" title="Close dialog">✕</button>
-          </div>
-          <div class="modal-search-wrap">
-            <input type="text" id="ind-search" class="modal-search" placeholder="Search 100+ indicators (e.g. RSI, MACD, EMA, Bollinger, Supertrend)..." autocomplete="off" />
-          </div>
-          <div id="ind-active-bar" class="ind-active-bar" hidden>
-            <span class="ind-active-label">Active:</span>
-            <div id="ind-active-chips" class="ind-active-chips"></div>
-          </div>
-          <div class="modal-tabs" id="ind-tabs">
-            <button class="modal-tab active" data-cat="all">All</button>
-            <button class="modal-tab" data-cat="Trend">Trend</button>
-            <button class="modal-tab" data-cat="Momentum">Momentum</button>
-            <button class="modal-tab" data-cat="Volatility">Volatility</button>
-            <button class="modal-tab" data-cat="Volume">Volume</button>
-          </div>
-          <div id="ind-list" class="modal-list"></div>
-        </div>
-      </div>
+      <section id="order-controls" class="order-controls" aria-label="Order safety controls">
+        <span id="order-product" class="order-controls__badge">INTRADAY</span>
+        <label class="order-controls__label" for="qty">Qty <input id="qty" type="number" min="1" step="1" value="1" /></label>
+        <label class="order-controls__label"><input id="arm" type="checkbox" /> Arm trading</label>
+        <span id="mode" class="order-controls__mode">MODE UNKNOWN · NOT READY</span>
+        <span id="feed-status" class="order-controls__feed">Feed not ready</span>
+        <span id="order-status" class="order-controls__status" role="status" aria-live="polite"></span>
+        <span id="order-quote" class="order-controls__quote">LTP —</span>
+      </section>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -34,11 +34,18 @@ def test_paper_boot_binds_cash_provider_when_configured() -> None:
         session.stop()
 
 
-def test_paper_boot_no_cash_provider_means_no_gate() -> None:
-    """Backward compat: a paper boot without cash_provider has the gate off."""
+def test_paper_boot_without_configured_provider_uses_broker_funds() -> None:
+    """A paper boot with no configured provider falls back to broker funds.
+
+    This used to assert the gate stayed OFF, which meant a paper session could
+    admit a BUY with no balance check at all. Paper now sources the balance
+    from the broker like live does, and fails closed when it cannot be read.
+    """
     cfg = AppConfig(mode="paper")
     session = boot(cfg)
     try:
-        assert session.engine._risk.cash_provider_bound is False  # type: ignore[attr-defined]
+        risk = session.engine._risk  # type: ignore[attr-defined]
+        assert risk.cash_provider_bound is True
+        assert risk.fail_closed_cash is True
     finally:
         session.stop()

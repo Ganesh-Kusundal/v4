@@ -66,6 +66,26 @@ class TestConstructor:
                 "upstox": _make_broker("upstox"),
             })
 
+    def test_multi_broker_dict_error_names_every_broker(self):
+        # Contract: callers must build one fetcher per broker. The message names
+        # the offending brokers so a multi-broker call site is diagnosable
+        # instead of just crashing.
+        brokers = {
+            "dhan": _make_broker("dhan"),
+            "upstox": _make_broker("upstox"),
+            "paper": _make_broker("paper"),
+        }
+        with pytest.raises(ValueError) as excinfo:
+            ParallelHistoryFetcher(brokers, max_workers=4)
+        message = str(excinfo.value)
+        assert "exactly one broker" in message
+        for name in brokers:
+            assert name in message
+
+    def test_empty_broker_dict_error_mentions_no_brokers(self):
+        with pytest.raises(ValueError, match="exactly one broker"):
+            ParallelHistoryFetcher({}, max_workers=4)
+
 
 class TestDhanIntradayWindowGuard:
     def test_dhan_intraday_range_beyond_api_window_auto_chunks(self):

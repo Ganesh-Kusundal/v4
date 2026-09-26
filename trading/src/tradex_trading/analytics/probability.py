@@ -1,13 +1,11 @@
-"""Probability helpers."""
+"""Compatibility shim — implementation lives in ``tradex_analytics.probability``."""
 
-from __future__ import annotations
+from importlib import import_module as _import_module
 
-
-def win_rate(pnls: list[float]) -> float:
-    """Fraction of profitable trades. Zero when empty."""
-    if not pnls:
-        return 0.0
-    return sum(1 for p in pnls if p > 0) / len(pnls)
-
-
-__all__ = ["win_rate"]
+_impl = _import_module("tradex_analytics.probability")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

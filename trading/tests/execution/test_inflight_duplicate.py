@@ -14,19 +14,17 @@ from decimal import Decimal
 
 import pytest
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
-from tradex_domain.execution import Order, OrderRequest
+from tradex_domain.execution import OrderReceipt, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
 from tradex_trading.execution.engine import ExecutionEngine
+from tradex_trading.execution.fill_sources import BrokerFillSource
 from tradex_trading.execution.idempotency import (
     IdempotencyDuplicate,
     IdempotencyInflight,
     MemoryIdempotencyGuard,
 )
-from tradex_domain.execution import OrderReceipt
-
-from tradex_trading.execution.fill_sources import BrokerFillSource
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 
@@ -107,7 +105,6 @@ def test_inflight_key_stays_owned_then_replays_after_completion() -> None:
 
 def test_route_maps_inflight_receipt_to_409() -> None:
     """Contract 3: the HTTP edge answers 409, not 500."""
-    from fastapi import HTTPException
     from fastapi.testclient import TestClient
 
     from tradex_trading.interface.fastapi_app import create_app

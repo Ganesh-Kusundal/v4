@@ -1,67 +1,11 @@
-"""Pydantic response models for the HTTP API.
+"""Compatibility shim — implementation lives in ``tradex_interfaces.models``."""
 
-Pure data shapes — no behavior, no FastAPI coupling beyond ``BaseModel``.
-Lifted out of ``fastapi_app`` so they can be imported by route modules,
-tests, and the WebSocket message-shape documentation without pulling in
-the whole app factory.
-"""
+from importlib import import_module as _import_module
 
-from __future__ import annotations
-
-from pydantic import BaseModel, ConfigDict
-
-
-class HealthResponse(BaseModel):
-    model_config = ConfigDict(json_schema_extra={"exclude_none": True})
-
-    status: str
-    check: str | None = None
-    session_state: str | None = None
-
-
-class PositionResponse(BaseModel):
-    instrument: str
-    quantity: str
-    avg_price: str
-    realized_pnl: str
-    unrealized_pnl: str
-    total_pnl: str
-    is_long: bool
-    is_short: bool
-    mark_price: str | None = None
-    marked_at: str | None = None
-    mark_source: str | None = None
-    mark_stale: bool = False
-
-
-class AccountResponse(BaseModel):
-    balance: str | None = None
-    margin: str | None = None
-    equity: str | None = None
-
-
-class OrderResponse(BaseModel):
-    order_id: str
-    status: str
-    message: str = ""
-
-
-class ErrorDetail(BaseModel):
-    """Stable machine-readable error envelope (G13)."""
-
-    code: str
-    message: str
-
-
-class ErrorResponse(BaseModel):
-    error: ErrorDetail
-
-
-__all__ = [
-    "AccountResponse",
-    "ErrorDetail",
-    "ErrorResponse",
-    "HealthResponse",
-    "OrderResponse",
-    "PositionResponse",
-]
+_impl = _import_module("tradex_interfaces.models")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

@@ -64,4 +64,129 @@ test.describe('screener panel', () => {
       return (data.bars?.length ?? 0) > 0;
     }, { timeout: 15_000 }).toBe(true);
   });
+
+  test('renders the empty state for a zero-candidate scan and clears loading', async ({ page }) => {
+    await page.route('**/api/charts/strategies', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          scanners: [{ id: 'mock', universe_size: 1, conditions: ['close > 100'], rank_by: 'score', limit: 10 }],
+          backtestable: [{ id: 'sma_cross', params: [] }],
+        }),
+      });
+    });
+    await page.route('**/api/charts/scanner/run', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ scanner: 'mock', window_days: 30, results: [] }),
+      });
+    });
+
+    await page.goto('/ui/');
+    const panel = page.locator('[data-panel="screener"]');
+    await expect(panel).toBeVisible();
+    await expect.poll(() => panel.locator('select option').count()).toBe(1);
+    await panel.locator('button', { hasText: 'Run scan' }).click();
+
+    await expect(panel.locator('.v4-dock__empty')).toContainText(/no candidates matched/i);
+    await expect(panel.locator('.v4-dock__empty')).toBeVisible();
+    await expect(panel.locator('.v4-dock__loading')).toBeHidden();
+  });
+
+  test('recovers from a failed scan and clears the stale error', async ({ page }) => {
+    let attempts = 0;
+    await page.route('**/api/charts/strategies', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          scanners: [{ id: 'mock', universe_size: 1, conditions: ['close > 100'], rank_by: 'score', limit: 10 }],
+          backtestable: [{ id: 'sma_cross', params: [] }],
+        }),
+      });
+    });
+    await page.route('**/api/charts/scanner/run', async (route) => {
+      attempts += 1;
+      if (attempts === 1) {
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: { message: 'temporary scan failure' } }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          scanner: 'mock',
+          window_days: 30,
+          results: [{
+            symbol: 'RELIANCE',
+            exchange: 'NSE',
+            score: 92.5,
+            matched: ['close > 100'],
+            values: { close: 105 },
+            rank: 1,
+          }],
+        }),
+      });
+    });
+
+    await page.goto('/ui/');
+    const panel = page.locator('[data-panel="screener"]');
+    await expect(panel).toBeVisible();
+    await expect.poll(() => panel.locator('select option').count()).toBe(1);
+    const runBtn = panel.locator('button', { hasText: 'Run scan' });
+    const error = panel.locator('.v4-dock__error');
+    await runBtn.click();
+
+    await expect(error).toContainText(/temporary scan failure/i);
+    await expect(error).toBeVisible();
+    await expect(panel.locator('.v4-dock__loading')).toBeHidden();
+
+    await runBtn.click();
+    await expect(panel.locator('tbody tr')).toHaveCount(1);
+    await expect(error).toBeHidden();
+    await expect(panel.locator('.v4-dock__loading')).toBeHidden();
+    expect(attempts).toBe(2);
+  });
+
+  test('shows only the empty state when no scanners are discovered', async ({ page }) => {
+    await page.route('**/api/charts/strategies', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ scanners: [], backtestable: [{ id: 'sma_cross', params: [] }] }),
+      });
+    });
+
+    await page.goto('/ui/');
+    const panel = page.locator('[data-panel="screener"]');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.v4-dock__empty')).toContainText(/no scanners discovered/i);
+    await expect(panel.locator('.v4-dock__empty')).toBeVisible();
+    await expect(panel.locator('.v4-dock__loading')).toBeHidden();
+    await expect(panel.locator('.v4-dock__error')).toBeHidden();
+  });
+
+  test('shows only the error state when scanner discovery fails', async ({ page }) => {
+    await page.route('**/api/charts/strategies', async (route) => {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { message: 'scanner catalogue unavailable' } }),
+      });
+    });
+
+    await page.goto('/ui/');
+    const panel = page.locator('[data-panel="screener"]');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('.v4-dock__error')).toContainText(/strategies 503/i);
+    await expect(panel.locator('.v4-dock__error')).toBeVisible();
+    await expect(panel.locator('.v4-dock__loading')).toBeHidden();
+    await expect(panel.locator('.v4-dock__empty')).toBeHidden();
+  });
 });

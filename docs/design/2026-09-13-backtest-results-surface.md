@@ -213,14 +213,19 @@ fills, 5 of them entries carrying a valid pair — e.g. a short at `1410.70` wit
 
 ### The honest limit
 
-The backtest engine does **not** itself enforce a protective exit. A bracket line
-is therefore only guaranteed true when the strategy that declared it also exits at
-that level — which `bracket_breakout` does, so its chart is truthful. A future
-strategy that declares levels and ignores them would draw a bracket that nothing
-enforces. Engine-side stop simulation is the next real step, not this one.
+Engine-side protective exit **is** implemented in ``tradex_replay.backtest``
+(Option C1 of the solid-platform mega design): after an entry fill carrying a
+complete stop/target pair, subsequent bars that pierce a level close via the
+same ``ExecutionEngine`` path, stop-first when both hit on one bar, fill at the
+level price.
 
-Also not carried: a lone leg (see above), trailing stops, and per-trade fees — so
-a zone and a bracket show the price result of a position, never a net figure.
+Remaining limits:
+
+- A strategy that both declares brackets **and** emits its own exit can still
+  double-exit; ``bracket_breakout`` that exits at its declared levels remains
+  the safer reference producer.
+- Lone legs are still dropped (pair required); trailing stops are not simulated.
+- Zones/brackets show price results, not net fees.
 
 ## Verification
 
@@ -259,11 +264,9 @@ that had not just built is worth re-reading in that light.
 
 ## Known limitations
 
-**Nothing enforces a bracket in the backtest.** See "The honest limit" above: the
-levels are carried and drawn, and the producing strategy exits at them, but an
-engine-side protective exit (a stop that fills itself) is not implemented. A
-strategy that declares levels without honouring them would draw a bracket that is
-not enforced.
+**Protective exits are engine-simulated in backtest** (see "The honest limit"
+above). Remaining gaps: double-exit if a strategy also emits its own exit; lone
+legs still dropped; trailing stops not simulated.
 
 With several Backtest Equity panes on one chart, the price-chart layer (markers,
 zones and brackets) shows the run that published **most recently** — there is one price

@@ -58,11 +58,27 @@ def _fake_broker_with_history(closes: list[float]) -> MagicMock:
     return broker
 
 
+def _paper_with_examples() -> AppConfig:
+    """A paper config that opts into the auto-discovered example strategies."""
+    from dataclasses import replace
+
+    config = AppConfig(mode="paper")
+    return replace(
+        config,
+        execution=replace(config.execution, auto_register_examples=True),
+    )
+
+
 class TestBootWiresDiscovery:
     """boot() registers strategies and binds scanners into the session."""
 
     def test_boot_registers_discovered_strategies(self, monkeypatch) -> None:
-        session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
+        # Examples are opt-in; this test verifies the discovery wiring, so it
+        # asks for them. A default boot must not trade them.
+        session = boot(
+            _paper_with_examples(),
+            broker=_fake_broker_with_history([10.0]),
+        )
         try:
             assert session.strategy_engine is not None
             registered = session.strategy_engine.strategies  # type: ignore[union-attr]
@@ -132,7 +148,7 @@ class TestBootWiresDiscovery:
     def test_backtest_mode_scanner_uses_datalake_provider(self, monkeypatch) -> None:
         """In backtest/replay modes the scanner market is the parquet datalake
         provider, not the broker — offline scanning over the full universe."""
-        from tradex_trading.datalake.market_provider import ParquetMarketProvider
+        from tradex_market_data.market_provider import ParquetMarketProvider
 
         for mode in ("backtest", "replay"):
             session = boot(AppConfig(mode=mode), broker=_fake_broker_with_history([10.0]))

@@ -98,8 +98,31 @@ def test_unsub_silences_and_scopes():
     assert [m["id"] for m in _pushed] == ["sma"]
     reg.remove("NSE:RELIANCE", "1m", None)
     assert not reg.has_subs("NSE:RELIANCE", "1m")
+
+
+def test_sim_source_does_not_push_indicators():
+    """Chart-replay sim bars must not rewrite live indicator state."""
+    from tradex_runtime.bar_aggregator import BarFrame
+
+    pushed: list[dict] = []
+    reg = IndicatorStreamRegistry(push=pushed.append)
+    reg.add("NSE:RELIANCE", "1m", ["sma"], "bar-close")
+    sim = BarFrame(
+        instrument="NSE:RELIANCE",
+        timeframe="1m",
+        time=1784087100,
+        open=100.0,
+        high=100.5,
+        low=99.5,
+        close=100.2,
+        volume=1000.0,
+        closed=True,
+        source="sim",
+    )
+    reg.handle_bar_frame(sim)
+    assert pushed == []
     reg.handle_bar_frame(_frame(closed=True))
-    assert [m["id"] for m in _pushed] == ["sma"]
+    assert len(pushed) == 1
 
 
 def test_ws_indicator_sub_ack_and_error():

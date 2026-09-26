@@ -1,17 +1,11 @@
-"""Shared FastAPI dependencies for the route modules."""
+"""Compatibility shim — implementation lives in ``tradex_interfaces.routes.deps``."""
 
-from __future__ import annotations
+from importlib import import_module as _import_module
 
-from typing import Any
-
-from fastapi import Request
-
-
-def get_session(request: Request) -> Any | None:
-    """Return ``app.state.session`` for the current request.
-
-    ``None`` when the app is bound without a TradingSession (e.g. test
-    scaffolding). Route handlers that need a session should treat
-    ``None`` as "no data" rather than raising.
-    """
-    return request.app.state.session
+_impl = _import_module("tradex_interfaces.routes.deps")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

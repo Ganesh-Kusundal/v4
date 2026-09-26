@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tradex-interfaces"
+version = "0.1.0"
+description = "TradeX HTTP/WS interface layer"
+requires-python = ">=3.12"
+
+dependencies = [
+    "tradex-domain>=0.1.0,<0.2",
+    "tradex-config>=0.1.0,<0.2",
+    "tradex-execution>=0.1.0,<0.2",
+    "tradex-application>=0.1.0,<0.2",
+    "tradex-strategy>=0.1.0,<0.2",
+    "tradex-replay>=0.1.0,<0.2",
+    "tradex-market-data>=0.1.0,<0.2",
+    "tradex-analytics>=0.1.0,<0.2",
+    "tradex-reactive>=0.1.0,<0.2",
+    "tradex-runtime>=0.1.0,<0.2",
+    "fastapi>=0.110,<1",
+    "uvicorn>=0.29,<1",
+    "httpx>=0.27,<1",
+    "websockets>=12,<18",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tradex_interfaces"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["src"]
+filterwarnings = ["ignore::DeprecationWarning"]

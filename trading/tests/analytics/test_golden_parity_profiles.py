@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from tradex_trading.analytics.profiles import compute_profile
-from tradex_trading.analytics.seasonality import compute_seasonality
+from tradex_analytics.profiles import compute_profile
+from tradex_analytics.seasonality import compute_seasonality
 
 GOLDENS = Path(__file__).parent / "goldens" / "profiles"
 

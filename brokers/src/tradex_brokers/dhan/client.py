@@ -28,11 +28,13 @@ from tradex_domain.market import OHLC, Quote
 from tradex_domain.value_objects import InstrumentId, Money, OrderId, Price, Quantity
 from tradex_domain.wire import InstrumentRegistry
 
+from tradex_brokers.common import dhan_segments
 from tradex_brokers.common.client_shared import (
     build_provider_client,
     correlation_id,
     parse_timestamp_fallback,
 )
+from tradex_brokers.common.dhan_segments import dhan_segment_for
 from tradex_brokers.common.endpoints import DHAN_REST_BASE_URL
 from tradex_brokers.common.provider_client import ProviderHttpClient
 from tradex_brokers.common.provider_common import (
@@ -49,19 +51,12 @@ from tradex_brokers.dhan._marketdata import MarketDataMixin
 from tradex_brokers.dhan._orders import OrdersMixin
 from tradex_brokers.dhan._portfolio import PortfolioMixin
 
-#: Domain exchange -> Dhan ``ExchangeSegment`` string (single source of truth,
-#: shared by the REST client and the WebSocket stream backends).
-_DHAN_EXCHANGE_SEGMENT: dict[str, str] = {
-    "NSE": "NSE_EQ",
-    "BSE": "BSE_EQ",
-    "NFO": "NSE_FNO",
-    "BFO": "BSE_FNO",
-    "MCX": "MCX_COMM",
-    "NSE_COMM": "NSE_COMM",
-    "CDS": "NSE_CURRENCY",
-    "BCD": "BSE_CURRENCY",
-    "IDX": "IDX_I",
-}
+#: Domain exchange -> Dhan ``ExchangeSegment`` string.  Single source of truth,
+#: shared by the REST client and the WebSocket stream backends; the table itself
+#: now lives in ``tradex_brokers.common.dhan_segments``.  This alias is kept as
+#: a module-level name so existing importers of this module keep working
+#: unchanged.
+_DHAN_EXCHANGE_SEGMENT: dict[str, str] = dhan_segments.DHAN_EXCHANGE_SEGMENT
 
 #: Domain exchange for option legs built from a REST chain, keyed by the
 #: underlying's exchange. Equity/index underlyings follow the NFO/BFO product
@@ -86,8 +81,7 @@ _OPTION_LEG_EXCHANGE: dict[str, str] = {
 
 def dhan_exchange_segment(exchange: Any) -> str:
     """Map a domain exchange to Dhan's ``ExchangeSegment`` string."""
-    value = getattr(exchange, "value", exchange)
-    return _DHAN_EXCHANGE_SEGMENT.get(str(value).strip().upper(), "NSE_EQ")
+    return dhan_segment_for(exchange)
 
 
 def dhan_segment(instrument: Instrument) -> str:

@@ -24,7 +24,6 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from tradex_domain import OHLC, Candle, OrderSide, Signal, Timeframe
-from tradex_domain.enums import OrderStatus
 from tradex_domain.events import OrderFilled
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity

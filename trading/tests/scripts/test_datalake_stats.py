@@ -178,7 +178,7 @@ class TestCli:
         Resolution only: the real lake is gitignored and absent in CI, so this
         must not require it to exist (or to be scan-worthy).
         """
-        from tradex_trading.datalake.paths import datalake_root
+        from tradex_market_data.paths import datalake_root
 
         monkeypatch.chdir(tmp_path)  # the 2026-09-02 "serve from trading/" case
         assert resolve_root(None) == Path(datalake_root())

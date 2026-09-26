@@ -21,18 +21,16 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from tradex_domain import OHLC, Candle, OrderSide, Timeframe
+from tradex_brokers.paper.adapter import PaperBroker
+from tradex_domain import OrderSide
 from tradex_domain.enums import OrderType
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
 from tradex_domain.value_objects import Price, Quantity
 
-from tradex_brokers.paper.adapter import PaperBroker
-from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fill_sources import PaperFillSource
 from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 

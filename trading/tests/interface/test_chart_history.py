@@ -101,7 +101,7 @@ class TestHistoryContract:
         from_utc = int(start_naive.replace(tzinfo=ist).timestamp())
         to_utc = int(end_naive.replace(tzinfo=ist).timestamp())
         with patch(
-            "tradex_trading.interface.routes.chart._get_store", return_value=store
+            "tradex_interfaces.routes.chart._get_store", return_value=store
         ):
             client = _client()
             resp = client.get(

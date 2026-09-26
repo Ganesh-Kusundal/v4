@@ -16,9 +16,7 @@ from decimal import Decimal
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
-
 from tradex_domain import OHLC, Candle, OrderSide, Signal, Timeframe
-from tradex_domain.enums import OrderStatus
 from tradex_domain.events import OrderFilled
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity

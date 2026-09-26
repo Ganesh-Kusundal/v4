@@ -663,6 +663,40 @@ def test_post_order_with_instrument_id():
     assert r.json()["order_id"] == "ORD-001"
 
 
+def test_post_order_rejects_active_replay_guard_and_recovers():
+    from tradex_trading.interface.replay_guard import ReplayGuard
+    from tradex_trading.sdk.session import TradingSession
+
+    guard = ReplayGuard()
+    guard.acquire("run-1")
+    session = TradingSession.paper()
+    try:
+        client = TestClient(
+            create_app(session=session, api_key="secret", replay_guard=guard)
+        )
+        body = {
+            "exchange": "NSE",
+            "symbol": "RELIANCE",
+            "side": "BUY",
+            "quantity": 1,
+            "order_type": "MARKET",
+        }
+        headers = {
+            "X-API-Key": "secret",
+            "Idempotency-Key": "replay-guard-order-1",
+        }
+
+        blocked = client.post("/orders", json=body, headers=headers)
+        assert blocked.status_code == 422
+        assert blocked.json()["error"]["message"] == "orders are disabled during replay"
+
+        guard.release("run-1")
+        allowed = client.post("/orders", json=body, headers=headers)
+        assert allowed.status_code == 200, allowed.text
+    finally:
+        session.stop()
+
+
 def test_post_order_missing_fields():
     session = _make_mock_session()
     app = create_app(session=session)
@@ -846,12 +880,15 @@ def test_websocket_depth_gates_non_nse():
     with client.websocket_connect("/ws/stream") as ws:
         ws.send_text(_json.dumps({
             "type": "subscribe",
-            "instruments": ["MCX:CRUDEOIL"],
+            "instruments": ["IDX:NIFTY"],
             "depth": "30",
         }))
         ack = ws.receive_json()
         assert ack["type"] == "error"
-        assert "NSE" in ack["message"]
+        # Depth is gated by require_depth_supported, whose message names the
+        # venue and the supported set — it is not an NSE-only rule (MCX and
+        # BSE now carry depth, covered by the market_feed gate tests).
+        assert "not supported" in ack["message"]
         # The socket survives: a valid NSE depth subscribe still works.
         ws.send_text(_json.dumps({
             "type": "subscribe",
@@ -980,27 +1017,35 @@ def test_enqueue_drop_oldest_bounds_queue():
     asyncio.run(_run())
 
 
-def test_enqueue_control_drops_oldest_control_on_overflow():
-    """A full control queue drops its own oldest control; ticks are untouched."""
+def test_enqueue_control_reports_overflow_without_evicting():
+    """A full control queue reports overflow and evicts nothing.
+
+    The control queue carries OMS truth (acks, fills). Evicting a queued
+    fill to make room for a newer one would leave a client showing an order
+    as working after the venue already filled it, so overflow is *reported*
+    (``False``) and the caller closes the connection with
+    ``WS_CLOSE_CONTROL_OVERFLOW`` to force a fresh resync. Ticks, which are
+    freshness-bound and may be dropped, are never touched.
+    """
     import asyncio
 
-    from tradex_trading.interface.fastapi_app import _enqueue_control_drop_oldest
+    from tradex_trading.interface.fastapi_app import _enqueue_control
 
     async def _run():
         control: asyncio.Queue = asyncio.Queue(maxsize=2)
         ticks: asyncio.Queue = asyncio.Queue(maxsize=4)
         for i in range(4):
             ticks.put_nowait({"seq": i, "kind": "tick"})
-        # Control has room — no drop.
-        assert _enqueue_control_drop_oldest(control, {"kind": "ack-1"}) == 0
-        assert _enqueue_control_drop_oldest(control, {"kind": "ack-2"}) == 0
-        # Control is now full: the oldest control (ack-1) is evicted, the
-        # newest fill lands, and the tick backlog is never touched.
-        assert _enqueue_control_drop_oldest(control, {"kind": "fill"}) == 1
+        # Control has room — accepted, nothing reported.
+        assert _enqueue_control(control, {"kind": "ack-1"}) is True
+        assert _enqueue_control(control, {"kind": "ack-2"}) is True
+        # Control is now full: the overflow is reported and the queued
+        # acks are NOT evicted to make space for the fill.
+        assert _enqueue_control(control, {"kind": "fill"}) is False
         remaining = []
         while not control.empty():
             remaining.append(control.get_nowait())
-        assert remaining == [{"kind": "ack-2"}, {"kind": "fill"}]
+        assert remaining == [{"kind": "ack-1"}, {"kind": "ack-2"}]
         ticks_left = []
         while not ticks.empty():
             ticks_left.append(ticks.get_nowait())
@@ -1410,12 +1455,15 @@ class TestStartFastapiServer:
     def _uvicorn_and_clean_env(self, monkeypatch):
         pytest.importorskip("uvicorn")
         monkeypatch.delenv("TRADEX_SERVE_BROKER", raising=False)
+        monkeypatch.delenv("TRADEX_SERVE_MODE", raising=False)
         monkeypatch.delenv("TRADEX_SERVE_API_KEY", raising=False)
+        monkeypatch.delenv("TRADEX_SERVE_HOST", raising=False)
 
     @staticmethod
     def _ready_session():
         session = MagicMock()
         session.state = "READY"
+        session.mode = "paper"
         session.broker_id = "PAPER"
         return session
 
@@ -1423,6 +1471,7 @@ class TestStartFastapiServer:
         """A NEW session fails loudly before uvicorn binds a socket."""
         session = MagicMock()
         session.state = "NEW"
+        session.mode = "paper"
         session.broker_id = "PAPER"
         with patch("uvicorn.run") as uvicorn_run:
             with pytest.raises(ValueError, match="not ready"):
@@ -1454,7 +1503,7 @@ class TestStartFastapiServer:
             start_fastapi_server(session, workers=2)
         uvicorn_run.assert_called_once()
         app_spec = uvicorn_run.call_args.args[0]
-        assert app_spec == "tradex_trading.interface.fastapi_app:serve_app"
+        assert app_spec == "tradex_interfaces.fastapi_app:serve_app"
         assert uvicorn_run.call_args.kwargs["factory"] is True
         assert uvicorn_run.call_args.kwargs["workers"] == 2
         assert os.environ.get("TRADEX_SERVE_BROKER") == "PAPER"
@@ -1465,7 +1514,7 @@ class TestStartFastapiServer:
         with patch("uvicorn.run") as uvicorn_run:
             start_fastapi_server(session, reload=True)
         uvicorn_run.assert_called_once()
-        assert uvicorn_run.call_args.args[0] == "tradex_trading.interface.fastapi_app:serve_app"
+        assert uvicorn_run.call_args.args[0] == "tradex_interfaces.fastapi_app:serve_app"
         assert uvicorn_run.call_args.kwargs["factory"] is True
         assert uvicorn_run.call_args.kwargs["reload"] is True
 
@@ -1594,12 +1643,15 @@ class TestStartFastapiServerGuards:
     def _uvicorn_and_clean_env(self, monkeypatch):
         pytest.importorskip("uvicorn")
         monkeypatch.delenv("TRADEX_SERVE_BROKER", raising=False)
+        monkeypatch.delenv("TRADEX_SERVE_MODE", raising=False)
         monkeypatch.delenv("TRADEX_SERVE_API_KEY", raising=False)
+        monkeypatch.delenv("TRADEX_SERVE_HOST", raising=False)
 
     @staticmethod
     def _ready_session():
         session = MagicMock()
         session.state = "READY"
+        session.mode = "paper"
         session.broker_id = "PAPER"
         return session
 
@@ -1610,6 +1662,7 @@ class TestStartFastapiServerGuards:
         start is refused earlier by the fail-closed API-key guard instead.
         """
         session = self._ready_session()
+        session.mode = "live"
         session.broker_id = "UPSTOX"
         with patch("uvicorn.run") as uvicorn_run:
             with pytest.raises(ValueError, match="live brokers re-authenticate"):
@@ -1628,7 +1681,9 @@ class TestStartFastapiServerGuards:
         import os
 
         assert os.environ.get("TRADEX_SERVE_BROKER") is None
+        assert os.environ.get("TRADEX_SERVE_MODE") is None
         assert os.environ.get("TRADEX_SERVE_API_KEY") is None
+        assert os.environ.get("TRADEX_SERVE_HOST") is None
 
     def test_serve_app_factory_builds_ready_paper_session(self, monkeypatch):
         """serve_app() — the code that runs in each spawned worker — builds a
@@ -1636,7 +1691,9 @@ class TestStartFastapiServerGuards:
         from tradex_trading.interface.fastapi_app import serve_app
 
         monkeypatch.setenv("TRADEX_SERVE_BROKER", "PAPER")
+        monkeypatch.setenv("TRADEX_SERVE_MODE", "paper")
         monkeypatch.setenv("TRADEX_SERVE_API_KEY", "worker-secret")
+        monkeypatch.setenv("TRADEX_SERVE_HOST", "127.0.0.1")
         app = serve_app()
         assert isinstance(app, FastAPI)
         assert str(app.state.session.state) == "READY"

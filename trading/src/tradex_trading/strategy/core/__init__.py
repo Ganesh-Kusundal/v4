@@ -1,18 +1,11 @@
-"""Strategy core — the framework itself.
+"""Compatibility shim — implementation lives in ``tradex_strategy.core``."""
 
-Engine, protocols, scanner, and the reference strategy live here.
-User-owned strategies and scanners live in ``strategy/extensions`` and are
-auto-discovered — core files are never edited for user code.
-"""
+from importlib import import_module as _import_module
 
-from tradex_trading.strategy.core.buy_and_hold import BuyAndHoldStrategy
-from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
-from tradex_trading.strategy.core.protocols import Strategy
-from tradex_trading.strategy.core.scanner import ScannerEngine
-
-__all__ = [
-    "Strategy",
-    "ReactiveStrategyEngine",
-    "ScannerEngine",
-    "BuyAndHoldStrategy",
-]
+_impl = _import_module("tradex_strategy.core")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

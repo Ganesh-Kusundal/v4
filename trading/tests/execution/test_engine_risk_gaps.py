@@ -17,8 +17,8 @@ from tradex_domain.value_objects import (
 )
 
 from tradex_trading.execution.engine import ExecutionEngine, RiskManager
-from tradex_trading.execution.idempotency import MemoryIdempotencyGuard
 from tradex_trading.execution.fill_sources import SimulatedFillSource
+from tradex_trading.execution.idempotency import MemoryIdempotencyGuard
 from tradex_trading.reactive.bus import ReactiveBus
 
 

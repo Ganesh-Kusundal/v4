@@ -148,7 +148,7 @@ class TestRunCli:
         # instead of failing opaquely (mirrors test_fastapi_app.py).
         pytest.importorskip("fastapi")
         with patch(
-            "tradex_trading.interface.fastapi_app.start_fastapi_server"
+            "tradex_interfaces.fastapi_app.start_fastapi_server"
         ) as start:
             result = run_cli(["serve"])
         assert result == 0
@@ -164,7 +164,7 @@ class TestRunCli:
         """serve --workers/--reload should reach start_fastapi_server."""
         pytest.importorskip("fastapi")
         with patch(
-            "tradex_trading.interface.fastapi_app.start_fastapi_server"
+            "tradex_interfaces.fastapi_app.start_fastapi_server"
         ) as start:
             result = run_cli(["serve", "--workers", "3", "--reload", "--api-key", "k"])
         assert result == 0
@@ -177,7 +177,7 @@ class TestRunCli:
         """serve should print a loud failure and return 1 on server error."""
         pytest.importorskip("fastapi")
         with patch(
-            "tradex_trading.interface.fastapi_app.start_fastapi_server",
+            "tradex_interfaces.fastapi_app.start_fastapi_server",
             side_effect=RuntimeError("port in use"),
         ):
             result = run_cli(["serve"])
@@ -189,7 +189,7 @@ class TestRunCli:
         This is the safety guarantee of the command: --dry-run swaps in the
         paper broker and can be run without credentials.
         """
-        with patch("tradex_trading.datalake.simple_sync.simple_sync") as simple:
+        with patch("tradex_market_data.simple_sync.simple_sync") as simple:
             simple.return_value = MagicMock(
                 requested=50, fetched=0, written=0, failed=[], skipped=[]
             )
@@ -207,7 +207,7 @@ class TestRunCli:
         """main() must pass its own session to serve — never boot a second."""
         pytest.importorskip("fastapi")
         with patch(
-            "tradex_trading.interface.fastapi_app.start_fastapi_server"
+            "tradex_interfaces.fastapi_app.start_fastapi_server"
         ) as start, patch(
             "tradex_trading.sdk.session.TradingSession.paper",
             side_effect=AssertionError("serve must reuse the runtime session"),
@@ -267,7 +267,7 @@ class TestModuleEntryPoint:
         env = dict(os.environ)
         env["PYTHONPATH"] = srcs + os.pathsep + env.get("PYTHONPATH", "")
         proc = subprocess.run(
-            [sys.executable, "-m", "tradex_trading.interface.cli", "--help"],
+            [sys.executable, "-m", "tradex_interfaces.cli", "--help"],
             capture_output=True,
             text=True,
             timeout=60,

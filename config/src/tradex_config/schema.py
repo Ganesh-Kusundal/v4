@@ -1,0 +1,251 @@
+"""Application configuration schema.
+
+Defines the configuration structure for the v4 trading platform.
+Frozen dataclass tree with strict shape validation.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from decimal import Decimal
+from typing import Any
+
+from tradex_domain import BrokerId
+from tradex_domain.paths import default_runtime_dir
+
+
+def default_runtime_dir_str() -> str:
+    """Return the shared runtime root as a string.
+
+    Resolved on every call, not captured at import time, so the config layer
+    observes the same ``$TRADEX_RUNTIME_DIR`` the broker layer does. The
+    fallback used to be the bare relative ``".tradex_v4"``, which was
+    cwd-relative *and* a different directory from the ``<repo>/runtime`` the
+    broker layer anchored to, so the two layers forked token state, TOTP
+    cooldowns and instrument caches whenever the variable was unset.
+    """
+    return str(default_runtime_dir())
+
+
+@dataclass(frozen=True, slots=True)
+class RiskConfig:
+    """Risk management configuration."""
+
+    max_order_value: Decimal | None = None
+    max_position_value: Decimal | None = None
+    max_orders_per_minute: int | None = None
+    kill_switch_default: bool = False
+    reject_unknown_market_value: bool = False
+    max_daily_loss_amt: Decimal | None = None
+    max_drawdown_pct: Decimal | None = None
+    #: Live opening exposure requires a quote-derived mark no older than this
+    #: many seconds. The live composition root enables this fail-closed gate.
+    require_fresh_marks: bool = False
+    max_mark_age_seconds: float = 5.0
+    #: Optional zero-arg callable returning available cash (Decimal).
+    #: When set, ``boot()`` binds it to the engine's ``RiskManager`` so
+    #: every BUY in :meth:`RiskManager.check` is rejected if its incoming
+    #: notional exceeds the returned cash. When None, the cash gate is
+    #: skipped (backward-compat with risk configs that do not track cash).
+    cash_provider: Callable[[], Decimal | None] | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_order_value is not None and not isinstance(self.max_order_value, Decimal):
+            object.__setattr__(
+                self,
+                "max_order_value",
+                Decimal(str(self.max_order_value)),
+            )
+        if self.max_position_value is not None and not isinstance(self.max_position_value, Decimal):
+            object.__setattr__(
+                self,
+                "max_position_value",
+                Decimal(str(self.max_position_value)),
+            )
+        if self.max_daily_loss_amt is not None and not isinstance(self.max_daily_loss_amt, Decimal):
+            object.__setattr__(
+                self,
+                "max_daily_loss_amt",
+                Decimal(str(self.max_daily_loss_amt)),
+            )
+        if self.max_drawdown_pct is not None and not isinstance(self.max_drawdown_pct, Decimal):
+            object.__setattr__(
+                self,
+                "max_drawdown_pct",
+                Decimal(str(self.max_drawdown_pct)),
+            )
+        if self.max_mark_age_seconds < 0:
+            raise ValueError("max_mark_age_seconds must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class BrokerConfig:
+    """Broker connection configuration."""
+
+    name: str = "paper"
+    environment: str = "PAPER"
+
+
+@dataclass(frozen=True, slots=True)
+class PersistenceConfig:
+    """Optional local SQLite durability for orders and idempotency results.
+
+    ``path`` is deliberately opt-in: the default runtime remains in-memory and
+    creates no files. When set, both stores share this SQLite database.
+    """
+
+    path: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionConfig:
+    """Execution-cost and strategy-bridge configuration, shared across modes.
+
+    These settings make fees, slippage, and fill timing **consistent** between
+    backtest and the reactive paper/live path (parity review HIGH-6b) — the
+    same models are wired into the fill sources and the execution engine by
+    ``runtime.startup.boot``. Defaults reproduce the historical zero-cost,
+    next-bar-open behavior.
+    """
+
+    fees_enabled: bool = False
+    slippage_bps: Decimal | None = None
+    fill_reference: str = "next_open"
+    #: Register the auto-discovered example strategies on boot.
+    #:
+    #: Off by default. The discovered examples are bound to a hardcoded
+    #: instrument (``sma_cross_example`` trades RELIANCE) and place real orders,
+    #: so wiring them into a live account would trade something nobody deployed.
+    #: They remain discoverable so the chart/backtest route can offer them to a
+    #: user who asks for one by name.
+    auto_register_examples: bool = False
+
+    def __post_init__(self) -> None:
+        if self.slippage_bps is not None and not isinstance(
+            self.slippage_bps, Decimal
+        ):
+            object.__setattr__(
+                self,
+                "slippage_bps",
+                Decimal(str(self.slippage_bps)),
+            )
+        if self.fill_reference not in ("next_open", "signal_close"):
+            raise ValueError(
+                f"fill_reference must be 'next_open' or 'signal_close', "
+                f"got {self.fill_reference!r}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class AppConfig:
+    """Application configuration.
+
+    Attributes
+    ----------
+    broker_id : BrokerId
+        The broker to use (default: PAPER).
+    mode : str
+        Execution mode: "paper", "backtest", "replay", "live".
+    risk : RiskConfig
+        Risk management configuration.
+    runtime_dir : str
+        Directory for runtime data (logs, cache, etc.). Defaults to
+        ``$TRADEX_RUNTIME_DIR`` or the repo-anchored ``<repo>/runtime``,
+        shared with the broker layer (see ``default_runtime_dir_str``).
+    kill_switch_default : bool
+        Default state of the kill switch.
+    live_enabled : bool
+        Whether live trading is explicitly enabled.
+    environment : str
+        Runtime environment (PAPER, SANDBOX, LIVE).
+    broker : BrokerConfig
+        Broker connection configuration.
+    persistence : PersistenceConfig
+        Persistence configuration.
+    """
+
+    broker_id: BrokerId = BrokerId.PAPER
+    mode: str = "paper"
+    risk: RiskConfig = field(default_factory=RiskConfig)
+    runtime_dir: str = field(default_factory=default_runtime_dir_str)
+    kill_switch_default: bool = False
+    live_enabled: bool = False
+    live_orders_enabled: bool = False
+    environment: str = "PAPER"
+    broker: BrokerConfig = field(default_factory=BrokerConfig)
+    persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
+    execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AppConfig:
+        """Build an AppConfig from a plain dictionary with strict validation."""
+        allowed = {
+            "broker_id",
+            "mode",
+            "risk",
+            "runtime_dir",
+            "kill_switch_default",
+            "live_enabled",
+            "live_orders_enabled",
+            "environment",
+            "broker",
+            "persistence",
+            "execution",
+        }
+        unknown = set(data) - allowed
+        if unknown:
+            raise ValueError(f"unknown config sections: {sorted(unknown)}")
+
+        broker_id_str = str(data.get("broker_id", "PAPER"))
+        valid_ids = [b.value for b in BrokerId]
+        try:
+            broker_id = BrokerId(broker_id_str)
+        except ValueError:
+            raise ValueError(
+                f"invalid broker_id {broker_id_str!r}; "
+                f"valid values: {valid_ids}"
+            ) from None
+
+        broker = _build(BrokerConfig, data.get("broker"))
+        risk = _build(RiskConfig, data.get("risk"))
+        persistence = _build(PersistenceConfig, data.get("persistence"))
+        execution = _build(ExecutionConfig, data.get("execution"))
+
+        return cls(
+            broker_id=broker_id,
+            mode=str(data.get("mode", "paper")),
+            risk=risk,
+            runtime_dir=str(data.get("runtime_dir") or default_runtime_dir_str()),
+            kill_switch_default=bool(data.get("kill_switch_default", False)),
+            live_enabled=bool(data.get("live_enabled", False)),
+            live_orders_enabled=bool(data.get("live_orders_enabled", False)),
+            environment=str(data.get("environment", "PAPER")),
+            broker=broker,
+            persistence=persistence,
+            execution=execution,
+        )
+
+
+def _build(cls: type, data: object) -> Any:
+    """Construct a frozen dataclass from an optional dict with strict keys."""
+    if data is None:
+        return cls()
+    if not isinstance(data, dict):
+        raise ValueError(f"{cls.__name__} config must be an object")
+    allowed = set(cls.__dataclass_fields__)  # type: ignore[attr-defined]
+    unknown = set(data) - allowed
+    if unknown:
+        raise ValueError(f"unknown {cls.__name__} keys: {sorted(unknown)}")
+    return cls(**data)
+
+
+__all__ = [
+    "AppConfig",
+    "BrokerConfig",
+    "ExecutionConfig",
+    "PersistenceConfig",
+    "RiskConfig",
+    "_build",
+    "default_runtime_dir_str",
+]

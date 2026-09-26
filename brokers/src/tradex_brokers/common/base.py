@@ -300,6 +300,24 @@ class BaseBroker:
             raise ValueError(f"unknown stream backend kind: {kind!r}")
         setattr(self, attr, backend)
 
+    def set_reconnect_hook(self, cb: Any) -> None:
+        """Register *cb* on every market-data stream backend that supports it.
+
+        Called by the trading layer (``MarketFeed``) to wire ``notify_reconnect``
+        onto the broker's WebSocket backends without importing trading into
+        brokers.  Only market-data backends (``_ws_backend``, ``_depth_backend``)
+        receive the hook — the order/portfolio stream is unrelated to feed state.
+        Thread-safe: backends guard their own ``_on_reconnect`` slot; fanout
+        here is best-effort (absent or non-supporting backends are silently
+        skipped).
+        """
+        for backend in (self._ws_backend, self._depth_backend):
+            if backend is None:
+                continue
+            hook = getattr(backend, "set_reconnect_hook", None)
+            if callable(hook):
+                hook(cb)
+
     # ------------------------------------------------------------------
     # gating / requirement helpers
     # ------------------------------------------------------------------

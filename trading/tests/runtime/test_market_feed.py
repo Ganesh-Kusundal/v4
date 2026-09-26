@@ -16,18 +16,24 @@ from tradex_trading.runtime.market_feed import FeedRegistry, MarketFeed
 
 
 class TestDepthExchangeGate:
-    """Depth is NSE-only: non-NSE depth requests fail loudly."""
+    """Depth follows the venue-wide supported set, not NSE-only.
 
-    def test_subscribe_depth_gates_non_nse(self) -> None:
+    ``tradex_domain.market.require_depth_supported`` allows NSE, NFO, BSE, BFO
+    and MCX. These tests used to assert an NSE-only policy and treated MCX and
+    BSE as unsupported; both now carry depth, so they are asserted to work and
+    only genuinely unsupported venues (IDX/CDS indices) are gated.
+    """
+
+    def test_subscribe_depth_gates_unsupported_exchange(self) -> None:
         feed, _, _ = _make()
-        with pytest.raises(CapabilityNotSupportedError, match="NSE"):
-            feed.subscribe([Equity.of("MCX", "CRUDEOIL")], depth="30")
+        with pytest.raises(CapabilityNotSupportedError, match="not supported"):
+            feed.subscribe([Index.of("IDX", "NIFTY")], depth="30")
         assert feed.active is False
 
-    def test_start_depth_gates_non_nse(self) -> None:
+    def test_start_depth_gates_unsupported_exchange(self) -> None:
         feed, _, _ = _make()
-        with pytest.raises(CapabilityNotSupportedError, match="NSE"):
-            feed.start([Equity.of("MCX", "CRUDEOIL")], depth="20")
+        with pytest.raises(CapabilityNotSupportedError, match="not supported"):
+            feed.start([Index.of("IDX", "NIFTY")], depth="20")
         assert feed.active is False
 
     def test_quote_only_non_nse_allowed(self) -> None:
@@ -40,12 +46,17 @@ class TestDepthExchangeGate:
         feed.subscribe([Equity.of("BSE", "RELIANCE")])
         assert feed.active is True
 
-    def test_depth_gates_bse_and_idx(self) -> None:
+    @pytest.mark.parametrize(
+        "instrument",
+        [
+            Equity.of("MCX", "CRUDEOIL"),
+            Equity.of("BSE", "RELIANCE"),
+        ],
+    )
+    def test_depth_allowed_on_supported_venues(self, instrument) -> None:
         feed, _, _ = _make()
-        for inst in (Equity.of("BSE", "RELIANCE"), Index.of("IDX", "NIFTY")):
-            with pytest.raises(CapabilityNotSupportedError, match="NSE"):
-                feed.subscribe([inst], depth="30")
-        assert feed.active is False
+        feed.subscribe([instrument], depth="30")
+        assert feed.active is True
 
 
 def _reliance() -> Instrument:
@@ -482,10 +493,16 @@ class TestFeedRegistry:
         assert feed.depth_enabled is True
         assert len(fake.depth_30_subs) == 1
 
-    def test_depth_gates_non_nse_without_ref_leak(self) -> None:
+    def test_depth_gates_unsupported_exchange_without_ref_leak(self) -> None:
+        """The gate must fire before any refcount or feed mutation.
+
+        Uses an index venue, which is genuinely outside the supported set
+        (NSE/NFO/BSE/BFO/MCX); MCX depth is supported and covered by
+        ``TestDepthExchangeGate.test_depth_allowed_on_supported_venues``.
+        """
         reg, feed, _, _ = self._make_registry()
-        with pytest.raises(CapabilityNotSupportedError, match="NSE"):
-            reg.subscribe([Equity.of("MCX", "CRUDEOIL")], depth="30")
+        with pytest.raises(CapabilityNotSupportedError, match="not supported"):
+            reg.subscribe([Index.of("IDX", "NIFTY")], depth="30")
         # Gate fires before any refcount mutation or feed subscription.
         assert reg.any_depth is False
         assert feed.instruments == frozenset()
@@ -523,6 +540,52 @@ class TestFeedRegistry:
         reg, feed, fake, _ = self._make_registry()
         reg.release()
         assert reg.connection_count == 0
+
+
+class TestFeedSupervisorIntegration:
+    def test_start_enters_recovery_and_quote_records_event(self) -> None:
+        from tradex_trading.runtime.feed_supervisor import FeedState
+
+        fake = _FakeBroker()
+        feed = MarketFeed(broker=fake, bus=ReactiveBus())
+        feed.start([_reliance()])
+
+        assert feed.supervisor.state is FeedState.RESYNCHRONIZING
+        assert feed.supervisor.last_event_at is None
+
+        fake.emit_quote(_quote(_reliance()))
+
+        assert feed.supervisor.state is FeedState.RESYNCHRONIZING
+        assert feed.supervisor.last_event_at is not None
+
+    def test_stop_marks_feed_degraded(self) -> None:
+        from tradex_trading.runtime.feed_supervisor import FeedState
+
+        fake = _FakeBroker()
+        feed = MarketFeed(broker=fake, bus=ReactiveBus())
+        feed.start([_reliance()])
+        feed.stop()
+
+        assert feed.supervisor.state is FeedState.DEGRADED
+
+
+    def test_stale_feed_marks_supervisor_degraded(self) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from tradex_trading.runtime.feed_supervisor import FeedState
+
+        fake = _FakeBroker()
+        feed = MarketFeed(broker=fake, bus=ReactiveBus(), stale_after=0.1)
+        feed.start([_reliance()])
+        feed._last_tick[_reliance().instrument_id] = datetime.now(UTC) - timedelta(seconds=1)
+        feed.supervisor.recovery_succeeded(
+            last_event_at=datetime.now(UTC),
+            recovered_through=datetime.now(UTC),
+        )
+
+        feed.check_stale()
+
+        assert feed.supervisor.state is FeedState.DEGRADED
 
 
 class TestStaleFeed:
@@ -563,9 +626,9 @@ class TestStaleFeed:
         assert received == []
 
     def test_stale_feed_importable_from_runtime(self) -> None:
-        from tradex_trading.runtime.market_feed import StaleFeed as MFStale
-
         from tradex_domain.events import StaleFeed as DomainStale
+
+        from tradex_trading.runtime.market_feed import StaleFeed as MFStale
 
         assert MFStale is DomainStale
 
@@ -608,3 +671,213 @@ class TestFeedRegistryThreadSafe:
             pass
         assert feed.instruments == frozenset()
         assert feed.active is False
+
+
+# ---------------------------------------------------------------------------
+# Wave A1: notify_reconnect and auto-recovery triggers
+# ---------------------------------------------------------------------------
+
+
+def _quote_ts(instrument: Instrument, ts: Any) -> Quote:
+    """Helper: Quote with explicit timestamp for integrity-trigger tests."""
+    from decimal import Decimal
+    return Quote(instrument=instrument, ltp=Price(value=Decimal("100")), timestamp=ts)
+
+
+class TestNotifyReconnect:
+    """notify_reconnect() marks the supervisor RESYNCHRONIZING without running recovery."""
+
+    def test_notify_reconnect_marks_resynchronizing(self) -> None:
+        from tradex_trading.runtime.feed_supervisor import FeedState
+
+        fake = _FakeBroker()
+        feed = MarketFeed(broker=fake, bus=ReactiveBus())
+        # Start and reach READY via manual supervisor manipulation.
+        feed.start([_reliance()])
+        feed.supervisor.recovery_succeeded(last_event_at=None, recovered_through=None)
+        assert feed.supervisor.state is FeedState.READY
+
+        feed.notify_reconnect()
+
+        assert feed.supervisor.state is FeedState.RESYNCHRONIZING
+        assert feed.supervisor.ready is False
+
+    def test_notify_reconnect_increments_generation(self) -> None:
+        fake = _FakeBroker()
+        feed = MarketFeed(broker=fake, bus=ReactiveBus())
+        feed.start([_reliance()])  # generation = 1
+        feed.supervisor.recovery_succeeded(last_event_at=None, recovered_through=None)
+
+        gen_before = feed.supervisor.generation
+        feed.notify_reconnect()
+
+        assert feed.supervisor.generation == gen_before + 1
+
+    def test_notify_reconnect_does_not_auto_recover(self) -> None:
+        """notify_reconnect must never call the recovery coordinator automatically."""
+        import threading
+
+        recovery_called = threading.Event()
+
+        class _FakeRecovery:
+            def recover(self) -> object:
+                recovery_called.set()
+                return None
+
+        fake = _FakeBroker()
+        feed = MarketFeed(broker=fake, bus=ReactiveBus())
+        feed.set_recovery(_FakeRecovery())
+        feed.start([_reliance()])
+
+        feed.notify_reconnect()
+
+        # Recovery must NOT have been called implicitly.
+        assert not recovery_called.wait(timeout=0.1)
+
+
+class TestAutoRecoveryTriggers:
+    """LARGE_JUMP / MISSING_BAR violations trigger the recovery coordinator."""
+
+    def _make_ready_feed(self) -> tuple[MarketFeed, _FakeBroker]:
+        from tradex_trading.runtime.feed_integrity import FeedIntegrityTracker
+
+        fake = _FakeBroker()
+        integrity = FeedIntegrityTracker(large_jump_seconds=1.0)
+        feed = MarketFeed(broker=fake, bus=ReactiveBus(), integrity=integrity)
+        feed.subscribe([_reliance()])
+        feed.supervisor.recovery_started()
+        feed.supervisor.recovery_succeeded(last_event_at=None, recovered_through=None)
+        return feed, fake
+
+    def test_large_jump_triggers_recovery(self) -> None:
+        import threading
+        from datetime import UTC, datetime
+
+        recovery_called = threading.Event()
+
+        class _FakeRecovery:
+            def recover(self) -> object:
+                recovery_called.set()
+                return None
+
+        feed, fake = self._make_ready_feed()
+        feed.set_recovery(_FakeRecovery())
+
+        t1 = datetime(2026, 9, 24, 10, 0, 0, tzinfo=UTC)
+        t2 = datetime(2026, 9, 24, 10, 5, 0, tzinfo=UTC)  # 5-min jump > 1s threshold
+        fake.emit_quote(_quote_ts(_reliance(), t1))
+        fake.emit_quote(_quote_ts(_reliance(), t2))
+
+        assert recovery_called.wait(timeout=2.0), "Recovery not triggered on LARGE_JUMP"
+
+    def test_large_jump_does_not_double_trigger(self) -> None:
+        """A second LARGE_JUMP while recovery is already running is a no-op."""
+        import threading
+        import time
+        from datetime import UTC, datetime
+
+        calls: list[None] = []
+        barrier = threading.Barrier(2)
+
+        class _SlowRecovery:
+            def recover(self) -> object:
+                calls.append(None)
+                try:
+                    barrier.wait(timeout=2.0)
+                except threading.BrokenBarrierError:
+                    pass
+                return None
+
+        feed, fake = self._make_ready_feed()
+        feed.set_recovery(_SlowRecovery())
+
+        t0 = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
+        t1 = datetime(2026, 9, 24, 10, 5, tzinfo=UTC)
+        t2 = datetime(2026, 9, 24, 10, 10, tzinfo=UTC)
+        fake.emit_quote(_quote_ts(_reliance(), t0))
+        fake.emit_quote(_quote_ts(_reliance(), t1))  # triggers recovery → RESYNCHRONIZING
+        time.sleep(0.05)  # let daemon thread start and call recovery_started()
+        fake.emit_quote(_quote_ts(_reliance(), t2))  # second jump: already RESYNCHRONIZING → no-op
+
+        barrier.wait(timeout=2.0)
+        assert len(calls) == 1, "Recovery was double-triggered"
+
+    def test_missing_bar_triggers_recovery(self) -> None:
+        import threading
+
+        from tradex_trading.runtime.bar_aggregator import BarFrame
+        from tradex_trading.runtime.feed_integrity import FeedIntegrityTracker
+
+        recovery_called = threading.Event()
+
+        class _FakeRecovery:
+            def recover(self) -> object:
+                recovery_called.set()
+                return None
+
+        fake = _FakeBroker()
+        integrity = FeedIntegrityTracker()
+        feed = MarketFeed(broker=fake, bus=ReactiveBus(), integrity=integrity)
+        feed.set_recovery(_FakeRecovery())
+        feed.supervisor.recovery_started()
+        feed.supervisor.recovery_succeeded(last_event_at=None, recovered_through=None)
+
+        base = 1_774_000_000
+        # First bar establishes anchor; second has a gap (120s = 1 missing 1m bar).
+        feed.on_bar_frame(BarFrame("NSE:RELIANCE", "1m", base, 1.0, 1.0, 1.0, 1.0, 1.0, True))
+        feed.on_bar_frame(BarFrame("NSE:RELIANCE", "1m", base + 120, 1.0, 1.0, 1.0, 1.0, 1.0, True))
+
+        assert recovery_called.wait(timeout=2.0), "Recovery not triggered on MISSING_BAR"
+
+    def test_duplicate_bar_does_not_trigger_recovery(self) -> None:
+        """Duplicate closed bars (DUPLICATE_CLOSED_BAR) must NOT trigger recovery."""
+        import threading
+
+        from tradex_trading.runtime.bar_aggregator import BarFrame
+        from tradex_trading.runtime.feed_integrity import FeedIntegrityTracker
+
+        recovery_called = threading.Event()
+
+        class _FakeRecovery:
+            def recover(self) -> object:
+                recovery_called.set()
+                return None
+
+        fake = _FakeBroker()
+        integrity = FeedIntegrityTracker()
+        feed = MarketFeed(broker=fake, bus=ReactiveBus(), integrity=integrity)
+        feed.set_recovery(_FakeRecovery())
+        feed.supervisor.recovery_started()
+        feed.supervisor.recovery_succeeded(last_event_at=None, recovered_through=None)
+
+        base = 1_774_000_000
+        feed.on_bar_frame(BarFrame("NSE:RELIANCE", "1m", base, 1.0, 1.0, 1.0, 1.0, 1.0, True))
+        feed.on_bar_frame(BarFrame("NSE:RELIANCE", "1m", base, 1.0, 1.0, 1.0, 1.0, 1.0, True))
+
+        assert not recovery_called.wait(timeout=0.2), "Recovery incorrectly triggered on duplicate bar"
+
+    def test_no_recovery_without_coordinator(self) -> None:
+        """Violations without a wired coordinator are observation-only (no crash)."""
+        from datetime import UTC, datetime
+
+        from tradex_trading.runtime.feed_integrity import FeedIntegrityTracker
+
+        fake = _FakeBroker()
+        integrity = FeedIntegrityTracker(large_jump_seconds=1.0)
+        feed = MarketFeed(broker=fake, bus=ReactiveBus(), integrity=integrity)
+        feed.subscribe([_reliance()])
+
+        t1 = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
+        t2 = datetime(2026, 9, 24, 10, 5, tzinfo=UTC)
+        # Must not raise even with no recovery coordinator wired.
+        fake.emit_quote(_quote_ts(_reliance(), t1))
+        fake.emit_quote(_quote_ts(_reliance(), t2))
+
+    def test_on_bar_frame_is_noop_without_integrity_tracker(self) -> None:
+        """on_bar_frame with no integrity tracker must not crash."""
+        from tradex_trading.runtime.bar_aggregator import BarFrame
+
+        fake = _FakeBroker()
+        feed = MarketFeed(broker=fake, bus=ReactiveBus())  # no integrity tracker
+        # Must not raise.
+        feed.on_bar_frame(BarFrame("NSE:RELIANCE", "1m", 1_774_000_000, 1.0, 1.0, 1.0, 1.0, 1.0, True))

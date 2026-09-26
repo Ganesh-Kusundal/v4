@@ -3,7 +3,7 @@
  "sha": "be7418e960b7fcdeeaa8f68a845ca463055a7cb3",
  "version": "2.3.2",
  "pinned": true,
- "distHash": "sha256:f3846770f8576bd705302accc5219189737bb0088842ecb7141fb50bd9e1201c",
+ "distHash": "sha256:203834f4685a56ffd76691e7d7df6f02a8ec72899495eff0ef03cad444c9aab5",
  "fixturesSha256": "sha256:20864885e8c25ac8302e6419586e6bed75610c22036f0c0f83b9fd40e307c7dc",
  "goldensSha256": "sha256:e6317b35d12ef36eddbc6ac52d0e8605c081e9e1ddde686c2c468db164236946",
  "generators": [
@@ -12,5 +12,5 @@
   "generate_goldens_transforms.mjs",
   "generate_goldens_profiles.mjs"
  ],
- "generatedAt": "2026-09-18T09:42:43.028Z"
+ "generatedAt": "2026-09-24T07:20:05.331Z"
 }

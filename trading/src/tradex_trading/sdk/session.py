@@ -14,8 +14,9 @@ from dataclasses import replace
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from tradex_config.schema import AppConfig
 from tradex_domain import BrokerId, SessionStateError
 from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.errors import CapabilityNotSupportedError, OrderRejectedError
@@ -31,13 +32,19 @@ from tradex_domain.instruments import (
 from tradex_domain.protocols import BrokerAdapter
 from tradex_domain.strategy import ScannerDefinition
 from tradex_domain.value_objects import Price
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
+from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 
-from tradex_trading.config.schema import AppConfig
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
-from tradex_trading.sdk.streaming import StreamSubscription
+if TYPE_CHECKING:
+    # Type-only: used solely in the ``_subscriptions`` annotation below, which
+    # is a string under ``from __future__ import annotations``. Importing it
+    # eagerly made this module depend on tradex_runtime at runtime, and since
+    # tradex_runtime.startup imports *this* module, the pair formed the
+    # runtime -> trading -> runtime cycle that made
+    # ``import tradex_runtime.session`` fail on its own.
+    from tradex_runtime.streaming import StreamSubscription
 
 log = logging.getLogger(__name__)
 
@@ -73,15 +80,19 @@ class TradingSession:
         scanner_engine: object | None = None,
         scanner_definitions: Sequence[ScannerDefinition] | None = None,
         strategy_engine: object | None = None,
+        strategy_registry: object | None = None,
         stream_backend: object | None = None,
         backtest_loader: object | None = None,
         live_orders_enabled: bool = True,
         fill_bridge: object | None = None,
         market_feed: object | None = None,
+        feed_supervisor: object | None = None,
         master_scheduler: object | None = None,
         mark_to_market: object | None = None,
         metrics: object | None = None,
         writer_lock: object | None = None,
+        feed_monitor: object | None = None,
+        feed_recovery: object | None = None,
     ) -> None:
         self._broker = broker
         self._bus = bus
@@ -95,6 +106,9 @@ class TradingSession:
         self._scanner_engine = scanner_engine
         self._scanner_definitions = tuple(scanner_definitions or ())
         self._strategy_engine = strategy_engine
+        #: Wired in by the composition path (``live()``/``boot``) via the
+        #: constructor — no post-init private mutation [REF-5].
+        self._strategy_registry = strategy_registry
         self._stream_backend = stream_backend
         self._backtest_loader = backtest_loader
         self._live_orders_enabled = live_orders_enabled
@@ -104,6 +118,15 @@ class TradingSession:
         #: Wired in by the composition path (``live()``/``boot``) via the
         #: constructor — no post-init private mutation [REF-5].
         self._market_feed = market_feed
+        self._feed_supervisor = feed_supervisor
+        #: Automatic stale-poll daemon. Owned here so no caller has to remember
+        #: to poll ``MarketFeed.check_stale()``; started in ``start()`` and
+        #: stopped in ``stop()`` (never by a client release).
+        self._feed_monitor = feed_monitor
+        #: Fail-closed reconnect recovery coordinator (history replay → READY).
+        #: Invoked explicitly via ``session.recover_feed()`` by the owner of the
+        #: reconnect signal, never automatically on a socket reconnect alone.
+        self._feed_recovery = feed_recovery
         #: Daily instrument-master refresh daemon (live brokers only). Passed
         #: in by ``TradingSession.live()`` when the broker carries a cached
         #: master loader; stopped here so a long-running session re-downloads
@@ -128,6 +151,13 @@ class TradingSession:
         sid = getattr(self, '_session_id', id(self))
         log.info("Session %s starting", sid)
         self._state = SessionState.READY
+        # Start the owned stale-feed poll now: a stale tape must degrade the
+        # feed even if the operator never asks for a metric or a status frame.
+        if self._feed_monitor is not None:
+            try:
+                self._feed_monitor.start()  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover – defensive
+                log.warning("feed stale monitor start failed", exc_info=True)
 
     def stop(self) -> None:
         """Transition to STOPPED state. Dispose all subscriptions.
@@ -151,6 +181,14 @@ class TradingSession:
         for sub in self._subscriptions:
             sub.cancel()
         self._subscriptions.clear()
+        # Stop the stale-feed poll before the feed itself is torn down so a
+        # poll cannot observe a half-stopped feed.
+        if self._feed_monitor is not None:
+            try:
+                self._feed_monitor.stop()  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover – defensive teardown
+                log.warning("feed stale monitor stop failed", exc_info=True)
+            self._feed_monitor = None
         if self._market_feed is not None:
             try:
                 self._market_feed.stop()  # type: ignore[attr-defined]
@@ -219,6 +257,14 @@ class TradingSession:
     def broker_id(self) -> BrokerId:
         """Broker identifier."""
         return self._broker_id
+
+    def strategy_registry(self) -> object | None:
+        """Registered strategy runtimes, or ``None`` when not wired.
+
+        Public accessor so lifecycle inspection does not reach into
+        ``session._strategy_registry`` [REF-5].
+        """
+        return self._strategy_registry
 
     @property
     def capabilities(self) -> BrokerCapabilities:
@@ -348,6 +394,36 @@ class TradingSession:
         )
         # Historical minimal component set: no reactive strategy/scanner wiring.
         return boot(cfg, bus=bus, broker=PaperBroker(), wire_strategies=False)
+
+    @property
+    def feed_supervisor(self) -> object | None:
+        """Feed health state for live mode, or ``None`` for offline modes."""
+        return self._feed_supervisor
+
+    @property
+    def feed_monitor(self) -> object | None:
+        """Owned stale-feed poll daemon (``None`` for offline modes/stopped)."""
+        return self._feed_monitor
+
+    @property
+    def feed_recovery(self) -> object | None:
+        """Reconnect recovery coordinator (``None`` when history is unwired)."""
+        return self._feed_recovery
+
+    def recover_feed(self) -> Any:
+        """Run the fail-closed feed recovery sequence after a reconnect.
+
+        Returns the coordinator's outcome (``ok``, ``bars_replayed``,
+        ``missing_bars``, ``error``). Raises ``CapabilityNotSupportedError``
+        when the session has no recovery coordinator (offline modes, or a live
+        feed without a history source — in which case a reconnect can never be
+        proven continuous and the feed must stay degraded).
+        """
+        if self._feed_recovery is None:
+            raise CapabilityNotSupportedError(
+                "no feed recovery coordinator bound to this session"
+            )
+        return self._feed_recovery.recover()  # type: ignore[attr-defined]
 
     @property
     def market_feed(self) -> Any | None:

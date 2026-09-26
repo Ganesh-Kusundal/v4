@@ -2,8 +2,9 @@ import { expect, test, type Page, type APIRequestContext } from '@playwright/tes
 
 const APP = '/ui/';
 const clearBlob = async (request: APIRequestContext): Promise<void> => {
-  await request.delete('/api/charts/workspace/NSE_RELIANCE_1m_default');
-  await request.delete('/api/charts/workspace/NSE_RELIANCE_1h_default');
+  for (const interval of ['1m', '5m', '15m', '30m', '1h', 'D']) {
+    await request.delete(`/api/charts/workspace/NSE_RELIANCE_${interval}_default`);
+  }
 };
 
 
@@ -221,7 +222,13 @@ test.describe('per-trade table', () => {
       expect(dollars(cells[3]), `row ${i + 1} entry`).toBeCloseTo(trip.entryPrice, 2);
       expect(dollars(cells[5]), `row ${i + 1} exit`).toBeCloseTo(trip.exitPrice, 2);
       expect(dollars(cells[6]), `row ${i + 1} size`).toBeCloseTo(trip.qty, 4);
-      expect(dollars(cells[7]), `row ${i + 1} P&L`).toBeCloseTo(trip.amount, 2);
+      // The panel displays P&L rounded to 2dp, so compare against the rounded
+      // amount rather than the raw one: -0.125 legitimately renders as -0.13,
+      // and a tolerance wide enough to admit that would also admit a real bug.
+      const shown = dollars(cells[7]);
+      expect(shown, `row ${i + 1} P&L`).toBe(
+        Number(trip.amount.toFixed(2)),
+      );
       // The sign is the part a mapping bug flips, so it is asserted on the text
       // rather than left to the value's own magnitude.
       expect(cells[7].startsWith('-'), `row ${i + 1} P&L sign`).toBe(trip.amount < 0);

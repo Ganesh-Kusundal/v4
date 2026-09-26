@@ -47,7 +47,7 @@ from __future__ import annotations
 import argparse
 import random
 import sys
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -59,6 +59,7 @@ for sub in ("domain/src", "brokers/src", "trading/src"):
 
 from tradex_domain import Timeframe  # noqa: E402 — sys.path setup above
 from tradex_domain.market_calendar import (  # noqa: E402 — sys.path setup above
+    MARKET_OPEN,
     NSE_HOLIDAYS_2026,
 )
 
@@ -70,7 +71,7 @@ from tradex_trading.datalake.paths import DATALAKE_ROOT  # noqa: E402 — sys.pa
 #: One bar per minute, 09:15 .. 15:29 IST — 375 bars, matching the real session
 #: (``market_session_mask`` also admits 15:30, but no NSE equity bar is stamped
 #: there; generating one would make the fixture differ from production data).
-SESSION_START = time(9, 15)
+SESSION_START = MARKET_OPEN
 SESSION_MINUTES = 375
 
 DEFAULT_SYMBOL = "RELIANCE"

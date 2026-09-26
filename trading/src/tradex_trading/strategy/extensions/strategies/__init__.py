@@ -1,42 +1,11 @@
-"""User strategy classes — import each strategy module here.
+"""Compatibility shim — implementation lives in ``tradex_strategy.extensions.strategies``."""
 
-Objects listed in ``__all__`` are validated against the runtime-checkable
-``Strategy`` protocol by ``extensions/__init__.py``. Add a new strategy by
-dropping a module in this package and importing it below.
-"""
+from importlib import import_module as _import_module
 
-from tradex_trading.strategy.extensions.strategies.bollinger_breakout import (
-    bollinger_breakout_strategy,
+_impl = _import_module("tradex_strategy.extensions.strategies")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
 )
-from tradex_trading.strategy.extensions.strategies.ema_ribbon_pullback import (
-    ema_ribbon_pullback_strategy,
-)
-from tradex_trading.strategy.extensions.strategies.macd_cross import (
-    macd_cross_strategy,
-)
-from tradex_trading.strategy.extensions.strategies.mean_reversion import (
-    mean_reversion_strategy,
-)
-from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
-    multi_symbol_sma_cross,
-)
-from tradex_trading.strategy.extensions.strategies.rsi_reversal import (
-    rsi_reversal_strategy,
-)
-from tradex_trading.strategy.extensions.strategies.sma_cross import (
-    sma_cross_strategy,
-)
-from tradex_trading.strategy.extensions.strategies.supertrend_flip import (
-    supertrend_flip_strategy,
-)
-
-__all__ = [
-    "bollinger_breakout_strategy",
-    "ema_ribbon_pullback_strategy",
-    "macd_cross_strategy",
-    "mean_reversion_strategy",
-    "multi_symbol_sma_cross",
-    "rsi_reversal_strategy",
-    "sma_cross_strategy",
-    "supertrend_flip_strategy",
-]
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

@@ -16,7 +16,7 @@ from tradex_domain.strategy import StrategyContext
 
 from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
 from tradex_trading.datalake.parquet_storage import ParquetStorage
-from tradex_trading.replay.backtest import BacktestEngine
+from tradex_trading.replay.backtest import BacktestEngine, run_with_loader
 
 
 def _upsert_bars(store: ParquetStorage, symbol: str, days: tuple[int, ...]) -> None:
@@ -166,7 +166,7 @@ class TestParquetBacktestLoader:
         store = ParquetStorage(tmp_path)
         _upsert_two_symbols(store)
         monkeypatch.setattr(
-            "tradex_trading.datalake.backtest_loader.load_universe",
+            "tradex_market_data.backtest_loader.load_universe",
             lambda name: [Equity.of("NSE", "RELIANCE")],
         )
         loader = ParquetBacktestLoader(store=store)
@@ -257,13 +257,14 @@ class TestParquetBacktestLoader:
         assert [_key(c) for c in seq] == [_key(c) for c in par]
 
     def test_run_convenience_backtests_strategy(self, tmp_path) -> None:
-        """loader.run() loads candles and executes BacktestEngine in one call."""
+        """run_with_loader() loads candles and executes BacktestEngine in one call."""
         store = ParquetStorage(tmp_path)
         _upsert_bars(store, "RELIANCE", (1, 2))
         loader = ParquetBacktestLoader(store=store)
 
         strategy = _SignalEveryBar(Equity.of("NSE", "RELIANCE"))
-        result = loader.run(
+        result = run_with_loader(
+            loader,
             strategy,
             instruments=[Equity.of("NSE", "RELIANCE")],
             timeframe=Timeframe.D1,
@@ -273,7 +274,7 @@ class TestParquetBacktestLoader:
         assert result.num_trades == 2
 
     def test_run_accepts_configured_engine(self, tmp_path) -> None:
-        """A pre-configured engine (fees) flows through loader.run()."""
+        """A pre-configured engine (fees) flows through run_with_loader()."""
         from tradex_trading.execution.fees import FeeCalculator
 
         store = ParquetStorage(tmp_path)
@@ -281,7 +282,8 @@ class TestParquetBacktestLoader:
         loader = ParquetBacktestLoader(store=store)
 
         strategy = _SignalEveryBar(Equity.of("NSE", "RELIANCE"))
-        result = loader.run(
+        result = run_with_loader(
+            loader,
             strategy,
             engine=BacktestEngine(fee_calculator=FeeCalculator()),
             instruments=[Equity.of("NSE", "RELIANCE")],
@@ -294,7 +296,7 @@ class TestParquetBacktestLoader:
 
     def test_multi_symbol_strategy_runs_via_loader(self, tmp_path) -> None:
         """A portfolio-style strategy (one instance, every instrument) works
-        through ``loader.run()`` over two symbols in a single call."""
+        through ``run_with_loader()`` over two symbols in a single call."""
         from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
             MultiSymbolSmaCross,
         )
@@ -304,7 +306,8 @@ class TestParquetBacktestLoader:
         _upsert_series(store, "TCS", [10, 12, 10, 8, 16])
         loader = ParquetBacktestLoader(store=store)
 
-        result = loader.run(
+        result = run_with_loader(
+            loader,
             MultiSymbolSmaCross(fast=2, slow=3),
             instruments=[Equity.of("NSE", "RELIANCE"), Equity.of("NSE", "TCS")],
             timeframe=Timeframe.D1,
@@ -326,14 +329,16 @@ class TestParquetBacktestLoader:
         loader = ParquetBacktestLoader(store=store)
         inst = Equity.of("NSE", "RELIANCE")
 
-        base = loader.run(
+        base = run_with_loader(
+            loader,
             _BuyThenSell(inst),
             instruments=[inst],
             timeframe=Timeframe.D1,
             start=_WINDOW[0],
             end=_WINDOW[1],
         )
-        slipped = loader.run(
+        slipped = run_with_loader(
+            loader,
             _BuyThenSell(inst),
             engine=BacktestEngine(
                 slippage_model=PercentageSlippageModel(Decimal("0.01"))
@@ -541,7 +546,7 @@ class TestLoaderSurvivorshipBias:
         store = ParquetStorage(tmp_path)
         _upsert_bars(store, "RELIANCE", (1, 2))
         monkeypatch.setattr(
-            "tradex_trading.datalake.backtest_loader.load_universe",
+            "tradex_market_data.backtest_loader.load_universe",
             lambda name: [
                 Equity.of("NSE", "RELIANCE"),
                 Equity.of("NSE", "TCS"),

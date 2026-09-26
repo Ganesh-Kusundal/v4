@@ -14,7 +14,6 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-import pytest
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType
 from tradex_domain.execution import Fill, OrderRequest, Position
 from tradex_domain.instruments import Equity
@@ -62,20 +61,32 @@ def _make_fill(order_id: OrderId, price_value: str = "100"):
 # ===================================================================
 
 
-class TestUnknownInTerminalStatuses:
-    def test_unknown_is_terminal(self):
-        from tradex_trading.execution.engine import _TERMINAL_STATUSES
-        assert OrderStatus.UNKNOWN in _TERMINAL_STATUSES
+class TestUnknownIsNotTerminal:
+    """UNKNOWN is unresolved, not settled.
 
-    def test_all_four_terminal_statuses(self):
+    It used to be listed as terminal, which meant the kill switch skipped it —
+    so halting left the one order most likely to be live at the broker still
+    live. The venue has not answered yet, so the order is still ours to act on.
+    """
+
+    def test_unknown_is_not_terminal(self):
+        from tradex_trading.execution.engine import _TERMINAL_STATUSES
+        assert OrderStatus.UNKNOWN not in _TERMINAL_STATUSES
+
+    def test_the_three_settled_statuses(self):
         from tradex_trading.execution.engine import _TERMINAL_STATUSES
         expected = {
             OrderStatus.FILLED,
             OrderStatus.CANCELLED,
             OrderStatus.REJECTED,
-            OrderStatus.UNKNOWN,
         }
         assert _TERMINAL_STATUSES == expected
+
+    def test_kill_switch_shares_the_definition(self):
+        """One definition, so modify() and trip() cannot disagree."""
+        from tradex_execution.engine import _TERMINAL_STATUSES
+        from tradex_execution.kill_switch import TERMINAL_STATUSES
+        assert _TERMINAL_STATUSES == TERMINAL_STATUSES
 
 
 # ===================================================================
@@ -375,10 +386,17 @@ class TestBusinessTokenRejection:
 
 
 class TestAsyncPipelineFixes:
-    def test_process_request_boundary_crossed_raises(self):
-        """When fill source has boundary_crossed and raises, should raise
-        OrderSubmissionUnknownError instead of publishing rejection."""
+    def test_process_request_boundary_crossed_withholds_reservation(self):
+        """A submission that crossed the broker boundary has an unknown outcome.
+
+        It must never be answered with a rejection (that would invite a retry of a
+        request the venue may already have accepted), the idempotency reservation
+        must be withheld so a blind retry is refused, and the unknown outcome must
+        be surfaced on the bus. ``_process_request`` converts the raise into an
+        ``ErrorOccurred`` event, so it does not propagate to the reactive caller.
+        """
         from tradex_domain.errors import OrderSubmissionUnknownError
+        from tradex_domain.value_objects import CorrelationId
 
         from tradex_trading.execution.engine import ExecutionEngine
 
@@ -391,11 +409,35 @@ class TestAsyncPipelineFixes:
         fill_source.submission_boundary_crossed = True
         fill_source.submit.side_effect = OSError("connection lost")
 
-        engine = ExecutionEngine(bus=bus, fill_source=fill_source)
+        guard = MagicMock()
+        # No duplicate in flight: a fresh reservation, so the pipeline proceeds
+        # to the broker boundary.
+        guard.check_and_reserve.return_value = None
 
-        req = _make_request()
-        with pytest.raises(OrderSubmissionUnknownError):
-            engine._process_request(req)
+        engine = ExecutionEngine(
+            bus=bus, fill_source=fill_source, idempotency_guard=guard,
+        )
+
+        req = _make_request(correlation_id=CorrelationId("unknown-outcome-1"))
+        engine._process_request(req)  # does not propagate to the reactive caller
+
+        # A reservation must actually exist, or the assertions below are vacuous:
+        # the engine only reserves when the request carries a correlation id.
+        guard.check_and_reserve.assert_called_once()
+
+        # The reservation is what blocks a blind retry of a money-changing
+        # request; releasing it here is the regression this test exists to catch.
+        assert guard.release.called is False
+
+        published = [call.args[0] for call in bus.publish.call_args_list]
+        errors = [
+            event.error for event in published if hasattr(event, "error")
+        ]
+        assert any(isinstance(err, OrderSubmissionUnknownError) for err in errors)
+        # Never a rejection: the venue may already have accepted the order.
+        assert not any(
+            event.__class__.__name__ == "OrderRejected" for event in published
+        )
 
     def test_process_request_records_idempotency_result(self):
         """After successful fill, idempotency guard should have result recorded."""

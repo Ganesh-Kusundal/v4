@@ -11,6 +11,11 @@ RESUMABLE: completed quarters are recorded in data/backfill_2025.json, so a
 killed or partial run picks up where it left off. ParquetStorage.upsert is
 idempotent, so re-running a completed quarter is a cheap no-op.
 
+MULTI-BROKER: every connected broker gets its own ParallelHistoryFetcher (the
+fetcher pairs one broker with one rate limiter, so a multi-broker dict is split
+here, not inside it). A batch is fanned out to all of them and merged on first
+success, so a dead or throttled broker is masked by a healthy one.
+
 Usage:
     python trading/scripts/backfill_2025.py            # run remaining quarters
     python trading/scripts/backfill_2025.py Q1 Q3      # run specific quarters
@@ -66,6 +71,47 @@ from tradex_trading.datalake.universe import load_universe  # noqa: E402
 from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
 
 
+def _make_fetchers(
+    brokers: dict, max_workers: int
+) -> list[tuple[str, ParallelHistoryFetcher]]:
+    """One fetcher per broker — ParallelHistoryFetcher pairs one broker with one
+    rate limiter, so a multi-broker dict must be split at the call site.
+    """
+    return [
+        (name, ParallelHistoryFetcher({name: broker}, max_workers=max_workers))
+        for name, broker in sorted(brokers.items())
+    ]
+
+
+def _fetch_all(
+    fetchers: list[tuple[str, ParallelHistoryFetcher]],
+    batch: list,
+    timeframe: str,
+    start: datetime,
+    end: datetime,
+) -> tuple[dict, list[str]]:
+    """Fan a batch out to every broker and merge on first success.
+
+    Brokers are tried in sorted-name order and the first non-empty result for an
+    instrument wins, so a healthy earlier broker masks a later one (failover)
+    while the precedence stays deterministic across runs. A broker that raises is
+    recorded as an error rather than discarding the other brokers' results.
+    """
+    merged: dict = {}
+    errors: list[str] = []
+    for name, fetcher in fetchers:
+        try:
+            results, errs = fetcher.fetch(batch, timeframe, start, end)
+        except Exception as exc:
+            log.warning("broker %s: batch fetch raised: %s", name, exc)
+            errors.append(f"{name}: batch fetch raised: {exc}")
+            continue
+        for inst_id, series in results.items():
+            merged.setdefault(inst_id, series)
+        errors.extend(f"{name}: {e}" for e in errs)
+    return merged, errors
+
+
 def _load_progress() -> set[str]:
     if PROGRESS_FILE.exists():
         return set(json.loads(PROGRESS_FILE.read_text()).get("done", []))
@@ -79,7 +125,41 @@ def _save_progress(done: set[str]) -> None:
     )
 
 
+USAGE = """\
+Backfill 2025 OHLCV quarters into the datalake.
+
+Usage:
+    python trading/scripts/backfill_2025.py [Q1 Q2 Q3 Q4 ...] [--reset]
+
+Arguments:
+    Q1..Q4   Quarters to backfill (default: all not already done).
+
+Options:
+    --reset   Clear the progress file and redo every quarter.
+    -h, --help
+             Show this message and exit WITHOUT connecting to any broker.
+"""
+
+
 def main(argv: list[str]) -> int:
+    # --help/-h must be handled BEFORE any broker connection: this script has
+    # no argparse, and its quarter filter (`not a.startswith("--")`) silently
+    # swallows --help, so `backfill_2025.py --help` used to run a REAL live
+    # backfill against Dhan + Upstox.
+    if any(a in ("-h", "--help") for a in argv[1:]):
+        print(USAGE)
+        return 0
+
+    # Validate argv BEFORE any broker connection — a typo'd quarter should not
+    # open two live broker sessions just to fail.
+    quarters = [a for a in argv[1:] if not a.startswith("--")]
+    unknown = [a for a in quarters if a not in QUARTERS]
+    if unknown:
+        log.error("unknown quarter(s) %r (use Q1..Q4)", unknown)
+        print(USAGE)
+        return 1
+    quarters = quarters or list(QUARTERS)
+
     store = ParquetStorage(Path(datalake_root()))
     instruments = load_universe("nifty500")
     brokers = {}
@@ -95,7 +175,11 @@ def main(argv: list[str]) -> int:
         log.error("no brokers available")
         return 1
 
-    fetcher = ParallelHistoryFetcher(brokers, max_workers=4)
+    fetchers = _make_fetchers(brokers, max_workers=4)
+    log.info(
+        "fetchers ready: %s (workers=4 per broker)",
+        ", ".join(name for name, _ in fetchers),
+    )
     done = _load_progress()
 
     if "--reset" in argv:
@@ -103,12 +187,7 @@ def main(argv: list[str]) -> int:
         _save_progress(done)
         log.info("progress reset")
 
-    quarters = [a for a in argv[1:] if not a.startswith("--")] or list(QUARTERS)
-
     for q in quarters:
-        if q not in QUARTERS:
-            log.error("unknown quarter %r (use Q1..Q4)", q)
-            return 1
         if q in done:
             log.info("===== %s  already done — skipping =====", q)
             continue
@@ -123,7 +202,7 @@ def main(argv: list[str]) -> int:
         ]
         t0 = time.monotonic()
         for bi, batch in enumerate(batches, 1):
-            results, errors = fetcher.fetch(batch, "1m", start, end)
+            results, errors = _fetch_all(fetchers, batch, "1m", start, end)
             frames = []
             for inst_id, series in results.items():
                 df = series_to_frame(series, inst_id.split(":")[-1])

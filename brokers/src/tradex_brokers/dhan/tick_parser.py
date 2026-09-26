@@ -28,22 +28,67 @@ from __future__ import annotations
 import struct
 from datetime import UTC, datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
-#: Exchange-segment codes carried in the binary frame header (dhanhq map).
-SEGMENT_EXCHANGE: dict[int, str] = {
-    0: "IDX",
-    1: "NSE",
-    2: "NFO",
-    3: "CDS",
-    4: "BSE",
-    5: "MCX",
-    7: "BCD",
-    8: "BFO",
-}
+from tradex_domain.timezones import IST_ZONE as _IST
+
+from tradex_brokers.common.dhan_segments import (
+    DHAN_EXCHANGE_SEGMENT,
+    DHAN_SEGMENT_EXCHANGE,
+    DHAN_WIRE_CODE_EXCHANGE,
+)
+
+
+#: Exchange-segment codes carried in the binary frame header -> canonical v4
+#: domain exchange.  These integers are Dhan's *binary protocol* codes and are
+#: NOT derivable from :data:`DHAN_EXCHANGE_SEGMENT` — they come from the wire,
+#: not from the REST segment vocabulary.  The code list itself is pinned once,
+#: in :data:`common.dhan_segments.DHAN_WIRE_CODE_EXCHANGE` (note the gap: Dhan
+#: assigns no segment to code 6 and never sends a code for ``NSE_COMM``).
+#:
+#: This module is the consumer, not a second source: it validates the pinned
+#: list against the canonical forward table at import time so a domain
+#: exchange added or re-pointed there cannot leave the wire map stale.
+def _assert_wire_codes_match_segments() -> dict[int, str]:
+    """Validate the wire-code list against the canonical segment tables.
+
+    Raises ``AssertionError`` at import if a code's exchange is unknown to
+    :data:`DHAN_EXCHANGE_SEGMENT`, if it does not round-trip to itself, or if
+    the list was written as a positional enumeration of the forward table.
+    """
+    known = set(DHAN_EXCHANGE_SEGMENT)
+    unknown = sorted(set(DHAN_WIRE_CODE_EXCHANGE.values()) - known)
+    assert not unknown, (
+        "dhan wire codes reference exchanges missing from the canonical "
+        f"forward table (common.dhan_segments.DHAN_EXCHANGE_SEGMENT): {unknown}"
+    )
+    # A code resolves back to its own exchange only if the forward table still
+    # maps that exchange to that exact segment.  This catches a *misrouted*
+    # value that a set-equality check would miss because the exchange is
+    # known: re-pointing a forward entry (CDS -> "BSE_CURRENCY") makes both
+    # code 3 and code 7 fail, and dropping an entry makes its code fail.
+    stale = {
+        code: exchange
+        for code, exchange in DHAN_WIRE_CODE_EXCHANGE.items()
+        if DHAN_SEGMENT_EXCHANGE.get(DHAN_EXCHANGE_SEGMENT[exchange]) != exchange
+    }
+    assert not stale, (
+        f"dhan wire codes disagree with the canonical forward table: {stale}"
+    )
+    assert DHAN_WIRE_CODE_EXCHANGE != {
+        code: exchange for code, exchange in enumerate(DHAN_EXCHANGE_SEGMENT)
+    }, (
+        "dhan wire codes must stay an explicit protocol table, not an "
+        "enumeration of the forward table (Dhan's codes skip 6)"
+    )
+    return dict(DHAN_WIRE_CODE_EXCHANGE)
+
+
+#: Public alias: binary wire code -> canonical v4 domain exchange.
+#: ``.get(code)`` returns ``None`` for an unknown code (e.g. 6) — unchanged.
+SEGMENT_EXCHANGE: dict[int, str] = _assert_wire_codes_match_segments()
 
 #: Dhan LTT is IST wall-clock seconds encoded as a Unix timestamp (as if UTC).
-_IST = ZoneInfo("Asia/Kolkata")
+#: Zone from the shared domain timezone module.
 
 #: Struct layout per Dhan binary message type (header + payload fields).
 _TICKER = struct.Struct("<BHBIfI")  # type, len, seg, secid, ltp, ltt

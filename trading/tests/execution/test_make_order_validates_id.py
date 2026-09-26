@@ -14,14 +14,15 @@ that's a real bug to surface clearly.
 
 from __future__ import annotations
 
-import pytest
+from decimal import Decimal
 
-from tradex_trading.execution.fill_sources import _make_order
+import pytest
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
+from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-from decimal import Decimal
-from tradex_domain.execution import OrderRequest
+
+from tradex_trading.execution.fill_sources import _make_order
 
 
 def _request() -> OrderRequest:

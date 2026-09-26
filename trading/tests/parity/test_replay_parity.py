@@ -127,8 +127,8 @@ class TestReplayFillSourceParity:
         # Replay
         replay_source = ReplayFillSource(original_fills)
         # Submit 4 requests (one per original fill) and collect results
-        from tradex_domain.execution import OrderRequest
         from tradex_domain.enums import OrderType
+        from tradex_domain.execution import OrderRequest
         from tradex_domain.value_objects import CorrelationId
 
         replayed_fills = []
@@ -160,8 +160,8 @@ class TestReplayFillSourceParity:
     def test_replay_exhausts_fills_gracefully(self):
         """After all historical fills are consumed, further submits return
         ACK orders without fills (the replay source has no more history)."""
-        from tradex_domain.execution import OrderRequest
         from tradex_domain.enums import OrderType
+        from tradex_domain.execution import OrderRequest
         from tradex_domain.value_objects import CorrelationId
 
         candles = [
@@ -192,8 +192,8 @@ class TestReplayFillSourceParity:
     def test_replay_preserves_fill_timestamps(self):
         """Replayed fills preserve their original timestamps (the
         historical record is not re-stamped with new times)."""
-        from tradex_domain.execution import OrderRequest
         from tradex_domain.enums import OrderType
+        from tradex_domain.execution import OrderRequest
         from tradex_domain.value_objects import CorrelationId
 
         candles = [

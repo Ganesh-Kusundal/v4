@@ -12,6 +12,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
+from tradex_trading.interface._helpers import is_ready, readiness
 from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
 
 
@@ -97,6 +98,59 @@ class TestErrorEnvelope:
         body = r.json()
         assert "detail" not in body
         assert "error" in body
+
+
+# ---------------------------------------------------------------------------
+# Feed-aware readiness
+# ---------------------------------------------------------------------------
+
+
+def test_ready_reports_feed_state() -> None:
+    from unittest.mock import MagicMock
+
+    from tradex_trading.runtime.feed_supervisor import FeedSupervisor
+    from tradex_trading.sdk.session import SessionState
+
+    session = MagicMock()
+    session.state = SessionState.READY
+    session.feed_supervisor = FeedSupervisor()
+    session.feed_supervisor.connected()
+    session.feed_supervisor.recovery_started()
+
+    response = readiness(session)
+
+    assert response.feed_state == "resynchronizing"
+    assert response.feed_ready is False
+
+
+def test_ready_without_feed_supervisor_keeps_legacy_shape() -> None:
+    from unittest.mock import MagicMock
+
+    from tradex_trading.sdk.session import SessionState
+
+    session = MagicMock()
+    session.state = SessionState.READY
+    session.feed_supervisor = None
+
+    response = readiness(session)
+
+    assert response.feed_state is None
+    assert response.feed_ready is None
+
+
+def test_is_ready_requires_ready_feed_for_live_session() -> None:
+    from unittest.mock import MagicMock
+
+    from tradex_trading.runtime.feed_supervisor import FeedSupervisor
+    from tradex_trading.sdk.session import SessionState
+
+    session = MagicMock()
+    session.state = SessionState.READY
+    session.feed_supervisor = FeedSupervisor()
+    session.feed_supervisor.connected()
+    session.feed_supervisor.recovery_started()
+
+    assert is_ready(session) is False
 
 
 # ---------------------------------------------------------------------------

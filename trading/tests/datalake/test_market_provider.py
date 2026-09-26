@@ -9,7 +9,7 @@ from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.market import HistoricalSeries
 
-from tradex_trading.datalake.market_provider import ParquetMarketProvider
+from tradex_market_data.market_provider import ParquetMarketProvider
 from tradex_trading.datalake.parquet_storage import ParquetStorage
 
 

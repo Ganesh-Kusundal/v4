@@ -1,8 +1,12 @@
 import {
   withBarCache,
   type Bar,
+  type BarSubscriptionOptions,
+  type BarsPage,
+  type BarsPageRequest,
   type BarsRequest,
   type DataFeed,
+  type LiveBarMeta,
   type MarketDepth,
   type UnsubscribeFn,
 } from 'openalgo-charts';
@@ -53,101 +57,144 @@ interface HistoryEnvelope {
   error?: { code?: string; message?: string };
 }
 
-/** Newest bar time the backend has actually served, in UTC seconds.
- *
- * The widget derives its load window from a clock: `lookbackBars` back from
- * "now". Wall-clock "now" is the wrong anchor whenever the datalake lags —
- * overnight, over a weekend, or on any day not yet synced — because the
- * window then lands entirely *after* the newest bar and every intraday
- * interval renders empty ("no bars for this range") while daily still works
- * by spanning years. The backend already reports the newest bar it served, so
- * the host hands the widget that instant instead and the window always ends
- * on data that exists.
- */
-let anchorSec: number | null = null;
+const anchors = new Map<string, number>();
+let activeAnchorKey: string | null = null;
+let anchorRequestId = 0;
+let activeAnchorRequest = 0;
 
-/** Clock the chart's load window is derived from (falls back to wall clock). */
-export const datalakeClock = (): number => anchorSec ?? Math.floor(Date.now() / 1000);
+const anchorKey = (exchange: string, symbol: string, interval: string): string =>
+  `${exchange}:${symbol}:${interval}`;
 
-/** Remember the newest served bar from any history response. */
-function noteAnchor(body: HistoryEnvelope): void {
-  if (typeof body.last_closed_time === 'number' && body.last_closed_time > 0) {
-    anchorSec = body.last_closed_time;
-  }
+function selectAnchorKey(key: string, requestId: number): void {
+  if (requestId < activeAnchorRequest) return;
+  activeAnchorRequest = requestId;
+  activeAnchorKey = key;
 }
 
-/** One history request, unwrapped. Shared by `getBars` and the anchor probe. */
+export const datalakeClock = (exchange?: string, symbol?: string, interval?: string): number => {
+  const key = exchange !== undefined && symbol !== undefined && interval !== undefined
+    ? anchorKey(exchange, symbol, interval)
+    : activeAnchorKey;
+  return (key === null ? undefined : anchors.get(key)) ?? Math.floor(Date.now() / 1000);
+};
+
+function noteAnchor(exchange: string, symbol: string, interval: string, body: HistoryEnvelope, requestId: number): void {
+  const key = anchorKey(exchange, symbol, interval);
+  selectAnchorKey(key, requestId);
+  const newest = body.last_closed_time;
+  if (typeof newest !== 'number' || !Number.isFinite(newest) || newest <= 0) return;
+  const current = anchors.get(key);
+  if (current === undefined || newest > current) anchors.set(key, newest);
+}
+
+function requestError(name: string, message: string): Error {
+  const error = new Error(message);
+  error.name = name;
+  return error;
+}
+
+function withHistorySignal<T>(
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  if (callerSignal?.aborted) return Promise.reject(requestError('AbortError', 'history request cancelled'));
+  return new Promise<T>((resolve, reject) => {
+    const controller = new AbortController();
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = (ok: boolean, value: unknown): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callerSignal?.removeEventListener('abort', onAbort);
+      if (ok) resolve(value as T);
+      else reject(value);
+    };
+    const onAbort = (): void => {
+      controller.abort();
+      finish(false, requestError('AbortError', 'history request cancelled'));
+    };
+    timer = setTimeout(() => {
+      controller.abort();
+      finish(false, requestError('TimeoutError', 'history request timed out'));
+    }, timeoutMs);
+    callerSignal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      void run(controller.signal).then(
+        (value) => finish(true, value),
+        (error) => finish(false, error),
+      );
+    } catch (error) {
+      finish(false, error);
+    }
+  });
+}
+
 async function fetchHistory(
   exchange: string,
   symbol: string,
   interval: string,
   from?: number,
   to?: number,
+  signal?: AbortSignal,
+  timeoutMs = 45_000,
 ): Promise<HistoryEnvelope> {
-  // The engine's paging math produces fractional epochs (`to` like
-  // 1788839099.999999). Bars are whole seconds and the endpoint types these as
-  // `int`, so a float 422s — which the UI surfaces as "Could not load older
-  // history" for a page that actually has bars. Normalize at the wire edge.
+  const requestId = ++anchorRequestId;
+  selectAnchorKey(anchorKey(exchange, symbol, interval), requestId);
   const fromSec = from === undefined ? undefined : Math.floor(from);
   const toSec = to === undefined ? undefined : Math.floor(to);
   const window =
     `${fromSec === undefined ? '' : `&from=${fromSec}`}${toSec === undefined ? '' : `&to=${toSec}`}`;
-  let res: Response;
   try {
-    res = await fetch(
-      `${API_BASE}/api/charts/history/${exchange}:${symbol}?interval=${mapInterval(interval)}${window}`,
-      { signal: AbortSignal.timeout(45_000) },
-    );
+    return await withHistorySignal(signal, Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 45_000, async requestSignal => {
+      const res = await fetch(
+        `${API_BASE}/api/charts/history/${exchange}:${symbol}?interval=${mapInterval(interval)}${window}`,
+        { signal: requestSignal },
+      );
+      const body = (await res.json().catch((error: unknown) => {
+        if (error instanceof Error && error.name === 'AbortError') throw error;
+        return undefined;
+      })) as HistoryEnvelope | undefined;
+      if (body?.error) {
+        throw new FeedError(body.error.message ?? 'history failed', body.error.code ?? 'error');
+      }
+      if (!res.ok) throw new FeedError(`history failed (${res.status})`);
+      if (requestSignal.aborted) throw requestError('AbortError', 'history request cancelled');
+      const parsed = body ?? {};
+      noteAnchor(exchange, symbol, interval, parsed, requestId);
+      return parsed;
+    });
   } catch (err) {
-    if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+    if (err instanceof Error && err.name === 'TimeoutError') {
       throw new FeedError('history request timed out', 'timeout');
     }
     throw err;
   }
-  const body = (await res.json().catch(() => undefined)) as HistoryEnvelope | undefined;
-  if (body?.error) {
-    throw new FeedError(body.error.message ?? 'history failed', body.error.code ?? 'error');
-  }
-  if (!res.ok) throw new FeedError(`history failed (${res.status})`);
-  const parsed = body ?? {};
-  noteAnchor(parsed);
-  return parsed;
 }
 
-/** Learn the datalake's newest bar before the widget computes its first window.
- *
- * `last_closed_time` is the last bar *in the returned window*, so one
- * unbounded request makes it the newest bar that exists. Best-effort: with no
- * anchor the clock falls back to wall clock and the chart behaves exactly as
- * it did before this probe existed.
- *
- * Returns **this probe's own** answer, not the shared `anchorSec`: the global is
- * written by every response, and a paged-in older window reports an older
- * `last_closed_time`, so the global can sit below the newest bar. Callers that
- * need the series *identity* — the workspace fingerprint check — need the exact
- * value for the instrument they asked about. (The mutable global is a known
- * wart: it should be keyed per instrument so a paged response cannot drag the
- * load-window clock backwards. Out of scope here; the probe is exact.)
- */
 export async function probeDatalakeAnchor(
   exchange: string,
   symbol: string,
   interval: string,
+  signal?: AbortSignal,
 ): Promise<number | null> {
+  const key = anchorKey(exchange, symbol, interval);
   try {
-    const body = await fetchHistory(
+    await fetchHistory(
       exchange,
       symbol,
       interval,
       undefined,
       Math.floor(Date.now() / 1000) + 86_400,
+      signal,
     );
-    const newest = body.last_closed_time;
-    if (typeof newest === 'number' && newest > 0) return newest;
+    return anchors.get(key) ?? null;
   } catch (err) {
+    if (signal?.aborted) throw err;
     console.warn('datalake anchor probe failed', err);
   }
-  return anchorSec;
+  return anchors.get(key) ?? null;
 }
 
 /** Engine token -> WS interval param. Backend Timeframe values are 1m|5m|15m|30m|1h|1d. */
@@ -165,7 +212,21 @@ interface WsBarFrame {
   volume: number;
   closed: boolean;
   source: string;
+  provisional?: boolean;
+  run_id?: string | null;
 }
+
+type BarSubscriptionSeed = {
+  lastClosed?: Bar;
+  currentBucket?: Bar;
+};
+
+type WireBarSubscriptionOptions = BarSubscriptionOptions & {
+  currentBucket?: Bar;
+  seed?: BarSubscriptionSeed;
+};
+
+type BarFrameHandler = (bar: Bar, meta?: LiveBarMeta) => void;
 
 interface WsDepthFrame {
   type: 'depth';
@@ -185,11 +246,13 @@ interface WsDepthFrame {
 class BarSocket {
   private ws: WebSocket | null = null;
   private refs = 0;
-  private readonly subs = new Map<string, Set<(bar: Bar) => void>>();
+  private readonly subs = new Map<string, Set<BarFrameHandler>>();
+  private readonly subOptions = new Map<string, Map<BarFrameHandler, WireBarSubscriptionOptions>>();
   private readonly depths = new Map<string, Set<(depth: MarketDepth) => void>>();
   /** Caller-requested depth level per instrument, replayed on (re)open. */
   private readonly depthLevels = new Map<string, string>();
   private readonly handlers = new Map<string, Set<(msg: unknown) => void>>();
+  private readonly barHandlers = new Set<BarFrameHandler>();
   private readonly openCbs = new Set<() => void>();
   private readonly closeCbs = new Set<() => void>();
   private readonly giveUpCbs = new Set<() => void>();
@@ -202,28 +265,67 @@ class BarSocket {
   private readonly pendingSends: object[] = [];
   private closeTimer: ReturnType<typeof setTimeout> | null = null;
 
-  subscribe(instrument: string, interval: string, onBar: (bar: Bar) => void): UnsubscribeFn {
+  subscribe(
+    instrument: string,
+    interval: string,
+    onBar: BarFrameHandler,
+    opts?: WireBarSubscriptionOptions,
+  ): UnsubscribeFn {
     const key = `${instrument}|${interval}`;
     let set = this.subs.get(key);
+    const wasEmpty = set === undefined || set.size === 0;
     if (set === undefined) {
       set = new Set();
       this.subs.set(key, set);
     }
     set.add(onBar);
+    if (opts !== undefined) {
+      let options = this.subOptions.get(key);
+      if (options === undefined) {
+        options = new Map();
+        this.subOptions.set(key, options);
+      }
+      options.set(onBar, opts);
+    }
     this.acquire();
-    if (this.ws !== null && this.ws.readyState === WebSocket.OPEN) {
-      this.send({ type: 'subscribe_bars', bars: [{ instrument, interval }] });
+    if (this.ws !== null && this.ws.readyState === WebSocket.OPEN && (wasEmpty || opts !== undefined)) {
+      this.send(this.barSubscribeMessage(key));
     }
     // else: CONNECTING — onopen subscribes every current key.
     return () => {
       const s = this.subs.get(key);
-      if (s === undefined || !s.delete(onBar) || s.size > 0) return;
+      if (s === undefined || !s.delete(onBar)) return;
+      this.subOptions.get(key)?.delete(onBar);
+      if (s.size > 0) return;
       this.subs.delete(key);
+      this.subOptions.delete(key);
       if (this.ws?.readyState === WebSocket.OPEN) {
         this.send({ type: 'unsubscribe_bars', bars: [{ instrument, interval }] });
       }
       this.release();
     };
+  }
+
+  private barSubscribeMessage(key: string): object {
+    const [instrument = '', interval = ''] = key.split('|');
+    const item: { instrument: string; interval: string; seed?: BarSubscriptionSeed; provisional?: boolean } = { instrument, interval };
+    let selected: WireBarSubscriptionOptions | undefined;
+    for (const candidate of this.subOptions.get(key)?.values() ?? []) {
+      if (selected === undefined || candidate.currentBucket !== undefined || candidate.seed?.currentBucket !== undefined) selected = candidate;
+      if (selected.currentBucket !== undefined || selected.seed?.currentBucket !== undefined) break;
+    }
+    const lastClosed = selected?.seedFrom ?? selected?.seed?.lastClosed;
+    const currentBucket = selected?.currentBucket ?? selected?.seed?.currentBucket;
+    if (currentBucket !== undefined) {
+      item.seed = { ...(lastClosed !== undefined ? { lastClosed } : {}), currentBucket };
+      item.provisional = false;
+    } else if (lastClosed !== undefined) {
+      item.seed = { lastClosed };
+      item.provisional = true;
+    } else if (selected !== undefined) {
+      item.provisional = true;
+    }
+    return { type: 'subscribe_bars', bars: [item] };
   }
 
   /** Refcounted depth subscription. Paper mode only delivers a snapshot frame (broker.depth on subscribe). */
@@ -252,17 +354,29 @@ class BarSocket {
   }
 
   /** Listen for any frame by its wire `type` (order, fill, replay_*). Holds a socket ref. */
-  on(type: string, handler: (msg: unknown) => void): UnsubscribeFn {
+  on(type: 'bar', handler: BarFrameHandler): UnsubscribeFn;
+  on(type: string, handler: (msg: unknown) => void): UnsubscribeFn;
+  on(type: string, handler: ((msg: unknown) => void) | BarFrameHandler): UnsubscribeFn {
+    if (type === 'bar') {
+      const barHandler = handler as BarFrameHandler;
+      this.barHandlers.add(barHandler);
+      this.acquire();
+      return () => {
+        if (!this.barHandlers.delete(barHandler)) return;
+        this.release();
+      };
+    }
+    const messageHandler = handler as (msg: unknown) => void;
     let set = this.handlers.get(type);
     if (set === undefined) {
       set = new Set();
       this.handlers.set(type, set);
     }
-    set.add(handler);
+    set.add(messageHandler);
     this.acquire();
     return () => {
       const s = this.handlers.get(type);
-      if (s === undefined || !s.delete(handler) || s.size > 0) return;
+      if (s === undefined || !s.delete(messageHandler) || s.size > 0) return;
       this.handlers.delete(type);
       this.release();
     };
@@ -331,6 +445,25 @@ class BarSocket {
     }
   }
 
+  private notifyResync(): void {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      for (const key of this.subs.keys()) this.send(this.barSubscribeMessage(key));
+    }
+    const callbacks = new Set<() => void>();
+    for (const options of this.subOptions.values()) {
+      for (const value of options.values()) {
+        if (value.onResync !== undefined) callbacks.add(value.onResync);
+      }
+    }
+    for (const callback of callbacks) {
+      try {
+        callback();
+      } catch (err) {
+        console.warn('bar socket resync callback failed', err);
+      }
+    }
+  }
+
   private cancelReconnect(): void {
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
@@ -372,10 +505,7 @@ class BarSocket {
       this.attempts = 0;
       // Re-arm every live subscription server-side: bars, depth (at the
       // remembered per-instrument levels) and orders (via openCbs).
-      for (const key of this.subs.keys()) {
-        const [instrument, interval] = key.split('|');
-        this.send({ type: 'subscribe_bars', bars: [{ instrument, interval }] });
-      }
+      for (const key of this.subs.keys()) this.send(this.barSubscribeMessage(key));
       for (const instrument of this.depths.keys()) {
         this.send({ type: 'subscribe', instruments: [instrument], depth: this.depthLevels.get(instrument) ?? '30', snapshot: true });
       }
@@ -398,7 +528,6 @@ class BarSocket {
       }
       if (isBarFrame(msg)) {
         const set = this.subs.get(`${msg.instrument}|${msg.interval}`);
-        if (set === undefined) return;
         const bar: Bar = {
           time: msg.time,
           open: msg.open,
@@ -407,7 +536,12 @@ class BarSocket {
           close: msg.close,
           volume: msg.volume,
         };
-        for (const cb of set) cb(bar);
+        const meta: LiveBarMeta = { source: msg.source, closed: msg.closed };
+        if (msg.provisional !== undefined) meta.provisional = msg.provisional;
+        if (typeof msg.run_id === 'string') meta.run_id = msg.run_id;
+        for (const cb of this.barHandlers) cb(bar, meta);
+        if (set === undefined) return;
+        for (const cb of set) cb(bar, meta);
         return;
       }
       if (isDepthFrame(msg)) {
@@ -426,6 +560,8 @@ class BarSocket {
       this.pendingSends.length = 0;
       for (const cb of this.closeCbs) cb();
       if (this.intentionalClose || this.refs <= 0) return;
+      this.notifyResync();
+      if (this.intentionalClose || this.refs <= 0 || this.ws !== null) return;
       this.scheduleReconnect();
     };
   }
@@ -456,23 +592,69 @@ function isDepthFrame(msg: unknown): msg is WsDepthFrame {
 /** One shared socket for the app: the widget re-subscribes on every reload. */
 export const barSocket = new BarSocket();
 
+function toBars(body: HistoryEnvelope, from?: number, to?: number, before?: number): Bar[] {
+  const bars = (Array.isArray(body.bars) ? body.bars : [])
+    .filter((bar) => from === undefined || bar.time >= from)
+    .filter((bar) => to === undefined || bar.time <= to)
+    .filter((bar) => before === undefined || bar.time < before)
+    .map((bar) => ({
+      time: bar.time,
+      open: bar.open,
+      high: bar.high,
+      low: bar.low,
+      close: bar.close,
+      volume: bar.volume,
+    }));
+  return bars.sort((left, right) => left.time - right.time);
+}
+
+function fixedIntervalSeconds(interval: string): number {
+  if (interval === 'D' || interval === '1d') return 86_400;
+  const match = /^(\d+)([mhd])$/i.exec(interval);
+  if (match === null) return 60;
+  const amount = Number(match[1]);
+  const unit = match[2]!.toLowerCase();
+  return amount * (unit === 'd' ? 86_400 : unit === 'h' ? 3_600 : 60);
+}
+
 export class V4DataFeed implements DataFeed {
   async getBars(req: BarsRequest): Promise<Bar[]> {
-    const body = await fetchHistory(req.exchange, req.symbol, req.interval, req.from, req.to);
-    const raw = Array.isArray(body.bars) ? body.bars : [];
-    if (raw.length === 0) throw new NotFoundError(`${req.exchange}:${req.symbol}: no bars for this range`);
-    return raw.map((b) => ({
-      time: b.time,
-      open: b.open,
-      high: b.high,
-      low: b.low,
-      close: b.close,
-      volume: b.volume,
-    }));
+    const body = await fetchHistory(
+      req.exchange,
+      req.symbol,
+      req.interval,
+      req.from,
+      req.to,
+      req.signal,
+      req.timeoutMs,
+    );
+    return toBars(body, req.from, req.to);
   }
 
-  subscribeBars(req: BarsRequest, onBar: (bar: Bar) => void): UnsubscribeFn {
-    return barSocket.subscribe(`${req.exchange}:${req.symbol}`, mapWsInterval(req.interval), onBar);
+  async getBarsPage(req: BarsPageRequest): Promise<BarsPage> {
+    const count = Number.isFinite(req.countBack) ? Math.max(0, Math.floor(req.countBack)) : 0;
+    const before = Math.floor(req.before);
+    const to = before - 1;
+    const from = to - count * fixedIntervalSeconds(req.interval) + 1;
+    const body = await fetchHistory(
+      req.exchange,
+      req.symbol,
+      req.interval,
+      from,
+      to,
+      req.signal,
+      req.timeoutMs,
+    );
+    const bars = toBars(body, from, to, before);
+    return { bars, hasMore: count > 0 && bars.length >= count };
+  }
+
+  subscribeBars(
+    req: BarsRequest,
+    onBar: BarFrameHandler,
+    opts?: WireBarSubscriptionOptions,
+  ): UnsubscribeFn {
+    return barSocket.subscribe(`${req.exchange}:${req.symbol}`, mapWsInterval(req.interval), onBar, opts);
   }
 
   subscribeDepth(req: BarsRequest, onDepth: (depth: MarketDepth) => void, opts?: { depthLevel?: number }): UnsubscribeFn {

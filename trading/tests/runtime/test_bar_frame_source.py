@@ -10,8 +10,8 @@ from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
-
 from tradex_domain.enums import Timeframe
+
 from tradex_trading.runtime.bar_aggregator import BarAggregator
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -52,10 +52,10 @@ def test_wire_frame_carries_live_source():
     fastapi = pytest.importorskip("fastapi")
 
     from fastapi.testclient import TestClient
-
     from tradex_domain.instruments import Equity
     from tradex_domain.market import Quote
     from tradex_domain.value_objects import Price
+
     from tradex_trading.interface.fastapi_app import create_app
     from tradex_trading.reactive.bus import ReactiveBus
 

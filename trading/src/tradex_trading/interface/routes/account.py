@@ -1,24 +1,11 @@
-"""``/account`` — broker account snapshot (balance/margin/equity)."""
+"""Compatibility shim — implementation lives in ``tradex_interfaces.routes.account``."""
 
-from __future__ import annotations
+from importlib import import_module as _import_module
 
-from typing import Any
-
-from fastapi import APIRouter, Depends, HTTPException
-
-from tradex_trading.interface.models import AccountResponse
-from tradex_trading.interface.routes.deps import get_session
-
-router = APIRouter()
-
-
-@router.get("/account", response_model=AccountResponse)
-async def get_account(session: Any | None = Depends(get_session)) -> AccountResponse:
-    if session is None:
-        raise HTTPException(status_code=404, detail="no session bound")
-    acct = session.broker.get_account()
-    return AccountResponse(
-        balance=str(acct.balance),
-        margin=str(acct.margin),
-        equity=str(acct.equity),
-    )
+_impl = _import_module("tradex_interfaces.routes.account")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

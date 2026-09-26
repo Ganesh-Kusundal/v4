@@ -11,7 +11,7 @@ from tradex_domain.value_objects import InstrumentId
 
 from tradex_trading.datalake.simple_sync import _classify_fetch_error, simple_sync
 from tradex_trading.datalake.symbol_resolve import resolve_universe_symbols
-from tradex_trading.datalake.universe import load_universe
+from tradex_market_data.universe import load_universe
 
 
 def test_universe_attaches_isin_from_csv(tmp_path):
@@ -67,7 +67,7 @@ def test_simple_sync_no_provider_key_is_failed():
     from unittest.mock import patch
 
     err = ["NSE:HEG: no provider key for NSE:HEG"]
-    with patch("tradex_trading.datalake.simple_sync.ParallelHistoryFetcher") as phf:
+    with patch("tradex_market_data.simple_sync.ParallelHistoryFetcher") as phf:
         fetcher = MagicMock()
         fetcher.fetch.return_value = ({}, err)
         phf.return_value = fetcher

@@ -15,10 +15,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+import tradex_runtime.startup as startup_mod
+from tradex_domain import BrokerId
 
 from tradex_trading.config.schema import AppConfig, PersistenceConfig
-from tradex_trading.runtime import startup as startup_mod
-from tradex_domain import BrokerId
 
 
 def test_safe_teardown_handles_non_live(monkeypatch) -> None:
@@ -81,7 +81,7 @@ def test_paper_boot_failure_uses_rollback(monkeypatch) -> None:
         raise RuntimeError("simulated non-live boot failure")
 
     monkeypatch.setattr(
-        "tradex_trading.runtime.startup._boot_tail",
+        "tradex_runtime.startup._boot_tail",
         fake_boot_tail,
     )
 
@@ -111,7 +111,7 @@ def test_live_boot_failure_still_releases_lock(monkeypatch, tmp_path) -> None:
     broker.close = MagicMock()
 
     monkeypatch.setattr(
-        "tradex_trading.runtime.live.build_broker_from_env",
+        "tradex_runtime.live.build_broker_from_env",
         lambda _pid, **_kw: broker,
     )
 
@@ -119,7 +119,7 @@ def test_live_boot_failure_still_releases_lock(monkeypatch, tmp_path) -> None:
         raise RuntimeError("simulated live boot failure")
 
     monkeypatch.setattr(
-        "tradex_trading.runtime.startup._boot_tail",
+        "tradex_runtime.startup._boot_tail",
         fake_boot_tail,
     )
 

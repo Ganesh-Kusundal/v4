@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from tradex_trading.analytics.indicators import compute_indicator, get_indicator_spec
+from tradex_analytics.indicators import compute_indicator, get_indicator_spec
 
 GOLDENS = Path(__file__).parent / "goldens"
 
@@ -373,5 +373,5 @@ def test_parity_against_ts_source(ts_id):
 
 def test_every_backend_indicator_has_param_mapping():
     """Registry ids beyond Batch 0 must be explicitly mapped or skipped."""
-    for entry in __import__("tradex_trading.analytics.indicators", fromlist=["indicator_catalogue"]).indicator_catalogue():
+    for entry in __import__("tradex_analytics.indicators", fromlist=["indicator_catalogue"]).indicator_catalogue():
         assert entry["id"] in PARAM_MAP, f"{entry['id']} missing from PARAM_MAP"

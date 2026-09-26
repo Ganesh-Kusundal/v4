@@ -55,15 +55,73 @@ def _process_lock(path: Path) -> threading.RLock:
         return _PROCESS_LOCKS.setdefault(key, threading.RLock())
 
 
+#: Mode for files that hold broker credentials (access/refresh tokens, TOTP
+#: cooldown state).  Owner read/write only: these files are secret material and
+#: must never be readable by other local users.
+SECRET_FILE_MODE = 0o600
+
+#: Mode for directories we create that hold such files.  The file mode is the
+#: primary control (the directory only needs to be traversable by its owner,
+#: since everything secret inside it is already 0600).
+SECRET_DIR_MODE = 0o700
+
+
+def _create_secret_file(temp: Path) -> int:
+    """Create ``temp`` empty with ``SECRET_FILE_MODE`` and return its fd.
+
+    The mode is passed to :func:`os.open` at *creation* rather than applied
+    afterwards with ``chmod``, so the file is never briefly readable by the
+    group or others.  ``temp.open("w")`` would instead take the process umask
+    (typically 0022 -> 0644, world-readable) and leak the window between
+    ``open`` and any later ``chmod``.
+
+    ``O_EXCL`` fails if the name already exists, which protects an existing
+    target from being clobbered by a colliding temp name.  The caller always
+    removes its temp name on the way out, so a collision means a stale file
+    from a crashed writer with the same pid+thread id: unlink it and retry
+    once, which is still safe because nothing has been written yet.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    try:
+        return os.open(temp, flags, SECRET_FILE_MODE)
+    except FileExistsError:
+        # Same-pid/tid leftover from a crashed writer, or a concurrent writer
+        # that has not finished yet.  The file is still empty in the first
+        # case; a concurrent writer's file is never ours to reuse.
+        with suppress(OSError):
+            temp.unlink()
+        return os.open(temp, flags, SECRET_FILE_MODE)
+
+
 def _atomic_write_text(path: Path, content: str) -> None:
-    """Replace a same-directory file atomically, without exposing partial JSON."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+    """Replace a same-directory file atomically, without exposing partial JSON.
+
+    The file is created ``SECRET_FILE_MODE`` (0600) at the moment of creation,
+    before a single byte of ``content`` is written, and ``os.replace`` carries
+    that mode onto the destination — so a credential file is never observed
+    world-readable, not even for an instant.  A pre-existing destination with
+    looser permissions is replaced wholesale: the new file's mode wins, which
+    is the point of the fix.
+
+    Atomicity is unchanged: write -> flush -> ``os.fsync`` -> ``os.replace``
+    -> ``fsync`` of the directory.  A crash mid-write therefore leaves either
+    the old content or the new content under the real name, never a partial
+    or wrongly-permissioned file.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True, mode=SECRET_DIR_MODE)
     temp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
-        with temp.open("w") as handle:
+        fd = _create_secret_file(temp)
+        try:
+            handle = os.fdopen(fd, "w")
+        except BaseException:  # never leak the descriptor on a failed wrap
+            os.close(fd)
+            raise
+        with handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
+        os.chmod(temp, SECRET_FILE_MODE)  # defeat a permissive pre-existing mode
         os.replace(temp, path)
         if fcntl is not None:
             directory_fd = os.open(path.parent, os.O_RDONLY)
@@ -360,11 +418,9 @@ class PortTokenManager:
             token = self._cached_token
         if token is None:
             return
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {"access_token": token}
-        tmp = self._path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, indent=2))
-        tmp.replace(self._path)
+        # Same hardened writer as the mint-mode path: a live access token is
+        # credential material, so the file must land at SECRET_FILE_MODE.
+        _atomic_write_text(self._path, json.dumps({"access_token": token}, indent=2))
         log.debug("Token state saved to %s", self._path)
 
     def load_state(self) -> None:

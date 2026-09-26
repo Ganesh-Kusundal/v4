@@ -12,9 +12,13 @@ Usage::
 
 Design
 ------
-Uses ``ParallelHistoryFetcher`` for concurrent multi-instrument fetch (with
-smart dual-broker routing for < 30 day ranges), then upserts into
-``ParquetStorage`` in batches to keep memory bounded.
+Uses ``ParallelHistoryFetcher`` for concurrent multi-instrument fetch, then
+upserts into ``ParquetStorage`` in batches to keep memory bounded.
+
+``--broker both`` builds one ``ParallelHistoryFetcher`` per connected broker (the
+fetcher pairs one broker with one rate limiter, so a multi-broker dict is split
+here, not inside it). A batch is fanned out to all of them and merged on first
+success, so a dead or throttled broker is masked by a healthy one.
 
 Each batch upsert is idempotent: re-running silently replaces overlapping
 rows and GapDetector skips already-complete symbols.
@@ -127,6 +131,47 @@ def _build_brokers(args):
     return brokers
 
 
+def _make_fetchers(
+    brokers: dict, max_workers: int
+) -> list[tuple[str, ParallelHistoryFetcher]]:
+    """One fetcher per broker — ParallelHistoryFetcher pairs one broker with one
+    rate limiter, so a multi-broker dict must be split at the call site.
+    """
+    return [
+        (name, ParallelHistoryFetcher({name: broker}, max_workers=max_workers))
+        for name, broker in sorted(brokers.items())
+    ]
+
+
+def _fetch_all(
+    fetchers: list[tuple[str, ParallelHistoryFetcher]],
+    batch: list,
+    timeframe: Timeframe,
+    start: datetime,
+    end: datetime,
+) -> tuple[dict, list[str]]:
+    """Fan a batch out to every broker and merge on first success.
+
+    Brokers are tried in sorted-name order and the first non-empty result for an
+    instrument wins, so a healthy earlier broker masks a later one (failover)
+    while the precedence stays deterministic across runs. A broker that raises is
+    recorded as an error rather than discarding the other brokers' results.
+    """
+    merged: dict = {}
+    errors: list[str] = []
+    for name, fetcher in fetchers:
+        try:
+            results, errs = fetcher.fetch(batch, timeframe, start, end)
+        except Exception as exc:
+            log.warning("broker %s: batch fetch raised: %s", name, exc)
+            errors.append(f"{name}: batch fetch raised: {exc}")
+            continue
+        for inst_id, series in results.items():
+            merged.setdefault(inst_id, series)
+        errors.extend(f"{name}: {e}" for e in errs)
+    return merged, errors
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Backfill OHLCV into ParquetStorage")
     p.add_argument("--universe", default="nifty50",
@@ -184,7 +229,9 @@ def main(argv: list[str] | None = None) -> int:
     if not brokers:
         log.error("No brokers available")
         return 1
-    fetcher = ParallelHistoryFetcher(brokers, max_workers=args.workers)
+    fetchers = _make_fetchers(brokers, max_workers=args.workers)
+    log.info("fetchers ready: %s (workers=%d per broker)",
+             ", ".join(name for name, _ in fetchers), args.workers)
     data_root = Path(args.data_root) if args.data_root else Path(datalake_root())
     store = ParquetStorage(data_root)
     gap_detector = GapDetector(store)
@@ -225,7 +272,9 @@ def main(argv: list[str] | None = None) -> int:
         batch_idx, batch = queue.pop(0)
         t0 = time.perf_counter()
         try:
-            results, _ = fetcher.fetch(batch, Timeframe(args.timeframe), start, end)
+            results, _ = _fetch_all(
+                fetchers, batch, Timeframe(args.timeframe), start, end,
+            )
         except Exception as exc:
             log.exception("Batch %d failed: %s", batch_idx, exc)
             results = {}

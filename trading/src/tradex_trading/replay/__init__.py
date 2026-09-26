@@ -1,10 +1,11 @@
-"""Replay module — deterministic event replay and backtesting."""
+"""Compatibility shim — implementation lives in ``tradex_replay``."""
 
-from tradex_trading.replay.backtest import BacktestEngine, BacktestResult
-from tradex_trading.replay.synthetic_ticks import SyntheticTickGenerator
+from importlib import import_module as _import_module
 
-__all__ = [
-    "BacktestEngine",
-    "BacktestResult",
-    "SyntheticTickGenerator",
-]
+_impl = _import_module("tradex_replay")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

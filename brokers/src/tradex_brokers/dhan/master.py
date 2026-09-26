@@ -134,7 +134,12 @@ def parse_dhan_master(raw: object, *, strict: bool) -> list[dict[str, Any]]:
             "series": series,
             "instrument_type": instrument_name,
             "right": right,
-            # Dhan expiry is "YYYY-MM-DD HH:MM:SS" — keep the date part ISO.
+            # Dhan expiry is a DASHED_DATETIME value ("%Y-%m-%d %H:%M:%S",
+            # see tradex_domain.datetime_formats) — the same family the
+            # intraday chart fromDate uses. Keep only the date part ISO. This
+            # is a split on the separator, not a strptime: the column is
+            # already validated as a date by the master, and a lossy parse
+            # here would drop rows instead of leaving the text alone.
             "expiry": expiry_text.split(" ", 1)[0] if expiry_text else None,
             "strike": strike_text or None,
             "underlying": underlying_text or None,

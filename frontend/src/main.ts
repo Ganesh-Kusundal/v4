@@ -1,527 +1,298 @@
 import './theme.css';
-import {
-  registeredIndicators,
-  type IndicatorDescriptor,
-} from 'openalgo-charts';
 import 'openalgo-charts/indicators';
-import { authHeaders, getApiKey, setApiKey } from './apikey';
-import { API_BASE, barSocket } from './feed';
-import { mapInterval, mapWsInterval } from './chart-types';
-import {
-  chart, price, volume, ltpLine,
-  rawBars, builder, liveAgg, lastLtp, ctxPrice, lastReq,
-  isReplaying, replayPicking, replayPickIndex, replayShade, replayFullBars,
-  replayTotalBars, replayCurrentIndex, replayIsPlaying, replaySpeed, REPLAY_SPEEDS,
-  tickN, bookTimer, orderLines, posLine, position,
-  unsubBar, unsubDepth, unsubQuote, unsubOrder, unsubFill, unsubPos, unsubOpen, unsubClose,
-  setCtxPrice, setRawBars, setReplayCurrentIndex, setReplaySpeed, setIsReplaying, setReplayIsPlaying, setReplayTotalBars,
-} from './chart-state';
-import {
-  chartType, buildChart, connect, disconnect,
-  clearTrading, makeOrderLine, renderPosition, pollBook,
-  cancelOrder, exitPosition, placeFromMenu,
-  cancelPick, exitReplay, enterReplay, askExitReplay,
-  syncReplayBarUI, startReplayAt,
-  setPriceData, setLegend, setStatus,
-  marketPrice, round2v,
-} from './chart-lifecycle';
+import { createWidget, type OrderRequest, type Widget } from 'openalgo-charts/widget';
+import { mountBacktestMarkers, mountBacktestRuns, mountBacktestZones } from './backtest';
+import { createDock } from './dock';
+import { API_BASE, barSocket, datalakeClock, feed } from './feed';
+import { authHeaders, getApiKey } from './apikey';
+import { mountAccountPanel, type AccountPanelController } from './account-panel';
+import { mountOrderControls, validateOrderIntent, type OrderIntent, type OrderSafetyState } from './order-safety';
+import { mountReplayBar } from './replay';
+import { mountRunsBar } from './runs-bar';
+import { mountTradesPanel } from './trades-panel';
+import { loadBacktestStrategies, registerTier2 } from './tier2';
+import { mountScreener } from './screener';
+import { loadActiveWorkspace, mountWorkspace, type BootWorkspace } from './workspace';
+import { FeedController } from './feed-controller';
 
-const el = <T extends HTMLElement = HTMLElement>(id: string): T => {
-  const elem = document.getElementById(id);
-  if (!elem) throw new Error(`Missing element #${id}`);
-  return elem as T;
+const mount = document.getElementById('app');
+if (mount === null) throw new Error('frontend: no #app mount');
+
+const DEFAULTS = { symbol: 'RELIANCE', exchange: 'NSE', interval: '1m' };
+const INTERVALS = ['1m', '5m', '15m', '30m', '1h', 'D'] as const;
+const EXCHANGES = ['NSE', 'NFO', 'BSE', 'BFO', 'MCX'] as const;
+const STARTUP_TIMEOUT_MS = 5_000;
+
+const defaultBoot = (): BootWorkspace => ({
+  ...DEFAULTS,
+  layoutId: `${DEFAULTS.exchange}_${DEFAULTS.symbol}_${DEFAULTS.interval}_default`,
+  state: null,
+  series: null,
+  viewTrusted: false,
+  revisions: {},
+});
+
+const startupWarnings: string[] = [];
+const boundedStartup = async <T>(label: string, task: Promise<T>, fallback: T): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      task,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`${label} timed out`)), STARTUP_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (error: unknown) {
+    startupWarnings.push(label);
+    console.warn(`startup ${label} failed`, error);
+    return fallback;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 };
 
-// Event Listeners
-el('connect').addEventListener('click', connect);
-el('disconnect').addEventListener('click', () => {
-  disconnect();
-  setStatus('disconnected');
-});
-el('fit').addEventListener('click', () => {
-  if (chart) chart.resetScale();
-});
+const [strategies, boot] = await Promise.all([
+  boundedStartup('strategy catalogue', loadBacktestStrategies(), []),
+  boundedStartup('workspace', loadActiveWorkspace({ ...DEFAULTS, intervals: INTERVALS }), defaultBoot()),
+]);
 
-// Right click context menu
-const ctxMenu = el('ctxmenu');
-el('chart').addEventListener('contextmenu', (e: MouseEvent) => {
-  if (!chart) return;
-  e.preventDefault();
-  const rect = el('chart').getBoundingClientRect();
-  const p = chart.coordinateToPrice(e.clientY - rect.top, 0);
-  if (p == null) return;
-  setCtxPrice(round2v(p));
-  const m = marketPrice();
+registerTier2(strategies.length > 0 ? strategies : undefined);
 
-  ctxMenu.querySelectorAll('button[data-type]').forEach((b) => {
-    const side = b.getAttribute('data-side') || 'BUY';
-    const v = side === 'BUY' ? 'Buy' : 'Sell';
-    const t = b.getAttribute('data-type');
-    const label =
-      t === 'MARKET' ? `${v} Market` : t === 'LIMIT' ? `${v} Limit @ ${fmt(round2v(p))}` : `${v} Stop (SL) @ ${fmt(round2v(p))}`;
-    const sp = b.querySelector('span');
-    if (sp) sp.textContent = label;
-    else b.textContent = label;
-    let ok = true;
-    if (m != null) {
-      if (t === 'SL') ok = side === 'BUY' ? round2v(p) > m : round2v(p) < m;
-      else if (t === 'LIMIT') ok = side === 'BUY' ? round2v(p) < m : round2v(p) > m;
-    }
-    (b as HTMLButtonElement).disabled = !ok;
-  });
+const tradingMode = getApiKey() === '' ? 'paper' : 'unknown';
+let feedReady = false;
+let replaying = false;
+let accountPanel: AccountPanelController | null = null;
+let depthUnsubscribe: (() => void) | null = null;
 
-  ctxMenu.style.left = `${Math.min(e.clientX, window.innerWidth - 230)}px`;
-  ctxMenu.style.top = `${Math.min(e.clientY, window.innerHeight - 300)}px`;
-  ctxMenu.hidden = false;
+const orderControls = mountOrderControls(mount, {
+  initialState: { mode: tradingMode, ready: false, replaying: false, armed: false, quantity: 1 },
+  onStateChange: () => accountPanel?.syncControls(),
 });
 
-window.addEventListener('click', () => {
-  ctxMenu.hidden = true;
-});
-
-ctxMenu.addEventListener('click', (e: MouseEvent) => {
-  const b = (e.target as HTMLElement).closest('button');
-  if (!b) return;
-  e.stopPropagation();
-  ctxMenu.hidden = true;
-  placeFromMenu(b.getAttribute('data-side') || 'BUY', b.getAttribute('data-type') || 'MARKET');
-});
-
-// ── Symbol Autocomplete / Datalake Type-ahead ──
-const symInput = el<HTMLInputElement>('symbol');
-const symDropdown = el('sym-dropdown');
-let activeSymIndex = -1;
-let datalakeSymbols: { symbol: string; exchange: string }[] = [];
-let searchTimer: any = null;
-
-async function fetchDatalakeSymbols(q = ''): Promise<void> {
-  try {
-    const res = await fetch(`${API_BASE}/api/charts/symbols?source=datalake&q=${encodeURIComponent(q.trim())}`);
-    if (!res.ok) return;
-    const data = await res.json();
-    datalakeSymbols = data.symbols || [];
-    renderSymDropdown();
-  } catch (_) {
-    // transient
+const setOrderStatus = (message: string, kind: 'info' | 'error' | 'success' = 'info'): void => {
+  const node = document.getElementById('order-status');
+  if (node !== null) {
+    node.textContent = message;
+    node.dataset.kind = kind;
+    node.dataset.state = kind === 'error' ? 'blocked' : kind === 'success' ? 'ready' : 'info';
   }
-}
+};
+const startupWarning = startupWarnings.length === 0
+  ? null
+  : `Startup degraded: ${startupWarnings.join(', ')} unavailable; continuing safely`;
 
-function renderSymDropdown(): void {
-  activeSymIndex = -1;
-  if (!datalakeSymbols.length) {
-    symDropdown.innerHTML = `<div class="sym-empty">No datalake symbols found</div>`;
-    symDropdown.hidden = false;
+const safetyState = (): OrderSafetyState => orderControls.state;
+const setSafety = (patch: Partial<OrderSafetyState>): void => {
+  const ready = !replaying && feedReady;
+  orderControls.setState({
+    ...patch,
+    mode: replaying ? 'replay' : tradingMode,
+    ready,
+    replaying,
+    armed: ready ? (patch.armed ?? safetyState().armed) : false,
+  });
+};
+const canSubmit = (): boolean => {
+  const state = safetyState();
+  return state.armed
+    && state.ready
+    && !state.replaying
+    && state.mode !== 'unknown'
+    && state.mode !== 'replay';
+};
+
+const latestBarClose = (widget: Widget): number | null => {
+  const bars = widget.series.getData();
+  const last = bars[bars.length - 1];
+  return last !== undefined && Number.isFinite(last.close) && last.close > 0 ? last.close : null;
+};
+
+const displayNumber = (value: number): string => String(value);
+
+const placeOrder = (widget: Widget, order: OrderRequest): void => {
+  const intent: OrderIntent = {
+    side: order.side,
+    type: order.type,
+    price: order.price,
+    triggerPrice: order.type === 'SL' ? order.price : undefined,
+    paneIndex: order.paneIndex,
+  };
+  const state = safetyState();
+  const validation = validateOrderIntent(intent, state, latestBarClose(widget));
+  if (validation !== null) {
+    setOrderStatus(validation, 'error');
+    widget.context.toast(validation, 'error');
     return;
   }
-  symDropdown.innerHTML = datalakeSymbols
-    .slice(0, 100)
-    .map(
-      (s, i) =>
-        `<div class="sym-item" data-index="${i}" data-sym="${esc(s.symbol)}" data-ex="${esc(s.exchange)}">
-          <b>${esc(s.symbol)}</b>
-          <span class="sym-meta">
-            <span class="sym-tag">${esc(s.exchange)}</span>
-            <span class="sym-tag" style="color:var(--acc);border-color:#1a423a">datalake</span>
-          </span>
-        </div>`,
-    )
-    .join('');
-  symDropdown.hidden = false;
 
-  symDropdown.querySelectorAll('.sym-item').forEach((item) => {
-    item.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      const sym = item.getAttribute('data-sym');
-      const ex = item.getAttribute('data-ex');
-      if (sym) {
-        selectSymbol(sym, ex || 'NSE');
-      }
+  const quantity = state.quantity;
+  const instrument = `${widget.exchange()}:${widget.symbol()}`;
+  const priceText = intent.type === 'MARKET'
+    ? 'MARKET'
+    : `${intent.type} ${intent.type === 'SL' ? 'trigger' : 'price'} ${displayNumber(intent.triggerPrice ?? intent.price ?? 0)}`;
+  const confirmation = `Confirm INTRADAY ${intent.side} ${intent.type} ${quantity} ${instrument} ${priceText}`;
+  if (!window.confirm(confirmation)) {
+    setOrderStatus('Order cancelled before submission');
+    return;
+  }
+
+  const body: Record<string, unknown> = {
+    exchange: widget.exchange(),
+    symbol: widget.symbol(),
+    side: order.side,
+    quantity,
+    order_type: order.type === 'SL' ? 'STOP' : order.type,
+  };
+  if (order.type === 'LIMIT') body.price = order.price;
+  if (order.type === 'SL') body.trigger_price = order.price;
+
+  void (async () => {
+    const res = await fetch(`${API_BASE}/orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': crypto.randomUUID(),
+        ...authHeaders(),
+      },
+      body: JSON.stringify(body),
     });
-  });
-}
-
-function selectSymbol(sym: string, ex: string): void {
-  symInput.value = sym;
-  const exSelect = el<HTMLSelectElement>('exchange');
-  if (exSelect && ex) {
-    const opt = Array.from(exSelect.options).find((o) => o.value === ex);
-    if (opt) exSelect.value = ex;
-  }
-  symDropdown.hidden = true;
-  connect();
-}
-
-function highlightSymItem(index: number): void {
-  const items = symDropdown.querySelectorAll('.sym-item');
-  items.forEach((it, i) => {
-    it.classList.toggle('active', i === index);
-  });
-  if (index >= 0 && items[index]) {
-    (items[index] as HTMLElement).scrollIntoView({ block: 'nearest' });
-  }
-}
-
-symInput.addEventListener('input', () => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => {
-    fetchDatalakeSymbols(symInput.value);
-  }, 120);
-});
-
-symInput.addEventListener('focus', () => {
-  fetchDatalakeSymbols(symInput.value);
-});
-
-symInput.addEventListener('keydown', (e: KeyboardEvent) => {
-  if (symDropdown.hidden) {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      fetchDatalakeSymbols(symInput.value);
-    } else if (e.key === 'Enter') {
-      connect();
+    const payload = (await res.json().catch(() => undefined)) as
+      | { order_id?: string; status?: string; error?: { message?: string }; detail?: unknown }
+      | undefined;
+    if (res.ok) {
+      orderControls.setState({ armed: false });
+      setOrderStatus(`Order ${payload?.order_id ?? ''} ${payload?.status ?? 'submitted'}`.trim(), 'success');
+      widget.context.toast(`Order ${payload?.order_id ?? ''} ${payload?.status ?? 'submitted'}`.trim(), 'success');
+    } else {
+      const detail = typeof payload?.detail === 'string'
+        ? payload.detail
+        : payload?.detail === undefined ? undefined : JSON.stringify(payload.detail);
+      const message = `Order rejected: ${payload?.error?.message ?? detail ?? res.status}`;
+      setOrderStatus(message, 'error');
+      widget.context.toast(message, 'error');
     }
-    return;
-  }
-
-  const items = symDropdown.querySelectorAll('.sym-item');
-  if (e.key === 'ArrowDown') {
-    e.preventDefault();
-    if (!items.length) return;
-    activeSymIndex = (activeSymIndex + 1) % items.length;
-    highlightSymItem(activeSymIndex);
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault();
-    if (!items.length) return;
-    activeSymIndex = (activeSymIndex - 1 + items.length) % items.length;
-    highlightSymItem(activeSymIndex);
-  } else if (e.key === 'Enter') {
-    e.preventDefault();
-    if (activeSymIndex >= 0) {
-      const activeItem = items[activeSymIndex];
-      if (activeItem) {
-        const sym = activeItem.getAttribute('data-sym');
-        const ex = activeItem.getAttribute('data-ex');
-        if (sym) {
-          selectSymbol(sym, ex || 'NSE');
-          return;
-        }
-      }
-    }
-    symDropdown.hidden = true;
-    connect();
-  } else if (e.key === 'Escape') {
-    symDropdown.hidden = true;
-  }
-});
-
-document.addEventListener('click', (e) => {
-  if (!symInput.contains(e.target as Node) && !symDropdown.contains(e.target as Node)) {
-    symDropdown.hidden = true;
-  }
-});
-
-// ── Indicators & Studies Modal ──────────────────
-const indBtn = el('ind-btn');
-const indBackdrop = el('ind-backdrop');
-const indClose = el('ind-close');
-const indSearch = el<HTMLInputElement>('ind-search');
-const indTabs = el('ind-tabs');
-const indList = el('ind-list');
-const indCount = document.getElementById('ind-count');
-let currentCategory = 'all';
-
-function renderActiveChips(): void {
-  const bar = document.getElementById('ind-active-bar');
-  const chips = document.getElementById('ind-active-chips');
-  if (!bar || !chips) return;
-  if (!chart) {
-    bar.hidden = true;
-    return;
-  }
-  const current = chart.indicators();
-  if (!current.length) {
-    bar.hidden = true;
-    chips.innerHTML = '';
-    return;
-  }
-  bar.hidden = false;
-  chips.innerHTML = current
-    .map(
-      (inst: any) =>
-        `<span class="ind-active-chip">${esc(inst.name)} <button class="remove-btn" data-id="${esc(
-          inst.id,
-        )}" title="Remove ${esc(inst.name)}">✕</button></span>`,
-    )
-    .join('');
-  chips.querySelectorAll('.remove-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const id = (btn as HTMLElement).getAttribute('data-id');
-      if (id && chart) {
-        chart.removeIndicator(id);
-        renderActiveChips();
-      }
-    });
+  })().catch((error: unknown) => {
+    const message = `Order failed: ${error instanceof Error ? error.message : String(error)}`;
+    setOrderStatus(message, 'error');
+    widget.context.toast(message, 'error');
   });
-}
+};
 
-function openIndicatorDialog(): void {
-  indBackdrop.hidden = false;
-  indSearch.value = '';
-  renderActiveChips();
-  renderIndicatorCatalog();
-  setTimeout(() => indSearch.focus(), 50);
-}
-
-function closeIndicatorDialog(): void {
-  indBackdrop.hidden = true;
-}
-
-function renderIndicatorCatalog(): void {
-  const all = registeredIndicators();
-  if (indCount) indCount.textContent = `${all.length}`;
-  const needle = indSearch.value.trim().toLowerCase();
-
-  const filtered = all.filter((d) => {
-    if (currentCategory !== 'all') {
-      const cat = (d.category || 'General').toLowerCase();
-      if (cat !== currentCategory.toLowerCase()) return false;
-    }
-    if (!needle) return true;
-    return (
-      d.name.toLowerCase().includes(needle) ||
-      d.id.toLowerCase().includes(needle) ||
-      (d.category || '').toLowerCase().includes(needle)
+let widget: Widget;
+widget = createWidget(mount, {
+  feed,
+  symbol: boot.symbol,
+  exchange: boot.exchange,
+  exchanges: EXCHANGES,
+  interval: boot.interval,
+  theme: 'dark',
+  lookbackBars: 3000,
+  loading: {
+    now: datalakeClock,
+    timeoutMs: 10_000,
+    pollIntervalMs: 30_000,
+    refreshOnGap: true,
+    refreshOnBarClose: { delayMs: 2_500, retries: 2, retryDelayMs: 5_000 },
+  },
+  intervals: INTERVALS,
+  symbolSearch: async (q) => {
+    const res = await fetch(
+      `${API_BASE}/api/charts/symbols?source=datalake&q=${encodeURIComponent(q)}`,
     );
-  });
-
-  if (!filtered.length) {
-    indList.innerHTML = `<div class="sym-empty" style="padding:32px">No indicators matching "${esc(needle)}"</div>`;
-    return;
-  }
-
-  indList.innerHTML = filtered
-    .map(
-      (d) =>
-        `<div class="ind-row" data-id="${esc(d.id)}">
-          <div class="ind-info">
-            <span class="ind-name">${esc(d.name)}</span>
-            <div class="ind-meta">
-              <span class="ind-cat">${esc(d.category || 'General')}</span>
-              <span class="ind-placement">${d.placement === 'onchart' ? 'Overlay' : 'Sub-Pane'}</span>
-            </div>
-          </div>
-          <button class="ind-add-btn">+ Add</button>
-        </div>`,
-    )
-    .join('');
-
-  indList.querySelectorAll('.ind-row').forEach((row) => {
-    row.addEventListener('click', () => {
-      const id = row.getAttribute('data-id');
-      if (!id || !chart) return;
-      try {
-        chart.addIndicator(id);
-        renderActiveChips();
-        setStatus(`Added ${id}`, true);
-      } catch (err: any) {
-        setStatus(`Indicator error: ${err?.message || 'failed'}`);
-      }
-    });
-  });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { symbols?: Array<{ symbol: string; exchange: string }> };
+    return Array.isArray(body.symbols) ? body.symbols : [];
+  },
+  onOrder: (order) => placeOrder(widget, order),
+});
+if (startupWarning !== null) {
+  setOrderStatus(startupWarning, 'error');
+  widget.context.toast(startupWarning, 'info');
 }
 
-indBtn.addEventListener('click', openIndicatorDialog);
-indClose.addEventListener('click', closeIndicatorDialog);
-indBackdrop.addEventListener('click', (e) => {
-  if (e.target === indBackdrop) closeIndicatorDialog();
-});
+let restoreRejected = false;
+if (boot.state !== null) {
+  const report = widget.restoreState(boot.state);
+  if (!report.applied) {
+    restoreRejected = true;
+    console.warn('workspace restore rejected:', report.reason);
+  }
+}
+const workspaceBoot = restoreRejected ? { ...boot, viewTrusted: false } : boot;
 
-indSearch.addEventListener('input', () => {
-  renderIndicatorCatalog();
+const volume = widget.chart.addSeries('histogram', {
+  paneIndex: 0,
+  priceScaleId: '',
+  priceFormat: { type: 'volume' },
 });
-
-indTabs.querySelectorAll('.modal-tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    indTabs.querySelectorAll('.modal-tab').forEach((t) => t.classList.remove('active'));
-    tab.classList.add('active');
-    currentCategory = tab.getAttribute('data-cat') || 'all';
-    renderIndicatorCatalog();
+const syncVolume = (bars: readonly { time: number; volume?: number }[] = widget.series.getData()): void => {
+  volume.setData(bars.map((bar) => ({ time: bar.time, value: bar.volume ?? 0 })));
+};
+widget.on('data', () => {
+  syncVolume();
+  if (orderControls.lastQuote === null) {
+    const bars = widget.series.getData();
+    const last = bars[bars.length - 1];
+    if (last !== undefined) orderControls.setLastQuote(last.close);
+  }
+});
+const dataController = widget.dataController;
+const applyDataState = (snapshot: ReturnType<NonNullable<typeof dataController>['getState']>, meta?: { provisional?: boolean }): void => {
+  feedReady = snapshot.status === 'ready' && snapshot.bars.length > 0 && meta?.provisional !== true;
+  setSafety({});
+  syncVolume(snapshot.bars);
+  if (!feedReady && startupWarning !== null) setOrderStatus(startupWarning, 'error');
+};
+if (dataController !== null) {
+  applyDataState(dataController.getState());
+  dataController.subscribe(applyDataState);
+}
+// C: Feed-state gate — server-supervisor side delegated to FeedController (B7).
+// Chart data controller (applyDataState) remains the authoritative setter for
+// feedReady=true; FeedController only drives feedReady=false paths.
+new FeedController(barSocket, ({ feedState, serverBlocked, message }) => {
+  if (serverBlocked) feedReady = false;
+  setSafety({ feedState });
+  if (message !== undefined) setOrderStatus(message.text, message.kind);
+});
+const markFeedLoading = (message: string): void => {
+  feedReady = false;
+  setSafety({});
+  setOrderStatus(message, 'error');
+};
+const bindQuote = (): void => {
+  depthUnsubscribe?.();
+  depthUnsubscribe = barSocket.subscribeDepth(`${widget.exchange()}:${widget.symbol()}`, (depth) => {
+    const value = Number(depth.ltp);
+    if (Number.isFinite(value) && value > 0) orderControls.setLastQuote(value);
   });
+};
+bindQuote();
+widget.on('symbol', () => {
+  markFeedLoading('Order entry disabled: feed loading');
+  bindQuote();
 });
-
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !indBackdrop.hidden) {
-    closeIndicatorDialog();
-  }
+widget.on('interval', () => {
+  markFeedLoading('Order entry disabled: feed loading');
 });
+syncVolume();
 
-// ── Chart Snapshot PNG ──────────────────────────
-const snapBtn = el('snap-btn');
-snapBtn.addEventListener('click', () => {
-  if (!chart) return;
-  try {
-    const canvas = chart.takeScreenshot();
-    const sym = lastReq?.symbol || 'chart';
-    const intv = lastReq?.interval || '';
-    const filename = `tradex_${sym}_${intv}_${Date.now()}.png`;
-    const a = document.createElement('a');
-    a.download = filename;
-    a.href = canvas.toDataURL('image/png');
-    a.click();
-    setStatus(`Saved snapshot ${filename}`, true);
-  } catch (err: any) {
-    setStatus(`Snapshot error: ${err?.message || 'failed'}`);
-  }
+const dock = createDock(widget);
+
+mountBacktestMarkers(widget);
+mountBacktestZones(widget);
+mountBacktestRuns(widget);
+mountReplayBar(widget, dock, (nextReplayState) => {
+  replaying = nextReplayState;
+  setSafety({});
 });
-
-// ── Toolbar Select Changes ──────────────────────
-el('interval').addEventListener('change', () => {
-  connect();
+mountRunsBar(widget, dock);
+mountTradesPanel(widget, dock);
+accountPanel = mountAccountPanel(widget, dock, {
+  canSubmit,
+  onError: (message) => setOrderStatus(message, 'error'),
 });
+mountScreener(widget, dock);
+mountWorkspace(widget, workspaceBoot);
 
-el('exchange').addEventListener('change', () => {
-  connect();
-});
-
-el('ctype').addEventListener('change', () => {
-  if (!rawBars.length) return;
-  buildChart();
-  const lb = rawBars[rawBars.length - 1];
-  if (lastReq && lb) {
-    setLegend(lastReq.symbol, lastReq.exchange, lastReq.interval, lb, lastLtp != null ? lastLtp : lb.close);
-  }
-});
-
-// Seed API key if present in meta tag
-const seedKey = getApiKey();
-if (seedKey) {
-  const keyInput = document.getElementById('apikey') as HTMLInputElement | null;
-  if (keyInput) keyInput.value = seedKey;
-}
-
-// Set initial mode
-const modeEl = el('mode');
-if (modeEl) {
-  modeEl.textContent = 'ANALYZE (sandbox)';
-  modeEl.className = 'chip analyze';
-}
-
-// ── Market Replay ───────────────────────────────
-el('chart').addEventListener('click', () => {
-  if (replayPicking && replayPickIndex !== null) {
-    startReplayAt(replayPickIndex);
-  }
-});
-
-const replayBtn = el('replay-btn');
-replayBtn.addEventListener('click', () => {
-  if (isReplaying || replayPicking) {
-    askExitReplay();
-  } else {
-    enterReplay();
-  }
-});
-
-el('rp-pick-cancel')?.addEventListener('click', cancelPick);
-el('rp-exit')?.addEventListener('click', askExitReplay);
-el('rp-leave-stay')?.addEventListener('click', () => { el('replayleave').hidden = true; });
-el('rp-leave-go')?.addEventListener('click', exitReplay);
-
-el('rp-play')?.addEventListener('click', () => {
-  if (!isReplaying) return;
-  if (replayIsPlaying) {
-    barSocket.send({ type: 'replay_pause' });
-  } else {
-    barSocket.send({ type: 'replay_resume' });
-  }
-});
-
-el('rp-back')?.addEventListener('click', () => {
-  if (!isReplaying || !replayFullBars || replayCurrentIndex <= 0) return;
-  setReplayCurrentIndex(replayCurrentIndex - 1);
-  setRawBars(replayFullBars.slice(0, replayCurrentIndex));
-  setPriceData();
-  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[replayCurrentIndex] ?? null, false, replaySpeed);
-  barSocket.send({ type: 'replay_pause' });
-});
-
-el('rp-fwd')?.addEventListener('click', () => {
-  if (!isReplaying) return;
-  barSocket.send({ type: 'replay_step' });
-});
-
-el('rp-scrub')?.addEventListener('input', () => {
-  if (!isReplaying || !replayFullBars) return;
-  const target = Math.max(0, Math.min(replayTotalBars - 1, Number((el('rp-scrub') as HTMLInputElement).value)));
-  setReplayCurrentIndex(target);
-  setRawBars(replayFullBars.slice(0, target + 1));
-  setPriceData();
-  syncReplayBarUI(target, replayTotalBars, rawBars[target] ?? null, false, replaySpeed);
-  barSocket.send({ type: 'replay_pause' });
-});
-
-el('rp-speed')?.addEventListener('click', () => {
-  const at = REPLAY_SPEEDS.indexOf(replaySpeed);
-  const next = REPLAY_SPEEDS[(at + 1) % REPLAY_SPEEDS.length] ?? 1;
-  setReplaySpeed(next);
-  barSocket.send({ type: 'replay_speed', speed: next });
-  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[rawBars.length - 1] ?? null, replayIsPlaying, next);
-});
-
-window.addEventListener('keydown', (e: KeyboardEvent) => {
-  if (e.key === 'Escape') {
-    const leaveModal = document.getElementById('replayleave');
-    if (leaveModal && !leaveModal.hidden) { leaveModal.hidden = true; return; }
-    if (replayPicking) cancelPick();
-  }
-});
-
-barSocket.on('replay_started', (msg: any) => {
-  setIsReplaying(true);
-  setReplayIsPlaying(true);
-  if (msg?.total_bars) setReplayTotalBars(Number(msg.total_bars));
-  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[rawBars.length - 1] ?? null, true, replaySpeed);
-  setStatus(`Replay active: ${msg?.instrument || ''}`, true);
-});
-
-barSocket.on('replay_paused', () => {
-  setReplayIsPlaying(false);
-  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[rawBars.length - 1] ?? null, false, replaySpeed);
-  setStatus('Replay paused');
-});
-
-barSocket.on('replay_resumed', () => {
-  setReplayIsPlaying(true);
-  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[rawBars.length - 1] ?? null, true, replaySpeed);
-  setStatus('Replay running', true);
-});
-
-barSocket.on('replay_stepped', () => {
-  setReplayIsPlaying(false);
-  setReplayCurrentIndex(rawBars.length - 1);
-  syncReplayBarUI(replayCurrentIndex, replayTotalBars, rawBars[replayCurrentIndex] ?? null, false, replaySpeed);
-  setStatus('Stepped 1 bar');
-});
-
-barSocket.on('replay_stopped', () => {
-  exitReplay();
-});
-
-barSocket.on('replay_done', () => {
-  setReplayIsPlaying(false);
-  syncReplayBarUI(replayTotalBars - 1, replayTotalBars, rawBars[rawBars.length - 1] ?? null, false, replaySpeed);
-  setStatus('Replay completed');
-});
-
-// Initial connection
-connect();
-
-// ── Utility ──────────────────────────────────────
-const fmt = (n: number | null | undefined): string =>
-  n == null || isNaN(n)
-    ? '-'
-    : Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const esc = (s: string): string =>
-  String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] || c);
+barSocket.onGiveUp(() => widget.context.toast('Live feed lost: reconnect gave up', 'error'));

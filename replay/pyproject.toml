@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tradex-replay"
+version = "0.1.0"
+description = "TradeX replay and backtest"
+requires-python = ">=3.12"
+
+dependencies = [
+    "tradex-domain>=0.1.0,<0.2",
+    "tradex-execution>=0.1.0,<0.2",
+    "tradex-strategy>=0.1.0,<0.2",
+    "tradex-analytics>=0.1.0,<0.2",
+    "tradex-market-data>=0.1.0,<0.2",
+    "tradex-reactive>=0.1.0,<0.2",
+    "rx>=3.2,<4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tradex_replay"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["src"]
+filterwarnings = ["ignore::DeprecationWarning"]

@@ -1,21 +1,4 @@
-"""Configuration for the TradeX v4 trading platform.
+"""Compatibility shim — implementation lives in ``tradex_config``."""
 
-Provides AppConfig schema and environment loading.
-"""
-
-from tradex_trading.config.env import _parse_bool, from_env
-from tradex_trading.config.schema import (
-    AppConfig,
-    BrokerConfig,
-    PersistenceConfig,
-    RiskConfig,
-)
-
-__all__ = [
-    "AppConfig",
-    "BrokerConfig",
-    "PersistenceConfig",
-    "RiskConfig",
-    "_parse_bool",
-    "from_env",
-]
+from tradex_config import *  # noqa: F403
+from tradex_config import __all__  # noqa: F401

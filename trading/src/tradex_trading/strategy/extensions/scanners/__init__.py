@@ -1,16 +1,11 @@
-"""User scanner definitions — import each scanner module here.
+"""Compatibility shim — implementation lives in ``tradex_strategy.extensions.scanners``."""
 
-Objects listed in ``__all__`` are validated as ``ScannerDefinition`` instances
-by ``extensions/__init__.py``. Add a new scanner by dropping a module in this
-package and importing it below.
-"""
+from importlib import import_module as _import_module
 
-from tradex_trading.strategy.extensions.scanners.momentum import (
-    momentum_scanner,
+_impl = _import_module("tradex_strategy.extensions.scanners")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
 )
-from tradex_trading.strategy.extensions.scanners.nifty500_technical import (
-    nifty500_technical_scanner,
-)
-from tradex_trading.strategy.extensions.scanners.pullback import pullback_scanner
-
-__all__ = ["momentum_scanner", "nifty500_technical_scanner", "pullback_scanner"]
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

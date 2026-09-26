@@ -1,5 +1,11 @@
-"""User-owned shared helpers — custom indicators, utilities.
+"""Compatibility shim — implementation lives in ``tradex_strategy.extensions.shared``."""
 
-Helpers imported here are NOT auto-discovered as strategies or scanners;
-they exist for extension code to reuse.
-"""
+from importlib import import_module as _import_module
+
+_impl = _import_module("tradex_strategy.extensions.shared")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

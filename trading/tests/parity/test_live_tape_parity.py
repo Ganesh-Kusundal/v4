@@ -26,16 +26,14 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from tradex_brokers.dhan.adapter import DhanBroker
+from tradex_brokers.paper.adapter import PaperBroker
+from tradex_brokers.upstox.adapter import UpstoxBroker
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
-from tradex_brokers.dhan.adapter import DhanBroker
-from tradex_brokers.dhan.client import DhanApiClient
-from tradex_brokers.paper.adapter import PaperBroker
-from tradex_brokers.upstox.adapter import UpstoxBroker
-from tradex_brokers.upstox.client import UpstoxApiClient
 from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fill_sources import PaperFillSource
 from tradex_trading.execution.trading_cache import TradingCache

@@ -1,42 +1,92 @@
-# Root config so the whole v4 suite runs as one command:
-#   pytest domain/tests brokers/tests trading/tests
-# Without this, the three sibling `tests/` dirs collide on the module id
-# `tests.conftest` (no package __init__), raising ImportPathMismatchError.
-# `importmode = "importlib"` names modules by path, not by an importable
-# `tests` package, which removes the collision.
-#
-# Requires pytest-timeout (uv pip install pytest-timeout) for --timeout;
-# without it pytest errors on the unknown flag. Hang-class failures (e.g.
-# websocket waits) fail fast instead of blocking CI forever.
+# Root config so the whole v4 suite runs as one command.
+[tool.pytest.ini_options]
+
 addopts = "--import-mode=importlib --timeout=120"
-testpaths = ["tests", "domain/tests", "brokers/tests", "trading/tests"]
-# `support` (shared broker test helpers) is importable because brokers/tests
-# is on the path and the directory name `support` is unique across the repo.
-pythonpath = ["domain/src", "brokers/src", "trading/src", "brokers/tests"]
+testpaths = [
+    "tests",
+    "domain/tests",
+    "brokers/tests",
+    "trading/tests",
+    "research/tests",
+    "operations/tests",
+    "observability/tests",
+    "analytics/tests",
+    "reactive/tests",
+    "execution/tests",
+    "strategy/tests",
+    "replay/tests",
+    "application/tests",
+    "market_data/tests",
+    "interfaces/tests",
+    "runtime/tests",
+    "persistence/tests",
+]
+# Editable installs own extracted packages; pythonpath keeps composition + shims.
+pythonpath = [
+    "config/src",
+    "domain/src",
+    "brokers/src",
+    "trading/src",
+    "research/src",
+    "operations/src",
+    "observability/src",
+    "analytics/src",
+    "reactive/src",
+    "execution/src",
+    "strategy/src",
+    "replay/src",
+    "application/src",
+    "market_data/src",
+    "interfaces/src",
+    "runtime/src",
+    "persistence/src",
+    "brokers/tests",
+]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
 
-# The repo-root pyproject.toml is a uv workspace manifest, not a Python
-# package. The three sibling packages (domain, brokers, trading) are
-# editable workspace members; their own pyproject.toml files declare
-# runtime dependencies and optional extras.
 [tool.uv.workspace]
-members = ["domain", "brokers", "trading"]
+members = [
+    "domain",
+    "brokers",
+    "config",
+    "trading",
+    "research",
+    "operations",
+    "observability",
+    "analytics",
+    "reactive",
+    "execution",
+    "strategy",
+    "replay",
+    "application",
+    "market_data",
+    "interfaces",
+    "runtime",
+    "persistence",
+]
 
 [tool.uv.sources]
 tradex-domain = { workspace = true }
 tradex-brokers = { workspace = true }
+tradex-config = { workspace = true }
 tradex-trading = { workspace = true }
+tradex-research = { workspace = true }
+tradex-operations = { workspace = true }
+tradex-observability = { workspace = true }
+tradex-analytics = { workspace = true }
+tradex-reactive = { workspace = true }
+tradex-execution = { workspace = true }
+tradex-strategy = { workspace = true }
+tradex-replay = { workspace = true }
+tradex-application = { workspace = true }
+tradex-market-data = { workspace = true }
+tradex-interfaces = { workspace = true }
+tradex-runtime = { workspace = true }
+tradex-persistence = { workspace = true }
 
 [dependency-groups]
-# Dev tooling consumed by `uv sync` and the CI quality-gate workflow.
-# Each sibling package (`domain/`, `brokers/`, `trading/`) declares its
-# own runtime dependencies in its own pyproject.toml; this list is the
-# minimum the quality-gate workflow needs (ruff lint, mypy on the domain
-# kernel, pytest + coverage + timeout across all three packages). The
-# trading extras are pinned so the parity and datalake tests (which
-# require pandas and duckdb) can collect without import errors.
 dev = [
     "ruff>=0.5,<1",
     "mypy>=1.10,<2",
@@ -45,6 +95,20 @@ dev = [
     "pytest-timeout>=2.3,<3",
     "hypothesis>=6.100,<7",
     "tradex-domain",
-    "tradex-brokers",
+    "tradex-brokers[upstox]",
+    "tradex-config",
     "tradex-trading[datalake,api,full]",
+    "tradex-research",
+    "tradex-operations",
+    "tradex-observability",
+    "tradex-analytics",
+    "tradex-reactive",
+    "tradex-execution",
+    "tradex-strategy",
+    "tradex-replay",
+    "tradex-application",
+    "tradex-market-data",
+    "tradex-interfaces",
+    "tradex-runtime",
+    "tradex-persistence",
 ]

@@ -1,33 +1,11 @@
-"""HTTP route modules for the TradeX API.
+"""Compatibility shim — implementation lives in ``tradex_interfaces.routes``."""
 
-Each module owns one slice of routes. The contract is uniform:
+from importlib import import_module as _import_module
 
-- The module exposes a module-level ``router`` (a FastAPI ``APIRouter``).
-- Route functions read the active session via :func:`get_session`, a
-  FastAPI dependency that returns ``request.app.state.session``.
-
-``create_app`` (in :mod:`tradex_trading.interface.fastapi_app`) iterates
-the :data:`ALL_ROUTES` list and ``include_router``s each one.
-"""
-
-from tradex_trading.interface.routes import (
-    account,
-    extensions,
-    health,
-    market_data,
-    orders,
-    portfolio,
+_impl = _import_module("tradex_interfaces.routes")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
 )
-
-# ponytail: Order matters for OpenAPI doc grouping only; FastAPI is
-# order-agnostic for routing itself.
-ALL_ROUTES = [
-    health.router,
-    portfolio.router,
-    orders.router,
-    market_data.router,
-    account.router,
-    extensions.router,
-]
-
-__all__ = ["ALL_ROUTES"]
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

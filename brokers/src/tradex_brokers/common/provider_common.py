@@ -20,6 +20,7 @@ from tradex_domain import (
     AuthenticationError,
     SDKError,
 )
+from tradex_domain.datetime_formats import DASHED_DATE, DASHED_DATETIME
 
 from tradex_brokers.common.instruments import (
     as_decimal,
@@ -179,17 +180,24 @@ def parse_timestamp(value: str | int | float) -> datetime:
 
     if isinstance(value, str):
         value = value.strip()
-        # Try ISO format first
+        # Tolerant-parsing fallback ladder, tried in order. This is an ORDERED
+        # LIST OF DISTINCT WIRE SHAPES, not duplicated literals: brokers each
+        # emit their own spelling for the same instant, and an entry may only
+        # be dropped once that provider is proven never to send it. Collapsing
+        # entries (or reordering them) would reject valid-but-unusual
+        # responses. The first four are the ISO-8601 'T' variants; the
+        # space-separated and date-only entries reuse the domain format
+        # contracts so the wire shapes have exactly one spelling.
         for fmt in (
-            "%Y-%m-%dT%H:%M:%S%z",
-            "%Y-%m-%dT%H:%M:%S.%f%z",
-            "%Y-%m-%dT%H:%M:%S",
-            "%Y-%m-%dT%H:%M:%S.%f",
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%d %H:%M:%S%z",
-            "%Y-%m-%d",
-            "%d-%m-%Y",
-            "%d/%m/%Y",
+            "%Y-%m-%dT%H:%M:%S%z",  # ISO 8601, aware
+            "%Y-%m-%dT%H:%M:%S.%f%z",  # ISO 8601, aware, microseconds
+            "%Y-%m-%dT%H:%M:%S",  # ISO 8601, naive
+            "%Y-%m-%dT%H:%M:%S.%f",  # ISO 8601, naive, microseconds
+            DASHED_DATETIME,  # "%Y-%m-%d %H:%M:%S"  -- space-separated
+            "%Y-%m-%d %H:%M:%S%z",  # space-separated, aware (no domain constant)
+            DASHED_DATE,  # "%Y-%m-%d"  -- date only
+            "%d-%m-%Y",  # day-first, European (no domain constant)
+            "%d/%m/%Y",  # day-first, slashed (no domain constant)
         ):
             try:
                 dt = datetime.strptime(value, fmt)  # noqa: DTZ007

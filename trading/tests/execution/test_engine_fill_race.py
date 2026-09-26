@@ -16,10 +16,10 @@ from unittest.mock import MagicMock
 
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from tradex_domain.events import OrderFilled
+from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
 
-from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_trading.execution.engine import ExecutionEngine
 from tradex_trading.execution.fill_sources import SimulatedFillSource
 from tradex_trading.reactive.bus import ReactiveBus
@@ -158,11 +158,12 @@ def test_apply_fill_skips_rejected_order() -> None:
     # Make the engine reject every order via the kill switch.
     engine._kill_switch.set()
 
-    # Submit (will return a rejected receipt because the kill switch
-    # is set). The cache has no order.
+    # Submit returns an auditable rejected order, without a fill or position.
     receipt = engine.submit(_request())
     assert receipt.status == OrderStatus.REJECTED
-    assert engine.cache.all_orders() == []
+    assert len(engine.cache.all_orders()) == 1
+    assert engine.cache.all_orders()[0].status == OrderStatus.REJECTED
+    assert engine.cache.all_positions() == []
 
     # Now imagine a late broker fill for a *non-existent* order: the
     # apply path should create a minimal FILLED order so reconciliation

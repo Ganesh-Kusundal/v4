@@ -9,11 +9,11 @@ from tradex_domain.enums import OrderSide, OrderType, TimeInForce
 from tradex_domain.execution import Fill, OrderRequest, Position
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
+from tradex_domain.position_math import apply_fill
 from tradex_domain.value_objects import OrderId, Price, Quantity
 
-from tradex_trading.execution.risk import RiskManager
 from tradex_trading.execution.mark_to_market import MarkToMarketService
-from tradex_domain.position_math import apply_fill
+from tradex_trading.execution.risk import RiskManager
 from tradex_trading.execution.trading_cache import TradingCache
 from tradex_trading.reactive.bus import ReactiveBus
 

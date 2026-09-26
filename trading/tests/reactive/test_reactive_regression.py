@@ -133,6 +133,12 @@ class TestReactiveBusEdgeCases:
 
         The bus wraps on_next in try/except to prevent subscriber errors from
         crashing the publisher. Errors are logged at ERROR level.
+
+        This now logs "Subscriber error" from ``_isolate`` rather than
+        "Bus publish error" from ``publish``. The old message could only
+        appear when the exception escaped the Subject entirely and the
+        subject was left in a broken state, starving sibling subscribers —
+        i.e. it asserted the bug this fix removes.
         """
         bus = ReactiveBus()
 
@@ -142,9 +148,9 @@ class TestReactiveBusEdgeCases:
         bus.stream().subscribe(on_next=bad_handler, on_error=lambda e: None)
 
         import logging
-        with caplog.at_level(logging.ERROR, logger="tradex_trading.reactive.bus"):
+        with caplog.at_level(logging.ERROR, logger="tradex_reactive.bus"):
             bus.publish("test")  # Should not raise
-        assert any("Bus publish error" in record.message for record in caplog.records)
+        assert any("Subscriber error" in record.message for record in caplog.records)
 
     def test_multiple_of_type_same_type(self) -> None:
         bus = ReactiveBus()

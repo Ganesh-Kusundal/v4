@@ -15,7 +15,7 @@ from tradex_domain import Order
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType
 from tradex_domain.value_objects import OrderId, Quantity
 
-from tradex_trading.execution.kill_switch import KillSwitch, TERMINAL_STATUSES
+from tradex_trading.execution.kill_switch import TERMINAL_STATUSES, KillSwitch
 from tradex_trading.execution.trading_cache import TradingCache
 
 
@@ -162,11 +162,16 @@ class TestKillSwitchTrip:
 class TestTerminalStatuses:
     """The statuses the switch treats as done."""
 
-    def test_contains_the_four_done_states(self) -> None:
+    def test_contains_the_three_settled_states(self) -> None:
+        """UNKNOWN is absent on purpose: the venue may still hold that order.
+
+        Treating it as settled made the kill switch skip the one order most
+        likely to be live, so halting left it running.
+        """
         assert OrderStatus.FILLED in TERMINAL_STATUSES
         assert OrderStatus.CANCELLED in TERMINAL_STATUSES
         assert OrderStatus.REJECTED in TERMINAL_STATUSES
-        assert OrderStatus.UNKNOWN in TERMINAL_STATUSES
+        assert OrderStatus.UNKNOWN not in TERMINAL_STATUSES
 
     def test_excludes_live_states(self) -> None:
         assert OrderStatus.NEW not in TERMINAL_STATUSES

@@ -20,12 +20,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
+from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
 
-from tradex_domain.execution import OrderRequest
 from tradex_trading.execution.engine import RiskManager
 
 

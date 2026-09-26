@@ -6,9 +6,14 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
-
 from tradex_domain.enums import Timeframe
-from tradex_trading.runtime.bar_aggregator import BarAggregator, bucket_start
+
+from tradex_trading.runtime.bar_aggregator import (
+    BarAggregator,
+    BarFrame,
+    _tf_seconds,
+    bucket_start,
+)
 
 
 class _Clock:
@@ -26,9 +31,9 @@ class _Clock:
 
 class _Collector:
     def __init__(self) -> None:
-        self.frames = []
+        self.frames: list[BarFrame] = []
 
-    def __call__(self, frame) -> None:
+    def __call__(self, frame: BarFrame) -> None:
         self.frames.append(frame)
 
     @property
@@ -166,11 +171,140 @@ class TestSourceParity:
         c1, c2 = _Collector(), _Collector()
         run(c1)
         run(c2)
-        assert [(f.time, f.open, f.high, f.low, f.close, f.volume, f.closed) for f in c1.frames] == [
-            (f.time, f.open, f.high, f.low, f.close, f.volume, f.closed) for f in c2.frames
+        assert [
+            (f.time, f.open, f.high, f.low, f.close, f.volume, f.closed)
+            for f in c1.frames
+        ] == [
+            (f.time, f.open, f.high, f.low, f.close, f.volume, f.closed)
+            for f in c2.frames
         ]
         # And the shape itself: two closed bars + final flush of partial third.
         assert len(c1.closed_frames) == 2
+
+
+class TestSeededBuckets:
+    @staticmethod
+    def _frame(
+        minute: int,
+        *,
+        hour: int = 10,
+        open_: float = 100.0,
+        high: float = 105.0,
+        low: float = 99.0,
+        close: float = 102.0,
+        volume: float = 10.0,
+    ) -> BarFrame:
+        from zoneinfo import ZoneInfo
+
+        timestamp = datetime(2026, 7, 15, hour, minute).replace(
+            tzinfo=ZoneInfo("Asia/Kolkata")
+        )
+        return BarFrame(
+            instrument="NSE:TEST",
+            timeframe="1m",
+            time=int(timestamp.timestamp()),
+            open=open_,
+            high=high,
+            low=low,
+            close=close,
+            volume=volume,
+            closed=False,
+        )
+
+    def test_current_bucket_seed_continues_and_closes_on_boundary(self):
+        c = _Collector()
+        clock = _Clock()
+        agg = _agg(Timeframe.M1, c, clock)
+        agg.seed_last_closed(self._frame(59, hour=9))
+        agg.seed_current_bucket(self._frame(0))
+
+        agg.on_quote(_ist(2026, 7, 15, 10, 0, 30), Decimal("106"), Decimal("2"))
+        forming = c.forming_frames[-1]
+        assert forming.time == self._frame(0).time
+        assert (forming.open, forming.high, forming.low, forming.close, forming.volume) == (
+            100.0,
+            106.0,
+            99.0,
+            106.0,
+            12.0,
+        )
+        assert forming.closed is False
+
+        clock.advance(2)
+        agg.on_quote(_ist(2026, 7, 15, 10, 1, 5), Decimal("103"), Decimal("1"))
+        closed = c.closed_frames[0]
+        assert closed.time == self._frame(0).time
+        assert (closed.open, closed.high, closed.low, closed.close, closed.volume) == (
+            100.0,
+            106.0,
+            99.0,
+            106.0,
+            12.0,
+        )
+        assert c.forming_frames[-1].time == self._frame(1).time
+
+    def test_last_closed_seed_does_not_reopen_closed_bucket(self):
+        c = _Collector()
+        agg = _agg(Timeframe.M1, c)
+        agg.seed_last_closed(self._frame(0))
+
+        agg.on_quote(_ist(2026, 7, 15, 10, 0, 30), Decimal("999"), Decimal("9"))
+        assert c.frames == []
+
+        agg.on_quote(_ist(2026, 7, 15, 10, 1, 5), Decimal("103"), Decimal("1"))
+        assert len(c.frames) == 1
+        assert c.frames[0].time == self._frame(1).time
+        assert c.frames[0].open == 103.0
+
+    def test_provisional_bucket_is_carried_without_closing_early(self):
+        c = _Collector()
+        clock = _Clock()
+        agg = BarAggregator(
+            "NSE:TEST",
+            Timeframe.M1,
+            on_frame=c,
+            now=clock,
+            provisional=True,
+        )
+        agg.on_quote(_ist(2026, 7, 15, 10, 0, 5), Decimal("100"), Decimal("1"))
+        assert c.frames[0].provisional is True
+        assert c.frames[0].closed is False
+
+        clock.advance(1)
+        agg.on_quote(_ist(2026, 7, 15, 10, 1, 0), Decimal("101"), Decimal("1"))
+        assert c.closed_frames[0].provisional is True
+        assert c.closed_frames[0].closed is True
+        assert c.forming_frames[-1].provisional is False
+
+    def test_replay_aggregator_does_not_mutate_seeded_live_bucket(self):
+        live_collector = _Collector()
+        replay_collector = _Collector()
+        live = _agg(Timeframe.M1, live_collector)
+        live.seed_current_bucket(self._frame(0))
+        replay = BarAggregator(
+            "NSE:TEST",
+            Timeframe.M1,
+            on_frame=replay_collector,
+            now=_Clock(),
+            run_id="run-1",
+        )
+
+        replay.on_quote(
+            _ist(2026, 7, 15, 10, 0, 15),
+            Decimal("200"),
+            Decimal("9"),
+            source="sim",
+        )
+        assert live_collector.frames == []
+        assert replay_collector.frames[0].source == "sim"
+        assert replay_collector.frames[0].run_id == "run-1"
+
+        live.on_quote(_ist(2026, 7, 15, 10, 0, 30), Decimal("106"), Decimal("2"))
+        live_frame = live_collector.frames[-1]
+        assert live_frame.source == "live"
+        assert live_frame.run_id is None
+        assert live_frame.open == 100.0
+        assert live_frame.close == 106.0
 
 
 class TestBucketStart:
@@ -178,6 +312,22 @@ class TestBucketStart:
         assert bucket_start(_ist(2026, 7, 15, 10, 7, 23), 300) == _ist(2026, 7, 15, 10, 5)
         assert bucket_start(_ist(2026, 7, 15, 10, 0, 0), 300) == _ist(2026, 7, 15, 10, 0)
 
+    def test_daily_floor_uses_ist_midnight(self):
+        assert bucket_start(_ist(2026, 7, 15, 23, 59, 59), 86_400) == _ist(2026, 7, 15, 0, 0)
+
+    def test_weekly_floor_uses_ist_monday_midnight(self):
+        # W1 is a supported timeframe: the canonical registry maps it to
+        # 604800s, so `_tf_seconds` resolves it instead of raising. The floor
+        # must be the IST Monday, NOT a 604800s epoch multiple — the epoch
+        # origin is a Thursday, so an epoch floor would land mid-week.
+        assert _tf_seconds(Timeframe.W1) == 604_800
+        # Wednesday and the Sunday that closes the same ISO week both floor
+        # to Monday 2026-07-13 00:00 IST.
+        assert bucket_start(_ist(2026, 7, 15, 10, 7, 23), 604_800) == _ist(2026, 7, 13, 0, 0)
+        assert bucket_start(_ist(2026, 7, 19, 23, 59, 59), 604_800) == _ist(2026, 7, 13, 0, 0)
+        # A Monday boundary is its own bucket start (no off-by-one-week).
+        assert bucket_start(_ist(2026, 7, 13, 0, 0, 0), 604_800) == _ist(2026, 7, 13, 0, 0)
+
     def test_unsupported_timeframe_raises(self):
         with pytest.raises(ValueError, match="unsupported"):
-            _agg(Timeframe.W1)
+            _tf_seconds("not-a-timeframe")

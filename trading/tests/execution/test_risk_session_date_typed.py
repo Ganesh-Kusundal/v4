@@ -45,11 +45,12 @@ def test_session_date_is_typed() -> None:
 
 def _dummy_request():
     """A request stub that has the attributes _session_date touches."""
-    from tradex_domain.execution import OrderRequest
+    from decimal import Decimal
+
     from tradex_domain.enums import OrderSide, OrderType, TimeInForce
+    from tradex_domain.execution import OrderRequest
     from tradex_domain.instruments import Equity
     from tradex_domain.value_objects import Price, Quantity
-    from decimal import Decimal
 
     return OrderRequest(
         instrument=Equity.of("NSE", "TEST"),

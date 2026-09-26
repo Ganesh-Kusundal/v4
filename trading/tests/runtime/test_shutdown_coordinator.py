@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from tradex_trading.runtime.shutdown import ShutdownCoordinator
 
 

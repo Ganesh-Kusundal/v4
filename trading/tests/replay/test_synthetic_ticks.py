@@ -201,3 +201,81 @@ class TestSyntheticTickGenerator:
             return [q.ltp.value for q in events if isinstance(q, Quote)]
 
         assert prices() == prices()
+
+
+class TestOhlcPath:
+    """method="ohlc" — four deterministic prints spanning the minute."""
+
+    def test_ohlc_up_bar_path_is_open_low_high_close(self) -> None:
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        candle = _candle(
+            open_=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("95"),
+            close=Decimal("105"),
+        )
+        SyntheticTickGenerator(bus, method="ohlc").feed_bar(candle)
+        quotes = [e for e in events if isinstance(e, Quote)]
+        assert [q.ltp.value for q in quotes] == [
+            Decimal("100"),
+            Decimal("95"),
+            Decimal("110"),
+            Decimal("105"),
+        ]
+
+    def test_ohlc_down_bar_path_is_open_high_low_close(self) -> None:
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        candle = _candle(
+            open_=Decimal("100"),
+            high=Decimal("110"),
+            low=Decimal("95"),
+            close=Decimal("98"),
+        )
+        SyntheticTickGenerator(bus, method="ohlc").feed_bar(candle)
+        quotes = [e for e in events if isinstance(e, Quote)]
+        assert [q.ltp.value for q in quotes] == [
+            Decimal("100"),
+            Decimal("110"),
+            Decimal("95"),
+            Decimal("98"),
+        ]
+
+    def test_ohlc_timestamps_span_minute(self) -> None:
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        candle = _candle()
+        SyntheticTickGenerator(bus, method="ohlc").feed_bar(candle)
+        quotes = [e for e in events if isinstance(e, Quote)]
+        assert len(quotes) == 4
+        assert [q.timestamp for q in quotes] == [
+            candle.timestamp + timedelta(seconds=0),
+            candle.timestamp + timedelta(seconds=20),
+            candle.timestamp + timedelta(seconds=40),
+            candle.timestamp + timedelta(seconds=59),
+        ]
+
+    def test_ohlc_volumes_sum_to_bar(self) -> None:
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        candle = _candle(volume=Decimal("10000"))
+        SyntheticTickGenerator(bus, method="ohlc").feed_bar(candle)
+        quotes = [e for e in events if isinstance(e, Quote)]
+        total = sum((q.volume.value for q in quotes), Decimal("0"))
+        assert total == candle.volume.value
+
+    def test_ohlc_ignores_ticks_per_bar(self) -> None:
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        SyntheticTickGenerator(bus, method="ohlc", ticks_per_bar=60).feed_bar(_candle())
+        quotes = [e for e in events if isinstance(e, Quote)]
+        assert len(quotes) == 4
+
+    def test_ohlc_prices_stay_decimal(self) -> None:
+        events: list[object] = []
+        bus = ReactiveBus(message_log=events)
+        SyntheticTickGenerator(bus, method="ohlc").feed_bar(_candle())
+        quotes = [e for e in events if isinstance(e, Quote)]
+        for quote in quotes:
+            assert isinstance(quote.ltp.value, Decimal)

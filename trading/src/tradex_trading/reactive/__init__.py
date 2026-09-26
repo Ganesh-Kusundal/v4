@@ -1,10 +1,11 @@
-"""Reactive infrastructure for the TradeX v4 trading platform.
+"""Compatibility shim — implementation lives in ``tradex_reactive``."""
 
-Provides the RxPY-backed message bus.
-"""
+from importlib import import_module as _import_module
 
-from tradex_trading.reactive.bus import ReactiveBus
-
-__all__ = [
-    "ReactiveBus",
-]
+_impl = _import_module("tradex_reactive")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

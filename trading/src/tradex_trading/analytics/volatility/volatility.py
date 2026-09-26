@@ -1,21 +1,11 @@
-"""Realized (historical) volatility from close prices."""
+"""Compatibility shim — implementation lives in ``tradex_analytics.volatility.volatility``."""
 
-from __future__ import annotations
+from importlib import import_module as _import_module
 
-import math
-import statistics
-
-
-def realized_vol(prices: list[float], periods_per_year: int = 252) -> float:
-    """Annualized realized volatility from a list of close prices."""
-    if len(prices) < 2:
-        return 0.0
-    log_returns = [
-        math.log(prices[i] / prices[i - 1]) for i in range(1, len(prices))
-    ]
-    if len(log_returns) < 2:
-        return 0.0
-    return statistics.stdev(log_returns) * math.sqrt(periods_per_year)
-
-
-__all__ = ["realized_vol"]
+_impl = _import_module("tradex_analytics.volatility.volatility")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

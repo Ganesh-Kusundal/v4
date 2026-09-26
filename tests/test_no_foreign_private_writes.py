@@ -14,10 +14,31 @@ import ast
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
+
+# Every workspace package's ``src`` root. The scan originally covered only
+# domain / brokers / trading and left the other 14 extracted packages unchecked,
+# so a foreign private write anywhere in config, research, operations,
+# observability, analytics, reactive, execution, strategy, replay,
+# application, market_data, interfaces, runtime or persistence passed silently.
+# All 17 roots are now scanned; keep this list in sync with the package set.
 _SRC_DIRS = [
     _ROOT / "domain/src",
     _ROOT / "brokers/src",
     _ROOT / "trading/src",
+    _ROOT / "config/src",
+    _ROOT / "research/src",
+    _ROOT / "operations/src",
+    _ROOT / "observability/src",
+    _ROOT / "analytics/src",
+    _ROOT / "reactive/src",
+    _ROOT / "execution/src",
+    _ROOT / "strategy/src",
+    _ROOT / "replay/src",
+    _ROOT / "application/src",
+    _ROOT / "market_data/src",
+    _ROOT / "interfaces/src",
+    _ROOT / "runtime/src",
+    _ROOT / "persistence/src",
 ]
 
 

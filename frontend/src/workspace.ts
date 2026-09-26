@@ -38,9 +38,6 @@ import { API_BASE, probeDatalakeAnchor } from './feed';
 
 const SAVE_DEBOUNCE_MS = 2000;
 
-/** How long to wait for the first bar load before deciding the view. */
-const DATA_WAIT_MS = 5000;
-
 /**
  * Blob format this host writes. Bumped whenever the stored shape changes, so a
  * blob from an older build is recognised as unvalidatable instead of being read
@@ -109,37 +106,31 @@ const lastBarTime = (widget: Widget): number | null => {
   const bars = widget.series.getData();
   for (let i = bars.length - 1; i >= 0; i -= 1) {
     const bar = bars[i];
-    if (bar !== undefined && typeof bar.time === 'number') return bar.time;
+    if (bar !== undefined && typeof bar.time === 'number' && Number.isFinite(bar.time)) return bar.time;
   }
   return null;
 };
 
 /**
- * Resolve with the series identity once bars are present, or when the wait
- * expires.
+ * Resolve with the series identity once bars are present.
  *
  * Only the save path needs this. A save that runs before the first load would
  * record `series: null`, and the next boot would then strip a perfectly good
  * view — the safe direction, but needlessly lossy. The restore path needs no
  * wait: it validates against the datalake probe, before the widget exists.
  */
-const settledSeries = (widget: Widget): Promise<number | null> =>
+const settledSeries = (widget: Widget): Promise<number> =>
   new Promise((resolve) => {
     const present = lastBarTime(widget);
     if (present !== null) {
       resolve(present);
       return;
     }
-    let off: () => void = () => undefined;
-    const timer = setTimeout(() => {
+    const off = widget.on('data', () => {
+      const series = lastBarTime(widget);
+      if (series === null) return;
       off();
-      resolve(lastBarTime(widget));
-    }, DATA_WAIT_MS);
-    off = widget.on('data', () => {
-      if (lastBarTime(widget) === null) return;
-      clearTimeout(timer);
-      off();
-      resolve(lastBarTime(widget));
+      resolve(series);
     });
   });
 
@@ -170,6 +161,60 @@ const newestLayout = (metas: unknown): WorkspaceMeta | null => {
     }
   }
   return best;
+};
+
+/** Split a stored payload into its envelope and its widget state. */
+const parseStored = (raw: unknown): { envelope: StoredBlob | null; state: unknown } => {
+  if (isRecord(raw) && typeof raw.v === 'number' && 'state' in raw) {
+    return { envelope: raw as unknown as StoredBlob, state: raw.state };
+  }
+  // A pre-versioning blob: the bare engine state, no fingerprint.
+  return { envelope: null, state: raw };
+};
+
+/** The instrument a stored state was captured on, validated against what we serve. */
+const instrumentOf = (state: unknown, fallback: BootOptions): BootInstrument => {
+  if (!isRecord(state)) {
+    return { symbol: fallback.symbol, exchange: fallback.exchange, interval: fallback.interval };
+  }
+  const symbol =
+    typeof state.symbol === 'string' && state.symbol.trim() !== ''
+      ? state.symbol.trim().toUpperCase()
+      : fallback.symbol;
+  const exchange =
+    typeof state.exchange === 'string' && state.exchange.trim() !== ''
+      ? state.exchange.trim().toUpperCase()
+      : fallback.exchange;
+  // An interval the host does not serve would make the widget reload onto its
+  // own default, so treat it as absent rather than booting into it.
+  const interval =
+    typeof state.interval === 'string' && fallback.intervals.includes(state.interval)
+      ? state.interval
+      : fallback.interval;
+  return { symbol, exchange, interval };
+};
+
+const instrumentFromLayoutId = (id: string): BootInstrument | null => {
+  const suffix = '_default';
+  if (!id.endsWith(suffix)) return null;
+  const body = id.slice(0, -suffix.length);
+  const first = body.indexOf('_');
+  const second = body.indexOf('_', first + 1);
+  if (first <= 0 || second <= first + 1 || second >= body.length) return null;
+  const exchange = body.slice(0, first).trim().toUpperCase();
+  const symbol = body.slice(first + 1, second).trim().toUpperCase();
+  const interval = body.slice(second + 1).trim();
+  if (exchange === '' || symbol === '' || interval === '') return null;
+  return { exchange, symbol, interval };
+};
+
+const isRestorableState = (state: unknown): boolean => {
+  if (!isRecord(state)) return false;
+  if (state.version !== undefined && state.version !== 1) return false;
+  if (!('chart' in state)) return true;
+  if (!isRecord(state.chart)) return false;
+  return state.chart.version === undefined ||
+    (typeof state.chart.version === 'number' && state.chart.version <= 1);
 };
 
 /** Keep the layout, drop the view — the engine's own rule for newer data. */
@@ -220,6 +265,7 @@ export async function loadActiveWorkspace(options: BootOptions): Promise<BootWor
   let state: unknown = null;
   let revisions: Record<string, number> = {};
   let storedInstrument: BootInstrument | null = null;
+  let activeLayoutId: string | null = null;
 
   try {
     const list = await fetch(`${API_BASE}/api/charts/workspace`);
@@ -229,12 +275,16 @@ export async function loadActiveWorkspace(options: BootOptions): Promise<BootWor
       const active = newestLayout(metas);
       if (active !== null && typeof active.layout_id === 'string') {
         const id = active.layout_id;
+        activeLayoutId = id;
         const res = await fetch(`${API_BASE}/api/charts/workspace/${encodeURIComponent(id)}`);
         if (res.ok) {
           const payload = (await res.json()) as { data?: unknown };
-          envelope = payload.data as StoredBlob | null;
-          state = envelope?.state ?? null;
-          storedInstrument = { symbol: options.symbol, exchange: options.exchange, interval: options.interval };
+          const parsed = parseStored(payload.data);
+          envelope = parsed.envelope;
+          const stateInstrument = instrumentOf(parsed.state, options);
+          const stateMatchesLayout = layoutIdOf(stateInstrument) === id;
+          storedInstrument = instrumentFromLayoutId(id) ?? (stateMatchesLayout ? stateInstrument : fallback);
+          state = stateMatchesLayout && isRestorableState(parsed.state) ? parsed.state : null;
         }
       }
     }
@@ -245,7 +295,7 @@ export async function loadActiveWorkspace(options: BootOptions): Promise<BootWor
   // Boot into the stored instrument so `restoreState` sees an unchanged
   // instrument: it then keeps the view and does not reload.
   const instrument = storedInstrument ?? fallback;
-  const layoutId = layoutIdOf(instrument);
+  const layoutId = activeLayoutId ?? layoutIdOf(instrument);
 
   // This also seeds the load-window clock for the instrument we are about to
   // open, so the probe must happen before `createWidget`.
@@ -254,6 +304,7 @@ export async function loadActiveWorkspace(options: BootOptions): Promise<BootWor
   // A view is trustworthy only against the series it was captured on. `null` is
   // never a match: a blob saved over an empty series has no view worth keeping.
   const viewTrusted =
+    state !== null &&
     envelope !== null &&
     envelope.v === BLOB_VERSION &&
     series !== null &&
@@ -278,61 +329,93 @@ export async function loadActiveWorkspace(options: BootOptions): Promise<BootWor
  */
 export function mountWorkspace(widget: Widget, boot: BootWorkspace): void {
   let timer: ReturnType<typeof setTimeout> | null = null;
-  // Known revision per layout id. Seeded from the boot list and updated on every
-  // successful write; a layout never seen before writes with `null`, which the
-  // server treats as "no precondition" and creates.
   const revisions: Record<string, number> = { ...boot.revisions };
-  // False until the boot restore's outcome is known. A save that fires earlier
-  // would PUT with a `null` revision and clobber the stored layout the restore
-  // just handed back.
   let ready = false;
-  // Set when a change arrives while boot is still settling; one flush is
-  // re-scheduled once the outcome is known.
   let dirtyWhileRestoring = false;
+  let conflict = false;
+  let conflictPanel: HTMLElement | null = null;
+  let requestOverwrite: (() => void) | null = null;
 
   const layoutId = (): string =>
     `${widget.exchange()}_${widget.symbol()}_${widget.interval()}_default`;
 
-  /** The blob we write: engine state plus the series it was captured on. */
-  const payload = (id: string): { data: StoredBlob; revision: number | null; force: boolean } => ({
-    data: { v: BLOB_VERSION, series: lastBarTime(widget), state: widget.getState() },
+  const payload = (
+    id: string,
+    series: number,
+    force = false,
+  ): { data: StoredBlob; revision: number | null; force: boolean } => ({
+    data: { v: BLOB_VERSION, series, state: widget.getState() },
     revision: revisions[id] ?? null,
-    force: false,
+    force,
   });
 
-  const put = async (init: RequestInit = {}): Promise<void> => {
+  const clearConflictPanel = (): void => {
+    conflictPanel?.remove();
+    conflictPanel = null;
+  };
+
+  const reportConflict = (): void => {
+    conflict = true;
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (conflictPanel !== null) return;
+    const panel = widget.context.document.createElement('div');
+    panel.id = 'workspace-conflict';
+    panel.setAttribute('role', 'alert');
+    panel.style.cssText = 'position:absolute;left:12px;bottom:12px;z-index:20;display:flex;gap:8px;align-items:center;padding:8px 10px;background:#241b1b;color:#fff;border:1px solid #a44;border-radius:6px;font:12px sans-serif';
+    const message = widget.context.document.createElement('span');
+    message.textContent = 'Workspace conflict: local changes kept.';
+    const reload = widget.context.document.createElement('button');
+    reload.type = 'button';
+    reload.textContent = 'Reload';
+    const overwrite = widget.context.document.createElement('button');
+    overwrite.type = 'button';
+    overwrite.textContent = 'Overwrite';
+    reload.addEventListener('click', () => window.location.reload());
+    overwrite.addEventListener('click', () => requestOverwrite?.());
+    panel.append(message, reload, overwrite);
+    widget.root.append(panel);
+    conflictPanel = panel;
+    widget.context.toast(
+      'Workspace conflict: local changes kept. Reload or overwrite explicitly.',
+      'error',
+    );
+  };
+
+  const put = async (init: RequestInit = {}, force = false): Promise<void> => {
+    if (conflict && !force) return;
+    const series = lastBarTime(widget);
+    if (series === null) return;
     const id = layoutId();
     const url = `${API_BASE}/api/charts/workspace/${encodeURIComponent(id)}`;
-    const send = async (body: unknown): Promise<Response> =>
-      fetch(url, {
-        ...init,
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-    let res = await send(payload(id));
+    const res = await fetch(url, {
+      ...init,
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload(id, series, force)),
+    });
     if (res.status === 409) {
-      // Another client wrote this layout first. With one store there is nothing
-      // to reconcile: read the current revision and re-put our own state, so the
-      // conflict costs a retry rather than yanking the user's viewport out from
-      // under them mid-session.
-      const stored = await fetch(url);
-      if (stored.ok) {
-        const blob = (await stored.json()) as { revision?: unknown };
-        if (typeof blob.revision === 'number') revisions[id] = blob.revision;
-      }
-      res = await send(payload(id));
+      reportConflict();
+      return;
     }
     if (res.ok) {
       const done = (await res.json()) as { revision?: unknown };
       if (typeof done.revision === 'number') revisions[id] = done.revision;
+      conflict = false;
+      clearConflictPanel();
     }
   };
 
+  requestOverwrite = () => {
+    void put({}, true).catch((err: unknown) => console.warn('workspace overwrite failed', err));
+  };
+
   const save = (): void => {
+    if (conflict) return;
     if (!ready) {
-      dirtyWhileRestoring = true; // boot restore still settling
+      dirtyWhileRestoring = true;
       return;
     }
     if (timer !== null) clearTimeout(timer);
@@ -359,7 +442,7 @@ export function mountWorkspace(widget: Widget, boot: BootWorkspace): void {
   // A debounce pending at tab close still holds the user's last 2s of work;
   // keepalive lets the request outlive the page.
   window.addEventListener('pagehide', () => {
-    if (!ready || timer === null) return;
+    if (conflict || !ready || timer === null) return;
     clearTimeout(timer);
     timer = null;
     void put({ keepalive: true }).catch(() => undefined);

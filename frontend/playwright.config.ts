@@ -26,7 +26,24 @@ const BASE = `http://127.0.0.1:${PORT}`;
 // at the repo root, so this resolves in CI and locally alike; the override
 // exists so a differently-placed interpreter never has to be edited in here.
 const PYTHON = process.env.E2E_PYTHON ?? '../.venv/bin/python';
-const PYTHONPATH = '../domain/src:../brokers/src:../trading/src';
+// Post-extraction package layout: each top-level package is its own src root.
+// `trading/src` is still listed for the shim tree and its test-only helpers.
+const PYTHONPATH = [
+  '../domain/src',
+  '../brokers/src',
+  '../execution/src',
+  '../reactive/src',
+  '../runtime/src',
+  '../interfaces/src',
+  '../market_data/src',
+  '../config/src',
+  '../strategy/src',
+  '../replay/src',
+  '../persistence/src',
+  '../observability/src',
+  '../application/src',
+  '../trading/src',
+].join(':');
 
 const serve = (script: string): string => `env PYTHONPATH=${PYTHONPATH} ${PYTHON} ${script}`;
 
@@ -66,7 +83,7 @@ export default defineConfig({
   webServer: {
     command: [
       serve('../trading/scripts/seed_e2e_datalake.py'),
-      serve(`-m tradex_trading.interface.cli serve --broker paper --port ${PORT}`),
+      serve(`-m tradex_interfaces.cli serve --broker paper --port ${PORT}`),
     ].join(' && '),
     url: `${BASE}/health/ready`,
     env: {

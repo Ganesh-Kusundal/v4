@@ -1,0 +1,128 @@
+{
+  "version": 1,
+  "description": "Recorded local vs broker snapshots for startup reconciliation (no live venue).",
+  "kill_switch_policy": {
+    "trip_on_severities": ["HIGH", "CRITICAL"],
+    "trip_reason": "startup_reconciliation_drift"
+  },
+  "scenarios": [
+    {
+      "name": "unknown_broker_submission_with_local_position_shortfall",
+      "comment": "Broker has a working order absent locally; local book shows shares the broker does not.",
+      "local_positions": [
+        {"exchange": "NSE", "symbol": "RELIANCE", "quantity": 10, "avg_price": 100}
+      ],
+      "broker_positions": [],
+      "local_orders": [],
+      "broker_orders": [
+        {
+          "order_id": "brk-wrk-1",
+          "exchange": "NSE",
+          "symbol": "RELIANCE",
+          "quantity": 10,
+          "filled": 0,
+          "price": 100,
+          "status": "SUBMITTED"
+        }
+      ],
+      "expected_drift_keys": [
+        {
+          "kind": "position",
+          "key": "NSE:RELIANCE",
+          "severity": "LOW",
+          "reason": ""
+        },
+        {
+          "kind": "order",
+          "key": "brk-wrk-1",
+          "severity": "HIGH",
+          "reason": "missing local order"
+        }
+      ],
+      "expect_kill_trip": true
+    },
+    {
+      "name": "ghost_local_order_and_fill_lag",
+      "comment": "Local cache retains a submitted order the broker dropped; filled qty differs on a shared id.",
+      "local_positions": [],
+      "broker_positions": [],
+      "local_orders": [
+        {
+          "order_id": "loc-ghost-1",
+          "exchange": "NSE",
+          "symbol": "RELIANCE",
+          "quantity": 10,
+          "filled": 0,
+          "price": 100,
+          "status": "SUBMITTED"
+        },
+        {
+          "order_id": "shared-partial",
+          "exchange": "NSE",
+          "symbol": "RELIANCE",
+          "quantity": 10,
+          "filled": 5,
+          "price": 100,
+          "status": "PARTIALLY_FILLED"
+        }
+      ],
+      "broker_orders": [
+        {
+          "order_id": "shared-partial",
+          "exchange": "NSE",
+          "symbol": "RELIANCE",
+          "quantity": 10,
+          "filled": 0,
+          "price": 100,
+          "status": "PARTIALLY_FILLED"
+        }
+      ],
+      "expected_drift_keys": [
+        {
+          "kind": "order",
+          "key": "loc-ghost-1",
+          "severity": "HIGH",
+          "reason": "missing broker order"
+        },
+        {
+          "kind": "order",
+          "key": "shared-partial",
+          "severity": "HIGH",
+          "reason": "filled_quantity mismatch"
+        }
+      ],
+      "expect_kill_trip": true
+    },
+    {
+      "name": "benign_avg_price_drift_only",
+      "comment": "Qty matches; avg cost differs beyond tolerance — MEDIUM, must not trip kill switch alone.",
+      "local_positions": [
+        {"exchange": "NSE", "symbol": "RELIANCE", "quantity": 10, "avg_price": 100}
+      ],
+      "broker_positions": [
+        {"exchange": "NSE", "symbol": "RELIANCE", "quantity": 10, "avg_price": 105}
+      ],
+      "local_orders": [],
+      "broker_orders": [],
+      "expected_drift_keys": [
+        {
+          "kind": "position",
+          "key": "NSE:RELIANCE",
+          "severity": "MEDIUM",
+          "reason": "avg_price drift"
+        }
+      ],
+      "expect_kill_trip": false
+    }
+  ],
+  "critical_kill_trip_fixture": {
+    "comment": "ReconciliationEngine does not emit CRITICAL today; startup/runbook may inject it for capital-at-risk cases.",
+    "drift": {
+      "kind": "position",
+      "key": "NSE:RELIANCE",
+      "severity": "CRITICAL",
+      "reason": "local 100 vs broker 0"
+    },
+    "expect_kill_trip": true
+  }
+}

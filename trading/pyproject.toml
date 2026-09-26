@@ -10,6 +10,19 @@ requires-python = ">=3.12"
 dependencies = [
     "tradex-domain>=0.1.0,<0.2",
     "tradex-brokers>=0.1.0,<0.2",
+    "tradex-config>=0.1.0,<0.2",
+    "tradex-research>=0.1.0,<0.2",
+    "tradex-observability>=0.1.0,<0.2",
+    "tradex-analytics>=0.1.0,<0.2",
+    "tradex-reactive>=0.1.0,<0.2",
+    "tradex-execution>=0.1.0,<0.2",
+    "tradex-strategy>=0.1.0,<0.2",
+    "tradex-replay>=0.1.0,<0.2",
+    "tradex-application>=0.1.0,<0.2",
+    "tradex-market-data>=0.1.0,<0.2",
+    "tradex-interfaces>=0.1.0,<0.2",
+    "tradex-runtime>=0.1.0,<0.2",
+    "tradex-persistence>=0.1.0,<0.2",
     "rx>=3.2,<4",
 ]
 
@@ -48,7 +61,7 @@ disable_error_code = ["no-any-return", "misc"]
 # paths resolve against this rootdir, mirroring the mypy_path convention.
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
-pythonpath = ["src", "../domain/src", "../brokers/src"]
+pythonpath = ["src", "../domain/src", "../brokers/src", "../research/src"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

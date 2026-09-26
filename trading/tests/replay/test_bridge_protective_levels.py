@@ -85,7 +85,9 @@ class _RecordingOnly:
         """No-op fill hook."""
 
 
-_CANDLES = [_candle(100, 1), _candle(110, 2), _candle(120, 3)]
+# Highs stay below target (110) so engine-side bracket simulation does not
+# auto-exit while these tests assert level *carriage* on the entry fill.
+_CANDLES = [_candle(100, 1), _candle(105, 2), _candle(108, 3)]
 
 
 def test_the_bridge_carries_a_declared_pair_onto_the_fill() -> None:

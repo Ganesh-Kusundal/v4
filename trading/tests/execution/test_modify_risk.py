@@ -25,8 +25,8 @@ from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
 
 from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.risk import RiskManager
 from tradex_trading.execution.fill_sources import SimulatedFillSource
+from tradex_trading.execution.risk import RiskManager
 from tradex_trading.reactive.bus import ReactiveBus
 
 

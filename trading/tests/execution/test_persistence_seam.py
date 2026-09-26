@@ -33,17 +33,21 @@ def test_seam_exports_the_folded_names() -> None:
 
 
 def test_no_source_imports_deleted_shims() -> None:
-    src_root = Path(sqlite_store.__file__).resolve().parents[2]  # trading/src
+    repo = Path(__file__).resolve().parents[3]
+    src_roots = [repo / "trading" / "src", repo / "execution" / "src"]
     offenders: list[str] = []
-    for path in sorted(src_root.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module in _DELETED_MODULES:
-                offenders.append(f"{path.name}:{node.lineno} from {node.module}")
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name in _DELETED_MODULES:
-                        offenders.append(f"{path.name}:{node.lineno} import {alias.name}")
+    for src_root in src_roots:
+        for path in sorted(src_root.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module in _DELETED_MODULES:
+                    offenders.append(f"{path.name}:{node.lineno} from {node.module}")
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name in _DELETED_MODULES:
+                            offenders.append(
+                                f"{path.name}:{node.lineno} import {alias.name}"
+                            )
     assert not offenders, f"deleted persistence shims still imported: {offenders}"

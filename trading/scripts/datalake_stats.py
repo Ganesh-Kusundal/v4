@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +50,35 @@ ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 for sub in ("domain/src", "brokers/src", "trading/src"):
     sys.path.insert(0, str(ROOT / sub))
 
+from tradex_domain.market_calendar import (  # noqa: E402 — sys.path bootstrap above
+    MARKET_CLOSE,
+    MARKET_CLOSE_STR,
+    MARKET_OPEN,
+    MARKET_OPEN_STR,
+)
+
 from tradex_trading.datalake.paths import datalake_root  # noqa: E402 — sys.path bootstrap above
+
+
+def _shifted_str(base: time, minutes: int) -> str:
+    """``base`` wall time shifted by *minutes*, as ``HH:MM:SS``."""
+    return (datetime.combine(date(2026, 1, 1), base) + timedelta(minutes=minutes)).time().isoformat()
+
+
+#: Session-edge stamps, straight from the canonical calendar.
+OPEN_STR: str = MARKET_OPEN_STR
+CLOSE_STR: str = MARKET_CLOSE_STR
+#: The *interior* density band: deliberately one minute inside each session
+#: edge, because 09:15 (Dhan's window is start-exclusive) and 15:30 (neither
+#: broker's intraday series reaches it) are conventions rather than data. They
+#: are counted apart, never as interior density.
+INTERIOR_OPEN_STR: str = _shifted_str(MARKET_OPEN, 1)
+INTERIOR_CLOSE_STR: str = _shifted_str(MARKET_CLOSE, -1)
+#: Human-facing ``HH:MM`` labels for the same four stamps.
+OPEN_LABEL: str = MARKET_OPEN.strftime("%H:%M")
+CLOSE_LABEL: str = MARKET_CLOSE.strftime("%H:%M")
+INTERIOR_OPEN_LABEL: str = datetime.strptime(INTERIOR_OPEN_STR, "%H:%M:%S").strftime("%H:%M")
+INTERIOR_CLOSE_LABEL: str = datetime.strptime(INTERIOR_CLOSE_STR, "%H:%M:%S").strftime("%H:%M")
 
 _PARQUET = "read_parquet(?, hive_partitioning=true)"
 
@@ -104,11 +133,11 @@ WITH per_symbol AS (
     SELECT CAST(timestamp AS DATE) AS d,
            symbol,
            count(*) FILTER (
-               WHERE CAST(timestamp AS TIME) BETWEEN TIME '09:16:00' AND TIME '15:29:00'
+               WHERE CAST(timestamp AS TIME) BETWEEN TIME '{INTERIOR_OPEN_STR}' AND TIME '{INTERIOR_CLOSE_STR}'
            ) AS interior_bars,
-           count(*) FILTER (WHERE CAST(timestamp AS TIME) = TIME '09:15:00')
+           count(*) FILTER (WHERE CAST(timestamp AS TIME) = TIME '{OPEN_STR}')
                AS open_bars,
-           count(*) FILTER (WHERE CAST(timestamp AS TIME) > TIME '15:29:00')
+           count(*) FILTER (WHERE CAST(timestamp AS TIME) > TIME '{INTERIOR_CLOSE_STR}')
                AS close_bars
     FROM {_PARQUET}
     GROUP BY d, symbol
@@ -272,7 +301,7 @@ def render(report: dict[str, Any], *, top: int = 5) -> str:
     sessions = f"{lens[0]}–{lens[-1]}" if len(lens) > 1 else str(lens[0])
     if report["days_with_interior_shortfall"]:
         out.append(f"  density      {report['interior_short_bars_total']:,} bars missing "
-                   f"inside 09:16–15:29 (vs each day's densest symbol, "
+                   f"inside {INTERIOR_OPEN_LABEL}–{INTERIOR_CLOSE_LABEL} (vs each day's densest symbol, "
                    f"{sessions} bars when complete), on "
                    f"{report['days_with_interior_shortfall']} of {report['days']} days")
         for d in report["worst_days"][:top]:
@@ -281,9 +310,9 @@ def render(report: dict[str, Any], *, top: int = 5) -> str:
         out.append(f"  density      no interior shortfall — every symbol-day holds "
                    f"the full session ({sessions} bars after the open)")
     for label, count_key, stamp, why in (
-        ("open bar ", "open_bar_absent_symbol_days", "09:15",
+        ("open bar ", "open_bar_absent_symbol_days", OPEN_LABEL,
          "Dhan's intraday window is start-exclusive"),
-        ("close bar", "close_bar_absent_symbol_days", "15:30",
+        ("close bar", "close_bar_absent_symbol_days", CLOSE_LABEL,
          "neither broker's intraday series reaches it"),
     ):
         absent = report[count_key]

@@ -10,6 +10,7 @@ import logging
 import random
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -151,6 +152,21 @@ class AutoReconnectMixin:
     _reconnect_thread: threading.Thread | None
     _reconnect_grace: float
     _last_success_at: float
+    _on_reconnect: Callable[[], None] | None
+
+    def set_reconnect_hook(self, cb: Callable[[], None] | None) -> None:
+        """Register a callback invoked after every successful socket reconnect.
+
+        The callback fires after ``_resubscribe`` completes and before the
+        receive loop resumes, so the subscription set is already replayed when
+        the caller is notified.  Exceptions in the callback are caught and
+        logged — they must not abort the receive loop.
+
+        Pass ``None`` to clear the hook.  Thread-safe: the assignment is
+        atomic on CPython and guarded by exception isolation in
+        ``_reconnect_worker``.
+        """
+        self._on_reconnect = cb
 
     def _open_socket(self) -> Any:
         """Open a fresh socket; implemented by the concrete backend."""
@@ -190,6 +206,7 @@ class AutoReconnectMixin:
         self._reconnect_thread: threading.Thread | None = None
         self._reconnect_grace = grace_seconds
         self._last_success_at = time.monotonic()
+        self._on_reconnect: Callable[[], None] | None = None
 
     def _schedule_reconnect(self) -> None:
         """Start (or queue) the next reconnection attempt after a socket drop."""
@@ -244,6 +261,12 @@ class AutoReconnectMixin:
                 self._resubscribe(ws)
             except Exception:  # noqa: BLE001 — best-effort replay
                 log.warning("stream reconnect resubscribe failed", exc_info=True)
+            cb = self._on_reconnect
+            if cb is not None:
+                try:
+                    cb()
+                except Exception:  # noqa: BLE001 — hook must not abort receive loop
+                    log.warning("stream on_reconnect hook failed", exc_info=True)
             if hasattr(ws, "recv"):
                 threading.Thread(target=self._receive_loop, daemon=True).start()
 

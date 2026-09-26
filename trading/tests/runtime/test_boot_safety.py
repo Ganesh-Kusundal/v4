@@ -8,8 +8,7 @@ import pytest
 from tradex_brokers.common.capabilities import dhan_capabilities
 from tradex_domain import BrokerId
 
-from tradex_trading.config.schema import AppConfig
-from tradex_trading.config.schema import PersistenceConfig
+from tradex_trading.config.schema import AppConfig, PersistenceConfig
 from tradex_trading.runtime.startup import boot
 
 
@@ -96,7 +95,7 @@ class TestBootStreamBackendWiring:
         return broker
 
     def test_live_boot_wires_stream_backend(self, monkeypatch, tmp_path) -> None:
-        from tradex_trading.runtime import live as live_mod
+        import tradex_runtime.live as live_mod
 
         backend = MagicMock()
         broker = self._fake_broker(backend)
@@ -112,7 +111,7 @@ class TestBootStreamBackendWiring:
             session.stop()
 
     def test_live_boot_refuses_when_order_stream_backend_fails(self, monkeypatch, tmp_path) -> None:
-        from tradex_trading.runtime import live as live_mod
+        import tradex_runtime.live as live_mod
 
         broker = self._fake_broker()
         broker.stream_backend.side_effect = RuntimeError("no ws transport")
@@ -124,7 +123,7 @@ class TestBootStreamBackendWiring:
             boot(cfg)
 
     def test_live_boot_refuses_without_order_stream_backend(self, monkeypatch, tmp_path) -> None:
-        from tradex_trading.runtime import live as live_mod
+        import tradex_runtime.live as live_mod
 
         broker = self._fake_broker()
         broker.stream_backend.return_value = None
@@ -173,7 +172,7 @@ class TestBootPersistenceWiring:
             session.stop()
 
     def test_live_boot_requires_persistence_path(self, monkeypatch, tmp_path) -> None:
-        from tradex_trading.runtime import live as live_mod
+        import tradex_runtime.live as live_mod
 
         broker = MagicMock()
         broker.capabilities = dhan_capabilities()

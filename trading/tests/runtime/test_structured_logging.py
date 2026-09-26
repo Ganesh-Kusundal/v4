@@ -32,7 +32,6 @@ class TestCorrelationId:
         token = set_correlation_id("req-456")
         assert get_correlation_id() == "req-456"
         # Reset using the token
-        import contextvars
         # Just set to None explicitly
         set_correlation_id(None)
         assert get_correlation_id() is None

@@ -93,6 +93,8 @@ def test_place_order_command_kill_switch_respected() -> None:
     cmd = PlaceOrderCommand(request=_request())
     bus.publish(cmd)
 
-    # No orders should be processed after kill switch
+    # A halted command must be auditable, but must never reach the fill source.
     orders = engine.cache.all_orders()
-    assert len(orders) == 0
+    assert len(orders) == 1
+    assert orders[0].status is OrderStatus.REJECTED
+    assert engine.cache.all_positions() == []

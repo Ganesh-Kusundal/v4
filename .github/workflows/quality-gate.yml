@@ -35,9 +35,38 @@ jobs:
       - name: Mypy (brokers)
         run: mypy brokers/src/tradex_brokers
 
+      - name: Mypy (config)
+        continue-on-error: true  # hard-fail after typing debt cleared (B3 goal)
+        run: mypy config/src/tradex_config
+
+      - name: Mypy (execution)
+        continue-on-error: true  # hard-fail after typing debt cleared (B3 goal)
+        run: mypy execution/src/tradex_execution
+
+      - name: Mypy (analytics)
+        continue-on-error: true  # hard-fail after typing debt cleared (B3 goal)
+        run: mypy analytics/src/tradex_analytics
+
+      - name: Mypy (strategy)
+        continue-on-error: true  # hard-fail after typing debt cleared (B3 goal)
+        run: mypy strategy/src/tradex_strategy
+
+      - name: Mypy (interfaces)
+        continue-on-error: true  # hard-fail after typing debt cleared (B3 goal)
+        run: mypy interfaces/src/tradex_interfaces
+
+      - name: Mypy (runtime)
+        continue-on-error: true  # hard-fail after typing debt cleared (B3 goal)
+        run: mypy runtime/src/tradex_runtime
+
       - name: Mypy (trading)
-        continue-on-error: true  # PE-3: incremental typing — baseline 203 errors
+        continue-on-error: true  # PE-3: incremental typing — shims/composition baseline
         run: mypy trading/src/tradex_trading
 
       - name: Pytest with coverage
-        run: python -m pytest --cov=domain --cov=brokers --cov=trading --cov-report=term-missing -q
+        run: >-
+          python -m pytest
+          --cov=domain --cov=brokers --cov=trading
+          --cov=execution --cov=analytics --cov=strategy
+          --cov=interfaces --cov=runtime --cov=config
+          --cov-report=term-missing -q

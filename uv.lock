@@ -15,8 +15,22 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "tradex-analytics",
+    "tradex-application",
     "tradex-brokers",
+    "tradex-config",
     "tradex-domain",
+    "tradex-execution",
+    "tradex-interfaces",
+    "tradex-market-data",
+    "tradex-observability",
+    "tradex-operations",
+    "tradex-persistence",
+    "tradex-reactive",
+    "tradex-replay",
+    "tradex-research",
+    "tradex-runtime",
+    "tradex-strategy",
     "tradex-trading",
 ]
 
@@ -28,8 +42,22 @@ dev = [
     { name = "pytest-cov", specifier = ">=5,<7" },
     { name = "pytest-timeout", specifier = ">=2.3,<3" },
     { name = "ruff", specifier = ">=0.5,<1" },
-    { name = "tradex-brokers", editable = "brokers" },
+    { name = "tradex-analytics", editable = "analytics" },
+    { name = "tradex-application", editable = "application" },
+    { name = "tradex-brokers", extras = ["upstox"], editable = "brokers" },
+    { name = "tradex-config", editable = "config" },
     { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-execution", editable = "execution" },
+    { name = "tradex-interfaces", editable = "interfaces" },
+    { name = "tradex-market-data", editable = "market_data" },
+    { name = "tradex-observability", editable = "observability" },
+    { name = "tradex-operations", editable = "operations" },
+    { name = "tradex-persistence", editable = "persistence" },
+    { name = "tradex-reactive", editable = "reactive" },
+    { name = "tradex-replay", editable = "replay" },
+    { name = "tradex-research", editable = "research" },
+    { name = "tradex-runtime", editable = "runtime" },
+    { name = "tradex-strategy", editable = "strategy" },
     { name = "tradex-trading", extras = ["datalake", "api", "full"], editable = "trading" },
 ]
 
@@ -520,6 +548,17 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d3/89/b8d5f00e8636abbbd975d98d68e46b990e710579508bf351406aaf1fc177/dhanhq-2.2.0.tar.gz", hash = "sha256:b1836107111c48923ce455303b1cd29a85de97667e109f2bbf1cb25bfccecb52", size = 44814, upload-time = "2026-04-24T11:42:05.345Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/62/2e/27eeb5c3f8eaf6dc0f39723cefb904d597382dbd0011aff34b3bb287600b/dhanhq-2.2.0-py3-none-any.whl", hash = "sha256:0469dc83317dbeeec4990fa249a583157373a91bde1c4738e5ab91313a952f6b", size = 36510, upload-time = "2026-04-24T11:42:04.041Z" },
+]
+
+[[package]]
+name = "dotenv"
+version = "0.9.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dotenv" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/b7/545d2c10c1fc15e48653c91efde329a790f2eecfbbf2bd16003b5db2bab0/dotenv-0.9.9-py2.py3-none-any.whl", hash = "sha256:29cf74a087b31dafdb5a446b6d7e11cbce8ed2741540e2339c69fbef92c94ce9", size = 1892, upload-time = "2025-02-19T22:15:01.647Z" },
 ]
 
 [[package]]
@@ -1228,6 +1267,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-dotenv"
+version = "1.2.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/53/ed9d74092561d4b01a2ef1349d52cdbc135e526c245f366b089cfca6de49/python_dotenv-1.2.3.tar.gz", hash = "sha256:a20a594dabeaa385725aa239d5244871c143ecb356add8a20fcf23773a6c3a35", size = 58945, upload-time = "2026-08-16T16:54:54.067Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/17/c5c6b53ddc18f297992099b3d9ec16c855c0ccc83263a21fe4d1c625ec6c/python_dotenv-1.2.3-py3-none-any.whl", hash = "sha256:904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9", size = 22780, upload-time = "2026-08-16T16:54:52.473Z" },
+]
+
+[[package]]
 name = "pytz"
 version = "2026.3.post1"
 source = { registry = "https://pypi.org/simple" }
@@ -1317,6 +1365,32 @@ wheels = [
 ]
 
 [[package]]
+name = "tradex-analytics"
+version = "0.1.0"
+source = { editable = "analytics" }
+dependencies = [
+    { name = "tradex-domain" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "tradex-domain", editable = "domain" }]
+
+[[package]]
+name = "tradex-application"
+version = "0.1.0"
+source = { editable = "application" }
+dependencies = [
+    { name = "tradex-domain" },
+    { name = "tradex-execution" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-execution", editable = "execution" },
+]
+
+[[package]]
 name = "tradex-brokers"
 version = "0.1.0"
 source = { editable = "brokers" }
@@ -1333,7 +1407,11 @@ dhan = [
 full = [
     { name = "curl-cffi" },
     { name = "dhan-tradehull" },
+    { name = "upstox-totp" },
     { name = "websockets" },
+]
+upstox = [
+    { name = "upstox-totp" },
 ]
 ws = [
     { name = "websockets" },
@@ -1347,10 +1425,23 @@ requires-dist = [
     { name = "protobuf", specifier = ">=6.33,<7" },
     { name = "rx", specifier = ">=3.2,<4" },
     { name = "tradex-domain", editable = "domain" },
+    { name = "upstox-totp", marker = "extra == 'full'", specifier = ">=1.0.8,<2" },
+    { name = "upstox-totp", marker = "extra == 'upstox'", specifier = ">=1.0.8,<2" },
     { name = "websockets", marker = "extra == 'full'", specifier = ">=12.0,<16" },
     { name = "websockets", marker = "extra == 'ws'", specifier = ">=12.0,<16" },
 ]
-provides-extras = ["dhan", "ws", "full"]
+provides-extras = ["dhan", "upstox", "ws", "full"]
+
+[[package]]
+name = "tradex-config"
+version = "0.1.0"
+source = { editable = "config" }
+dependencies = [
+    { name = "tradex-domain" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "tradex-domain", editable = "domain" }]
 
 [[package]]
 name = "tradex-domain"
@@ -1358,13 +1449,207 @@ version = "0.1.0"
 source = { editable = "domain" }
 
 [[package]]
+name = "tradex-execution"
+version = "0.1.0"
+source = { editable = "execution" }
+dependencies = [
+    { name = "rx" },
+    { name = "tradex-domain" },
+    { name = "tradex-observability" },
+    { name = "tradex-reactive" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rx", specifier = ">=3.2,<4" },
+    { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-observability", editable = "observability" },
+    { name = "tradex-reactive", editable = "reactive" },
+]
+
+[[package]]
+name = "tradex-interfaces"
+version = "0.1.0"
+source = { editable = "interfaces" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "tradex-analytics" },
+    { name = "tradex-application" },
+    { name = "tradex-config" },
+    { name = "tradex-domain" },
+    { name = "tradex-execution" },
+    { name = "tradex-market-data" },
+    { name = "tradex-reactive" },
+    { name = "tradex-replay" },
+    { name = "tradex-runtime" },
+    { name = "tradex-strategy" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.110,<1" },
+    { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "tradex-analytics", editable = "analytics" },
+    { name = "tradex-application", editable = "application" },
+    { name = "tradex-config", editable = "config" },
+    { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-execution", editable = "execution" },
+    { name = "tradex-market-data", editable = "market_data" },
+    { name = "tradex-reactive", editable = "reactive" },
+    { name = "tradex-replay", editable = "replay" },
+    { name = "tradex-runtime", editable = "runtime" },
+    { name = "tradex-strategy", editable = "strategy" },
+    { name = "uvicorn", specifier = ">=0.29,<1" },
+    { name = "websockets", specifier = ">=12,<18" },
+]
+
+[[package]]
+name = "tradex-market-data"
+version = "0.1.0"
+source = { editable = "market_data" }
+dependencies = [
+    { name = "tradex-brokers" },
+    { name = "tradex-domain" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tradex-brokers", editable = "brokers" },
+    { name = "tradex-domain", editable = "domain" },
+]
+
+[[package]]
+name = "tradex-observability"
+version = "0.1.0"
+source = { editable = "observability" }
+
+[[package]]
+name = "tradex-operations"
+version = "0.1.0"
+source = { editable = "operations" }
+
+[[package]]
+name = "tradex-persistence"
+version = "0.1.0"
+source = { editable = "persistence" }
+dependencies = [
+    { name = "tradex-execution" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "tradex-execution", editable = "execution" }]
+
+[[package]]
+name = "tradex-reactive"
+version = "0.1.0"
+source = { editable = "reactive" }
+dependencies = [
+    { name = "tradex-domain" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "tradex-domain", editable = "domain" }]
+
+[[package]]
+name = "tradex-replay"
+version = "0.1.0"
+source = { editable = "replay" }
+dependencies = [
+    { name = "rx" },
+    { name = "tradex-analytics" },
+    { name = "tradex-domain" },
+    { name = "tradex-execution" },
+    { name = "tradex-market-data" },
+    { name = "tradex-reactive" },
+    { name = "tradex-strategy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rx", specifier = ">=3.2,<4" },
+    { name = "tradex-analytics", editable = "analytics" },
+    { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-execution", editable = "execution" },
+    { name = "tradex-market-data", editable = "market_data" },
+    { name = "tradex-reactive", editable = "reactive" },
+    { name = "tradex-strategy", editable = "strategy" },
+]
+
+[[package]]
+name = "tradex-research"
+version = "0.1.0"
+source = { editable = "research" }
+
+[[package]]
+name = "tradex-runtime"
+version = "0.1.0"
+source = { editable = "runtime" }
+dependencies = [
+    { name = "rx" },
+    { name = "tradex-brokers" },
+    { name = "tradex-config" },
+    { name = "tradex-domain" },
+    { name = "tradex-execution" },
+    { name = "tradex-market-data" },
+    { name = "tradex-observability" },
+    { name = "tradex-reactive" },
+    { name = "tradex-strategy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "rx", specifier = ">=3.2,<4" },
+    { name = "tradex-brokers", editable = "brokers" },
+    { name = "tradex-config", editable = "config" },
+    { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-execution", editable = "execution" },
+    { name = "tradex-market-data", editable = "market_data" },
+    { name = "tradex-observability", editable = "observability" },
+    { name = "tradex-reactive", editable = "reactive" },
+    { name = "tradex-strategy", editable = "strategy" },
+]
+
+[[package]]
+name = "tradex-strategy"
+version = "0.1.0"
+source = { editable = "strategy" }
+dependencies = [
+    { name = "tradex-analytics" },
+    { name = "tradex-domain" },
+    { name = "tradex-market-data" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tradex-analytics", editable = "analytics" },
+    { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-market-data", editable = "market_data" },
+]
+
+[[package]]
 name = "tradex-trading"
 version = "0.1.0"
 source = { editable = "trading" }
 dependencies = [
     { name = "rx" },
+    { name = "tradex-analytics" },
+    { name = "tradex-application" },
     { name = "tradex-brokers" },
+    { name = "tradex-config" },
     { name = "tradex-domain" },
+    { name = "tradex-execution" },
+    { name = "tradex-interfaces" },
+    { name = "tradex-market-data" },
+    { name = "tradex-observability" },
+    { name = "tradex-persistence" },
+    { name = "tradex-reactive" },
+    { name = "tradex-replay" },
+    { name = "tradex-research" },
+    { name = "tradex-runtime" },
+    { name = "tradex-strategy" },
 ]
 
 [package.optional-dependencies]
@@ -1404,8 +1689,21 @@ requires-dist = [
     { name = "pandas", marker = "extra == 'datalake'", specifier = ">=2,<3" },
     { name = "pyarrow", marker = "extra == 'datalake'", specifier = ">=14,<20" },
     { name = "rx", specifier = ">=3.2,<4" },
+    { name = "tradex-analytics", editable = "analytics" },
+    { name = "tradex-application", editable = "application" },
     { name = "tradex-brokers", editable = "brokers" },
+    { name = "tradex-config", editable = "config" },
     { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-execution", editable = "execution" },
+    { name = "tradex-interfaces", editable = "interfaces" },
+    { name = "tradex-market-data", editable = "market_data" },
+    { name = "tradex-observability", editable = "observability" },
+    { name = "tradex-persistence", editable = "persistence" },
+    { name = "tradex-reactive", editable = "reactive" },
+    { name = "tradex-replay", editable = "replay" },
+    { name = "tradex-research", editable = "research" },
+    { name = "tradex-runtime", editable = "runtime" },
+    { name = "tradex-strategy", editable = "strategy" },
     { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.29,<1" },
     { name = "uvicorn", marker = "extra == 'full'", specifier = ">=0.29,<1" },
     { name = "websockets", marker = "extra == 'api'", specifier = ">=12,<18" },
@@ -1441,6 +1739,22 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/92/ff/5a28bdfd8c3ebec42564ac7d0e54ca3db65044a9314a97f9564fa7a1e926/tzdata-2026.3.tar.gz", hash = "sha256:4a1518b8993086a7982523e071643f3c0e5f213e75b21318e78bcabfff9d1415", size = 198674, upload-time = "2026-07-10T08:50:37.887Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e5/6d/b53b99a9f2766d095985947a5782f1702cabb129a34f7a802d7197af832f/tzdata-2026.3-py2.py3-none-any.whl", hash = "sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931", size = 348168, upload-time = "2026-07-10T08:50:36.46Z" },
+]
+
+[[package]]
+name = "upstox-totp"
+version = "1.0.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "curl-cffi" },
+    { name = "dotenv" },
+    { name = "pydantic" },
+    { name = "pyotp" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/94/43/04ed061db38f2e837a66cc2f7d7f973c45d27772725c70fff0c284c2ad18/upstox_totp-1.0.8.tar.gz", hash = "sha256:092fccb07f000706c1b91490f434a789e4df40d63cee66f0a17b9feef8abdb56", size = 19080, upload-time = "2025-09-23T03:16:02.426Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/85/48/5a50c65cd68dccc0eb93d7d300180dafa42df424d21c3c775fdd934d9b40/upstox_totp-1.0.8-py3-none-any.whl", hash = "sha256:3fa2a891ca70a1ad07f6ae59acca501ae9f074d901139bb622dafab171666bbf", size = 23020, upload-time = "2025-09-23T03:16:00.807Z" },
 ]
 
 [[package]]

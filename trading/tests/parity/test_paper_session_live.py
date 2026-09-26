@@ -290,7 +290,15 @@ class TestPaperSessionLiveParity:
         the mean-reversion singleton to oversold (BUY) whether it enters
         neutral or overbought.
         """
-        session = boot(AppConfig(mode="backtest"))
+        from dataclasses import replace
+
+        config = AppConfig(mode="backtest")
+        # Examples are opt-in; this test drives a discovered one deliberately.
+        config = replace(
+            config,
+            execution=replace(config.execution, auto_register_examples=True),
+        )
+        session = boot(config)
         strategy = next(
             s for s in all_strategies if s.strategy_id == _MEAN_REVERSION_ID
         )

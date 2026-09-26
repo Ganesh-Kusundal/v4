@@ -127,7 +127,7 @@ def test_check_order_rejected() -> None:
     rm = RiskManager(live_orders_enabled=False)
     result = rm.check_order(_request())
     assert result.approved is False
-    assert result.reason == "risk_check_failed"
+    assert result.reason == "live_orders_disabled"
 
 
 # ===================================================================

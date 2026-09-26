@@ -1,5 +1,6 @@
 import type { Widget } from 'openalgo-charts/widget';
 import type { Dock } from './dock';
+import { API_BASE } from './feed';
 
 /**
  * Screener panel — runs the backend's discovered scanners and surfaces the
@@ -36,8 +37,6 @@ interface ScannerRun {
   results: ScannerCandidate[];
 }
 
-const API_BASE = '';
-
 async function fetchScanners(): Promise<ScannerMeta[]> {
   const res = await fetch(`${API_BASE}/api/charts/strategies`);
   if (!res.ok) throw new Error(`strategies ${res.status}`);
@@ -52,8 +51,11 @@ async function runScanner(id: string, windowDays: number): Promise<ScannerRun> {
     body: JSON.stringify({ id, window_days: windowDays }),
   });
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new Error((detail as Record<string, string>).detail ?? `scan ${res.status}`);
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: { message?: string };
+      detail?: string;
+    };
+    throw new Error(body.error?.message ?? body.detail ?? `scan ${res.status}`);
   }
   return res.json();
 }
@@ -136,6 +138,7 @@ export function mountScreener(widget: Widget, dock: Dock): void {
   // -- populate scanner selector ------------------------------------------
   async function loadScanners(): Promise<void> {
     state.setLoading('Loading scanners…');
+    state.setError(null);
     try {
       const scanners = await fetchScanners();
       scannerSelect.innerHTML = '';
@@ -144,6 +147,7 @@ export function mountScreener(widget: Widget, dock: Dock): void {
         opt.textContent = 'No scanners available';
         opt.value = '';
         scannerSelect.appendChild(opt);
+        state.setLoading(null);
         state.setEmpty('No scanners discovered. Add a ScannerDefinition to the scanners package.');
         return;
       }
@@ -153,10 +157,10 @@ export function mountScreener(widget: Widget, dock: Dock): void {
         opt.textContent = `${sc.id} (${sc.universe_size} names, ${sc.conditions.length} conditions)`;
         scannerSelect.appendChild(opt);
       }
-      // Clear the empty/loading state so the body (and the select) shows.
       state.setEmpty(null);
       state.setLoading(null);
     } catch (err) {
+      state.setLoading(null);
       state.setError(`Failed to load scanners: ${(err as Error).message}`);
     }
   }
@@ -165,20 +169,21 @@ export function mountScreener(widget: Widget, dock: Dock): void {
   async function executeScan(): Promise<void> {
     const id = scannerSelect.value;
     if (!id) {
+      state.setLoading(null);
       state.setError('No scanner selected.');
       return;
     }
     const windowDays = Math.max(5, Math.min(120, parseInt(windowInput.value, 10) || 30));
     state.setLoading(`Running ${id} over ${windowDays} days…`);
+    state.setError(null);
     runBtn.disabled = true;
     try {
       const run = await runScanner(id, windowDays);
-      // Clear the loading state so the body (and results) become visible.
       state.setLoading(null);
       renderResults(run);
-      state.setEmpty(null);
       status.textContent = `${run.results.length} candidates · ${run.window_days}d window`;
     } catch (err) {
+      state.setLoading(null);
       state.setError(`Scan failed: ${(err as Error).message}`);
     } finally {
       runBtn.disabled = false;
@@ -302,8 +307,8 @@ function createScreenerPanel(dock: Dock): ScreenerPanel {
 
   const apply = (): void => {
     const showLoading = loadingMsg !== null;
-    const showEmpty = !showLoading && emptyMsg !== null;
-    const showError = errorMsg !== null;
+    const showError = !showLoading && errorMsg !== null;
+    const showEmpty = !showLoading && !showError && emptyMsg !== null;
     loading.hidden = !showLoading;
     empty.hidden = !showEmpty;
     error.hidden = !showError;

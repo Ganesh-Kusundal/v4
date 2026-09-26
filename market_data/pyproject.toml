@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tradex-market-data"
+version = "0.1.0"
+description = "TradeX market data — datalake and feed storage"
+requires-python = ">=3.12"
+
+dependencies = [
+    "tradex-domain>=0.1.0,<0.2",
+    "tradex-brokers>=0.1.0,<0.2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tradex_market_data"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+pythonpath = ["src"]
+filterwarnings = ["ignore::DeprecationWarning"]

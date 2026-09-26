@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol
 
+from tradex_domain.datetime_formats import DASHED_DATE, DASHED_DATETIME
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument, Option
 from tradex_domain.market import Depth, HistoricalSeries, Quote
@@ -227,7 +228,7 @@ class MarketDataMixin(Protocol):
                 "exchangeSegment": segment,
                 "instrument": native_type,
                 "interval": dhan_int,
-                "fromDate": from_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                "fromDate": from_dt.strftime(DASHED_DATETIME),
                 "toDate": f"{end.date()} {end_time.strftime('%H:%M:%S')}",
             }
         else:
@@ -237,8 +238,8 @@ class MarketDataMixin(Protocol):
                 "exchangeSegment": segment,
                 "instrument": native_type,
                 "expiryCode": 0,
-                "fromDate": start.strftime("%Y-%m-%d"),
-                "toDate": end.strftime("%Y-%m-%d"),
+                "fromDate": start.strftime(DASHED_DATE),
+                "toDate": end.strftime(DASHED_DATE),
             }
         body = self._validated(
             self._request("POST", path, json=params, cache_read=True)

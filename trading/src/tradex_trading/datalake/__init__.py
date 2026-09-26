@@ -1,34 +1,11 @@
-"""Datalake module — data catalog and quality management."""
+"""Compatibility shim — implementation lives in ``tradex_market_data``."""
 
-from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
-from tradex_trading.datalake.catalog import DataCatalog
-from tradex_trading.datalake.corporate_actions import CorporateAction, CorporateActionStore
-from tradex_trading.datalake.gap_detector import GapDetector
-from tradex_trading.datalake.market_provider import ParquetMarketProvider
-from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
-from tradex_trading.datalake.parquet_storage import ParquetStorage
-from tradex_trading.datalake.simple_sync import (
-    SyncResult,
-    series_to_frame,
-    simple_sync,
+from importlib import import_module as _import_module
+
+_impl = _import_module("tradex_market_data")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
 )
-from tradex_trading.datalake.symbol_resolve import ResolveResult, resolve_universe_symbols
-from tradex_trading.datalake.universe import available_universes, load_universe
-
-__all__ = [
-    "DataCatalog",
-    "CorporateAction",
-    "CorporateActionStore",
-    "ParallelHistoryFetcher",
-    "ParquetStorage",
-    "GapDetector",
-    "simple_sync",
-    "series_to_frame",
-    "SyncResult",
-    "ResolveResult",
-    "resolve_universe_symbols",
-    "load_universe",
-    "available_universes",
-    "ParquetMarketProvider",
-    "ParquetBacktestLoader",
-]
+if hasattr(_impl, "__all__"):
+    __all__ = list(_impl.__all__)
+del _import_module, _impl

@@ -46,7 +46,7 @@ def _make_client(tmp_path, has_dist: bool) -> TestClient:
             "<body><div id=app></div></body></html>",
             encoding="utf-8",
         )
-    with patch("tradex_trading.interface.fastapi_app._UI_DIST_DIR", dist):
+    with patch("tradex_interfaces.fastapi_app._UI_DIST_DIR", dist):
         return TestClient(create_app(session=None))
 
 

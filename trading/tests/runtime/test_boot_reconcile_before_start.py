@@ -16,9 +16,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from tradex_domain import BrokerId
+
+from tradex_trading.config.schema import AppConfig, PersistenceConfig
 from tradex_trading.execution.reconciliation import DriftItem, DriftSeverity
 from tradex_trading.runtime import startup as startup_mod
-from tradex_trading.config.schema import AppConfig, PersistenceConfig
 
 
 def _patched_boot_with_drift(
@@ -44,11 +45,11 @@ def _patched_boot_with_drift(
         return list(drift_items)
 
     monkeypatch.setattr(
-        "tradex_trading.runtime.live.build_broker_from_env",
+        "tradex_runtime.live.build_broker_from_env",
         lambda _pid, **_kw: broker,
     )
     monkeypatch.setattr(
-        "tradex_trading.execution.engine.ReconciliationEngine.reconcile",
+        "tradex_execution.engine.ReconciliationEngine.reconcile",
         fake_reconcile,
     )
     cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True,

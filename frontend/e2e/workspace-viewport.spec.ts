@@ -62,7 +62,9 @@ const writeBlob = async (request: APIRequestContext, data: unknown): Promise<num
 };
 
 const clearBlob = async (request: APIRequestContext): Promise<void> => {
-  await request.delete(blobUrl());
+  for (const interval of ['1m', '5m', '15m', '30m', '1h', 'D']) {
+    await request.delete(`/api/charts/workspace/NSE_RELIANCE_${interval}_default`);
+  }
 };
 
 /** The stored chart state, tolerating either blob shape. */
@@ -272,5 +274,123 @@ test.describe('workspace restore: the view belongs to the series', () => {
     expect(after?.data?.series).toBeTruthy();
     // The layout survives the strip: only the view is discarded.
     expect(chartOf(after), 'panes/indicators must outlive a stripped view').toBeTruthy();
+  });
+
+  test('delayed initial bars never create a null workspace fingerprint', async ({ page, request }) => {
+    await clearBlob(request);
+    const puts: Array<{ data?: { series?: unknown }; revision?: unknown; force?: unknown }> = [];
+    let markChartRequest: (() => void) | undefined;
+    const chartRequested = new Promise<void>((resolve) => {
+      markChartRequest = resolve;
+    });
+    let delayed = false;
+    await page.route('**/api/charts/history/**', async (route) => {
+      const url = new URL(route.request().url());
+      if (!delayed && url.searchParams.has('from')) {
+        delayed = true;
+        markChartRequest?.();
+        await new Promise((resolve) => setTimeout(resolve, 9000));
+      }
+      await route.continue();
+    });
+    await page.route('**/api/charts/workspace/**', async (route) => {
+      if (route.request().method() === 'PUT') {
+        puts.push(route.request().postDataJSON() as (typeof puts)[number]);
+      }
+      await route.continue();
+    });
+
+    await page.goto(APP);
+    await chartRequested;
+    await page.waitForTimeout(7500);
+    expect(puts).toHaveLength(0);
+
+    await waitForBars(page);
+    await expect.poll(async () => (await readBlob(request))?.data?.v, { timeout: 30_000 }).toBe(2);
+    const after = await readBlob(request);
+    expect(after?.data?.series).toBeTruthy();
+    expect(puts.length).toBeGreaterThan(0);
+    expect(puts.every((body) => typeof body.data?.series === 'number')).toBe(true);
+  });
+
+  test('a concurrent revision conflict keeps the local save and surfaces a conflict', async ({
+    page,
+    request,
+  }) => {
+    const captured = await captureRealState(page, request);
+    const seededRevision = await writeBlob(request, captured.data);
+    const puts: Array<{ revision?: unknown; force?: unknown }> = [];
+    let release: (() => void) | undefined;
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let markFirstPut: (() => void) | undefined;
+    const firstPut = new Promise<void>((resolve) => {
+      markFirstPut = resolve;
+    });
+    await page.route('**/api/charts/workspace/**', async (route) => {
+      if (route.request().method() === 'PUT') {
+        puts.push(route.request().postDataJSON() as (typeof puts)[number]);
+        if (puts.length === 1) {
+          markFirstPut?.();
+          await hold;
+        }
+      }
+      await route.continue();
+    });
+
+    await page.goto(APP);
+    await waitForBars(page);
+    await page.getByRole('button', { name: 'Trend Line' }).click();
+    const chart = page.getByRole('application', { name: 'Price chart' });
+    const box = await chart.boundingBox();
+    expect(box).not.toBeNull();
+    const { x, y, width, height } = box as { x: number; y: number; width: number; height: number };
+    await page.mouse.move(x + width * 0.3, y + height * 0.3);
+    await page.mouse.down();
+    await page.mouse.move(x + width * 0.6, y + height * 0.5, { steps: 12 });
+    await page.mouse.up();
+
+    await firstPut;
+    const serverData = {
+      ...captured.data,
+      state: { ...captured.data?.state, conflictMarker: 'server' },
+    };
+    await writeBlob(request, serverData);
+    release?.();
+
+    await expect(page.getByText(/workspace conflict/i).first()).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(2500);
+    expect(puts).toHaveLength(1);
+    expect(puts[0]?.revision).toBe(seededRevision);
+    expect(puts[0]?.force).toBe(false);
+    const after = await readBlob(request);
+    expect(after?.revision).toBe(seededRevision + 1);
+    expect((after?.data?.state as { conflictMarker?: unknown } | undefined)?.conflictMarker).toBe('server');
+
+    const overwrite = page.getByRole('button', { name: 'Overwrite' });
+    await expect(overwrite).toBeVisible();
+    await overwrite.click();
+    await expect.poll(() => puts.length).toBe(2);
+    expect(puts[1]?.force).toBe(true);
+    await expect.poll(async () => (await readBlob(request))?.revision).toBe(seededRevision + 2);
+  });
+
+  test('a rejected restore is replaced with a usable workspace', async ({ page, request }) => {
+    const captured = await captureRealState(page, request);
+    const invalid = {
+      ...captured.data,
+      state: { ...captured.data?.state, version: 99 },
+    };
+    const seededRevision = await writeBlob(request, invalid);
+    await page.goto(APP);
+    await waitForBars(page);
+
+    await expect
+      .poll(async () => (await readBlob(request))?.revision, { timeout: 30_000 })
+      .toBeGreaterThan(seededRevision);
+    const after = await readBlob(request);
+    expect(after?.data?.v).toBe(2);
+    expect((after?.data?.state as { version?: unknown } | undefined)?.version).not.toBe(99);
   });
 });

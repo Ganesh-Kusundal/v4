@@ -50,6 +50,7 @@ def _make_engine(
     fill_source: object | None = None,
     risk_manager: object | None = None,
     cache: TradingCache | None = None,
+    **kwargs: object,
 ) -> ExecutionEngine:
     bus = _bus()
     return ExecutionEngine(
@@ -57,7 +58,44 @@ def _make_engine(
         fill_source=fill_source or SimulatedFillSource(),
         risk_manager=risk_manager,
         cache=cache,
+        **kwargs,
     )
+
+
+def test_live_feed_gate_rejects_before_idempotency_when_not_ready() -> None:
+    from tradex_trading.runtime.feed_supervisor import FeedSupervisor
+
+    supervisor = FeedSupervisor()
+    engine = _make_engine(feed_supervisor=supervisor)
+
+    receipt = engine.submit(_request(CorrelationId(value="feed-gate")))
+
+    assert receipt.status is OrderStatus.REJECTED
+    assert receipt.message == "feed_not_ready"
+
+
+def test_live_feed_gate_allows_after_recovery() -> None:
+    from datetime import UTC, datetime
+
+    from tradex_trading.runtime.feed_supervisor import FeedSupervisor
+
+    supervisor = FeedSupervisor()
+    supervisor.connected()
+    supervisor.recovery_started()
+    supervisor.recovery_succeeded(
+        last_event_at=datetime(2026, 9, 24, 10, 0, tzinfo=UTC),
+        recovered_through=datetime(2026, 9, 24, 10, 1, tzinfo=UTC),
+    )
+    engine = _make_engine(feed_supervisor=supervisor)
+
+    receipt = engine.submit(_request(CorrelationId(value="feed-ready")))
+
+    assert receipt.status is OrderStatus.FILLED
+
+
+def test_feed_gate_does_not_change_default_engine_behavior() -> None:
+    receipt = _make_engine().submit(_request())
+    assert receipt.status is OrderStatus.FILLED
 
 
 def test_submit_fills_and_returns_receipt() -> None:

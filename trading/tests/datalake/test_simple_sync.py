@@ -61,7 +61,7 @@ class TestSimpleSync:
     def test_syncs_all_symbols(self) -> None:
         results = {str(i.instrument_id): _series(instrument=i) for i in INSTRUMENTS}
         with patch(
-            "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
+            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
         ) as phf:
             phf.return_value = _patched_fetcher(results, [])
             result = simple_sync(MagicMock(), _store(10), INSTRUMENTS, "1m", START, END)
@@ -74,7 +74,7 @@ class TestSimpleSync:
     def test_uses_parallel_history_fetcher(self) -> None:
         results = {str(i.instrument_id): _series(instrument=i) for i in INSTRUMENTS}
         with patch(
-            "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
+            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
         ) as phf:
             phf.return_value = _patched_fetcher(results, [])
             simple_sync(MagicMock(), _store(10), INSTRUMENTS, "1m", START, END)
@@ -84,7 +84,7 @@ class TestSimpleSync:
         results = {str(INSTRUMENTS[0].instrument_id): _series(instrument=INSTRUMENTS[0])}
         ranges = {str(INSTRUMENTS[0].instrument_id): [(START, END)]}
         with patch(
-            "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
+            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
         ) as phf:
             phf.return_value = _patched_fetcher(results, [])
             result = simple_sync(
@@ -100,7 +100,7 @@ class TestSimpleSync:
             f"{INSTRUMENTS[0].instrument_id}: empty series for {INSTRUMENTS[0].instrument_id}"
         ]
         with patch(
-            "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
+            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
         ) as phf:
             phf.return_value = _patched_fetcher({}, empty_err)
             result = simple_sync(
@@ -112,7 +112,7 @@ class TestSimpleSync:
     def test_transient_failure_lands_in_failed(self) -> None:
         err = [f"{INSTRUMENTS[0].instrument_id}: 429 rate limit"]
         with patch(
-            "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
+            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
         ) as phf:
             phf.return_value = _patched_fetcher({}, err)
             result = simple_sync(
@@ -126,7 +126,7 @@ class TestSimpleSync:
             str(INSTRUMENTS[0].instrument_id): _series(n=0, instrument=INSTRUMENTS[0])
         }
         with patch(
-            "tradex_trading.datalake.simple_sync.ParallelHistoryFetcher"
+            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
         ) as phf:
             phf.return_value = _patched_fetcher(results, [])
             result = simple_sync(

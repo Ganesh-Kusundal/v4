@@ -25,5 +25,7 @@ jobs:
           python -m pip install -e ./domain -e ./brokers -e ./trading
       - name: Parity + CQRS gate
         run: python -m pytest trading/tests/parity trading/tests/contracts -q
+      - name: Reconciliation golden (C2)
+        run: python -m pytest trading/tests/parity/test_recon_golden.py -q
       - name: Shared accounting contract
         run: python -m pytest trading/tests/execution/test_position_math.py -q

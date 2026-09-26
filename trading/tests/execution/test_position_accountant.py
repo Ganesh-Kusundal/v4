@@ -18,9 +18,8 @@ from decimal import Decimal
 
 from hypothesis import given
 from hypothesis import strategies as st
-
 from tradex_domain.enums import OrderSide
-from tradex_domain.execution import Fill, Position
+from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
 from tradex_domain.value_objects import Money, OrderId, Price, Quantity
