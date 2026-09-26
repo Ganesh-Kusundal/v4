@@ -54,7 +54,6 @@ from tradex_brokers.dhan.master import parse_dhan_master  # noqa: E402
 from tradex_brokers.upstox.adapter import UpstoxBroker  # noqa: E402
 from tradex_brokers.upstox.master import parse_upstox_master  # noqa: E402
 from tradex_domain.instruments import Equity  # noqa: E402
-
 from tradex_market_data.paths import datalake_root  # noqa: E402
 
 #: Series codes that mean "the exchange's equity series" in a cash segment.
@@ -266,7 +265,6 @@ def _verify_against_source(cases: list[dict[str, Any]], store: Path, limit: int)
     from datetime import date, datetime
 
     import duckdb
-
     from tradex_config.env import load_env_file
     from tradex_runtime.live import build_broker_from_env
 

@@ -40,13 +40,12 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 for sub in ("domain/src", "brokers/src", "trading/src"):
     sys.path.insert(0, str(ROOT / sub))
 
+from tradex_config.env import load_env_file  # noqa: E402
 from tradex_domain.market_calendar import (  # noqa: E402
     MARKET_CLOSE,
     MARKET_OPEN,
     NSE_HOLIDAYS_2026,
 )
-
-from tradex_config.env import load_env_file  # noqa: E402
 
 load_env_file(str(ROOT / ".env.local"))
 

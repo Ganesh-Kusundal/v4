@@ -28,7 +28,6 @@ for sub in ("domain/src", "brokers/src", "trading/src"):
 from tradex_domain.market_calendar import (  # noqa: E402 — sys.path setup above
     NSE_HOLIDAYS_2026,
 )
-
 from tradex_market_data.gap_detector import GapDetector  # noqa: E402 — sys.path setup above
 from tradex_market_data.parquet_storage import (  # noqa: E402 — sys.path setup above
     ParquetStorage,

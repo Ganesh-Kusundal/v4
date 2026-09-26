@@ -18,7 +18,6 @@ for sub in ("domain/src", "brokers/src", "trading/src"):
     sys.path.insert(0, str(ROOT / sub))
 
 import pandas as pd  # noqa: E402
-
 from tradex_market_data.paths import datalake_root  # noqa: E402
 
 

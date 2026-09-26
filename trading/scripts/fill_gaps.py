@@ -25,7 +25,6 @@ from tradex_config.env import load_env_file  # noqa: E402
 load_env_file(str(ROOT / ".env.local"))
 
 from tradex_domain.market_calendar import NSE_HOLIDAYS_2026  # noqa: E402
-
 from tradex_market_data.gap_detector import GapDetector  # noqa: E402
 from tradex_market_data.parquet_storage import ParquetStorage  # noqa: E402
 from tradex_market_data.paths import datalake_root  # noqa: E402

@@ -62,7 +62,6 @@ from tradex_domain.market_calendar import (  # noqa: E402 — sys.path setup abo
     MARKET_OPEN,
     NSE_HOLIDAYS_2026,
 )
-
 from tradex_market_data.parquet_storage import (  # noqa: E402 — sys.path setup above
     ParquetStorage,
 )

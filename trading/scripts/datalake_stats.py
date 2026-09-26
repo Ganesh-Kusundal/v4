@@ -56,7 +56,6 @@ from tradex_domain.market_calendar import (  # noqa: E402 — sys.path bootstrap
     MARKET_OPEN,
     MARKET_OPEN_STR,
 )
-
 from tradex_market_data.paths import datalake_root  # noqa: E402 — sys.path bootstrap above
 
 

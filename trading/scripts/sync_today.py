@@ -37,7 +37,6 @@ def main() -> int:
     from datetime import UTC, datetime
 
     from tradex_domain.market_calendar import MARKET_OPEN, to_ist_naive
-
     from tradex_market_data.symbol_resolve import resolve_universe_symbols
 
     instruments = load_universe("nifty500")

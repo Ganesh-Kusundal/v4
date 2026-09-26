@@ -89,9 +89,8 @@ def _build_and_probe(broker: str) -> tuple[object, str | None]:
 
 def _boot_session(broker: str, environment: str) -> tuple[object, str | None]:
     """Boot the full live session via AppConfig + boot. Returns (session, error)."""
-    from tradex_domain import BrokerId
-
     from tradex_config.schema import AppConfig
+    from tradex_domain import BrokerId
     from tradex_runtime.startup import boot
 
     cfg = AppConfig(

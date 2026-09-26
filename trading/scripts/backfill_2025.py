@@ -61,7 +61,6 @@ from tradex_config.env import load_env_file  # noqa: E402
 load_env_file(str(ROOT / ".env.local"))
 
 import pandas as pd  # noqa: E402
-
 from tradex_market_data.parallel_fetcher import (  # noqa: E402
     ParallelHistoryFetcher,
 )
