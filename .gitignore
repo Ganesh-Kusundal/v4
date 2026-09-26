@@ -19,8 +19,15 @@ build/
 *.swo
 *~
 
-# Runtime state (root dir only — NOT trading/src/tradex_trading/runtime/)
-/runtime/
+# runtime/ holds BOTH the tradex_runtime SOURCE package and local-only state
+# written next to it (broker token_state.json with live access/refresh tokens,
+# instrument-master dumps, workspace.sqlite, caches). Ignore the state, track
+# the package. Do not widen this to /runtime/ — that would commit credentials.
+# Tracked: runtime/pyproject.toml, runtime/src/, runtime/tests/
+/runtime/*
+!/runtime/pyproject.toml
+!/runtime/src/
+!/runtime/tests/
 
 # Test artifacts
 .pytest_cache/
@@ -38,6 +45,8 @@ graphify-out/
 .hypothesis/
 .poolside/
 .workbuddy-ai/
+logs/
+$JCODE_SCRATCH_DIR/
 
 # Typo duplicate of openalgo-charts/ (never commit)
 referances/

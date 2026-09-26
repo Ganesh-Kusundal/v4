@@ -1,0 +1,9 @@
+"""Compatibility shim — implementation lives in ``tradex_observability.metrics``."""
+
+from importlib import import_module as _import_module
+
+_impl = _import_module("tradex_observability.metrics")
+globals().update(
+    {k: v for k, v in vars(_impl).items() if not k.startswith("__")}
+)
+del _import_module, _impl
