@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +79,47 @@ class _StateResolvedCORSMiddleware(CORSMiddleware):
         )
 
 
+def _stop_bound_session(session: Any | None) -> None:
+    """Stop *session* if it exposes a stop, swallowing teardown errors.
+
+    A failure to tear down must not turn a clean shutdown into a crash, but it
+    must be visible: a leaked feed socket or an unclosed SQLite handle is
+    exactly what this path exists to prevent.
+    """
+    if session is None:
+        return
+    stop = getattr(session, "stop", None)
+    if not callable(stop):
+        return
+    try:
+        stop()
+    except Exception:  # noqa: BLE001 — teardown must not raise
+        log.error("session teardown failed", exc_info=True)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):  # noqa: ANN201 - Starlette lifespan signature
+    """Own session teardown inside the app, not in the caller's ``finally``.
+
+    ``uvicorn.run`` wraps its work in ``capture_signals``, which restores the
+    default handlers and re-raises the captured signal *inside* the ``with``
+    block -- so ``run()`` never returns and a caller-side ``finally`` is never
+    reached. For SIGTERM the restored disposition is ``SIG_DFL``, so the kernel
+    ends the process there. SIGTERM is what ``docker stop``, Kubernetes, systemd
+    and a plain ``kill`` send, so teardown placed in the caller was skipped on
+    exactly the signals that matter.
+
+    ASGI lifespan shutdown completes inside uvicorn's ``_serve()``, before the
+    signal is re-raised, so this runs for every signal. Owning it here also
+    covers the ``workers>1`` and ``reload`` child sessions, which
+    ``serve_app`` builds and nothing stopped.
+    """
+    try:
+        yield
+    finally:
+        _stop_bound_session(getattr(app.state, "session", None))
+
+
 def create_app(
     session: Any | None = None,
     api_key: str | None = None,
@@ -89,7 +131,12 @@ def create_app(
     ``outbound_max`` bounds each /ws/stream connection's outbound queue
     (drop-oldest on overflow) — small in tests to exercise backpressure.
     """
-    app = FastAPI(title="TradeX v4 API", version="0.1.0")
+    app = FastAPI(
+        title="TradeX v4 API",
+        version="0.1.0",
+        lifespan=_lifespan,
+    )
+    app.state.session = session
     app.state.replay_guard = (
         replay_guard if replay_guard is not None else ReplayGuard()
     )
