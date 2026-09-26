@@ -49,6 +49,20 @@ class CashLedger:
             )
         self._cash -= amount
 
+    def require_debit(self, amount: Decimal, what: str) -> None:
+        """Raise unless ``amount`` can be debited, without mutating.
+
+        Lets a caller prove affordability *before* it books anything, so a
+        sequence of debits cannot half-apply: the position is already booked
+        when the notional debit runs, and a failure there leaves a position
+        with no cash movement behind it (M-3).
+        """
+        if not self._allow_negative and self._cash - amount < 0:
+            raise ValueError(
+                f"insufficient buying power: {what} of {amount} would take "
+                f"cash from {self._cash} to {self._cash - amount}"
+            )
+
     @property
     def cash(self) -> Decimal:
         """Current cash balance (trade notional + fees + CA effects)."""

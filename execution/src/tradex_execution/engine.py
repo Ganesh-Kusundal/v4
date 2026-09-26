@@ -16,6 +16,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from tradex_domain.enums import (
+    OrderSide,
     OrderStatus,
     OrderType,
     TimeInForce,
@@ -666,14 +667,16 @@ class ExecutionEngine:
 
         # 4. OMS update
         self._order_manager.on_order_created(order)
-        if reserved_cid is not None and self._guard is not None:
-            with self._guard_lock:
-                self._guard.record_result(reserved_cid, order.order_id)
-        # M2: stamp the order_id → cid mapping so cancel() can release
-        # the reservation. The order has just been created; from here
-        # forward the cid is owned by this order. record_result() above
-        # removes the entry from the reserved set but does not clear the
-        # side-table — cancel() needs the cid even after record_result.
+        # M2: stamp the order_id → cid mapping so cancel() can release the
+        # reservation. The order has just been created; from here forward the
+        # cid is owned by this order. record_result() removes the entry from
+        # the reserved set but does not clear the side-table, so cancel() needs
+        # the cid even after the key is completed.
+        #
+        # The key is deliberately NOT completed here. It is completed at the
+        # end of the fill block below, once the money has actually moved;
+        # completing it now meant a mid-block failure left the client replaying
+        # a receipt for a partly-applied order (M-3).
         if reserved_cid is not None:
             self._cid_for_order[order.order_id] = reserved_cid
         _placed_event = OrderPlaced(order=order)
@@ -689,37 +692,18 @@ class ExecutionEngine:
             charged_fee = Decimal(0)
             if not getattr(self._fill, "position_projection_owned", False):
                 charged_fee = self._fee_for_fill(fill)
-            _filled_event = OrderFilled(fill=fill, fee_amount=charged_fee)
-            # Persist BEFORE mutating. The event is authoritative and the cache
-            # is a projection: if the write fails after the book has moved, the
-            # two disagree permanently and a restart rebuilds a book missing a
-            # fill the venue already executed. A failed write therefore aborts
-            # the projection update — the kill switch has already halted new
-            # admission, and the venue's fill is recovered by reconciliation.
-            if not self._append(_filled_event):
-                # The kill switch has already halted admission; the venue's
-                # fill is recovered by reconciliation, so the book stays
-                # consistent with the log. The order still gets a receipt so a
-                # synchronous caller is not left without one.
-                log.error(
-                    "Fill not durable; leaving the book unchanged for %s",
-                    fill.order_id,
-                )
-            else:
-                if not getattr(self._fill, "position_projection_owned", False):
-                    self._position_manager.on_fill(fill)
-                    self._apply_cash_fill(fill)
-                    self._apply_fee(fill, charged_fee)
-                self._order_manager.on_order_filled(order, fill)
-                # G3: record the fingerprint in the applied-fills set BEFORE
-                # publishing so that any re-publish from the live-fill bridge
-                # (which subscribes to OrderFilled) is short-circuited by
-                # the dedup check in _apply_fill.
-                self._record_applied_fill(fill)
-                self._bus.publish(_filled_event)
-            # Record idempotency result for replay
-            if self._guard is not None and cid is not None:
-                self._guard.record_result(cid, order.order_id)
+            try:
+                self._apply_fill_to_book(order, fill, charged_fee, cid)
+            except Exception:
+                # The fill did not take effect. Release the reservation so the
+                # client can retry: leaving it reserved makes every later
+                # attempt answer PENDING/idempotency_in_flight forever, and
+                # leaving it completed (the previous behaviour) replays a
+                # receipt for an order that never applied (M-3).
+                if reserved_cid is not None and self._guard is not None:
+                    with self._guard_lock:
+                        self._guard.release(reserved_cid)
+                raise
             log.info(
                 "Order filled: %s qty=%s price=%s (cid=%s)",
                 order.order_id, fill.quantity, fill.price, cid,
@@ -802,6 +786,64 @@ class ExecutionEngine:
         if self._cash_ledger is None:
             return CashSnapshot(cash=Decimal(0), total_fees=Decimal(0))
         return self._cash_ledger.snapshot()
+
+    def _apply_fill_to_book(
+        self, order: Order, fill: Fill, charged_fee: Decimal, cid: CorrelationId | None
+    ) -> None:
+        """Make one fill's effect real: book, charge, advance the OMS, publish.
+
+        Split out of ``_run_pipeline`` so the whole effect is one unit the
+        caller can compensate on: anything raised here means the fill did not
+        take effect, and the caller releases the idempotency reservation so
+        the request stays retryable (M-3).
+        """
+        _filled_event = OrderFilled(fill=fill, fee_amount=charged_fee)
+        # Persist BEFORE mutating. The event is authoritative and the cache
+        # is a projection: if the write fails after the book has moved, the
+        # two disagree permanently and a restart rebuilds a book missing a
+        # fill the venue already executed. A failed write therefore aborts
+        # the projection update — the kill switch has already halted new
+        # admission, and the venue's fill is recovered by reconciliation.
+        if not self._append(_filled_event):
+            # The kill switch has already halted admission; the venue's
+            # fill is recovered by reconciliation, so the book stays
+            # consistent with the log. The order still gets a receipt so a
+            # synchronous caller is not left without one.
+            log.error(
+                "Fill not durable; leaving the book unchanged for %s",
+                fill.order_id,
+            )
+            return
+
+        if not getattr(self._fill, "position_projection_owned", False):
+            # Prove affordability BEFORE booking anything (M-3). The debits
+            # below are notional and then fee, each of which can trip the
+            # ledger's buying-power floor; the position is already booked by
+            # then, so a failure there leaves a position with no cash movement
+            # and an OMS still reading FILLED/filled=0. Checking the combined
+            # requirement up front makes the two debits non-failing.
+            if self._cash_ledger is not None:
+                notional = fill.quantity.value * fill.price.value
+                debit = notional if fill.side is OrderSide.BUY else Decimal(0)
+                self._cash_ledger.require_debit(
+                    debit + charged_fee, f"fill {fill.order_id}",
+                )
+            self._position_manager.on_fill(fill)
+            self._apply_cash_fill(fill)
+            self._apply_fee(fill, charged_fee)
+        self._order_manager.on_order_filled(order, fill)
+        # G3: record the fingerprint in the applied-fills set BEFORE
+        # publishing so that any re-publish from the live-fill bridge
+        # (which subscribes to OrderFilled) is short-circuited by
+        # the dedup check in _apply_fill.
+        self._record_applied_fill(fill)
+        self._bus.publish(_filled_event)
+        # The idempotency key is completed only here, once the money has
+        # actually moved. Completing it before this point meant a mid-block
+        # failure left the client replaying a receipt for a partly-applied
+        # order, making the divergence permanent (M-3).
+        if self._guard is not None and cid is not None:
+            self._guard.record_result(cid, order.order_id)
 
     def _apply_cash_fill(self, fill: Fill) -> None:
         if self._cash_ledger is not None:
