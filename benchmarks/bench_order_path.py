@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "trading" / "src
 
 from tradex_domain import Equity, OrderRequest, OrderSide, OrderType, Price, Quantity
 from tradex_brokers.paper.adapter import PaperBroker
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_reactive.bus import ReactiveBus
 
 
 def bench(n: int = 1000) -> None:

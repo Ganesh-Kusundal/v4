@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 for sub in ("domain/src", "brokers/src", "trading/src"):
     sys.path.insert(0, str(ROOT / sub))
 
-from tradex_trading.datalake.parquet_storage import market_session_mask  # noqa: E402
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402
+from tradex_market_data.parquet_storage import market_session_mask  # noqa: E402
+from tradex_market_data.paths import datalake_root  # noqa: E402
 
 
 def clean_parquet_file(path: Path) -> tuple[int, int]:

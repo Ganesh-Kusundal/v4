@@ -40,7 +40,7 @@ from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
 
 from tradex_brokers.common.resilience import limiter_for_provider, limiter_from_table
-from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
+from tradex_market_data.parallel_fetcher import ParallelHistoryFetcher
 
 # --------------------------------------------------------------------------- #
 # Mock broker with configurable latency

@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "trading" / "src
 
 from tradex_domain import Equity
 from tradex_domain.events import OrderPlaced
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_reactive.bus import ReactiveBus
 
 
 def bench(n: int = 10000) -> None:

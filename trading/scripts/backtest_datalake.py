@@ -237,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.limit > 0:
         # Cap the universe BEFORE loading, so --limit doesn't read every
         # symbol just to backtest a handful.
-        from tradex_trading.datalake.universe import load_universe
+        from tradex_market_data.universe import load_universe
         instruments = load_universe(args.universe)[:args.limit]
     source = args.universe if instruments is None else f"{len(instruments)} symbols"
     log.info("Loading %s (%s, %s) from datalake...",
@@ -311,7 +311,7 @@ def _run_optimize(args, engine: BacktestEngine, by_symbol: dict, symbols: list[s
     failure surfaces as ``<no valid combos>`` for that symbol rather than an
     abort.
     """
-    from tradex_trading.replay.optimization import grid_search
+    from tradex_replay.optimization import grid_search
 
     if args.walk_forward:
         return _run_walk_forward(args, engine, by_symbol, symbols)
@@ -356,8 +356,8 @@ def _run_walk_forward(
     out-of-sample verdict. Symbols with fewer distinct dates than
     ``train + test`` days are skipped.
     """
-    from tradex_trading.replay.optimization import make_grid_optimizer
-    from tradex_trading.replay.walk_forward import run_walk_forward_by_date
+    from tradex_replay.optimization import make_grid_optimizer
+    from tradex_replay.walk_forward import run_walk_forward_by_date
 
     param_grid = _param_grid(args)
     log.info("Walk-forward %s over %s (train=%dd, test=%dd)",
@@ -407,8 +407,8 @@ def _run_portfolio(args, engine: BacktestEngine, candles: list) -> int:
     every window contains each symbol's bars for the covered dates — unlike
     index slicing, which would fragment the interleaved series.
     """
-    from tradex_trading.replay.optimization import grid_search, make_grid_optimizer
-    from tradex_trading.replay.walk_forward import run_walk_forward_by_date
+    from tradex_replay.optimization import grid_search, make_grid_optimizer
+    from tradex_replay.walk_forward import run_walk_forward_by_date
 
     if not args.optimize:
         result = engine.run(_make_portfolio_strategy(args), candles)

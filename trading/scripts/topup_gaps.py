@@ -29,13 +29,13 @@ from tradex_domain.market_calendar import (  # noqa: E402 — sys.path setup abo
     NSE_HOLIDAYS_2026,
 )
 
-from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402 — sys.path setup above
-from tradex_trading.datalake.parquet_storage import (  # noqa: E402 — sys.path setup above
+from tradex_market_data.gap_detector import GapDetector  # noqa: E402 — sys.path setup above
+from tradex_market_data.parquet_storage import (  # noqa: E402 — sys.path setup above
     ParquetStorage,
 )
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402 — sys.path setup above
-from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402 — sys.path setup above
-from tradex_trading.datalake.universe import load_universe  # noqa: E402 — sys.path setup above
+from tradex_market_data.paths import datalake_root  # noqa: E402 — sys.path setup above
+from tradex_market_data.simple_sync import simple_sync  # noqa: E402 — sys.path setup above
+from tradex_market_data.universe import load_universe  # noqa: E402 — sys.path setup above
 
 log = logging.getLogger("tradex.scripts.topup")
 
@@ -99,9 +99,9 @@ def main(argv: list[str] | None = None) -> int:
 
     # Filler broker (default Upstox) — this is the residual/tail path, not
     # the Dhan sync path. Caller-owned ranges; no re-detect inside sync.
-    from tradex_trading.config.env import load_env_file
+    from tradex_config.env import load_env_file
     load_env_file(str(ROOT / ".env.local"))
-    from tradex_trading.runtime.live import build_broker_from_env
+    from tradex_runtime.live import build_broker_from_env
     filler = build_broker_from_env(args.filler)
     filler.connect()
 

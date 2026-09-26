@@ -63,10 +63,10 @@ from tradex_domain.market_calendar import (  # noqa: E402 — sys.path setup abo
     NSE_HOLIDAYS_2026,
 )
 
-from tradex_trading.datalake.parquet_storage import (  # noqa: E402 — sys.path setup above
+from tradex_market_data.parquet_storage import (  # noqa: E402 — sys.path setup above
     ParquetStorage,
 )
-from tradex_trading.datalake.paths import DATALAKE_ROOT  # noqa: E402 — sys.path setup above
+from tradex_market_data.paths import DATALAKE_ROOT  # noqa: E402 — sys.path setup above
 
 #: One bar per minute, 09:15 .. 15:29 IST — 375 bars, matching the real session
 #: (``market_session_mask`` also admits 15:30, but no NSE equity bar is stamped

@@ -20,18 +20,18 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s")
 log = logging.getLogger("fill-gaps")
 
-from tradex_trading.config.env import load_env_file  # noqa: E402
+from tradex_config.env import load_env_file  # noqa: E402
 
 load_env_file(str(ROOT / ".env.local"))
 
 from tradex_domain.market_calendar import NSE_HOLIDAYS_2026  # noqa: E402
 
-from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
-from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402
-from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402
-from tradex_trading.datalake.universe import load_universe  # noqa: E402
-from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
+from tradex_market_data.gap_detector import GapDetector  # noqa: E402
+from tradex_market_data.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_market_data.paths import datalake_root  # noqa: E402
+from tradex_market_data.simple_sync import simple_sync  # noqa: E402
+from tradex_market_data.universe import load_universe  # noqa: E402
+from tradex_runtime.live import build_broker_from_env  # noqa: E402
 
 
 def _scan(detector, instruments, start, end, *, min_gap_stamps, include_open_stamps,
@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> int:
         log.error("dhan unavailable: %s", e)
         return 1
 
-    from tradex_trading.datalake.symbol_resolve import resolve_universe_symbols
+    from tradex_market_data.symbol_resolve import resolve_universe_symbols
     resolved = resolve_universe_symbols(dhan, instruments)
     if resolved.renamed:
         log.info("symbol_resolve renamed: %s", resolved.renamed[:10])

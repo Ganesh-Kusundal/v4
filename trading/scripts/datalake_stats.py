@@ -57,7 +57,7 @@ from tradex_domain.market_calendar import (  # noqa: E402 — sys.path bootstrap
     MARKET_OPEN_STR,
 )
 
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402 — sys.path bootstrap above
+from tradex_market_data.paths import datalake_root  # noqa: E402 — sys.path bootstrap above
 
 
 def _shifted_str(base: time, minutes: int) -> str:

@@ -55,7 +55,7 @@ from tradex_brokers.upstox.adapter import UpstoxBroker  # noqa: E402
 from tradex_brokers.upstox.master import parse_upstox_master  # noqa: E402
 from tradex_domain.instruments import Equity  # noqa: E402
 
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402
+from tradex_market_data.paths import datalake_root  # noqa: E402
 
 #: Series codes that mean "the exchange's equity series" in a cash segment.
 _CASH_EQUITY_SERIES = frozenset({"EQ", "BE"})
@@ -267,8 +267,8 @@ def _verify_against_source(cases: list[dict[str, Any]], store: Path, limit: int)
 
     import duckdb
 
-    from tradex_trading.config.env import load_env_file
-    from tradex_trading.runtime.live import build_broker_from_env
+    from tradex_config.env import load_env_file
+    from tradex_runtime.live import build_broker_from_env
 
     load_env_file(str(ROOT / ".env.local"))
     con = duckdb.connect()

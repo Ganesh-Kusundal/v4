@@ -45,15 +45,15 @@ from tradex_domain.market_calendar import (  # noqa: E402 — sys.path setup abo
     NSE_HOLIDAYS_2026,
 )
 
-from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402 — sys.path setup above
-from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402 — sys.path setup above
+from tradex_market_data.gap_detector import GapDetector  # noqa: E402 — sys.path setup above
+from tradex_market_data.parallel_fetcher import (  # noqa: E402 — sys.path setup above
     ParallelHistoryFetcher,
 )
-from tradex_trading.datalake.parquet_storage import (  # noqa: E402 — sys.path setup above
+from tradex_market_data.parquet_storage import (  # noqa: E402 — sys.path setup above
     ParquetStorage,
 )
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402 — sys.path setup above
-from tradex_trading.datalake.universe import load_universe  # noqa: E402 — sys.path setup above
+from tradex_market_data.paths import datalake_root  # noqa: E402 — sys.path setup above
+from tradex_market_data.universe import load_universe  # noqa: E402 — sys.path setup above
 
 log = logging.getLogger("tradex.scripts.backfill")
 
@@ -111,9 +111,9 @@ def _build_brokers(args):
         brokers["paper"] = PaperBroker()
         return brokers
     # Load credentials from .env.local
-    from tradex_trading.config.env import load_env_file
+    from tradex_config.env import load_env_file
     load_env_file(str(ROOT / ".env.local"))
-    from tradex_trading.runtime.live import build_broker_from_env
+    from tradex_runtime.live import build_broker_from_env
     if args.broker in ("dhan", "both"):
         try:
             b = build_broker_from_env("dhan")

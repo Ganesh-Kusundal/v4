@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 for sub in ("domain/src", "brokers/src", "trading/src"):
     sys.path.insert(0, str(ROOT / sub))
 
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402
+from tradex_market_data.paths import datalake_root  # noqa: E402
 
 IST = timezone(timedelta(hours=5, minutes=30))
 #: Progress state follows the lake, not the repo, so a run pointed at an
@@ -56,19 +56,19 @@ logging.basicConfig(
 )
 log = logging.getLogger("backfill-2025")
 
-from tradex_trading.config.env import load_env_file  # noqa: E402
+from tradex_config.env import load_env_file  # noqa: E402
 
 load_env_file(str(ROOT / ".env.local"))
 
 import pandas as pd  # noqa: E402
 
-from tradex_trading.datalake.parallel_fetcher import (  # noqa: E402
+from tradex_market_data.parallel_fetcher import (  # noqa: E402
     ParallelHistoryFetcher,
 )
-from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
-from tradex_trading.datalake.simple_sync import series_to_frame  # noqa: E402
-from tradex_trading.datalake.universe import load_universe  # noqa: E402
-from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
+from tradex_market_data.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_market_data.simple_sync import series_to_frame  # noqa: E402
+from tradex_market_data.universe import load_universe  # noqa: E402
+from tradex_runtime.live import build_broker_from_env  # noqa: E402
 
 
 def _make_fetchers(

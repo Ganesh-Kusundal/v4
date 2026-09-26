@@ -19,7 +19,7 @@ for sub in ("domain/src", "brokers/src", "trading/src"):
 
 import pandas as pd  # noqa: E402
 
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402
+from tradex_market_data.paths import datalake_root  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -56,9 +56,9 @@ for sub in ("domain/src", "brokers/src", "trading/src"):
 
 from tradex_domain.instruments import Equity  # noqa: E402
 
-from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402
-from tradex_trading.datalake.simple_sync import series_to_frame  # noqa: E402
+from tradex_market_data.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_market_data.paths import datalake_root  # noqa: E402
+from tradex_market_data.simple_sync import series_to_frame  # noqa: E402
 
 log = logging.getLogger("reconcile-bars")
 
@@ -323,8 +323,8 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.WARNING,
                         format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s")
-    from tradex_trading.config.env import load_env_file
-    from tradex_trading.runtime.live import build_broker_from_env
+    from tradex_config.env import load_env_file
+    from tradex_runtime.live import build_broker_from_env
 
     load_env_file(str(ROOT / ".env.local"))
     store = ParquetStorage(Path(args.data_root) if args.data_root else Path(datalake_root()))

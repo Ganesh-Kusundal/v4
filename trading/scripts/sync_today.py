@@ -12,16 +12,16 @@ for sub in ("domain/src", "brokers/src", "trading/src"):
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s")
 
-from tradex_trading.config.env import load_env_file  # noqa: E402
+from tradex_config.env import load_env_file  # noqa: E402
 
 load_env_file(str(ROOT / ".env.local"))
 
-from tradex_trading.datalake.gap_detector import GapDetector  # noqa: E402
-from tradex_trading.datalake.parquet_storage import ParquetStorage  # noqa: E402
-from tradex_trading.datalake.paths import datalake_root  # noqa: E402
-from tradex_trading.datalake.simple_sync import simple_sync  # noqa: E402
-from tradex_trading.datalake.universe import load_universe  # noqa: E402
-from tradex_trading.runtime.live import build_broker_from_env  # noqa: E402
+from tradex_market_data.gap_detector import GapDetector  # noqa: E402
+from tradex_market_data.parquet_storage import ParquetStorage  # noqa: E402
+from tradex_market_data.paths import datalake_root  # noqa: E402
+from tradex_market_data.simple_sync import simple_sync  # noqa: E402
+from tradex_market_data.universe import load_universe  # noqa: E402
+from tradex_runtime.live import build_broker_from_env  # noqa: E402
 
 
 def main() -> int:
@@ -38,7 +38,7 @@ def main() -> int:
 
     from tradex_domain.market_calendar import MARKET_OPEN, to_ist_naive
 
-    from tradex_trading.datalake.symbol_resolve import resolve_universe_symbols
+    from tradex_market_data.symbol_resolve import resolve_universe_symbols
 
     instruments = load_universe("nifty500")
     resolved = resolve_universe_symbols(dhan, instruments)

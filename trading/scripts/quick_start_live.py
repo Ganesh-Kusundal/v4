@@ -67,7 +67,7 @@ def _credential_problems(broker: str, env_prefix: str, env: dict[str, str]) -> l
 
 def _build_and_probe(broker: str) -> tuple[object, str | None]:
     """Real auth probe via the standard interface. Returns (broker, error)."""
-    from tradex_trading.runtime.live import build_broker_from_env
+    from tradex_runtime.live import build_broker_from_env
 
     broker_conn = build_broker_from_env(broker)
     try:
@@ -91,7 +91,7 @@ def _boot_session(broker: str, environment: str) -> tuple[object, str | None]:
     """Boot the full live session via AppConfig + boot. Returns (session, error)."""
     from tradex_domain import BrokerId
 
-    from tradex_trading.config.schema import AppConfig
+    from tradex_config.schema import AppConfig
     from tradex_trading.runtime.startup import boot
 
     cfg = AppConfig(
@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         log.error("env file not found: %s — create it from .env.example", env_file)
         return 2
 
-    from tradex_trading.config.env import load_env_file
+    from tradex_config.env import load_env_file
 
     load_env_file(env_file)
 
