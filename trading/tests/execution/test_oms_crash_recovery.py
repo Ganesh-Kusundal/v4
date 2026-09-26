@@ -37,8 +37,7 @@ from tradex_domain.events import (
 from tradex_domain.execution import Fill, Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.recovery import (
+from tradex_execution.recovery import (
     SessionRecovery,
     SQLiteEventStore,
 )

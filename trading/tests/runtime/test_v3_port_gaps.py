@@ -10,22 +10,22 @@ from pathlib import Path
 import pytest
 from tradex_brokers.dhan.master import parse_dhan_master
 from tradex_brokers.upstox.master import parse_upstox_master
-
-from tradex_trading.config.env import _parse_bool
-from tradex_trading.config.schema import (
+from tradex_config.env import _parse_bool
+from tradex_config.schema import (
     AppConfig,
     BrokerConfig,
     PersistenceConfig,
     _build,
 )
-from tradex_trading.runtime.live import (
+from tradex_observability.metrics import MetricsRegistry, _Counter, _Gauge, _Histogram
+from tradex_runtime.live import (
     _curl_cffi_available,
     _env,
     _env_with_deprecated_fallback,
     load_env_file,
     provider_environment,
 )
-from tradex_trading.runtime.metrics import MetricsRegistry, _Counter, _Gauge, _Histogram
+
 from tradex_trading.runtime.startup import RuntimeContext, _broker_matches_config
 
 # ---------------------------------------------------------------------------

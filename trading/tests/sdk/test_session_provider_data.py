@@ -14,9 +14,9 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from tradex_config.schema import AppConfig, RiskConfig
 from tradex_domain import BrokerId
 
-from tradex_trading.config.schema import AppConfig, RiskConfig
 from tradex_trading.runtime.startup import boot
 from tradex_trading.sdk.session import SessionState
 

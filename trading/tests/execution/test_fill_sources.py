@@ -11,8 +11,7 @@ from tradex_domain.errors import OrderRejectedError
 from tradex_domain.execution import BracketOrderRequest, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.fill_sources import (
+from tradex_execution.fill_sources import (
     BrokerFillSource,
     PaperFillSource,
     SimulatedFillSource,

@@ -6,8 +6,7 @@ import threading
 from datetime import datetime, time
 
 import pandas as pd
-
-from tradex_trading.datalake.parquet_storage import ParquetStorage
+from tradex_market_data.parquet_storage import ParquetStorage
 
 
 def _frame(rows: list[dict]) -> pd.DataFrame:

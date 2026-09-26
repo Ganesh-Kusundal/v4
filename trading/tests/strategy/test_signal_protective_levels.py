@@ -23,8 +23,7 @@ from tradex_domain.enums import OrderType
 from tradex_domain.execution import BracketOrderRequest, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.strategy.core.brackets import (
+from tradex_strategy.core.brackets import (
     STOP_KEY,
     TARGET_KEY,
     declared_levels,

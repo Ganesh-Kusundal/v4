@@ -12,15 +12,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from tradex_brokers.common.market_builders import make_candle
-from tradex_domain.enums import Timeframe
-from tradex_domain.instruments import Equity
-
-from tradex_trading.analytics.indicators import (
+from tradex_analytics.indicators import (
     compute_indicator,
     get_indicator_spec,
     indicator_catalogue,
 )
+from tradex_brokers.common.market_builders import make_candle
+from tradex_domain.enums import Timeframe
+from tradex_domain.instruments import Equity
 
 BARS = None  # replaced by deterministic in-module generator below
 

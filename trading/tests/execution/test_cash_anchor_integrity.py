@@ -97,8 +97,7 @@ def test_a_fill_bearing_log_without_an_anchor_is_not_anchored_from_broker_funds(
     from tradex_domain.instruments import Equity
     from tradex_domain.value_objects import Price, Quantity
     from tradex_execution.sqlite_event_store import SQLiteEventStore
-
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     db = str(tmp_path / "orders.db")
     cfg = AppConfig(
@@ -163,8 +162,7 @@ def test_restart_does_not_append_a_second_anchor(monkeypatch, tmp_path) -> None:
     from tradex_config.schema import AppConfig, PersistenceConfig
     from tradex_domain import BrokerId
     from tradex_execution.sqlite_event_store import SQLiteEventStore
-
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     db = str(tmp_path / "orders.db")
     cfg = AppConfig(

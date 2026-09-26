@@ -13,20 +13,20 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from tradex_config.schema import AppConfig
 from tradex_domain import BrokerId
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
-
-from tradex_trading.config.schema import AppConfig
-from tradex_trading.execution.engine import (
+from tradex_execution.engine import (
     ExecutionEngine,
     IdempotencyDuplicate,
     MemoryIdempotencyGuard,
 )
-from tradex_trading.execution.fill_sources import PaperFillSource
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.fill_sources import PaperFillSource
+from tradex_reactive.bus import ReactiveBus
+
 from tradex_trading.runtime.startup import boot
 
 

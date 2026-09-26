@@ -7,8 +7,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
-
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
 
 
 def _client() -> TestClient:
@@ -31,7 +30,7 @@ class TestCatalogueEndpoint:
 class TestComputeEndpoint:
     @pytest.fixture(autouse=True)
     def datalake_or_skip(self):
-        from tradex_trading.datalake.parquet_storage import ParquetStorage
+        from tradex_market_data.parquet_storage import ParquetStorage
 
         store = ParquetStorage("data/")
         if not store.symbols():

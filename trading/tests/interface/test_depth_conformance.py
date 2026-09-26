@@ -13,9 +13,8 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
-
-from tradex_trading.interface.fastapi_app import create_app
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_interfaces.fastapi_app import create_app
+from tradex_reactive.bus import ReactiveBus
 
 
 def _make_session():

@@ -17,8 +17,7 @@ from tradex_domain import (
     Price,
     Quantity,
 )
-
-from tradex_trading.execution.reconciliation import (
+from tradex_execution.reconciliation import (
     ReconciliationEngine,
 )
 

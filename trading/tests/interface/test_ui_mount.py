@@ -24,8 +24,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
-
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
 
 # The build the mount reads, and the stamp `npm run build` writes beside it.
 REAL_DIST = Path(__file__).resolve().parents[3] / "frontend" / "dist"

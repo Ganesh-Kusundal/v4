@@ -17,14 +17,13 @@ from tradex_domain.errors import OrderRejectedError
 from tradex_domain.execution import BracketOrderRequest, OrderReceipt, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import (
+from tradex_execution.engine import (
     ExecutionEngine,
     MemoryIdempotencyGuard,
     RiskManager,
 )
-from tradex_trading.execution.fill_sources import BrokerFillSource
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.fill_sources import BrokerFillSource
+from tradex_reactive.bus import ReactiveBus
 
 
 class _SuperBroker:
@@ -96,7 +95,7 @@ def test_bracket_survives_restart_and_still_super_cancels(tmp_path) -> None:
     """A bracket mirrored into SQLite keeps its protective legs across a
     process restart, so engine.cancel on the recovered order still reaches
     the venue's cancel_super_order instead of the plain cancel."""
-    from tradex_trading.execution.sqlite_store import SQLiteOrderStore, attach_order_persistence
+    from tradex_execution.sqlite_store import SQLiteOrderStore, attach_order_persistence
 
     db = str(tmp_path / "bracket-restart.db")
 
@@ -148,7 +147,7 @@ def test_bracket_modify_after_restart_reaches_super_endpoint(tmp_path) -> None:
     engine.modify on the reloaded order still dispatches the composite to
     the venue's modify_super_order and projects the new legs onto the OMS.
     """
-    from tradex_trading.execution.sqlite_store import SQLiteOrderStore, attach_order_persistence
+    from tradex_execution.sqlite_store import SQLiteOrderStore, attach_order_persistence
 
     db = str(tmp_path / "bracket-modify-restart.db")
 

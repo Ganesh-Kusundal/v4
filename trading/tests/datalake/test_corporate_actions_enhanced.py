@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import pytest
-
-from tradex_trading.datalake.corporate_actions import CorporateAction, CorporateActionStore
+from tradex_market_data.corporate_actions import CorporateAction, CorporateActionStore
 
 
 class MockCandle:

@@ -39,8 +39,7 @@ from tradex_domain.value_objects import (  # noqa: E402
     Price,
     Quantity,
 )
-
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
 
 
 def _bracket_body(**overrides: Any) -> dict:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_reactive.bus import ReactiveBus
 
 
 class _FakeCounter:
@@ -50,7 +50,7 @@ class TestSubscriberIsolation:
 
         bus = ReactiveBus()
         bus.subscribe(on_next=_raise_on_next)
-        with caplog.at_level(logging.ERROR, logger="tradex_trading.reactive.bus"):
+        with caplog.at_level(logging.ERROR, logger="tradex_reactive.bus"):
             bus.publish("m")
         assert any("Subscriber error" in r.message for r in caplog.records)
 
@@ -76,7 +76,7 @@ class TestBackpressure:
         undefined at module level, causing a NameError for any subscriber
         with on_backpressure set.
         """
-        from tradex_trading.reactive.bus import _backpressure_triggered
+        from tradex_reactive.bus import _backpressure_triggered
 
         bus = ReactiveBus()
         received: list[str] = []

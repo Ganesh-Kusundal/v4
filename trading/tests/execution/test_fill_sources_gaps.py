@@ -10,20 +10,19 @@ from tradex_domain.enums import OrderSide, OrderType, ProductType, TimeInForce
 from tradex_domain.execution import Fill, OrderRequest, Position
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Money, OrderId, Price, Quantity
-
-from tradex_trading.execution.fees import FeeCalculator
-from tradex_trading.execution.fill_sources import (
+from tradex_execution.fees import FeeCalculator
+from tradex_execution.fill_sources import (
     BrokerFillSource,
     PaperFillSource,
     ReplayFillSource,
     SimulatedFillSource,
 )
-from tradex_trading.execution.position_manager import PositionManager
-from tradex_trading.execution.reconciliation import (
+from tradex_execution.position_manager import PositionManager
+from tradex_execution.reconciliation import (
     DriftSeverity,
     ReconciliationEngine,
 )
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.trading_cache import TradingCache
 
 # ---------------------------------------------------------------------------
 # Helpers

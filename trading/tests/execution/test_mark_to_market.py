@@ -11,11 +11,10 @@ from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
 from tradex_domain.position_math import apply_fill
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.mark_to_market import MarkToMarketService
-from tradex_trading.execution.risk import RiskManager
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.mark_to_market import MarkToMarketService
+from tradex_execution.risk import RiskManager
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
 
 _INSTRUMENT = Equity.of("NSE", "RELIANCE")
 _MARKED_AT = datetime(2026, 9, 4, 10, 0, tzinfo=UTC)

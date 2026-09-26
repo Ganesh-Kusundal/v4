@@ -9,8 +9,7 @@ from tradex_domain.enums import OrderSide, OrderType, ProductType, TimeInForce
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.execution.fill_sources import BrokerFillSource
+from tradex_execution.fill_sources import BrokerFillSource
 
 
 def _make_request(price: Decimal | None = None) -> OrderRequest:

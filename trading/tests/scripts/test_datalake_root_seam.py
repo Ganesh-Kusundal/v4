@@ -1,6 +1,6 @@
 """Writers must resolve the datalake through the one shared seam.
 
-Phase 4B. ``tradex_trading.datalake.paths.datalake_root()`` anchors the lake to
+Phase 4B. ``tradex_market_data.paths.datalake_root()`` anchors the lake to
 the repo from ``__file__`` and honours ``$TRADEX_DATALAKE_ROOT``. The interface
 *readers* used it; the *writers* did not:
 

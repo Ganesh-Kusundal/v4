@@ -5,11 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from tradex_analytics.footprint import Footprint
 from tradex_domain import Quote
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.analytics.footprint import Footprint
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 

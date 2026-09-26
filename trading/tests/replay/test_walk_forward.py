@@ -8,10 +8,9 @@ from decimal import Decimal
 import pytest
 from tradex_domain import OHLC, Candle, Price, Quantity, Timeframe
 from tradex_domain.instruments import Equity
-
-from tradex_trading.replay.backtest import BacktestResult
-from tradex_trading.replay.optimization import make_grid_optimizer
-from tradex_trading.replay.walk_forward import (
+from tradex_replay.backtest import BacktestResult
+from tradex_replay.optimization import make_grid_optimizer
+from tradex_replay.walk_forward import (
     WalkForwardReport,
     WalkForwardStep,
     run_walk_forward,
@@ -260,8 +259,8 @@ class TestRunWalkForwardByDate:
 
 def test_walk_forward_stitched_oos_curve():
     """C2: _aggregate must stitch equity segments, not average returns; MaxDD must exist."""
-    from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio
-    from tradex_trading.replay.walk_forward import WalkForwardStep, _aggregate
+    from tradex_analytics.reports import max_drawdown, sharpe_ratio
+    from tradex_replay.walk_forward import WalkForwardStep, _aggregate
 
     seg1 = [1.0, 1.10]
     seg2 = [1.0, 1.20]

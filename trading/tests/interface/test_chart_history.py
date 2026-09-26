@@ -10,8 +10,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
-
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
 
 pytest.importorskip("pandas")
 
@@ -22,8 +21,8 @@ def _client() -> TestClient:
 
 class TestHistoryContract:
     def test_history_loads_parquet_through_market_provider(self):
-        from tradex_trading.datalake import market_provider
-        from tradex_trading.interface.fastapi_app import create_app
+        from tradex_interfaces.fastapi_app import create_app
+        from tradex_market_data import market_provider
 
         with patch.object(market_provider, "ParquetMarketProvider") as provider:
             provider.return_value.history.return_value.candles = []
@@ -69,8 +68,7 @@ class TestHistoryContract:
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import HistoricalSeries
-
-        from tradex_trading.datalake.parquet_storage import ParquetStorage
+        from tradex_market_data.parquet_storage import ParquetStorage
 
         store = ParquetStorage("data/")
         symbols = store.symbols()
@@ -121,7 +119,7 @@ class TestHistoryContract:
         """A bar's chart time is the UTC epoch of the same wall clock read as IST."""
         from zoneinfo import ZoneInfo
 
-        from tradex_trading.interface.routes.chart import _ist_to_utc_seconds
+        from tradex_interfaces.routes.chart import _ist_to_utc_seconds
 
         ist = ZoneInfo("Asia/Kolkata")
         # 09:15 IST == 03:45 UTC (IST is UTC+5:30, no DST).
@@ -138,7 +136,7 @@ class TestHistoryContract:
 
 
 def _bar(candle) -> dict:
-    from tradex_trading.interface.routes.chart import _ist_to_utc_seconds
+    from tradex_interfaces.routes.chart import _ist_to_utc_seconds
 
     return {
         "time": _ist_to_utc_seconds(candle.timestamp),

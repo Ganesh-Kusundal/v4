@@ -17,13 +17,12 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi import Request  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-
-from tradex_trading.interface.auth.rate_limit import (  # noqa: E402
+from tradex_interfaces.auth.rate_limit import (  # noqa: E402
     InMemoryRateLimiter,
     rate_limit_money,
 )
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
-from tradex_trading.reactive.bus import ReactiveBus  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
+from tradex_reactive.bus import ReactiveBus  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -328,7 +327,7 @@ class TestIdentityBucketing:
 
     def test_rate_limiter_exported_from_auth_package(self) -> None:
         """C5 contract: rate_limit_money and InMemoryRateLimiter importable from auth."""
-        from tradex_trading.interface.auth import (  # noqa: F401
+        from tradex_interfaces.auth import (  # noqa: F401
             InMemoryRateLimiter,
             rate_limit_money,
         )

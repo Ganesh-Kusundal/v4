@@ -19,8 +19,7 @@ import pytest
 from tradex_domain import OHLC, Candle, OrderSide, Signal, Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.replay.backtest import BacktestEngine
+from tradex_replay.backtest import BacktestEngine
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 

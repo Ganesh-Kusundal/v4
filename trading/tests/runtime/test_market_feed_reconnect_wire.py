@@ -16,10 +16,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from tradex_domain.instruments import Equity, Instrument
-
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.runtime.feed_supervisor import FeedState, FeedSupervisor
-from tradex_trading.runtime.market_feed import MarketFeed
+from tradex_reactive.bus import ReactiveBus
+from tradex_runtime.feed_supervisor import FeedState, FeedSupervisor
+from tradex_runtime.market_feed import MarketFeed
 
 # ---------------------------------------------------------------------------
 # Fakes

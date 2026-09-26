@@ -37,9 +37,8 @@ from tradex_domain import (
 from tradex_domain.enums import OrderSide
 from tradex_domain.events import OrderCancelled, PlaceOrderCommand
 from tradex_domain.strategy import Signal
-
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
+from tradex_reactive.bus import ReactiveBus
+from tradex_strategy.core.engine import ReactiveStrategyEngine
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -263,7 +262,7 @@ def test_pending_max_age_warns(caplog: Any) -> None:
     other1 = _candle("OTHER", 100.0, 101.0, _ts(10))
     other2 = _candle("OTHER", 101.0, 102.0, _ts(20))
 
-    caplog.set_level(logging.WARNING, logger="tradex_trading.strategy.core.engine")
+    caplog.set_level(logging.WARNING, logger="tradex_strategy.core.engine")
     bus.publish(defer)   # defer (bar 1)
     bus.publish(other1)  # bar 2 — age=1, no cancel yet
     bus.publish(other2)  # bar 3 — age=2 > 1, cancel

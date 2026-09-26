@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import threading
 
-from tradex_trading.runtime.metrics import MetricsRegistry
+from tradex_runtime.metrics import MetricsRegistry
 
 
 def test_counter_owns_a_lock() -> None:

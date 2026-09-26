@@ -7,8 +7,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
-
-from tradex_trading.interface.fastapi_app import (  # noqa: E402
+from tradex_interfaces.fastapi_app import (  # noqa: E402
     AccountResponse,
     ErrorResponse,
     HealthResponse,
@@ -249,7 +248,7 @@ def test_order_response_model():
 
 
 def test_error_response_model():
-    from tradex_trading.interface.models import ErrorDetail
+    from tradex_interfaces.models import ErrorDetail
 
     resp = ErrorResponse(error=ErrorDetail(code="bad_request", message="something went wrong"))
     assert resp.model_dump() == {
@@ -700,7 +699,8 @@ def test_post_order_with_instrument_id():
 
 
 def test_post_order_rejects_active_replay_guard_and_recovers():
-    from tradex_trading.interface.replay_guard import ReplayGuard
+    from tradex_interfaces.replay_guard import ReplayGuard
+
     from tradex_trading.sdk.session import TradingSession
 
     guard = ReplayGuard()
@@ -818,7 +818,7 @@ def test_websocket_no_session():
 
 def test_websocket_connect_and_disconnect():
     """WebSocket connects when session is present and cleans up on disconnect."""
-    from tradex_trading.reactive.bus import ReactiveBus
+    from tradex_reactive.bus import ReactiveBus
 
     bus = ReactiveBus()
     session = MagicMock()
@@ -841,8 +841,7 @@ def test_websocket_forwards_depth():
     from tradex_domain.instruments import Equity
     from tradex_domain.market import Depth
     from tradex_domain.value_objects import Price, Quantity
-
-    from tradex_trading.reactive.bus import ReactiveBus
+    from tradex_reactive.bus import ReactiveBus
 
     bus = ReactiveBus()
     session = MagicMock()
@@ -880,8 +879,8 @@ def test_websocket_depth_gates_non_nse():
     """Depth on a non-NSE exchange acks a loud error and keeps the socket open."""
     import json as _json
 
-    from tradex_trading.reactive.bus import ReactiveBus
-    from tradex_trading.runtime.market_feed import MarketFeed
+    from tradex_reactive.bus import ReactiveBus
+    from tradex_runtime.market_feed import MarketFeed
 
     class _FakeFeedBroker:
         """Minimal broker surface the feed needs (Dhan depth-20 path)."""
@@ -943,8 +942,7 @@ def test_websocket_subscribe_acks_and_filters():
     from tradex_domain.instruments import Equity
     from tradex_domain.market import Quote
     from tradex_domain.value_objects import Price
-
-    from tradex_trading.reactive.bus import ReactiveBus
+    from tradex_reactive.bus import ReactiveBus
 
     bus = ReactiveBus()
     session = MagicMock()
@@ -1004,7 +1002,7 @@ def test_websocket_subscribe_invalid_instrument_errors():
     """Malformed instrument ids produce an error ack, not a crash."""
     import json as _json
 
-    from tradex_trading.reactive.bus import ReactiveBus
+    from tradex_reactive.bus import ReactiveBus
 
     bus = ReactiveBus()
     session = MagicMock()
@@ -1036,7 +1034,7 @@ def test_enqueue_drop_oldest_bounds_queue():
     """Overflow drops the oldest queued message; the newest always lands."""
     import asyncio
 
-    from tradex_trading.interface.fastapi_app import _enqueue_drop_oldest
+    from tradex_interfaces.fastapi_app import _enqueue_drop_oldest
 
     async def _run():
         queue: asyncio.Queue = asyncio.Queue(maxsize=3)
@@ -1065,7 +1063,7 @@ def test_enqueue_control_reports_overflow_without_evicting():
     """
     import asyncio
 
-    from tradex_trading.interface.fastapi_app import _enqueue_control
+    from tradex_interfaces.fastapi_app import _enqueue_control
 
     async def _run():
         control: asyncio.Queue = asyncio.Queue(maxsize=2)
@@ -1095,7 +1093,7 @@ def test_websocket_stats_surfaces_drop_counter():
     """A stats request reports the per-connection drop counter."""
     import json as _json
 
-    from tradex_trading.reactive.bus import ReactiveBus
+    from tradex_reactive.bus import ReactiveBus
 
     bus = ReactiveBus()
     session = MagicMock()
@@ -1122,8 +1120,7 @@ def test_websocket_tiny_outbound_queue_still_forwards_quotes():
     from tradex_domain.instruments import Equity
     from tradex_domain.market import Quote
     from tradex_domain.value_objects import Price
-
-    from tradex_trading.reactive.bus import ReactiveBus
+    from tradex_reactive.bus import ReactiveBus
 
     bus = ReactiveBus()
     session = MagicMock()
@@ -1168,12 +1165,12 @@ def test_websocket_tiny_outbound_queue_still_forwards_quotes():
 def _make_feed_session(broker, bus=None, capabilities=None):
     """Build a live-mode TradingSession carrying a real MarketFeed."""
     from tradex_domain import BrokerId
+    from tradex_execution.engine import ExecutionEngine
+    from tradex_execution.fill_sources import PaperFillSource
+    from tradex_execution.trading_cache import TradingCache
+    from tradex_reactive.bus import ReactiveBus
+    from tradex_runtime.market_feed import MarketFeed
 
-    from tradex_trading.execution.engine import ExecutionEngine
-    from tradex_trading.execution.fill_sources import PaperFillSource
-    from tradex_trading.execution.trading_cache import TradingCache
-    from tradex_trading.reactive.bus import ReactiveBus
-    from tradex_trading.runtime.market_feed import MarketFeed
     from tradex_trading.sdk.session import TradingSession
 
     _bus = bus if bus is not None else ReactiveBus()
@@ -1334,11 +1331,11 @@ def test_websocket_subscribe_snapshot_pushes_current_quote():
 def _make_order_stream_session(backend=None):
     """Live-mode session wired with a fake broker order-stream backend."""
     from tradex_domain import BrokerId
+    from tradex_execution.engine import ExecutionEngine
+    from tradex_execution.fill_sources import PaperFillSource
+    from tradex_execution.trading_cache import TradingCache
+    from tradex_reactive.bus import ReactiveBus
 
-    from tradex_trading.execution.engine import ExecutionEngine
-    from tradex_trading.execution.fill_sources import PaperFillSource
-    from tradex_trading.execution.trading_cache import TradingCache
-    from tradex_trading.reactive.bus import ReactiveBus
     from tradex_trading.sdk.session import TradingSession
 
     _bus = ReactiveBus()
@@ -1724,7 +1721,7 @@ class TestStartFastapiServerGuards:
     def test_serve_app_factory_builds_ready_paper_session(self, monkeypatch):
         """serve_app() — the code that runs in each spawned worker — builds a
         READY paper session app and forwards the env API key."""
-        from tradex_trading.interface.fastapi_app import serve_app
+        from tradex_interfaces.fastapi_app import serve_app
 
         monkeypatch.setenv("TRADEX_SERVE_BROKER", "PAPER")
         monkeypatch.setenv("TRADEX_SERVE_MODE", "paper")

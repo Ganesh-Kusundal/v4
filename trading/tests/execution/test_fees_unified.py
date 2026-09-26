@@ -21,8 +21,7 @@ from tradex_domain import (
 )
 from tradex_domain.instruments import Equity
 from tradex_domain.utils import q2
-
-from tradex_trading.execution.fees import FeeCalculator
+from tradex_execution.fees import FeeCalculator
 
 
 def _fill(side: OrderSide, price: int | str, qty: int | str) -> Fill:

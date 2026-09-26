@@ -43,18 +43,18 @@ from tradex_domain import (
 from tradex_domain.events import OrderFilled
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import (
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import (
     PaperFillSource,
     SimulatedFillSource,
 )
-from tradex_trading.execution.slippage import FixedSlippageModel
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.replay.backtest import BacktestEngine
+from tradex_execution.slippage import FixedSlippageModel
+from tradex_reactive.bus import ReactiveBus
+from tradex_replay.backtest import BacktestEngine
+from tradex_strategy import ReactiveStrategyEngine
+from tradex_strategy.extensions.strategies.sma_cross import SmaCrossStrategy
+
 from tradex_trading.sdk.session import TradingSession
-from tradex_trading.strategy import ReactiveStrategyEngine
-from tradex_trading.strategy.extensions.strategies.sma_cross import SmaCrossStrategy
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 CLOSES = [10.0] * 20 + [11.0, 12.0, 13.0]
@@ -308,8 +308,7 @@ class TestAccountingConvergence:
 
     def test_backtest_pnl_equals_position_manager_pnl(self) -> None:
         from tradex_domain.events import OrderFilled
-
-        from tradex_trading.strategy import ReactiveStrategyEngine
+        from tradex_strategy import ReactiveStrategyEngine
 
         candles = [
             self._chained_candle(Decimal("100"), 1),
@@ -390,7 +389,7 @@ class TestAccountingConvergence:
         340/3 = 113.333… becomes 113.33. The realized P&L accumulates from
         the quantized base: (130-113.33)*1 + (140-113.33)*2 = 16.67 + 53.34
         = 70.01 (1 paisa above the unquantized 70)."""
-        from tradex_trading.strategy import ReactiveStrategyEngine
+        from tradex_strategy import ReactiveStrategyEngine
 
         candles = self._ladder_candles()
 

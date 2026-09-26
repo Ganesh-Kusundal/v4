@@ -15,8 +15,7 @@ from typing import Any
 
 import pytest
 from tradex_domain.errors import SDKError
-
-from tradex_trading.runtime.master_lifecycle import (
+from tradex_runtime.master_lifecycle import (
     InstrumentRefreshScheduler,
     MasterFileCache,
     MasterLoader,

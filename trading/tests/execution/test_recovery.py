@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from tradex_domain.events import OrderPlaced
 from tradex_domain.execution import Order
-
-from tradex_trading.execution.recovery import InMemoryEventStore, SessionRecovery
+from tradex_execution.recovery import InMemoryEventStore, SessionRecovery
 
 
 class _Orders:

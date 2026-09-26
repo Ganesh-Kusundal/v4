@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tradex_trading.analytics.volume.volume_profile import (
+from tradex_analytics.volume.volume_profile import (
     lvn,
     poc,
     vah,

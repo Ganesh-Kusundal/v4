@@ -5,11 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from tradex_analytics.orderflow import classify_aggressor, cvd_from_quotes
 from tradex_domain import Quote
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.analytics.orderflow import classify_aggressor, cvd_from_quotes
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 

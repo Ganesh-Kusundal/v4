@@ -9,12 +9,11 @@ from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.fill_model import FillModel
-from tradex_trading.execution.order_manager import OrderManager
-from tradex_trading.execution.position_manager import PositionManager
-from tradex_trading.execution.slippage import PercentageSlippageModel
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.fill_model import FillModel
+from tradex_execution.order_manager import OrderManager
+from tradex_execution.position_manager import PositionManager
+from tradex_execution.slippage import PercentageSlippageModel
+from tradex_execution.trading_cache import TradingCache
 
 
 def test_order_manager_apply_unknown() -> None:

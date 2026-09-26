@@ -29,8 +29,7 @@ from tradex_domain import (
     Quantity,
 )
 from tradex_domain.utils import q2
-
-from tradex_trading.execution.fees import FeeCalculator, PricingService
+from tradex_execution.fees import FeeCalculator, PricingService
 
 _TS = datetime(2026, 8, 1, tzinfo=UTC)
 

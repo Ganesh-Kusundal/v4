@@ -41,7 +41,7 @@ def _live_cfg(tmp_path) -> AppConfig:
 
 def test_live_boot_binds_cash_provider_from_broker(monkeypatch, tmp_path) -> None:
     """The gate must read broker funds, not sit unbound."""
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     broker = _broker_with_cash(Decimal("500000"))
     monkeypatch.setattr(
@@ -68,8 +68,7 @@ def test_live_boot_anchors_cash_so_a_restart_can_fold_it(
     from tradex_config.schema import AppConfig, PersistenceConfig
     from tradex_domain.events import CashAccountInitialized
     from tradex_execution.sqlite_event_store import SQLiteEventStore
-
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     db = str(tmp_path / "orders.db")
     cfg = AppConfig(
@@ -102,7 +101,7 @@ def test_live_boot_anchors_cash_so_a_restart_can_fold_it(
 
 def test_live_boot_reports_unknown_when_funds_unreadable(monkeypatch, tmp_path) -> None:
     """An unreadable balance is unknown, and unknown denies rather than admits."""
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     broker = _broker_with_cash(None)
     monkeypatch.setattr(
@@ -119,7 +118,7 @@ def test_live_boot_reports_unknown_when_funds_unreadable(monkeypatch, tmp_path) 
 
 def test_live_boot_reports_unknown_when_funds_call_raises(monkeypatch, tmp_path) -> None:
     """A funds call that blows up must not be read as a zero balance."""
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     broker = _broker_with_cash(Decimal("100"))
     broker.get_account.side_effect = RuntimeError("funds endpoint down")
@@ -134,7 +133,7 @@ def test_live_boot_reports_unknown_when_funds_call_raises(monkeypatch, tmp_path)
 
 
 def test_paper_boot_binds_cash_provider() -> None:
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     session = sm.boot(AppConfig(mode="paper"))
     try:

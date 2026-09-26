@@ -13,11 +13,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
-
-from tradex_trading.interface.fastapi_app import create_app
-from tradex_trading.interface.routes.stream_indicators import IndicatorStreamRegistry
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.runtime.bar_aggregator import BarFrame
+from tradex_interfaces.fastapi_app import create_app
+from tradex_interfaces.routes.stream_indicators import IndicatorStreamRegistry
+from tradex_reactive.bus import ReactiveBus
+from tradex_runtime.bar_aggregator import BarFrame
 
 
 def _make_app():

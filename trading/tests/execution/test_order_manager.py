@@ -14,9 +14,8 @@ from tradex_domain.enums import (
 from tradex_domain.execution import Fill, Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.order_manager import OrderManager
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.order_manager import OrderManager
+from tradex_execution.trading_cache import TradingCache
 
 
 def _make_order(

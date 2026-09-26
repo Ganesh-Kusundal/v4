@@ -14,9 +14,8 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
-
-from tradex_trading.analytics.transforms import compute_transform  # noqa: E402
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
+from tradex_analytics.transforms import compute_transform  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
 
 FIXTURES = json.loads(
     (Path(__file__).parents[1] / "analytics" / "goldens" / "fixtures.json").read_text()

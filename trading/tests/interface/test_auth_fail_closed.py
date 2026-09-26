@@ -9,8 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
-from tradex_trading.interface import fastapi_app
+from tradex_interfaces import fastapi_app
 
 
 def test_require_api_key_for_live_fails_closed_without_key() -> None:

@@ -5,8 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import pytest
-
-from tradex_trading.research.manifests import (
+from tradex_research.manifests import (
     ApprovalState,
     CostModelManifest,
     DatasetManifest,

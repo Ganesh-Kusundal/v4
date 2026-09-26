@@ -29,15 +29,14 @@ from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine, RiskManager
-from tradex_trading.execution.fill_sources import BrokerFillSource
-from tradex_trading.execution.idempotency import (
+from tradex_execution.engine import ExecutionEngine, RiskManager
+from tradex_execution.fill_sources import BrokerFillSource
+from tradex_execution.idempotency import (
     IdempotencyKeyReuseMismatch,
     MemoryIdempotencyGuard,
 )
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
 
 
 def _instrument() -> Equity:
@@ -184,7 +183,7 @@ def test_sqlite_guard_replays_modify_across_instances() -> None:
     import tempfile
     from pathlib import Path
 
-    from tradex_trading.execution.sqlite_store import SQLiteIdempotencyGuard
+    from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 
     with tempfile.TemporaryDirectory() as td:
         db = Path(td) / "orders.db"

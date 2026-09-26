@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import tradex_trading.execution.sqlite_store as sqlite_store
+import tradex_execution.sqlite_store as sqlite_store
 
 _DELETED_MODULES = (
     "tradex_trading.execution.order_store",

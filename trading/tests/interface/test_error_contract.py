@@ -11,9 +11,8 @@ import pytest
 
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
-
-from tradex_trading.interface._helpers import is_ready, readiness  # noqa: E402
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
+from tradex_interfaces._helpers import is_ready, readiness  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
 
 
 def _client():
@@ -108,7 +107,8 @@ class TestErrorEnvelope:
 def test_ready_reports_feed_state() -> None:
     from unittest.mock import MagicMock
 
-    from tradex_trading.runtime.feed_supervisor import FeedSupervisor
+    from tradex_runtime.feed_supervisor import FeedSupervisor
+
     from tradex_trading.sdk.session import SessionState
 
     session = MagicMock()
@@ -141,7 +141,8 @@ def test_ready_without_feed_supervisor_keeps_legacy_shape() -> None:
 def test_is_ready_requires_ready_feed_for_live_session() -> None:
     from unittest.mock import MagicMock
 
-    from tradex_trading.runtime.feed_supervisor import FeedSupervisor
+    from tradex_runtime.feed_supervisor import FeedSupervisor
+
     from tradex_trading.sdk.session import SessionState
 
     session = MagicMock()

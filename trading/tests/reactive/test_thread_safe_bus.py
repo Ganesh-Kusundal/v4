@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections import deque
 
-from tradex_trading.reactive.thread_safe_bus import ThreadSafeReactiveBus
+from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 
 # ---------------------------------------------------------------------------
 # Concurrent publish

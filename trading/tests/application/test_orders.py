@@ -11,6 +11,13 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from tradex_application.orders import (
+    BrokerCapabilityError,
+    cancel_order,
+    modify_order,
+    submit_bracket_order,
+    submit_order,
+)
 from tradex_domain import (
     CorrelationId,
     Equity,
@@ -25,17 +32,9 @@ from tradex_domain.enums import TimeInForce
 from tradex_domain.errors import OrderRejectedError
 from tradex_domain.execution import BracketOrderRequest, Order
 from tradex_domain.value_objects import OrderId
-
-from tradex_trading.application.orders import (
-    BrokerCapabilityError,
-    cancel_order,
-    modify_order,
-    submit_bracket_order,
-    submit_order,
-)
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_reactive.bus import ReactiveBus
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -111,7 +110,7 @@ def test_submit_order_delegates_to_engine():
 
 def test_submit_order_idempotency_replay_returns_order_id():
     """Second call with same correlation id returns the original OrderId."""
-    from tradex_trading.execution.idempotency import MemoryIdempotencyGuard
+    from tradex_execution.idempotency import MemoryIdempotencyGuard
 
     guard = MemoryIdempotencyGuard()
     engine = ExecutionEngine(
@@ -245,7 +244,7 @@ def test_cancel_nonexistent_order_raises():
 
 def test_cancel_order_idempotency_replay():
     """Cancelling with the same correlation id a second time replays the result."""
-    from tradex_trading.execution.idempotency import MemoryIdempotencyGuard
+    from tradex_execution.idempotency import MemoryIdempotencyGuard
 
     guard = MemoryIdempotencyGuard()
     engine = ExecutionEngine(

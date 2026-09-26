@@ -4,8 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from tradex_domain import BrokerId
-
-from tradex_trading.interface.cli import run_cli
+from tradex_interfaces.cli import run_cli
 
 
 def _live_session() -> MagicMock:

@@ -16,9 +16,8 @@ from unittest.mock import MagicMock
 
 import pytest
 import tradex_runtime.startup as startup_mod
+from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
-
-from tradex_trading.config.schema import AppConfig, PersistenceConfig
 
 
 def test_safe_teardown_handles_non_live(monkeypatch) -> None:

@@ -9,8 +9,7 @@ from decimal import Decimal
 
 import pytest
 from tradex_domain.enums import OrderSide
-
-from tradex_trading.execution.fees import (
+from tradex_execution.fees import (
     FeeBreakdown,
     FeeCalculator,
     PricingService,

@@ -30,12 +30,11 @@ from tradex_domain import (
 )
 from tradex_domain.strategy import StrategyContext
 from tradex_domain.value_objects import Price as QuotePrice
-
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.strategy.core.buy_and_hold import BuyAndHoldStrategy
-from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
-from tradex_trading.strategy.core.protocols import Strategy
-from tradex_trading.strategy.core.scanner import ScannerEngine
+from tradex_reactive.bus import ReactiveBus
+from tradex_strategy.core.buy_and_hold import BuyAndHoldStrategy
+from tradex_strategy.core.engine import ReactiveStrategyEngine
+from tradex_strategy.core.protocols import Strategy
+from tradex_strategy.core.scanner import ScannerEngine
 
 
 def _now() -> datetime:

@@ -5,12 +5,12 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import tradex_runtime.startup as startup_mod
+from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fill_sources import SimulatedFillSource
 from tradex_reactive.bus import ReactiveBus
 
-from tradex_trading.config.schema import AppConfig, PersistenceConfig
 from tradex_trading.sdk.session import SessionState
 
 

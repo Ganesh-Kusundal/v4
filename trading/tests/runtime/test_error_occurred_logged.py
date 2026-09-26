@@ -10,10 +10,9 @@ metric.
 
 from __future__ import annotations
 
+from tradex_config.schema import AppConfig
 from tradex_domain.events import ErrorOccurred
-
-from tradex_trading.config.schema import AppConfig
-from tradex_trading.runtime import startup as startup_mod
+from tradex_runtime import startup as startup_mod
 
 
 def test_error_occurred_counter_increments_after_publish() -> None:

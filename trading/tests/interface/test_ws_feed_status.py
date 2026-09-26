@@ -10,11 +10,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
+from tradex_interfaces._helpers import feed_status_payload
+from tradex_interfaces.fastapi_app import create_app
+from tradex_runtime.feed_supervisor import FeedSupervisor
+from tradex_runtime.metrics import MetricsRegistry
 
-from tradex_trading.interface._helpers import feed_status_payload
-from tradex_trading.interface.fastapi_app import create_app
-from tradex_trading.runtime.feed_supervisor import FeedSupervisor
-from tradex_trading.runtime.metrics import MetricsRegistry
 from tradex_trading.sdk.session import TradingSession
 
 
@@ -112,9 +112,8 @@ def test_queue_drops_increment_feed_queue_drops_total() -> None:
 
     from tradex_brokers.paper.adapter import PaperBroker
     from tradex_domain import BrokerId
-
-    from tradex_trading.execution.engine import ExecutionEngine, RiskManager
-    from tradex_trading.reactive.bus import ReactiveBus
+    from tradex_execution.engine import ExecutionEngine, RiskManager
+    from tradex_reactive.bus import ReactiveBus
 
     metrics = MetricsRegistry()
     bus = ReactiveBus(metrics=metrics)

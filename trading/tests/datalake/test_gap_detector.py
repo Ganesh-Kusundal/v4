@@ -6,9 +6,8 @@ from datetime import datetime
 from datetime import time as dtime
 
 import pandas as pd
-
-from tradex_trading.datalake.gap_detector import GapDetector
-from tradex_trading.datalake.parquet_storage import ParquetStorage
+from tradex_market_data.gap_detector import GapDetector
+from tradex_market_data.parquet_storage import ParquetStorage
 
 
 def _frame(rows):
@@ -177,7 +176,7 @@ class TestSessionEdgeStamps:
 
     def test_edge_stamps_are_read_off_the_grid(self):
         """On a 30min grid a session ends at 15:15 — not MARKET_CLOSE."""
-        from tradex_trading.datalake.gap_detector import _edge_stamps, _session_grid
+        from tradex_market_data.gap_detector import _edge_stamps, _session_grid
 
         grid = _session_grid(datetime(2026, 7, 3, 9, 15), datetime(2026, 7, 3, 15, 30),
                              "30min", frozenset())

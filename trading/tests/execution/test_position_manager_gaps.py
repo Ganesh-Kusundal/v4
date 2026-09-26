@@ -9,9 +9,8 @@ from tradex_domain.enums import OrderSide
 from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.position_manager import PositionManager
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.position_manager import PositionManager
+from tradex_execution.trading_cache import TradingCache
 
 
 def _make_fill(

@@ -13,8 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-
-from tradex_trading.datalake.parquet_storage import ParquetStorage
+from tradex_market_data.parquet_storage import ParquetStorage
 
 _SCRIPT = (
     Path(__file__).resolve().parent.parent.parent / "scripts" / "backtest_datalake.py"
@@ -135,7 +134,7 @@ class TestEndToEnd:
         fake = _FakeLoader()
         monkeypatch.setattr(backtest_datalake, "ParquetBacktestLoader", lambda **kw: fake)
         monkeypatch.setattr(
-            "tradex_trading.datalake.universe.load_universe",
+            "tradex_market_data.universe.load_universe",
             lambda name: [Equity.of("NSE", s) for s in ("A", "B", "C")],
         )
 

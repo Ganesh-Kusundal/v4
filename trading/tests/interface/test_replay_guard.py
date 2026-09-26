@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import pytest
-
-from tradex_trading.interface.replay_guard import ReplayGuard
+from tradex_interfaces.replay_guard import ReplayGuard
 
 
 def test_replay_guard_exclusive_acquire() -> None:

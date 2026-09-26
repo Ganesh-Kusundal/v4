@@ -8,8 +8,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from tradex_trading.interface.cli import _build_parser, main, run_cli
+from tradex_interfaces.cli import _build_parser, main, run_cli
 
 # ---------------------------------------------------------------------------
 # CLI — _build_parser, run_cli
@@ -248,7 +247,7 @@ class TestCliMain:
 
 
 class TestModuleEntryPoint:
-    """`python -m tradex_trading.interface.cli` must actually dispatch.
+    """`python -m tradex_interfaces.cli` must actually dispatch.
 
     Regression: cli.py had no ``__main__`` guard, so runpy executed the file
     top-to-bottom and exited without calling main() — `python -m ... serve`
@@ -281,5 +280,5 @@ class TestModuleEntryPoint:
 
 
 def tradex_cli_file() -> str:
-    import tradex_trading.interface.cli as m
+    import tradex_interfaces.cli as m
     return m.__file__

@@ -6,8 +6,7 @@ from decimal import Decimal
 
 from tradex_domain import Fill, OrderSide
 from tradex_domain.value_objects import Money, OrderId, Price, Quantity
-
-from tradex_trading.execution.cash_ledger import CashLedger
+from tradex_execution.cash_ledger import CashLedger
 
 
 def _fill(side: OrderSide, qty: int, price: float) -> Fill:

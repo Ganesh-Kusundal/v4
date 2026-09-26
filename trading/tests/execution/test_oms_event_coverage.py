@@ -38,12 +38,11 @@ from tradex_domain.events import (
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.execution.recovery import InMemoryEventStore
-from tradex_trading.execution.risk import RiskManager
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_execution.recovery import InMemoryEventStore
+from tradex_execution.risk import RiskManager
+from tradex_reactive.bus import ReactiveBus
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -459,7 +458,7 @@ def test_engine_without_event_store_still_works() -> None:
 
 def test_all_c1_event_types_round_trip_in_sqlite(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """All six new Wave C1 domain events round-trip through SQLiteEventStore."""
-    from tradex_trading.execution.sqlite_event_store import SQLiteEventStore
+    from tradex_execution.sqlite_event_store import SQLiteEventStore
 
     store = SQLiteEventStore(tmp_path / "c1.db")
     request = _request()

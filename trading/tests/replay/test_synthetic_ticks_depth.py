@@ -8,9 +8,8 @@ from decimal import Decimal
 from tradex_domain import OHLC, Candle, Depth, Quote, Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.replay.synthetic_ticks import SyntheticTickGenerator
+from tradex_reactive.bus import ReactiveBus
+from tradex_replay.synthetic_ticks import SyntheticTickGenerator
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 

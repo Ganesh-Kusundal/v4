@@ -6,9 +6,8 @@ from datetime import date, datetime
 
 import pandas as pd
 import pytest
-
-from tradex_trading.research.manifests import DatasetManifest, UniverseManifest
-from tradex_trading.research.pit import (
+from tradex_research.manifests import DatasetManifest, UniverseManifest
+from tradex_research.pit import (
     PitViolation,
     assert_corporate_actions_timing,
     assert_feature_ts_leq_decision_ts,
@@ -179,7 +178,7 @@ def test_price_series_labelled_is_explicit_guard_callable() -> None:
     """The guard is callable and importable — pipeline checkpoints can call it."""
     import inspect
 
-    from tradex_trading.research.pit import assert_price_series_labelled as guard
+    from tradex_research.pit import assert_price_series_labelled as guard
     assert callable(guard)
     sig = inspect.signature(guard)
     assert "manifest" in sig.parameters

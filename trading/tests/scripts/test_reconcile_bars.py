@@ -21,8 +21,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-
-from tradex_trading.datalake.parquet_storage import ParquetStorage
+from tradex_market_data.parquet_storage import ParquetStorage
 
 _SCRIPT = Path(__file__).resolve().parent.parent.parent / "scripts" / "reconcile_bars.py"
 _spec = importlib.util.spec_from_file_location("reconcile_bars", _SCRIPT)

@@ -20,7 +20,7 @@ from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
 
-# Import the defining packages, not the tradex_trading.* compatibility shims.
+# Import the defining packages, not the tradex_* compatibility shims.
 # The shims re-export these by import_module, so the objects are identical, but
 # a test that names the authority keeps passing once the shim tree is deleted
 # and makes the package dependency explicit.

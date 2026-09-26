@@ -31,12 +31,11 @@ from tradex_domain.instruments import Equity
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.strategy import ScannerDefinition, StrategyContext
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.strategy import ReactiveStrategyEngine, ScannerEngine
-from tradex_trading.strategy.core.scanner import ScannerEngine as CoreScannerEngine
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_reactive.bus import ReactiveBus
+from tradex_strategy import ReactiveStrategyEngine, ScannerEngine
+from tradex_strategy.core.scanner import ScannerEngine as CoreScannerEngine
 
 INSTRUMENT = Equity.of(ExchangeId.NSE, "RELIANCE")
 

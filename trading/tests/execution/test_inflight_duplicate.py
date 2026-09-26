@@ -17,16 +17,15 @@ from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from tradex_domain.execution import OrderReceipt, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import BrokerFillSource
-from tradex_trading.execution.idempotency import (
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import BrokerFillSource
+from tradex_execution.idempotency import (
     IdempotencyDuplicate,
     IdempotencyInflight,
     MemoryIdempotencyGuard,
 )
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
 
 
 def _request(correlation_id: str | None = None) -> OrderRequest:
@@ -106,8 +105,7 @@ def test_inflight_key_stays_owned_then_replays_after_completion() -> None:
 def test_route_maps_inflight_receipt_to_409() -> None:
     """Contract 3: the HTTP edge answers 409, not 500."""
     from fastapi.testclient import TestClient
-
-    from tradex_trading.interface.fastapi_app import create_app
+    from tradex_interfaces.fastapi_app import create_app
 
     class _FakeSession:
         engine = None
@@ -147,7 +145,7 @@ def test_sqlite_guard_inflight_yields_receipt_not_500() -> None:
     import tempfile
     from pathlib import Path
 
-    from tradex_trading.execution.sqlite_store import SQLiteIdempotencyGuard
+    from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 
     with tempfile.TemporaryDirectory() as td:
         db = Path(td) / "orders.db"

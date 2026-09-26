@@ -22,11 +22,11 @@ import pytest
 
 def _repo_root() -> Path:
     """Repo root as the interface package itself computes it."""
-    from tradex_trading.interface import routes
+    from tradex_interfaces import routes
 
     pkg_dir = Path(routes.__file__).resolve().parent
-    # interface/routes -> interface -> tradex_trading -> src -> trading -> repo
-    return pkg_dir.parents[4]
+    # interface/routes -> tradex_interfaces -> src -> interfaces -> repo
+    return pkg_dir.parents[3]
 
 
 def _callee_name(func: ast.expr) -> str:
@@ -106,8 +106,8 @@ class TestDatalakeRoot:
         Simulates the original bug: chdir to a directory with no data/ and
         confirm the chart history datalake read still finds real bars.
         """
-        from tradex_trading.datalake import paths
-        from tradex_trading.interface.routes import chart
+        from tradex_interfaces.routes import chart
+        from tradex_market_data import paths
 
         monkeypatch.chdir(tmp_path)
         store = chart._get_store(paths.DATALAKE_ROOT)
@@ -140,7 +140,7 @@ class TestDatalakeRoot:
         found = _second_root_definitions(tree)
         assert not found, (
             f"{modpath} defines the lake root itself ({sorted(found)}) instead of "
-            "resolving it through tradex_trading.datalake.paths.datalake_root()"
+            "resolving it through tradex_market_data.paths.datalake_root()"
         )
 
     def test_no_module_in_interface_defines_the_lake_root(self):
@@ -161,7 +161,7 @@ class TestDatalakeRoot:
         bug is documentation, not a second definition, and only a syntax-aware
         scan can tell the two apart.
         """
-        import tradex_trading.interface as pkg
+        import tradex_interfaces as pkg
 
         pkg_dir = Path(pkg.__file__).resolve().parent
         offenders: list[str] = []
@@ -178,7 +178,7 @@ class TestDatalakeRoot:
         assert scanned, f"no modules found under {pkg_dir}"
         assert not offenders, (
             "these interface modules define the datalake root themselves instead "
-            "of calling tradex_trading.datalake.paths.datalake_root(), so "
+            "of calling tradex_market_data.paths.datalake_root(), so "
             "$TRADEX_DATALAKE_ROOT cannot move their reads or writes:\n"
             + "\n".join(offenders)
         )
@@ -189,8 +189,7 @@ class TestDatalakeRoot:
         fastapi = pytest.importorskip("fastapi")
         pytest.importorskip("pandas")
         from fastapi.testclient import TestClient
-
-        from tradex_trading.interface.fastapi_app import create_app
+        from tradex_interfaces.fastapi_app import create_app
 
         assert fastapi is not None
         monkeypatch.chdir(tmp_path)  # cwd without data/, like trading/ on 09-02

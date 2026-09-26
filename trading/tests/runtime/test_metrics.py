@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tradex_trading.runtime.metrics import MetricsRegistry
+from tradex_runtime.metrics import MetricsRegistry
 
 
 def test_metrics_registry_counter_and_gauge() -> None:

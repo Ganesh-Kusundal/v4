@@ -30,15 +30,14 @@ from tradex_domain.events import OrderCancelled
 from tradex_domain.execution import BracketOrderRequest, Order, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import BrokerFillSource
-from tradex_trading.execution.idempotency import (
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import BrokerFillSource
+from tradex_execution.idempotency import (
     IdempotencyDuplicate,
     MemoryIdempotencyGuard,
 )
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
 
 
 def _instrument() -> Equity:
@@ -223,8 +222,7 @@ def test_route_surfaces_venue_failure_as_http_error() -> None:
     from types import SimpleNamespace
 
     from fastapi import HTTPException
-
-    from tradex_trading.interface.routes.orders import cancel_order as route_cancel
+    from tradex_interfaces.routes.orders import cancel_order as route_cancel
 
     broker = _VenueBroker()
     broker.cancel_error = OrderRejectedError("venue rejected cancel")

@@ -2,8 +2,7 @@ from unittest.mock import patch
 
 import pandas as pd
 from fastapi.testclient import TestClient
-
-from tradex_trading.interface.fastapi_app import create_app
+from tradex_interfaces.fastapi_app import create_app
 
 
 class _DatalakeStore:

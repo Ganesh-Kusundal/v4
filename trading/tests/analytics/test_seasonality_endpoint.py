@@ -15,11 +15,10 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
-
-from tradex_trading.analytics.seasonality import (  # noqa: E402
+from tradex_analytics.seasonality import (  # noqa: E402
     normalize_seasonality_params,
 )
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
 
 
 def _client() -> TestClient:

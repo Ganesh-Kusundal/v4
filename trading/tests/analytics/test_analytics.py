@@ -14,9 +14,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from tradex_domain import OHLC, Price
-
-from tradex_trading.analytics import (
+from tradex_analytics import (
     AnalyticsEngine,
     advance_decline,
     ema,
@@ -32,7 +30,8 @@ from tradex_trading.analytics import (
     total_return,
     win_rate,
 )
-from tradex_trading.analytics.indicators import _ema_of_gapped, _sma_seeded_ema, compute_indicator
+from tradex_analytics.indicators import _ema_of_gapped, _sma_seeded_ema, compute_indicator
+from tradex_domain import OHLC, Price
 
 # Shared closes for standalone MACD checks (linear ramp).
 CLOSES = [float(i) for i in range(1, 30)]

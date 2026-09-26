@@ -20,12 +20,11 @@ from enum import Enum
 from uuid import UUID
 
 import pytest
+from tradex_analytics.indicators import ema, rsi, sma
+from tradex_analytics.reports import max_drawdown, sharpe_ratio
 from tradex_domain import InstrumentId, Price, SDKError
 from tradex_domain.serialization import Serializable
 from tradex_domain.wire import InstrumentRegistry
-
-from tradex_trading.analytics.indicators import ema, rsi, sma
-from tradex_trading.analytics.reports import max_drawdown, sharpe_ratio
 
 # ---------------------------------------------------------------------------
 # Analytics edge cases — indicator short inputs

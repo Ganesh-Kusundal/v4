@@ -23,8 +23,7 @@ from tradex_domain import (
     Quantity,
     Timeframe,
 )
-
-from tradex_trading.datalake import (
+from tradex_market_data import (
     CorporateActionStore,
     DataCatalog,
 )

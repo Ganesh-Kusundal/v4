@@ -9,8 +9,8 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.reactive.event_log import SQLEventLog
+from tradex_reactive.bus import ReactiveBus
+from tradex_reactive.event_log import SQLEventLog
 
 # ---------------------------------------------------------------------------
 # SQLEventLog: append + replay

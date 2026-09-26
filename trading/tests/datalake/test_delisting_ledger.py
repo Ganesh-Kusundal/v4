@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tradex_trading.datalake.catalog import DataCatalog
+from tradex_market_data.catalog import DataCatalog
 
 
 class TestDelistingLedger:

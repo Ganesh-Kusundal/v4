@@ -21,8 +21,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-
-from tradex_trading.analytics.indicators import (
+from tradex_analytics.indicators import (
     compute_indicator,
     get_indicator_spec,
     indicator_catalogue,

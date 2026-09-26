@@ -5,7 +5,7 @@ from __future__ import annotations
 
 class TestTearsheet:
     def _engine(self):
-        from tradex_trading.analytics.engine import AnalyticsEngine
+        from tradex_analytics.engine import AnalyticsEngine
         return AnalyticsEngine()
 
     def test_tearsheet_empty_returns(self):
@@ -55,7 +55,7 @@ class TestTearsheet:
 
 class TestSummary:
     def _engine(self):
-        from tradex_trading.analytics.engine import AnalyticsEngine
+        from tradex_analytics.engine import AnalyticsEngine
         return AnalyticsEngine()
 
     def test_summary_returns_string(self):

@@ -20,11 +20,10 @@ from tradex_domain.enums import OrderStatus
 from tradex_domain.events import OrderFilled
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import ReplayFillSource, SimulatedFillSource
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.strategy import ReactiveStrategyEngine
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import ReplayFillSource, SimulatedFillSource
+from tradex_reactive.bus import ReactiveBus
+from tradex_strategy import ReactiveStrategyEngine
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 

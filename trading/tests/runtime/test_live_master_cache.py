@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tradex_trading.runtime.live import _master_cache, build_dhan_from_env, build_upstox_from_env
+from tradex_runtime.live import _master_cache, build_dhan_from_env, build_upstox_from_env
 
 
 def _injected_fetch(*_args: object, **_kwargs: object) -> tuple[int, object]:

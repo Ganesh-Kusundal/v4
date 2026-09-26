@@ -16,12 +16,11 @@ from tradex_domain.events import CashAccountInitialized, OrderFilled, OrderPlace
 from tradex_domain.execution import Fill, Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.recovery import (
+from tradex_execution.recovery import (
     InMemoryEventStore,
     recover_trading_cache,
 )
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.trading_cache import TradingCache
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 ORDER_ID = OrderId("o-partial")

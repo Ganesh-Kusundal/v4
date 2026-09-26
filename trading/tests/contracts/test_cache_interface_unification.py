@@ -27,8 +27,7 @@ from tradex_domain import (
     TimeInForce,
 )
 from tradex_domain.protocols import TradingCacheProtocol
-
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.trading_cache import TradingCache
 
 _CACHE_IMPLS = [
     ("paper", _PaperCache),

@@ -16,10 +16,10 @@ from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, 
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import PaperFillSource, SimulatedFillSource
+from tradex_reactive.bus import ReactiveBus
 
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import PaperFillSource, SimulatedFillSource
-from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.runtime.startup import boot
 from tradex_trading.sdk.session import SessionState
 
@@ -132,6 +132,6 @@ class TestSessionCapabilities:
 
     def test_bus_is_reactive(self) -> None:
         session = boot()
-        from tradex_trading.reactive.bus import ReactiveBus
+        from tradex_reactive.bus import ReactiveBus
         assert isinstance(session.bus, ReactiveBus)
         session.stop()

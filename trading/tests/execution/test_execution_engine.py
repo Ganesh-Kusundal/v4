@@ -20,11 +20,10 @@ from tradex_domain import (
     Quantity,
 )
 from tradex_domain.events import ErrorOccurred
-
-from tradex_trading.execution.engine import ExecutionEngine, RiskManager
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.engine import ExecutionEngine, RiskManager
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
 
 
 def _eq() -> Equity:
@@ -63,7 +62,7 @@ def _make_engine(
 
 
 def test_live_feed_gate_rejects_before_idempotency_when_not_ready() -> None:
-    from tradex_trading.runtime.feed_supervisor import FeedSupervisor
+    from tradex_runtime.feed_supervisor import FeedSupervisor
 
     supervisor = FeedSupervisor()
     engine = _make_engine(feed_supervisor=supervisor)
@@ -77,7 +76,7 @@ def test_live_feed_gate_rejects_before_idempotency_when_not_ready() -> None:
 def test_live_feed_gate_allows_after_recovery() -> None:
     from datetime import UTC, datetime
 
-    from tradex_trading.runtime.feed_supervisor import FeedSupervisor
+    from tradex_runtime.feed_supervisor import FeedSupervisor
 
     supervisor = FeedSupervisor()
     supervisor.connected()
@@ -184,7 +183,7 @@ def test_pipeline_error_publishes_error_occurred(monkeypatch) -> None:
 
 def test_submit_latency_histogram_observed() -> None:
     """submit() observes elapsed time to orders.submit_latency_seconds."""
-    from tradex_trading.runtime.metrics import MetricsRegistry
+    from tradex_runtime.metrics import MetricsRegistry
 
     bus = _bus()
     metrics = MetricsRegistry()

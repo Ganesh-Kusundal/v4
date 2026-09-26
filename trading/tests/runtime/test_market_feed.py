@@ -10,9 +10,8 @@ from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.instruments import Equity, Index, Instrument
 from tradex_domain.market import Depth, Quote
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.runtime.market_feed import FeedRegistry, MarketFeed
+from tradex_reactive.bus import ReactiveBus
+from tradex_runtime.market_feed import FeedRegistry, MarketFeed
 
 
 class TestDepthExchangeGate:
@@ -544,7 +543,7 @@ class TestFeedRegistry:
 
 class TestFeedSupervisorIntegration:
     def test_start_enters_recovery_and_quote_records_event(self) -> None:
-        from tradex_trading.runtime.feed_supervisor import FeedState
+        from tradex_runtime.feed_supervisor import FeedState
 
         fake = _FakeBroker()
         feed = MarketFeed(broker=fake, bus=ReactiveBus())
@@ -559,7 +558,7 @@ class TestFeedSupervisorIntegration:
         assert feed.supervisor.last_event_at is not None
 
     def test_stop_marks_feed_degraded(self) -> None:
-        from tradex_trading.runtime.feed_supervisor import FeedState
+        from tradex_runtime.feed_supervisor import FeedState
 
         fake = _FakeBroker()
         feed = MarketFeed(broker=fake, bus=ReactiveBus())
@@ -572,7 +571,7 @@ class TestFeedSupervisorIntegration:
     def test_stale_feed_marks_supervisor_degraded(self) -> None:
         from datetime import UTC, datetime, timedelta
 
-        from tradex_trading.runtime.feed_supervisor import FeedState
+        from tradex_runtime.feed_supervisor import FeedState
 
         fake = _FakeBroker()
         feed = MarketFeed(broker=fake, bus=ReactiveBus(), stale_after=0.1)
@@ -627,8 +626,7 @@ class TestStaleFeed:
 
     def test_stale_feed_importable_from_runtime(self) -> None:
         from tradex_domain.events import StaleFeed as DomainStale
-
-        from tradex_trading.runtime.market_feed import StaleFeed as MFStale
+        from tradex_runtime.market_feed import StaleFeed as MFStale
 
         assert MFStale is DomainStale
 
@@ -688,7 +686,7 @@ class TestNotifyReconnect:
     """notify_reconnect() marks the supervisor RESYNCHRONIZING without running recovery."""
 
     def test_notify_reconnect_marks_resynchronizing(self) -> None:
-        from tradex_trading.runtime.feed_supervisor import FeedState
+        from tradex_runtime.feed_supervisor import FeedState
 
         fake = _FakeBroker()
         feed = MarketFeed(broker=fake, bus=ReactiveBus())
@@ -739,7 +737,7 @@ class TestAutoRecoveryTriggers:
     """LARGE_JUMP / MISSING_BAR violations trigger the recovery coordinator."""
 
     def _make_ready_feed(self) -> tuple[MarketFeed, _FakeBroker]:
-        from tradex_trading.runtime.feed_integrity import FeedIntegrityTracker
+        from tradex_runtime.feed_integrity import FeedIntegrityTracker
 
         fake = _FakeBroker()
         integrity = FeedIntegrityTracker(large_jump_seconds=1.0)
@@ -805,8 +803,8 @@ class TestAutoRecoveryTriggers:
     def test_missing_bar_triggers_recovery(self) -> None:
         import threading
 
-        from tradex_trading.runtime.bar_aggregator import BarFrame
-        from tradex_trading.runtime.feed_integrity import FeedIntegrityTracker
+        from tradex_runtime.bar_aggregator import BarFrame
+        from tradex_runtime.feed_integrity import FeedIntegrityTracker
 
         recovery_called = threading.Event()
 
@@ -833,8 +831,8 @@ class TestAutoRecoveryTriggers:
         """Duplicate closed bars (DUPLICATE_CLOSED_BAR) must NOT trigger recovery."""
         import threading
 
-        from tradex_trading.runtime.bar_aggregator import BarFrame
-        from tradex_trading.runtime.feed_integrity import FeedIntegrityTracker
+        from tradex_runtime.bar_aggregator import BarFrame
+        from tradex_runtime.feed_integrity import FeedIntegrityTracker
 
         recovery_called = threading.Event()
 
@@ -862,7 +860,7 @@ class TestAutoRecoveryTriggers:
         """Violations without a wired coordinator are observation-only (no crash)."""
         from datetime import UTC, datetime
 
-        from tradex_trading.runtime.feed_integrity import FeedIntegrityTracker
+        from tradex_runtime.feed_integrity import FeedIntegrityTracker
 
         fake = _FakeBroker()
         integrity = FeedIntegrityTracker(large_jump_seconds=1.0)
@@ -877,7 +875,7 @@ class TestAutoRecoveryTriggers:
 
     def test_on_bar_frame_is_noop_without_integrity_tracker(self) -> None:
         """on_bar_frame with no integrity tracker must not crash."""
-        from tradex_trading.runtime.bar_aggregator import BarFrame
+        from tradex_runtime.bar_aggregator import BarFrame
 
         fake = _FakeBroker()
         feed = MarketFeed(broker=fake, bus=ReactiveBus())  # no integrity tracker

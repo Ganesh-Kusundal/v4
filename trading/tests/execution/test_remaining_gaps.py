@@ -70,11 +70,11 @@ class TestUnknownIsNotTerminal:
     """
 
     def test_unknown_is_not_terminal(self):
-        from tradex_trading.execution.engine import _TERMINAL_STATUSES
+        from tradex_execution.engine import _TERMINAL_STATUSES
         assert OrderStatus.UNKNOWN not in _TERMINAL_STATUSES
 
     def test_the_three_settled_statuses(self):
-        from tradex_trading.execution.engine import _TERMINAL_STATUSES
+        from tradex_execution.engine import _TERMINAL_STATUSES
         expected = {
             OrderStatus.FILLED,
             OrderStatus.CANCELLED,
@@ -96,18 +96,18 @@ class TestUnknownIsNotTerminal:
 
 class TestRiskManagerLiveOrdersGate:
     def test_default_enabled(self):
-        from tradex_trading.execution.engine import RiskManager
+        from tradex_execution.engine import RiskManager
         rm = RiskManager()
         assert rm.live_orders_enabled is True
 
     def test_gate_blocks_orders(self):
-        from tradex_trading.execution.engine import RiskManager
+        from tradex_execution.engine import RiskManager
         rm = RiskManager(live_orders_enabled=False)
         req = _make_request()
         assert rm.check(req) is False
 
     def test_gate_can_be_toggled(self):
-        from tradex_trading.execution.engine import RiskManager
+        from tradex_execution.engine import RiskManager
         rm = RiskManager(live_orders_enabled=False)
         req = _make_request()
         assert rm.check(req) is False
@@ -115,7 +115,7 @@ class TestRiskManagerLiveOrdersGate:
         assert rm.check(req) is True
 
     def test_gate_blocks_before_other_checks(self):
-        from tradex_trading.execution.engine import RiskManager
+        from tradex_execution.engine import RiskManager
         rm = RiskManager(
             max_order_value=Decimal("1"),
             live_orders_enabled=False,
@@ -135,8 +135,8 @@ class TestRiskManagerLiveOrdersGate:
 
 class TestKillSwitchPropagatesToRiskManager:
     def test_trip_kill_disables_risk_manager(self):
-        from tradex_trading.execution.engine import ExecutionEngine, RiskManager
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
+        from tradex_execution.engine import ExecutionEngine, RiskManager
+        from tradex_execution.fill_sources import SimulatedFillSource
 
         bus = MagicMock()
         bus.of_type = MagicMock(return_value=MagicMock())
@@ -163,8 +163,8 @@ class TestKillSwitchPropagatesToRiskManager:
 
 class TestReconcileWithBrokerOrders:
     def test_reconcile_detect_order_drift(self):
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
 
         bus = MagicMock()
         bus.of_type = MagicMock(return_value=MagicMock())
@@ -181,8 +181,8 @@ class TestReconcileWithBrokerOrders:
         assert drifts == []
 
     def test_reconcile_with_both_positions_and_orders(self):
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
 
         bus = MagicMock()
         bus.of_type = MagicMock(return_value=MagicMock())
@@ -204,8 +204,8 @@ class TestReconcileWithBrokerOrders:
 
 class TestExecutionEngineOrderLookups:
     def test_get_order_returns_none_for_missing(self):
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
 
         bus = MagicMock()
         bus.of_type = MagicMock(return_value=MagicMock())
@@ -217,8 +217,8 @@ class TestExecutionEngineOrderLookups:
         assert result is None
 
     def test_all_orders_empty_initially(self):
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
 
         bus = MagicMock()
         bus.of_type = MagicMock(return_value=MagicMock())
@@ -236,7 +236,7 @@ class TestExecutionEngineOrderLookups:
 
 class TestFeeCalculatorBrokerageCap:
     def test_brokerage_capped_at_20(self):
-        from tradex_trading.execution.fees import _BROKERAGE_CAP, FeeCalculator
+        from tradex_execution.fees import _BROKERAGE_CAP, FeeCalculator
 
         calc = FeeCalculator()
         # Large trade: 1000 shares at 5000 = 5,000,000
@@ -258,7 +258,7 @@ class TestFeeCalculatorBrokerageCap:
         assert fee.amount < Decimal("2000")
 
     def test_small_trade_brokerage_not_capped(self):
-        from tradex_trading.execution.fees import FeeCalculator
+        from tradex_execution.fees import FeeCalculator
 
         calc = FeeCalculator()
         # Small trade: 1 share at 100 = 100
@@ -281,7 +281,7 @@ class TestFeeCalculatorBrokerageCap:
 
 class TestReconciliationAvgPriceDrift:
     def test_detects_avg_price_drift(self):
-        from tradex_trading.execution.reconciliation import (
+        from tradex_execution.reconciliation import (
             DriftSeverity,
             ReconciliationEngine,
         )
@@ -311,7 +311,7 @@ class TestReconciliationAvgPriceDrift:
         assert price_drifts[0].severity == DriftSeverity.MEDIUM
 
     def test_no_drift_when_prices_match(self):
-        from tradex_trading.execution.reconciliation import ReconciliationEngine
+        from tradex_execution.reconciliation import ReconciliationEngine
 
         engine = ReconciliationEngine()
         inst = _make_instrument()
@@ -328,7 +328,7 @@ class TestReconciliationAvgPriceDrift:
         assert len(drifts) == 0
 
     def test_no_price_drift_for_tiny_difference(self):
-        from tradex_trading.execution.reconciliation import ReconciliationEngine
+        from tradex_execution.reconciliation import ReconciliationEngine
 
         engine = ReconciliationEngine()
         inst = _make_instrument()
@@ -397,8 +397,7 @@ class TestAsyncPipelineFixes:
         """
         from tradex_domain.errors import OrderSubmissionUnknownError
         from tradex_domain.value_objects import CorrelationId
-
-        from tradex_trading.execution.engine import ExecutionEngine
+        from tradex_execution.engine import ExecutionEngine
 
         bus = MagicMock()
         bus.of_type = MagicMock(return_value=MagicMock())
@@ -441,11 +440,11 @@ class TestAsyncPipelineFixes:
 
     def test_process_request_records_idempotency_result(self):
         """After successful fill, idempotency guard should have result recorded."""
-        from tradex_trading.execution.engine import (
+        from tradex_execution.engine import (
             ExecutionEngine,
             MemoryIdempotencyGuard,
         )
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
+        from tradex_execution.fill_sources import SimulatedFillSource
 
         bus = MagicMock()
         bus.of_type = MagicMock(return_value=MagicMock())
@@ -469,8 +468,8 @@ class TestAsyncPipelineFixes:
 
     def test_process_request_respects_position_projection_owned(self):
         """When fill source owns position projection, skip local position update."""
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
 
         bus = MagicMock()
         bus.of_type = MagicMock(return_value=MagicMock())
@@ -492,8 +491,8 @@ class TestAsyncPipelineFixes:
 
     def test_process_request_normal_fill_updates_position(self):
         """Normal fill source (no projection ownership) should update position."""
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
 
         bus = MagicMock()
         bus.of_type = MagicMock(return_value=MagicMock())

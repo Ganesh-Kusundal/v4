@@ -15,14 +15,13 @@ from tradex_domain.execution import Order, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.market import OHLC, Candle, HistoricalSeries, Timeframe
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import (
+from tradex_execution.engine import (
     ExecutionEngine,
     MemoryIdempotencyGuard,
     RiskCheckResult,
     RiskManager,
 )
-from tradex_trading.execution.fill_sources import SimulatedFillSource
+from tradex_execution.fill_sources import SimulatedFillSource
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -219,7 +218,7 @@ def _make_series(n: int = 30) -> HistoricalSeries:
 
 
 def test_warmup_bars_pads_with_none() -> None:
-    from tradex_trading.analytics.engine import AnalyticsEngine
+    from tradex_analytics.engine import AnalyticsEngine
 
     series = _make_series(30)
     engine = AnalyticsEngine(warmup_bars=5)
@@ -235,7 +234,7 @@ def test_warmup_bars_pads_with_none() -> None:
 
 
 def test_warmup_bars_zero_no_padding() -> None:
-    from tradex_trading.analytics.engine import AnalyticsEngine
+    from tradex_analytics.engine import AnalyticsEngine
 
     series = _make_series(30)
     engine = AnalyticsEngine(warmup_bars=0)

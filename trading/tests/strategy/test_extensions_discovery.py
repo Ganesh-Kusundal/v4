@@ -11,9 +11,8 @@ from tradex_domain.enums import ExchangeId, Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.strategy import ScannerDefinition, StrategyContext
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.strategy.core.protocols import Strategy
-from tradex_trading.strategy.extensions import all_scanners, all_strategies
+from tradex_strategy.core.protocols import Strategy
+from tradex_strategy.extensions import all_scanners, all_strategies
 
 INSTRUMENT = Equity.of(ExchangeId.NSE, "RELIANCE")
 
@@ -34,8 +33,8 @@ class TestExtensionsDiscovery:
             assert definition.conditions
 
     def test_package_init_reexports_discovery(self) -> None:
-        from tradex_trading.strategy import all_scanners as pkg_scanners
-        from tradex_trading.strategy import all_strategies as pkg_strategies
+        from tradex_strategy import all_scanners as pkg_scanners
+        from tradex_strategy import all_strategies as pkg_strategies
 
         assert pkg_strategies == all_strategies
         assert pkg_scanners == all_scanners
@@ -45,7 +44,7 @@ class TestExampleSmaCross:
     """The reference extension strategy behaves like a Strategy."""
 
     def test_emits_buy_on_up_cross(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.sma_cross import (
+        from tradex_strategy.extensions.strategies.sma_cross import (
             SmaCrossStrategy,
         )
 
@@ -64,7 +63,7 @@ class TestExampleSmaCross:
         assert signals[-1].reason == "sma_cross_up"
 
     def test_public_strategy_surface_from_package(self) -> None:
-        from tradex_trading.strategy import ReactiveStrategyEngine, ScannerEngine
+        from tradex_strategy import ReactiveStrategyEngine, ScannerEngine
 
         assert ReactiveStrategyEngine is not None
         assert ScannerEngine is not None
@@ -74,7 +73,7 @@ class TestExampleMeanReversion:
     """The second extension strategy: SELL on overbought, BUY on oversold."""
 
     def test_discovered_and_protocol_conformant(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+        from tradex_strategy.extensions.strategies.mean_reversion import (
             MeanReversionStrategy,
             mean_reversion_strategy,
         )
@@ -87,7 +86,7 @@ class TestExampleMeanReversion:
         assert MeanReversionStrategy is not None
 
     def test_emits_sell_on_overbought(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+        from tradex_strategy.extensions.strategies.mean_reversion import (
             MeanReversionStrategy,
         )
 
@@ -107,7 +106,7 @@ class TestExampleMeanReversion:
         assert signals[0].instrument == INSTRUMENT
 
     def test_emits_buy_on_oversold(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+        from tradex_strategy.extensions.strategies.mean_reversion import (
             MeanReversionStrategy,
         )
 
@@ -126,7 +125,7 @@ class TestExampleMeanReversion:
         assert signals[0].reason == "rsi_oversold"
 
     def test_no_signal_spam_inside_extreme_zone(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+        from tradex_strategy.extensions.strategies.mean_reversion import (
             MeanReversionStrategy,
         )
 
@@ -144,7 +143,7 @@ class TestExampleMeanReversion:
         assert signals[0].direction == OrderSide.SELL
 
     def test_flat_prices_emit_no_signal(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+        from tradex_strategy.extensions.strategies.mean_reversion import (
             MeanReversionStrategy,
         )
 
@@ -161,7 +160,7 @@ class TestExampleMeanReversion:
         assert signals == []
 
     def test_invalid_levels_rejected(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.mean_reversion import (
+        from tradex_strategy.extensions.strategies.mean_reversion import (
             MeanReversionStrategy,
         )
 
@@ -173,7 +172,7 @@ class TestExampleMultiSymbolSmaCross:
     """The portfolio-style strategy: one instance trades every instrument."""
 
     def test_discovered_and_protocol_conformant(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+        from tradex_strategy.extensions.strategies.multi_symbol_sma_cross import (
             MultiSymbolSmaCross,
             multi_symbol_sma_cross,
         )
@@ -186,7 +185,7 @@ class TestExampleMultiSymbolSmaCross:
         assert MultiSymbolSmaCross is not None
 
     def test_invalid_periods_rejected(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+        from tradex_strategy.extensions.strategies.multi_symbol_sma_cross import (
             MultiSymbolSmaCross,
         )
 
@@ -198,7 +197,7 @@ class TestExampleMultiSymbolSmaCross:
         signal sequence as running each symbol standalone — the property the
         multi-symbol ``BacktestEngine`` relies on (signals matched per
         instrument id)."""
-        from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+        from tradex_strategy.extensions.strategies.multi_symbol_sma_cross import (
             MultiSymbolSmaCross,
         )
 
@@ -245,7 +244,7 @@ class TestExamplePullbackScanner:
     """The second extension scanner combines two conditions."""
 
     def test_discovered_with_two_conditions(self) -> None:
-        from tradex_trading.strategy.extensions.scanners.pullback import (
+        from tradex_strategy.extensions.scanners.pullback import (
             pullback_scanner,
         )
 
@@ -260,7 +259,7 @@ class TestNifty500TechnicalScanner:
     """The Nifty 500 technical screener extension."""
 
     def test_discovered_with_technical_conditions(self) -> None:
-        from tradex_trading.strategy.extensions.scanners.nifty500_technical import (
+        from tradex_strategy.extensions.scanners.nifty500_technical import (
             nifty500_technical_scanner,
         )
 
@@ -270,7 +269,7 @@ class TestNifty500TechnicalScanner:
         assert nifty500_technical_scanner.limit == 20
 
     def test_universe_nonempty(self) -> None:
-        from tradex_trading.strategy.extensions.scanners.nifty500_technical import (
+        from tradex_strategy.extensions.scanners.nifty500_technical import (
             _UNIVERSE,
         )
 
@@ -281,13 +280,13 @@ class TestNifty500TechnicalScanner:
         """The nifty500 scanner runs through a booted session's ScannerEngine."""
         from unittest.mock import MagicMock
 
+        from tradex_config.schema import AppConfig
         from tradex_domain.market import HistoricalSeries
-
-        from tradex_trading.config.schema import AppConfig
-        from tradex_trading.runtime.startup import boot
-        from tradex_trading.strategy.extensions.scanners.nifty500_technical import (
+        from tradex_strategy.extensions.scanners.nifty500_technical import (
             nifty500_technical_scanner,
         )
+
+        from tradex_trading.runtime.startup import boot
 
         def fake_broker() -> MagicMock:
             broker = MagicMock()
@@ -318,8 +317,8 @@ class TestTypoInAllDegradesGracefully:
     """
 
     def test_missing_name_is_skipped_for_strategies(self) -> None:
-        from tradex_trading.strategy.extensions import _collect
-        from tradex_trading.strategy.extensions.strategies.sma_cross import (
+        from tradex_strategy.extensions import _collect
+        from tradex_strategy.extensions.strategies.sma_cross import (
             sma_cross_strategy,
         )
 
@@ -334,9 +333,8 @@ class TestTypoInAllDegradesGracefully:
 
     def test_missing_name_is_skipped_for_scanners(self) -> None:
         from tradex_domain.strategy import ScannerDefinition as ScannerDef
-
-        from tradex_trading.strategy.extensions import _collect
-        from tradex_trading.strategy.extensions.scanners.momentum import (
+        from tradex_strategy.extensions import _collect
+        from tradex_strategy.extensions.scanners.momentum import (
             momentum_scanner,
         )
 
@@ -349,7 +347,7 @@ class TestTypoInAllDegradesGracefully:
         assert collected == (momentum_scanner,)
 
     def test_all_typos_yield_empty_result(self) -> None:
-        from tradex_trading.strategy.extensions import _collect
+        from tradex_strategy.extensions import _collect
 
         class AllTypos:
             __all__ = ["nope_strategy", "missing_strategy"]

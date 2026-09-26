@@ -13,7 +13,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from tradex_trading.config.schema import AppConfig, RiskConfig
+from tradex_config.schema import AppConfig, RiskConfig
+
 from tradex_trading.runtime.startup import boot
 
 

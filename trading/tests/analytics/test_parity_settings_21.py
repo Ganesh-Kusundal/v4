@@ -9,8 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-
-from tradex_trading.analytics.indicators import compute_indicator
+from tradex_analytics.indicators import compute_indicator
 
 GOLDENS2 = Path(__file__).parent / "goldens" / "settings2"
 

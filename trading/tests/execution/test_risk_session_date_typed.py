@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from tradex_trading.execution.engine import RiskManager
+from tradex_execution.engine import RiskManager
 
 
 def test_session_date_is_typed() -> None:

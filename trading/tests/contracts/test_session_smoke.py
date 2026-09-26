@@ -86,7 +86,8 @@ class TestBootSmoke:
         session.stop()
 
     def test_boot_session_has_bus(self) -> None:
-        from tradex_trading.reactive.bus import ReactiveBus
+        from tradex_reactive.bus import ReactiveBus
+
         from tradex_trading.runtime.startup import boot
 
         session = boot()

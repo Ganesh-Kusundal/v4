@@ -15,13 +15,12 @@ from tradex_domain.events import OrderFilled
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.execution.cash_ledger import CashSnapshot
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fees import FeeCalculator
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.execution.recovery import InMemoryEventStore
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.cash_ledger import CashSnapshot
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fees import FeeCalculator
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_execution.recovery import InMemoryEventStore
+from tradex_execution.trading_cache import TradingCache
 
 
 def _bus() -> MagicMock:

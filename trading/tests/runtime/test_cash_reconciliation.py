@@ -47,7 +47,7 @@ def test_boot_refuses_ready_when_local_cash_drifts_from_the_broker(
     monkeypatch, tmp_path,
 ) -> None:
     """A balance the venue does not agree with is not a tradable balance."""
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     # The engine recovered 1,000,000 from its log; the broker reports 900,000.
     monkeypatch.setattr(

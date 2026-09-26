@@ -7,8 +7,7 @@ from decimal import Decimal
 
 import pytest
 from tradex_domain import OHLC, Candle, Equity, OrderSide, Price, Quantity, Signal, Timeframe
-
-from tradex_trading.replay.backtest import BacktestEngine
+from tradex_replay.backtest import BacktestEngine
 
 
 def _now() -> datetime:

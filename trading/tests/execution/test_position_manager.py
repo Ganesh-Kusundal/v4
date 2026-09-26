@@ -17,9 +17,8 @@ from tradex_domain import (
     Price,
     Quantity,
 )
-
-from tradex_trading.execution.position_manager import PositionManager
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.position_manager import PositionManager
+from tradex_execution.trading_cache import TradingCache
 
 
 def _eq() -> Equity:

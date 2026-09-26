@@ -26,9 +26,8 @@ from tradex_domain.execution import Fill, Order
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.reactive.bus import ReactiveBus, _lane_for
-from tradex_trading.runtime.metrics import MetricsRegistry
+from tradex_reactive.bus import ReactiveBus, _lane_for
+from tradex_runtime.metrics import MetricsRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers

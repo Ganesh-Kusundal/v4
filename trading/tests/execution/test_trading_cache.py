@@ -21,8 +21,7 @@ from tradex_domain import (
     Quantity,
     TimeInForce,
 )
-
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.trading_cache import TradingCache
 
 
 def _eq() -> Equity:

@@ -22,8 +22,7 @@ from tradex_domain import (
     Price,
     Quantity,
 )
-
-from tradex_trading.execution.fill_sources import (
+from tradex_execution.fill_sources import (
     BrokerFillSource,
     PaperFillSource,
     ReplayFillSource,

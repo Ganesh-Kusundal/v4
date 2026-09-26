@@ -29,9 +29,8 @@ from tradex_domain.events import (
 )
 from tradex_domain.execution import Fill, Order
 from tradex_domain.value_objects import CorrelationId, OrderId
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.envelopes import (
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.envelopes import (
     CancelOrderEnvelope,
     EnvelopeHeader,
     EnvelopeTranslator,
@@ -47,8 +46,8 @@ from tradex_trading.execution.envelopes import (
     PlaceOrderEnvelope,
     RiskDecisionEnvelope,
 )
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_reactive.bus import ReactiveBus
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -25,8 +25,8 @@ This test pins the wire-up. Two fixes:
 
 from __future__ import annotations
 
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.runtime.metrics import MetricsRegistry
+from tradex_reactive.bus import ReactiveBus
+from tradex_runtime.metrics import MetricsRegistry
 
 
 def test_drain_exceeded_increments_counter() -> None:

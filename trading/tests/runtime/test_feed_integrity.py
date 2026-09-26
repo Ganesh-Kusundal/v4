@@ -8,13 +8,12 @@ from decimal import Decimal
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.runtime.bar_aggregator import BarFrame
-from tradex_trading.runtime.feed_integrity import (
+from tradex_runtime.bar_aggregator import BarFrame
+from tradex_runtime.feed_integrity import (
     FeedIntegrityTracker,
     GapKind,
 )
-from tradex_trading.runtime.metrics import MetricsRegistry
+from tradex_runtime.metrics import MetricsRegistry
 
 _INSIDE = datetime(2026, 9, 24, 4, 0, tzinfo=UTC)  # 09:30 IST
 _OUTSIDE = datetime(2026, 9, 24, 2, 0, tzinfo=UTC)  # 07:30 IST

@@ -34,13 +34,12 @@ from tradex_domain.errors import OrderRejectedError
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.idempotency import (
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.idempotency import (
     IdempotencyDuplicate,
     MemoryIdempotencyGuard,
 )
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_reactive.bus import ReactiveBus
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -195,7 +194,7 @@ def test_cancel_after_rejection_does_not_double_release() -> None:
     """
     bus = ReactiveBus()
     guard = MemoryIdempotencyGuard()
-    from tradex_trading.execution.risk import RiskManager
+    from tradex_execution.risk import RiskManager
 
     rm = RiskManager(live_orders_enabled=False)
     engine = ExecutionEngine(

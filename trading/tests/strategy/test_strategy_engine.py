@@ -22,10 +22,9 @@ from tradex_domain import (
     Timeframe,
 )
 from tradex_domain.value_objects import Price as QuotePrice
-
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.runtime.metrics import MetricsRegistry
-from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
+from tradex_reactive.bus import ReactiveBus
+from tradex_runtime.metrics import MetricsRegistry
+from tradex_strategy.core.engine import ReactiveStrategyEngine
 
 
 def _now() -> datetime:

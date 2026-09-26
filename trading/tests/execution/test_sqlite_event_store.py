@@ -22,8 +22,7 @@ from tradex_domain.events import (
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
-
-from tradex_trading.execution.sqlite_event_store import SQLiteEventStore
+from tradex_execution.sqlite_event_store import SQLiteEventStore
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -222,7 +221,7 @@ def test_correlation_id_round_trips(tmp_path: Path) -> None:
 
 def test_in_memory_store_satisfies_protocol() -> None:
     """`:memory:` path gives a protocol-compliant ephemeral store."""
-    from tradex_trading.execution.recovery import EventStore
+    from tradex_execution.recovery import EventStore
     store = SQLiteEventStore(":memory:")
     assert isinstance(store, EventStore)
     seq = store.append(OrderPlaced(order=_order()))

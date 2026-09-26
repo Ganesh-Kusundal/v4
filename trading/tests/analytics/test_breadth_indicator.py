@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import pytest
-
-from tradex_trading.analytics.breadth import advance_decline, breadth_indicator, trin
+from tradex_analytics.breadth import advance_decline, breadth_indicator, trin
 
 
 class TestBreadthIndicator:

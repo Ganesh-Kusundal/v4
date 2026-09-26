@@ -11,17 +11,16 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from tradex_analytics import (
+    compute_statistics,
+    round_trip_trades,
+    sortino_ratio,
+)
 from tradex_domain import OHLC, Candle, Timeframe
 from tradex_domain.enums import OrderSide
 from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.analytics import (
-    compute_statistics,
-    round_trip_trades,
-    sortino_ratio,
-)
 
 RELIANCE = Equity.of("NSE", "RELIANCE")
 T0 = datetime(2026, 9, 1, 9, 15, tzinfo=UTC)

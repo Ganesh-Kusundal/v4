@@ -6,9 +6,9 @@ from unittest.mock import MagicMock
 
 import pytest
 from tradex_brokers.common.capabilities import dhan_capabilities
+from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 
-from tradex_trading.config.schema import AppConfig, PersistenceConfig
 from tradex_trading.runtime.startup import boot
 
 
@@ -147,8 +147,8 @@ class TestBootPersistenceWiring:
     """boot() wires the durable idempotency guard when persistence is set."""
 
     def test_persistence_path_wires_sqlite_guard(self, tmp_path) -> None:
-        from tradex_trading.config.schema import PersistenceConfig
-        from tradex_trading.execution.sqlite_store import SQLiteIdempotencyGuard
+        from tradex_config.schema import PersistenceConfig
+        from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 
         cfg = AppConfig(
             mode="paper",
@@ -163,7 +163,7 @@ class TestBootPersistenceWiring:
 
     def test_default_boot_wires_in_memory_idempotency_guard(self) -> None:
         """Every order endpoint has a guard, even without SQLite durability."""
-        from tradex_trading.execution.idempotency import MemoryIdempotencyGuard
+        from tradex_execution.idempotency import MemoryIdempotencyGuard
 
         session = boot(AppConfig(mode="paper"))
         try:

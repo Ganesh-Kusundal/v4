@@ -25,9 +25,8 @@ from tradex_domain import (
     Timeframe,
 )
 from tradex_domain.value_objects import Price as QuotePrice
-
-from tradex_trading.replay.backtest import BacktestEngine, BacktestResult
-from tradex_trading.strategy.core.buy_and_hold import BuyAndHoldStrategy
+from tradex_replay.backtest import BacktestEngine, BacktestResult
+from tradex_strategy.core.buy_and_hold import BuyAndHoldStrategy
 
 
 def _now() -> datetime:

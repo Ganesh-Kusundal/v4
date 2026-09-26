@@ -8,9 +8,8 @@ from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, 
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.execution.slippage import (
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_execution.slippage import (
     FixedSlippageModel,
     NoSlippageModel,
     PercentageSlippageModel,

@@ -11,11 +11,12 @@ No broker, no SQLite.  paper mode only.
 
 from __future__ import annotations
 
-from tradex_trading.config.schema import AppConfig
+from tradex_config.schema import AppConfig
+from tradex_strategy.extensions import all_strategies
+from tradex_strategy.registry import StrategyRegistry
+from tradex_strategy.runtime import StrategyLifecycle
+
 from tradex_trading.runtime.startup import boot
-from tradex_trading.strategy.extensions import all_strategies
-from tradex_trading.strategy.registry import StrategyRegistry
-from tradex_trading.strategy.runtime import StrategyLifecycle
 
 # ---------------------------------------------------------------------------
 # Helpers

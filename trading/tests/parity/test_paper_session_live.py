@@ -32,6 +32,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from tradex_config.schema import AppConfig
 from tradex_domain import (
     OHLC,
     Candle,
@@ -43,13 +44,12 @@ from tradex_domain import (
 )
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
+from tradex_reactive.bus import ReactiveBus
+from tradex_strategy import ReactiveStrategyEngine
+from tradex_strategy.extensions import all_strategies
 
-from tradex_trading.config.schema import AppConfig
-from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.runtime.startup import boot
 from tradex_trading.sdk.session import TradingSession
-from tradex_trading.strategy import ReactiveStrategyEngine
-from tradex_trading.strategy.extensions import all_strategies
 
 # The shipped SMA-crossover example: BUY on the fast/SMA crossing above the
 # slow/SMA. Discovered via the public ``all_strategies`` registry.
@@ -240,7 +240,7 @@ class TestPaperSessionLiveParity:
         module-level singleton is stateful across runs, so behavior tests
         construct their own copy — same class the discovery validates).
         """
-        from tradex_trading.strategy.extensions.strategies.sma_cross import (
+        from tradex_strategy.extensions.strategies.sma_cross import (
             SmaCrossStrategy,
         )
 

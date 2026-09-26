@@ -11,8 +11,7 @@ import pytest
 from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.datalake.parallel_fetcher import (
+from tradex_market_data.parallel_fetcher import (
     ParallelHistoryFetcher,
     _default_workers,
     fetch_with_backoff,

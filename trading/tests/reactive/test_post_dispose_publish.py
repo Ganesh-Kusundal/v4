@@ -15,8 +15,7 @@ Scope:
 from __future__ import annotations
 
 import pytest
-
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_reactive.bus import ReactiveBus
 
 
 def test_publish_after_dispose_raises() -> None:

@@ -7,13 +7,12 @@ no mocks, no broker, no SQLite.
 from __future__ import annotations
 
 import pytest
-
-from tradex_trading.strategy.artifacts import (
+from tradex_strategy.artifacts import (
     StrategyArtifact,
     StrategyRestoreResult,
     StrategySnapshot,
 )
-from tradex_trading.strategy.runtime import StrategyLifecycle, StrategyRuntime
+from tradex_strategy.runtime import StrategyLifecycle, StrategyRuntime
 
 # ---------------------------------------------------------------------------
 # Minimal strategy stub — implements only what the runtime needs to hold a ref

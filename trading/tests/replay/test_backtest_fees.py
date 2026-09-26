@@ -15,10 +15,9 @@ from tradex_domain import (
     Signal,
     Timeframe,
 )
-
-from tradex_trading.execution.fees import FeeCalculator
-from tradex_trading.execution.slippage import FixedSlippageModel, PercentageSlippageModel
-from tradex_trading.replay.backtest import BacktestEngine
+from tradex_execution.fees import FeeCalculator
+from tradex_execution.slippage import FixedSlippageModel, PercentageSlippageModel
+from tradex_replay.backtest import BacktestEngine
 
 
 def _now() -> datetime:

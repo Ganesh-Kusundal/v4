@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
+from tradex_runtime.master_lifecycle import MasterLoader
 
-from tradex_trading.config.schema import AppConfig, PersistenceConfig
-from tradex_trading.runtime.master_lifecycle import MasterLoader
 from tradex_trading.sdk.session import TradingSession
 
 

@@ -27,12 +27,11 @@ from decimal import Decimal
 from tradex_domain import OHLC, Candle, OrderSide, Signal, Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.datalake.corporate_actions import CorporateAction, CorporateActionStore
-from tradex_trading.execution.fees import FeeCalculator
-from tradex_trading.execution.slippage import PercentageSlippageModel
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.replay.backtest import BacktestEngine
+from tradex_execution.fees import FeeCalculator
+from tradex_execution.slippage import PercentageSlippageModel
+from tradex_market_data.corporate_actions import CorporateAction, CorporateActionStore
+from tradex_reactive.bus import ReactiveBus
+from tradex_replay.backtest import BacktestEngine
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 
@@ -114,10 +113,9 @@ class TestGoldenAllCostsParity:
     def test_fill_prices_match_across_modes(self) -> None:
         """Both paths fill at the same slipped prices: 100.05 and 59.97."""
         from tradex_domain.events import OrderFilled
-
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
-        from tradex_trading.strategy import ReactiveStrategyEngine
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
+        from tradex_strategy import ReactiveStrategyEngine
 
         bus = ReactiveBus()
         engine = ExecutionEngine(
@@ -150,9 +148,9 @@ class TestGoldenAllCostsParity:
         and BacktestEngine restates its cash basis by that quantization, so
         ``(59.97 - 50.03) * 200 = 1988`` in both — the last split artifact
         (the cash-based backtest previously booked 1989)."""
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
-        from tradex_trading.strategy import ReactiveStrategyEngine
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
+        from tradex_strategy import ReactiveStrategyEngine
 
         # Backtest path: slippage + split, no fees (to compare gross).
         bt = BacktestEngine(
@@ -197,9 +195,9 @@ class TestGoldenAllCostsParity:
         ).run(_FullCostLadder(INSTRUMENT), list(_CANDLES))
         assert bt.total_fees > 0, "backtest should have non-zero fees"
 
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
-        from tradex_trading.strategy import ReactiveStrategyEngine
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
+        from tradex_strategy import ReactiveStrategyEngine
 
         bus = ReactiveBus()
         engine = ExecutionEngine(
@@ -255,9 +253,9 @@ class TestStrategyVersionStamping:
     audit trail identifies which version produced each result."""
 
     def test_reactive_path_stamps_version_on_order_tag(self) -> None:
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
-        from tradex_trading.strategy import ReactiveStrategyEngine
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
+        from tradex_strategy import ReactiveStrategyEngine
 
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource(slippage_model=_SLIPPAGE))
@@ -290,7 +288,7 @@ class TestStrategyVersionStamping:
             assert trade.metadata.get("strategy_version") == "1.0.0"
 
     def test_builtin_strategy_exposes_version(self) -> None:
-        from tradex_trading.strategy.extensions.strategies.sma_cross import (
+        from tradex_strategy.extensions.strategies.sma_cross import (
             SmaCrossStrategy,
         )
 
@@ -313,10 +311,9 @@ class TestBusMessageLogAuditability:
         """With a strategy registered, the bus delivers Candles AND
         OrderFilled events — the complete auditable event stream."""
         from tradex_domain.events import OrderFilled
-
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
-        from tradex_trading.strategy import ReactiveStrategyEngine
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
+        from tradex_strategy import ReactiveStrategyEngine
 
         bus = ReactiveBus()
         engine = ExecutionEngine(

@@ -7,8 +7,7 @@ from decimal import Decimal
 
 import pytest
 from tradex_domain.enums import Timeframe
-
-from tradex_trading.runtime.bar_aggregator import (
+from tradex_runtime.bar_aggregator import (
     BarAggregator,
     BarFrame,
     _tf_seconds,

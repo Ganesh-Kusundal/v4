@@ -11,8 +11,8 @@ broker's ``close()`` method is called exactly once.
 
 from __future__ import annotations
 
-from tradex_trading.config.schema import AppConfig
-from tradex_trading.runtime import startup as startup_mod
+from tradex_config.schema import AppConfig
+from tradex_runtime import startup as startup_mod
 
 
 def test_broker_close_called_exactly_once_per_teardown() -> None:

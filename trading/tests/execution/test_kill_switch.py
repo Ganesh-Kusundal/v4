@@ -14,9 +14,8 @@ from unittest.mock import MagicMock
 from tradex_domain import Order
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType
 from tradex_domain.value_objects import OrderId, Quantity
-
-from tradex_trading.execution.kill_switch import TERMINAL_STATUSES, KillSwitch
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.kill_switch import TERMINAL_STATUSES, KillSwitch
+from tradex_execution.trading_cache import TradingCache
 
 
 def _order(oid: str, status: OrderStatus) -> Order:

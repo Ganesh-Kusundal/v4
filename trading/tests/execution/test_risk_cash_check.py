@@ -16,9 +16,8 @@ from typing import Any
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.execution.cash_ledger import CashLedger
-from tradex_trading.execution.engine import RiskManager
+from tradex_execution.cash_ledger import CashLedger
+from tradex_execution.engine import RiskManager
 
 
 def _buy_request(

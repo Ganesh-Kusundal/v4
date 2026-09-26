@@ -19,14 +19,13 @@ from tradex_domain.execution import Fill, OrderRequest, Position
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
 from tradex_domain.value_objects import Money, OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import PaperFillSource
-from tradex_trading.execution.mark_to_market import MarkToMarketService
-from tradex_trading.execution.risk import RiskManager
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.runtime.metrics import MetricsRegistry
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import PaperFillSource
+from tradex_execution.mark_to_market import MarkToMarketService
+from tradex_execution.risk import RiskManager
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
+from tradex_runtime.metrics import MetricsRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -566,7 +565,8 @@ def test_reconciliation_drift_appears_in_prometheus_output() -> None:
 
 def test_boot_wires_metrics_into_risk_and_mtm() -> None:
     """Without this, C3 counters/gauges exist in unit tests but stay dark in paper/live."""
-    from tradex_trading.config.schema import AppConfig
+    from tradex_config.schema import AppConfig
+
     from tradex_trading.runtime.startup import boot
 
     session = boot(AppConfig(mode="paper"))

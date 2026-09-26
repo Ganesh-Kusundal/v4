@@ -18,7 +18,7 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock
 
-from tradex_trading.runtime import market_feed as mf_mod
+from tradex_runtime import market_feed as mf_mod
 
 
 def _make_feed():

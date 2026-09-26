@@ -15,11 +15,10 @@ from tradex_domain.value_objects import (
     Price,
     Quantity,
 )
-
-from tradex_trading.execution.engine import ExecutionEngine, RiskManager
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.execution.idempotency import MemoryIdempotencyGuard
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.engine import ExecutionEngine, RiskManager
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_execution.idempotency import MemoryIdempotencyGuard
+from tradex_reactive.bus import ReactiveBus
 
 
 def _make_request(
@@ -376,7 +375,7 @@ def test_risk_manager_rejected_count_increments() -> None:
 
 def test_applied_fills_bounded_to_prevent_memory_leak() -> None:
     """FillDedup LRU is bounded at the configured max to cap memory growth."""
-    from tradex_trading.execution.idempotency import FillDedup
+    from tradex_execution.idempotency import FillDedup
 
     engine = _make_engine()
     # Lower the cap for testing by replacing the FillDedup.

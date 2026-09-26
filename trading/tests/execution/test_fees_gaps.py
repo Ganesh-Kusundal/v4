@@ -9,8 +9,7 @@ from tradex_domain.enums import OrderSide
 from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.fees import (
+from tradex_execution.fees import (
     _STT_DELIVERY_SELL,
     _STT_INTRADAY_SELL,
     FeeCalculator,
@@ -71,9 +70,9 @@ def test_brokerage_cap_per_order_not_per_fill() -> None:
     each fill's brokerage would be min(50000*0.0003=15, 20)=15.
     Without per-order cap total=30, with cap first 15 second min(15,5)=5 -> total 20.
     """
-    from tradex_trading.execution.engine import ExecutionEngine
-    from tradex_trading.execution.fill_sources import SimulatedFillSource
-    from tradex_trading.reactive.bus import ReactiveBus
+    from tradex_execution.engine import ExecutionEngine
+    from tradex_execution.fill_sources import SimulatedFillSource
+    from tradex_reactive.bus import ReactiveBus
 
     bus = ReactiveBus()
     # Use MagicMock fill source to avoid side effects but keep pipeline wiring;

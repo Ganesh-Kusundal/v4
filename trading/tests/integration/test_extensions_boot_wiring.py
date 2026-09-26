@@ -12,14 +12,14 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+from tradex_config.schema import AppConfig
 from tradex_domain import OHLC, Candle
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.strategy import ScannerResult
 from tradex_domain.value_objects import Price, Quantity
+from tradex_strategy.extensions import all_scanners, all_strategies
 
-from tradex_trading.config.schema import AppConfig
 from tradex_trading.runtime.startup import boot, boot_context
-from tradex_trading.strategy.extensions import all_scanners, all_strategies
 
 
 def _fake_broker_with_history(closes: list[float]) -> MagicMock:
@@ -161,7 +161,7 @@ class TestBootWiresDiscovery:
     def test_backtest_mode_exposes_datalake_backtest_loader(self, monkeypatch) -> None:
         """Backtest/replay sessions expose ``session.backtest`` bound to the
         datalake loader; paper sessions keep it ``None``."""
-        from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
+        from tradex_market_data.backtest_loader import ParquetBacktestLoader
 
         for mode in ("backtest", "replay"):
             session = boot(AppConfig(mode=mode), broker=_fake_broker_with_history([10.0]))

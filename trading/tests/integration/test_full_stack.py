@@ -20,12 +20,12 @@ from tradex_domain import (
     Timeframe,
 )
 from tradex_domain.value_objects import Price, Quantity
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
+from tradex_replay.backtest import BacktestEngine
+from tradex_strategy.core.buy_and_hold import BuyAndHoldStrategy
 
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.replay.backtest import BacktestEngine
 from tradex_trading.sdk.session import SessionState, TradingSession
-from tradex_trading.strategy.core.buy_and_hold import BuyAndHoldStrategy
 
 
 def _now() -> datetime:
@@ -227,7 +227,7 @@ class TestStrategyExecution:
 
     def test_strategy_context_injection(self):
         """Strategy receives populated context via ReactiveStrategyEngine."""
-        from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
+        from tradex_strategy.core.engine import ReactiveStrategyEngine
 
         bus = ReactiveBus()
         engine = ReactiveStrategyEngine(bus)
@@ -334,7 +334,7 @@ class TestFullPipeline:
             assert result is not None
 
             # 4. Check analytics
-            from tradex_trading.analytics.engine import AnalyticsEngine
+            from tradex_analytics.engine import AnalyticsEngine
 
             analytics = AnalyticsEngine()
             # Use trade returns
@@ -351,7 +351,7 @@ class TestFullPipeline:
 
     def test_optimization_pipeline(self):
         """Grid search over strategy parameters."""
-        from tradex_trading.replay.optimization import grid_search
+        from tradex_replay.optimization import grid_search
 
         reliance = _eq()
         candles = [
@@ -441,9 +441,8 @@ class TestExecutionEngineIntegration:
         """Submit order through engine, verify events are published."""
         from tradex_domain.events import OrderFilled, OrderPlaced
         from tradex_domain.market import Quote
-
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import PaperFillSource
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import PaperFillSource
 
         bus = ReactiveBus()
         cache = TradingCache()

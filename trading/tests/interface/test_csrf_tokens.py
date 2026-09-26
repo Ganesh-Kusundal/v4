@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import secrets
 
-from tradex_trading.interface.auth.csrf import make_csrf_token, verify_csrf_token
+from tradex_interfaces.auth.csrf import make_csrf_token, verify_csrf_token
 
 
 def test_make_csrf_token_returns_hex_string() -> None:

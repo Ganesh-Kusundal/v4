@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 
-from tradex_trading.runtime.logging_config import (
+from tradex_runtime.logging_config import (
     CorrelationIdFilter,
     JsonFormatter,
     StructuredFormatter,

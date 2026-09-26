@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from tradex_trading.interface.auth.session_store import (
+from tradex_interfaces.auth.session_store import (
     InMemorySessionStore,
 )
 

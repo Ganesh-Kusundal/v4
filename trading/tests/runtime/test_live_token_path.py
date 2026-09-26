@@ -20,8 +20,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from tradex_brokers.common.totp_cooldown import TotpCooldownGuard
-
-from tradex_trading.runtime.live import build_dhan_from_env, build_upstox_from_env
+from tradex_runtime.live import build_dhan_from_env, build_upstox_from_env
 
 # Valid RFC-6238 test secret — the injected mint ignores the generated code.
 _TOTP_SECRET = "JBSWY3DPEHPK3PXP"

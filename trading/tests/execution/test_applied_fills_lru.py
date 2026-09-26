@@ -29,10 +29,9 @@ from tradex_domain.execution import Order, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.market import OHLC, Candle, Timeframe
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.runtime.metrics import MetricsRegistry
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_runtime.metrics import MetricsRegistry
 
 
 def _eq() -> Equity:

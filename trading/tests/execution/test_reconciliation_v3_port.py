@@ -8,8 +8,7 @@ from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, 
 from tradex_domain.execution import Account, Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import AccountId, Money, OrderId, Price, Quantity
-
-from tradex_trading.execution.reconciliation import (
+from tradex_execution.reconciliation import (
     DriftSeverity,
     ReconciliationEngine,
 )

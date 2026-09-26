@@ -17,8 +17,7 @@ from enum import StrEnum
 
 from tradex_domain.enums import OrderSide
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.execution.cash_ledger import CashLedger
+from tradex_execution.cash_ledger import CashLedger
 
 
 class _ForeignSide(StrEnum):

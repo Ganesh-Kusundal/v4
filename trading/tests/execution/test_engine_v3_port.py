@@ -8,8 +8,7 @@ from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, 
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-
-from tradex_trading.execution.engine import (
+from tradex_execution.engine import (
     InMemoryOrderStore,
     OrderStore,
     RiskCheckResult,

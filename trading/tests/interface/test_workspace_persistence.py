@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
-
-from tradex_trading.interface.fastapi_app import create_app
+from tradex_interfaces.fastapi_app import create_app
 
 
 def _client():

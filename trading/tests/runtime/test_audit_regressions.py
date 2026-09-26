@@ -15,13 +15,13 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
+from tradex_config.schema import AppConfig, RiskConfig
 from tradex_domain import BrokerId
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
 
-from tradex_trading.config.schema import AppConfig, RiskConfig
 from tradex_trading.runtime.startup import boot
 
 

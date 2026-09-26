@@ -6,10 +6,9 @@ Real StrategyRuntime instances; no mocks, no broker, no SQLite.
 from __future__ import annotations
 
 import pytest
-
-from tradex_trading.strategy.artifacts import StrategyArtifact
-from tradex_trading.strategy.registry import StrategyRegistry
-from tradex_trading.strategy.runtime import StrategyLifecycle, StrategyRuntime
+from tradex_strategy.artifacts import StrategyArtifact
+from tradex_strategy.registry import StrategyRegistry
+from tradex_strategy.runtime import StrategyLifecycle, StrategyRuntime
 
 # ---------------------------------------------------------------------------
 # Helpers

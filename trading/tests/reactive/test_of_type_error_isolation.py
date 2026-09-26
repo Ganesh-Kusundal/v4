@@ -15,9 +15,9 @@ via ``of_type`` (``engine.py:285/295/304``) and the durable order store
 subscribes ``OrderFilled`` via ``of_type`` (``sqlite_store.py:587``), so a
 raising engine handler meant the store never recorded the fill.
 
-These tests import ``tradex_reactive.bus`` directly. The legacy
-``tradex_trading.reactive.bus`` shim is a separate module object that
-re-exports the *same* ``ReactiveBus`` class object, so behaviour is identical.
+These tests import ``tradex_reactive.bus`` directly -- the module that
+implements ``ReactiveBus``, now that the ``tradex_trading.reactive.bus``
+compatibility shim is gone.
 """
 
 from __future__ import annotations

@@ -15,11 +15,10 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
-
-from tradex_trading.config.schema import AppConfig, PersistenceConfig
-from tradex_trading.execution.reconciliation import DriftItem, DriftSeverity
-from tradex_trading.runtime import startup as startup_mod
+from tradex_execution.reconciliation import DriftItem, DriftSeverity
+from tradex_runtime import startup as startup_mod
 
 
 def _patched_boot_with_drift(

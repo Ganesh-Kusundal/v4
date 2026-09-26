@@ -1,6 +1,6 @@
 """Strategy and research artifact contract tests."""
 
-from tradex_trading.strategy.artifacts import (
+from tradex_strategy.artifacts import (
     ApprovalState,
     ExperimentManifest,
     InMemoryStrategyArtifactStore,

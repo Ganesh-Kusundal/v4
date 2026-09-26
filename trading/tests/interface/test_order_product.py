@@ -44,12 +44,11 @@ from tradex_domain.execution import (  # noqa: E402
     OrderRequest,
 )
 from tradex_domain.value_objects import OrderId  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
 from tradex_interfaces.routes.orders import (  # noqa: E402
     _PRODUCT_BY_WIRE,
     _parse_product,
 )
-
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
 
 
 def _order_body(**overrides: Any) -> dict:

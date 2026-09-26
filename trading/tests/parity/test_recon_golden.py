@@ -17,16 +17,15 @@ from tradex_domain import Equity, Money, Position, Price, Quantity
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
 from tradex_domain.execution import Order
 from tradex_domain.value_objects import OrderId
-
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import SimulatedFillSource
-from tradex_trading.execution.reconciliation import (
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import SimulatedFillSource
+from tradex_execution.reconciliation import (
     DriftItem,
     DriftSeverity,
     ReconciliationEngine,
 )
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
 
 _GOLDEN = Path(__file__).resolve().parent / "goldens" / "recon_startup_drift.json"
 

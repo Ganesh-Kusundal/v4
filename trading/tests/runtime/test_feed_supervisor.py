@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from tradex_trading.runtime.feed_supervisor import (
+from tradex_runtime.feed_supervisor import (
     FeedState,
     FeedSupervisor,
     RecoveryResult,
@@ -61,7 +61,7 @@ def test_disconnect_degrades_a_ready_feed() -> None:
 
 
 def test_bar_frame_health_metadata_is_additive() -> None:
-    from tradex_trading.runtime.bar_aggregator import BarFrame
+    from tradex_runtime.bar_aggregator import BarFrame
 
     frame = BarFrame(
         instrument="NSE:TEST",

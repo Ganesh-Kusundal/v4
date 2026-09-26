@@ -10,8 +10,7 @@ import pandas as pd
 from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.datalake.simple_sync import SyncResult, series_to_frame, simple_sync
+from tradex_market_data.simple_sync import SyncResult, series_to_frame, simple_sync
 
 INSTRUMENTS = [Equity.of("NSE", f"SYM{i}") for i in range(3)]
 BASE = datetime(2026, 8, 1, 9, 15, tzinfo=UTC)

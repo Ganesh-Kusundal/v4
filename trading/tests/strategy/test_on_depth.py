@@ -8,9 +8,8 @@ from decimal import Decimal
 from tradex_domain import Equity
 from tradex_domain.market import Depth
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.reactive.bus import ReactiveBus
-from tradex_trading.strategy.core.engine import ReactiveStrategyEngine
+from tradex_reactive.bus import ReactiveBus
+from tradex_strategy.core.engine import ReactiveStrategyEngine
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 

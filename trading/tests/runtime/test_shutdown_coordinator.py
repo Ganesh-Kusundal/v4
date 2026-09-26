@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tradex_trading.runtime.shutdown import ShutdownCoordinator
+from tradex_runtime.shutdown import ShutdownCoordinator
 
 
 class TestShutdownCoordinator:
@@ -48,7 +48,8 @@ class TestShutdownCoordinator:
     def test_runtime_context_uses_coordinator(self) -> None:
         """RuntimeContext.close() delegates to ShutdownCoordinator with
         the correct phase ordering."""
-        from tradex_trading.config.schema import AppConfig
+        from tradex_config.schema import AppConfig
+
         from tradex_trading.runtime.startup import boot
 
         cfg = AppConfig(mode="paper")

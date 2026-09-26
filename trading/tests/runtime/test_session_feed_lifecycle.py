@@ -12,8 +12,8 @@ from unittest.mock import MagicMock
 import pytest
 from tradex_domain import BrokerId
 from tradex_domain.errors import CapabilityNotSupportedError
+from tradex_reactive.bus import ReactiveBus
 
-from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.sdk.session import SessionState, TradingSession
 
 

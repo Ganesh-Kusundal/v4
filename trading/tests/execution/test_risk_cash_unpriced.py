@@ -14,8 +14,7 @@ from tradex_domain.enums import OrderSide, OrderType, TimeInForce
 from tradex_domain.execution import OrderRequest, Position
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Money, Price, Quantity
-
-from tradex_trading.execution.engine import RiskManager
+from tradex_execution.engine import RiskManager
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 

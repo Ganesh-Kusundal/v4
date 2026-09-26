@@ -15,8 +15,7 @@ from tradex_domain import (
     Signal,
     Timeframe,
 )
-
-from tradex_trading.replay.backtest import BacktestEngine, BacktestResult
+from tradex_replay.backtest import BacktestEngine, BacktestResult
 
 
 def _now() -> datetime:

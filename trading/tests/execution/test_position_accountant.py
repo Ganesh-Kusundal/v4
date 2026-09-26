@@ -23,9 +23,8 @@ from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
 from tradex_domain.value_objects import Money, OrderId, Price, Quantity
-
-from tradex_trading.execution.position_accountant import PositionAccountant
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.position_accountant import PositionAccountant
+from tradex_execution.trading_cache import TradingCache
 
 _INSTRUMENT = Equity.of("NSE", "HYP")
 _TS = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)

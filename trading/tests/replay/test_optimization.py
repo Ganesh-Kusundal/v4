@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from tradex_trading.replay.optimization import (
+from tradex_replay.optimization import (
     GridSearchResult,
     OptimizationResult,
     grid_search,

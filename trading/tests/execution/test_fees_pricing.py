@@ -20,8 +20,7 @@ from tradex_domain import (
     Price,
     Quantity,
 )
-
-from tradex_trading.execution.fees import FeeCalculator, PricingService
+from tradex_execution.fees import FeeCalculator, PricingService
 
 
 def _eq() -> Equity:

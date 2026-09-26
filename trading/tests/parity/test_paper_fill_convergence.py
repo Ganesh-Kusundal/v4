@@ -28,9 +28,8 @@ from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_trading.execution.fill_sources import PaperFillSource
-from tradex_trading.execution.trading_cache import TradingCache
+from tradex_execution.fill_sources import PaperFillSource
+from tradex_execution.trading_cache import TradingCache
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 

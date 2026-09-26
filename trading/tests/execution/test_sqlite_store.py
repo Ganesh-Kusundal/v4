@@ -16,8 +16,7 @@ from tradex_domain import (
     Quantity,
     TimeInForce,
 )
-
-from tradex_trading.execution.sqlite_store import SQLiteOrderStore
+from tradex_execution.sqlite_store import SQLiteOrderStore
 
 
 def _eq() -> Equity:
@@ -156,11 +155,10 @@ class TestSQLiteIdempotencyGuardCrossEngine:
         self, tmp_path,
     ) -> None:
         from tradex_domain.value_objects import CorrelationId
-
-        from tradex_trading.execution.engine import ExecutionEngine
-        from tradex_trading.execution.fill_sources import SimulatedFillSource
-        from tradex_trading.execution.sqlite_store import SQLiteIdempotencyGuard
-        from tradex_trading.reactive.bus import ReactiveBus
+        from tradex_execution.engine import ExecutionEngine
+        from tradex_execution.fill_sources import SimulatedFillSource
+        from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
+        from tradex_reactive.bus import ReactiveBus
 
         db = str(tmp_path / "orders.db")
         instrument = Equity.of("NSE", "RELIANCE")

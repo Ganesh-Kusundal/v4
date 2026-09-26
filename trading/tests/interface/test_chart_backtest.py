@@ -13,8 +13,7 @@ import pytest
 fastapi = pytest.importorskip("fastapi")
 
 from fastapi.testclient import TestClient  # noqa: E402
-
-from tradex_trading.interface.fastapi_app import create_app  # noqa: E402
+from tradex_interfaces.fastapi_app import create_app  # noqa: E402
 
 pytest.importorskip("pandas")
 
@@ -25,7 +24,7 @@ def _client() -> TestClient:
 
 @pytest.fixture(autouse=True)
 def datalake_or_skip():
-    from tradex_trading.datalake.parquet_storage import ParquetStorage
+    from tradex_market_data.parquet_storage import ParquetStorage
 
     store = ParquetStorage("data/")
     if not store.symbols():
@@ -55,8 +54,8 @@ class TestBacktestEndpoint:
         """Endpoint metrics equal a direct BacktestEngine.run over identical candles."""
         from datetime import timedelta
 
-        from tradex_trading.interface.routes.chart import _backtest_candles, _window
-        from tradex_trading.replay.backtest import BacktestEngine
+        from tradex_interfaces.routes.chart import _backtest_candles, _window
+        from tradex_replay.backtest import BacktestEngine
 
         client = _client()
         start, end = _window(_WINDOW["from"], _WINDOW["to"])
@@ -234,7 +233,7 @@ def _timeframe(code: str):
 
 
 def _strategy(instrument):
-    from tradex_trading.strategy.extensions.strategies.sma_cross import (
+    from tradex_strategy.extensions.strategies.sma_cross import (
         SmaCrossStrategy,
     )
 

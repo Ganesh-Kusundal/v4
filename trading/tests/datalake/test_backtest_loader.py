@@ -13,10 +13,9 @@ from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Candle
 from tradex_domain.strategy import StrategyContext
-
-from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
-from tradex_trading.datalake.parquet_storage import ParquetStorage
-from tradex_trading.replay.backtest import BacktestEngine, run_with_loader
+from tradex_market_data.backtest_loader import ParquetBacktestLoader
+from tradex_market_data.parquet_storage import ParquetStorage
+from tradex_replay.backtest import BacktestEngine, run_with_loader
 
 
 def _upsert_bars(store: ParquetStorage, symbol: str, days: tuple[int, ...]) -> None:
@@ -275,7 +274,7 @@ class TestParquetBacktestLoader:
 
     def test_run_accepts_configured_engine(self, tmp_path) -> None:
         """A pre-configured engine (fees) flows through run_with_loader()."""
-        from tradex_trading.execution.fees import FeeCalculator
+        from tradex_execution.fees import FeeCalculator
 
         store = ParquetStorage(tmp_path)
         _upsert_bars(store, "RELIANCE", (1, 2))
@@ -297,7 +296,7 @@ class TestParquetBacktestLoader:
     def test_multi_symbol_strategy_runs_via_loader(self, tmp_path) -> None:
         """A portfolio-style strategy (one instance, every instrument) works
         through ``run_with_loader()`` over two symbols in a single call."""
-        from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
+        from tradex_strategy.extensions.strategies.multi_symbol_sma_cross import (
             MultiSymbolSmaCross,
         )
 
@@ -322,7 +321,7 @@ class TestParquetBacktestLoader:
     def test_run_with_percentage_slippage_worsens_round_trip(self, tmp_path) -> None:
         """PercentageSlippageModel through the loader→engine path: BUY fills
         pay more and SELL fills receive less than the candle close."""
-        from tradex_trading.execution.slippage import PercentageSlippageModel
+        from tradex_execution.slippage import PercentageSlippageModel
 
         store = ParquetStorage(tmp_path)
         _upsert_series(store, "RELIANCE", [100.0, 200.0])
@@ -434,7 +433,7 @@ class TestLoaderGapDetection:
         """Day 2 is a holiday for this calendar → not a data gap."""
         from datetime import date
 
-        from tradex_trading.runtime.calendar import NSETradingCalendar
+        from tradex_runtime.calendar import NSETradingCalendar
 
         store = ParquetStorage(tmp_path)
         _upsert_bars(store, "RELIANCE", (1, 3))
@@ -518,7 +517,7 @@ class TestLoaderGapDetection:
         gap, so a strict run over a holiday day succeeds."""
         from datetime import date
 
-        from tradex_trading.runtime.calendar import NSETradingCalendar
+        from tradex_runtime.calendar import NSETradingCalendar
 
         store = ParquetStorage(tmp_path)
         _upsert_bars(store, "RELIANCE", (1, 3))

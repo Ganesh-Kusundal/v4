@@ -34,8 +34,7 @@ from tradex_domain import (
     TimeInForce,
 )
 from tradex_domain.events import OrderFilled
-
-from tradex_trading.execution.sqlite_store import SQLiteOrderStore
+from tradex_execution.sqlite_store import SQLiteOrderStore
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -222,7 +221,7 @@ class TestLoadIntoMixedState:
         upsert_from_event); boot a session with the same DB path; assert the
         cache has all 3 orders after ``load_into``.
         """
-        from tradex_trading.execution.trading_cache import TradingCache
+        from tradex_execution.trading_cache import TradingCache
 
         db = str(tmp_path / "orders.db")
         store = SQLiteOrderStore(db)

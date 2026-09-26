@@ -107,7 +107,7 @@ def test_restart_rebuilds_positions_and_cash_from_the_durable_log(
     monkeypatch, tmp_path,
 ) -> None:
     """A second process recovers the book the first one held."""
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     cfg = _cfg(tmp_path)
     first = sm.boot(cfg)
@@ -156,7 +156,7 @@ def test_boot_refuses_ready_when_recovered_book_drifts_from_the_broker(
     book to disagree with), so this drives the live boot path directly. The
     recovered book comes from a durable log written by an earlier session.
     """
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     # Session 1 writes a durable book.
     durable = _cfg(tmp_path)
@@ -195,7 +195,7 @@ def test_boot_reaches_ready_when_broker_agrees_with_the_recovered_book(
     monkeypatch, tmp_path,
 ) -> None:
     """The gate must not be stuck shut: agreement still reaches READY."""
-    from tradex_trading.runtime import startup as sm
+    from tradex_runtime import startup as sm
 
     # Session 1 writes a durable book.
     first = sm.boot(_cfg(tmp_path))

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from tradex_analytics.engine import AnalyticsEngine
 from tradex_domain import (
     OHLC,
     Candle,
@@ -14,8 +15,6 @@ from tradex_domain import (
     Timeframe,
 )
 from tradex_domain.instruments import Equity
-
-from tradex_trading.analytics.engine import AnalyticsEngine
 
 
 def _eq() -> Equity:

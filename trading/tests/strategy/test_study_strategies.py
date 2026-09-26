@@ -13,21 +13,20 @@ import pytest
 from tradex_domain import OrderSide
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
-
-from tradex_trading.strategy.extensions.strategies.bollinger_breakout import (
+from tradex_strategy.extensions.strategies.bollinger_breakout import (
     BollingerBreakoutStrategy,
 )
-from tradex_trading.strategy.extensions.strategies.ema_ribbon_pullback import (
+from tradex_strategy.extensions.strategies.ema_ribbon_pullback import (
     EmaRibbonPullbackStrategy,
 )
-from tradex_trading.strategy.extensions.strategies.macd_cross import (
+from tradex_strategy.extensions.strategies.macd_cross import (
     MacdCrossStrategy,
 )
-from tradex_trading.strategy.extensions.strategies.rsi_reversal import (
+from tradex_strategy.extensions.strategies.rsi_reversal import (
     RsiReversalStrategy,
 )
-from tradex_trading.strategy.extensions.strategies.study_base import CandleShim
-from tradex_trading.strategy.extensions.strategies.supertrend_flip import (
+from tradex_strategy.extensions.strategies.study_base import CandleShim
+from tradex_strategy.extensions.strategies.supertrend_flip import (
     SupertrendFlipStrategy,
 )
 
@@ -162,7 +161,7 @@ def test_ribbon_param_validation():
 # --- auto-discovery ---------------------------------------------------------
 
 def test_new_strategies_registered_in_extensions():
-    from tradex_trading.strategy.extensions.strategies import (
+    from tradex_strategy.extensions.strategies import (
         bollinger_breakout_strategy,
         ema_ribbon_pullback_strategy,
         macd_cross_strategy,

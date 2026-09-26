@@ -34,11 +34,11 @@ from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
+from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fill_sources import PaperFillSource
+from tradex_execution.trading_cache import TradingCache
+from tradex_reactive.bus import ReactiveBus
 
-from tradex_trading.execution.engine import ExecutionEngine
-from tradex_trading.execution.fill_sources import PaperFillSource
-from tradex_trading.execution.trading_cache import TradingCache
-from tradex_trading.reactive.bus import ReactiveBus
 from tradex_trading.sdk.live_fill_bridge import LiveFillBridge
 
 _RELIANCE = Equity.of("NSE", "RELIANCE")
@@ -349,7 +349,7 @@ def test_upstox_stop_tape_fills_granular() -> None:
 
 
 def test_sqlite_order_store_round_trip(tmp_path) -> None:
-    from tradex_trading.execution.sqlite_store import SQLiteOrderStore
+    from tradex_execution.sqlite_store import SQLiteOrderStore
 
     store = SQLiteOrderStore(tmp_path / "orders.db")
     order = Order(
@@ -376,7 +376,7 @@ def test_sqlite_order_store_round_trip(tmp_path) -> None:
 
 
 def test_writer_lock_excludes_second_holder_and_allows_reacquire(tmp_path) -> None:
-    from tradex_trading.runtime.writer_lock import SingleWriterLock, WriterLockHeldError
+    from tradex_runtime.writer_lock import SingleWriterLock, WriterLockHeldError
 
     lock_path = tmp_path / "live.writer.lock"
     first = SingleWriterLock(lock_path)
@@ -394,7 +394,7 @@ def test_writer_lock_excludes_second_holder_and_allows_reacquire(tmp_path) -> No
 
 
 def test_writer_lock_stale_pid_auto_clears(tmp_path) -> None:
-    from tradex_trading.runtime.writer_lock import SingleWriterLock
+    from tradex_runtime.writer_lock import SingleWriterLock
 
     lock_path = tmp_path / "live.writer.lock"
     lock_path.write_text("999999999")  # dead pid

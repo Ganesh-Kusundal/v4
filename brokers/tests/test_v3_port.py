@@ -1189,7 +1189,7 @@ class TestPaperBrokerUtilities:
         if broker.trading_cache is None:
             return  # skip if TradingCache not available
         try:
-            from tradex_trading.execution.trading_cache import TradingCache
+            from tradex_execution.trading_cache import TradingCache
         except ImportError:
             return
         new_cache = TradingCache()

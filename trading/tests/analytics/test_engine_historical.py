@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from tradex_analytics.engine import AnalyticsEngine
 from tradex_domain import (
     OHLC,
     Candle,
@@ -19,8 +20,6 @@ from tradex_domain import (
     Timeframe,
 )
 from tradex_domain.errors import CapabilityNotSupportedError
-
-from tradex_trading.analytics.engine import AnalyticsEngine
 
 
 def _eq() -> Equity:
@@ -222,7 +221,7 @@ class TestIndicatorValues:
     def test_registry_fallback_bollinger_returns_first_plot(self) -> None:
         """Multi-plot bollinger (upper/middle/lower) → engine returns first
         plot, which is 'upper'."""
-        from tradex_trading.analytics.indicators import bollinger
+        from tradex_analytics.indicators import bollinger
 
         engine = AnalyticsEngine()
         closes = [float(i) for i in range(1, 31)]
@@ -234,7 +233,7 @@ class TestIndicatorValues:
 
     def test_registry_fallback_stochastic_returns_first_plot(self) -> None:
         """Multi-plot stochastic (k/d) → engine returns first plot, 'k'."""
-        from tradex_trading.analytics.indicators import stochastic
+        from tradex_analytics.indicators import stochastic
 
         engine = AnalyticsEngine()
         series = _series([float(i) for i in range(1, 31)])
@@ -246,7 +245,7 @@ class TestIndicatorValues:
 
     def test_registry_fallback_supertrend_returns_first_plot(self) -> None:
         """Multi-plot supertrend (line/direction) → engine returns 'line'."""
-        from tradex_trading.analytics.indicators import supertrend
+        from tradex_analytics.indicators import supertrend
 
         engine = AnalyticsEngine()
         series = _series([float(i) for i in range(1, 31)])
@@ -259,7 +258,7 @@ class TestIndicatorValues:
     def test_registry_fallback_macd_returns_line_not_histogram(self) -> None:
         """Multi-plot macd → engine returns first plot; the line must be
         declared first so scanners read the MACD line, not the histogram."""
-        from tradex_trading.analytics.indicators import compute_indicator
+        from tradex_analytics.indicators import compute_indicator
 
         engine = AnalyticsEngine()
         series = _series([float(i) for i in range(1, 31)])
@@ -272,7 +271,7 @@ class TestIndicatorValues:
         closes = [float(i) for i in range(1, 31)]
         series = _series(closes)
         values = engine.indicator_values(series, "sma", period=20)
-        from tradex_trading.analytics.indicators import sma
+        from tradex_analytics.indicators import sma
         direct = sma(closes, 20)
         for v_eng, v_dir in zip(values, direct, strict=True):
             if v_eng is not None:
