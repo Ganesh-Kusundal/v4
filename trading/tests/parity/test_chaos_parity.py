@@ -228,9 +228,16 @@ class TestChaosParity:
     def test_backtest_reactive_fill_count_parity_under_load(self):
         """Under stress, backtest and reactive produce the same fill count.
 
-        The BacktestEngine flushes deferred next_open orders after the last
-        bar (so signals on the final bar still fill). The reactive path does
-        not auto-flush, so we flush manually to match.
+        Neither path flushes a deferred order against the last bar of the run
+        (AC-1): a signal decided on the final bar has no bar after it to fill
+        against, and filling it against the close it was decided from is the
+        look-ahead that rule removed. So both paths drop the last signal per
+        instrument, and the backtest reports how many it dropped in
+        ``num_unfilled`` rather than quietly booking them.
+
+        This test used to flush the reactive path by hand "to match" a
+        backtest that did the same — so it asserted parity between two
+        look-aheads, and 5 fills apart it still read as a parity check.
         """
         data = self._generate_data(n_bars_per_instrument=50)
 
@@ -238,7 +245,8 @@ class TestChaosParity:
         bt_strategy = _MultiInstrumentStrategy(INSTRUMENTS, "chaos-bt")
         bt = BacktestEngine().run(bt_strategy, list(data))
 
-        # Reactive
+        # Reactive — no final-bar flush, for the same reason the backtest
+        # does not do one.
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
         strategy_engine = ReactiveStrategyEngine(bus)
@@ -250,17 +258,19 @@ class TestChaosParity:
         try:
             for c in data:
                 bus.publish(c)
-            # Flush deferred orders at the last candle per instrument
-            # (matches BacktestEngine's post-stream flush)
-            last_by_id = {}
-            for c in data:
-                last_by_id[c.instrument.instrument_id] = c
-            for candle in last_by_id.values():
-                strategy_engine.flush_pending(candle)
             reactive_count = len(fills)
+            # Still queued when the data ran out — the same signals the
+            # backtest reports as unfilled.
+            reactive_unfilled = len(strategy_engine.pending_snapshot())
         finally:
             strategy_engine.dispose_all()
             engine.shutdown()
+
+        # One signal per instrument lands on its instrument's final bar and
+        # neither path can fill it, so both drop exactly the instrument count —
+        # and the backtest says so out loud rather than booking them.
+        assert bt.num_unfilled == len(INSTRUMENTS)
+        assert reactive_unfilled == len(INSTRUMENTS)
 
         # Both paths should produce the same fill count
         assert bt.num_trades == reactive_count, (

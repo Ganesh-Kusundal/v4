@@ -91,6 +91,16 @@ class _EntryWithBracketOnly:
 
 
 def test_stop_pierce_produces_protective_exit_fill() -> None:
+    """A pierced stop fills, and it does NOT fill at its own level (AC-19).
+
+    A triggered stop is a stop-*market*: it fills at the worse of the modelled
+    gap past the trigger and the worst price the bar actually printed. Bar 2
+    prints a low of 94 against a 95 stop, so the honest fill is 94 — the price
+    the market actually offered, not the price the strategy hoped for. A test
+    that asserted 95.0 was asserting the optimism this rule exists to remove,
+    and it is the more dangerous of the two assertions because 95.0 is the
+    number the strategy declared, so it reads as self-evidently correct.
+    """
     data = [
         _candle(day=1, open_=100, high=101, low=99, close=100),
         _candle(day=2, open_=100, high=102, low=94, close=98),
@@ -105,7 +115,32 @@ def test_stop_pierce_produces_protective_exit_fill() -> None:
     assert result.fills[0]["side"] == "BUY"
     assert result.fills[0]["price"] == 100.0
     assert result.fills[1]["side"] == "SELL"
-    assert result.fills[1]["price"] == 95.0
+    assert result.fills[1]["price"] == 94.0
+
+
+def test_stop_touched_still_pays_the_modelled_gap() -> None:
+    """The other half of the rule: a stop the bar traded *exactly* at still
+    fills below it, by the modelled ``stop_gap_bps``.
+
+    A stop is a market order the moment its trigger price trades, so the venue
+    fills it at the next available price, not at the level. Here that is
+    95 x (1 - 25bps) = 94.7625 — a bar that reached exactly 95 produced a fill
+    below 95, and the bar printed no worse price to blame. So the gap model
+    applies on its own, and the pierced case above is the bar overriding it.
+    """
+    data = [
+        _candle(day=1, open_=100, high=101, low=99, close=100),
+        _candle(day=2, open_=100, high=102, low=95, close=98),
+        _candle(day=3, open_=98, high=99, low=97, close=98),
+    ]
+    result = BacktestEngine().run(
+        _EntryWithBracketOnly(stop=95.0, target=110.0),
+        data,
+    )
+
+    assert len(result.fills) == 2
+    assert result.fills[1]["side"] == "SELL"
+    assert result.fills[1]["price"] == 94.7625
 
 
 def test_incomplete_pair_does_not_auto_exit() -> None:

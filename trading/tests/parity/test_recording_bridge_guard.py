@@ -1,24 +1,24 @@
 """Recording-only bridge guard test (GAP-4).
 
-Proves the backtest's signal-matching bridge correctly handles the
-two signal-matching paths and each signal fills exactly once.
+Proves the backtest's signal-matching bridge fills each signal exactly once,
+and — the reason the two paths have to be kept in step at all — that a signal
+fills at the *same* price whichever way the strategy emits it.
 
 The BacktestEngine has two signal-matching paths:
   - **Returned signals** → ``ReactiveStrategyEngine`` → next_open fill
   - **Recorded signals** (appended to ``strategy.signals`` but not
-    returned) → legacy bridge → same-bar close fill
+    returned) → recording-only bridge → the same next_open fill
 
-The ``claimed_signal_ids`` guard prevents the bridge from publishing
-a signal the engine is currently holding in its pending queue. Once
-the engine flushes the pending order (at the next bar's open), the
-signal is no longer pending and the bridge correctly does not re-bridge
-it (it's already filled).
+The ``claimed_signal_ids`` guard is what keeps a signal that a strategy both
+returns *and* records from filling twice, and what keeps the bridge from
+carrying a signal the engine is already holding in its pending queue.
 
 This test proves:
-  1. A recording-only strategy fills at signal-close (legacy matching)
-  2. A returning strategy fills at next-open (reactive matching)
-  3. A mixed strategy: each signal fills exactly once through its
-     respective path — no double-counting
+  1. A recording-only strategy fills at the next bar's open — the same price
+     as a returning one, because AC-1 made next-open the only fill rule
+  2. A returning strategy fills at next-open
+  3. A strategy that does both fills each signal exactly once, and only
+     through the engine
 """
 
 from __future__ import annotations
@@ -164,9 +164,55 @@ class _MixedMode:
                 reason="bar2", timestamp=candle.timestamp,
             )
             self._signals.append(signal2)
-            # Don't return — the bridge should NOT publish this because
-            # claimed_signal_ids is non-empty (bar 1 was claimed)
+            # Don't return — the bridge stands down entirely once the engine
+            # has claimed a signal, so this one is never bridged.
         return None
+
+    def on_quote(self, context, quote):
+        return None
+
+    def on_depth(self, context, depth):
+        return None
+
+    def on_fill(self, context, fill):
+        pass
+
+
+class _RecordsAndReturns:
+    """Records *and* returns every signal — the double-count case proper.
+
+    ``_MixedMode`` only claims some of its signals, so the guard's "already
+    claimed" identity check is never the thing that stops the second fill. Here
+    the very same object is both returned (so the engine queues it for
+    next_open) and present in ``strategy.signals`` (so the bridge would see it).
+    Exactly one order per signal must come out.
+    """
+
+    def __init__(self, instrument):
+        self._instrument = instrument
+        self._signals = []
+        self._bar = 0
+
+    @property
+    def strategy_id(self):
+        return "records-and-returns"
+
+    @property
+    def signals(self):
+        return list(self._signals)
+
+    def on_bar(self, context, candle):
+        self._bar += 1
+        if self._bar > 2:
+            return None
+        side = OrderSide.BUY if self._bar == 1 else OrderSide.SELL
+        signal = Signal(
+            instrument=candle.instrument, direction=side,
+            strength=1.0, quantity=Quantity(value=Decimal("10")),
+            reason=f"bar{self._bar}", timestamp=candle.timestamp,
+        )
+        self._signals.append(signal)
+        return signal
 
     def on_quote(self, context, quote):
         return None
@@ -181,26 +227,31 @@ class _MixedMode:
 class TestRecordingBridgeGuard:
     """Prove the recording bridge's fill-timing semantics.
 
-    The bridge has two modes:
-    - **Recording-only** (strategy returns None): fills at signal-close
-    - **Returning** (strategy returns signal): fills at next-open
+    Both paths defer to the next bar of their instrument and fill at its open
+    (AC-1), so which path a signal took cannot change the price it got — the
+    one property that makes "record or return" a choice about plumbing rather
+    than about the result.
 
-    The ``claimed_signal_ids`` guard prevents the bridge from publishing
-    a signal that the engine is currently holding in its pending queue.
-    Once the engine flushes the pending order (at the next bar's open),
-    the signal is no longer pending and the guard no longer applies to it.
+    The ``claimed_signal_ids`` guard is what stops a signal being bridged on
+    top of the order the engine is already holding for it.
     """
 
-    def test_recording_only_fills_at_signal_close(self):
-        """A recording-only strategy fills at the signal bar's close
-        (legacy sequential matching)."""
+    def test_recording_only_fills_at_the_next_open_like_a_returned_one(self):
+        """A recording-only strategy fills at the next bar's open, at the same
+        price a returning one does — the two paths differ in plumbing, not in
+        economics."""
         candles = [_candle(100, 1), _candle(110, 2), _candle(120, 3)]
-        bt = BacktestEngine().run(_RecordingOnly(INSTRUMENT), candles)
 
-        # Recording-only: signal on bar 1 (close=100) fills at bar 1 close
-        assert bt.num_trades == 1
-        assert len(bt.fills) == 1
-        assert bt.fills[0]["price"] == 100.0
+        recorded = BacktestEngine().run(_RecordingOnly(INSTRUMENT), list(candles))
+        returned = BacktestEngine().run(_ReturningOnly(INSTRUMENT), list(candles))
+
+        # Signal decided on bar 1 fills at bar 2's open (110) on both paths.
+        assert recorded.num_trades == returned.num_trades == 1
+        assert recorded.fills[0]["price"] == 110.0
+        # The parity claim itself: same side, same quantity, same price.
+        assert recorded.fills[0]["side"] == returned.fills[0]["side"]
+        assert recorded.fills[0]["price"] == returned.fills[0]["price"]
+        assert recorded.fills[0]["qty"] == returned.fills[0]["qty"]
 
     def test_returning_only_fills_at_next_open(self):
         """A returning-only strategy fills at the next bar's open
@@ -213,30 +264,46 @@ class TestRecordingBridgeGuard:
         assert len(bt.fills) == 1
         assert bt.fills[0]["price"] == 110.0  # next bar's open
 
-    def test_mixed_mode_each_signal_fills_once(self):
-        """A mixed strategy (returns bar 1, records bar 2) produces 2 fills:
-        the returned signal fills at next-open (bar 2), the recorded signal
-        fills at signal-close (bar 2 close). Each signal fills exactly once
-        through its respective path — no double-counting.
+    def test_mixed_mode_never_bridges_a_signal_the_engine_claimed(self):
+        """A strategy that returns bar 1 and records bar 2 gets ONE fill.
 
-        The ``claimed_signal_ids`` guard prevents the bridge from bridging
-        a signal the engine is currently holding. Once the engine flushes
-        (at the next bar's open), the signal is no longer pending and the
-        bridge correctly does not re-bridge it (it's already filled).
+        The bridge stands down for the whole run as soon as the engine has
+        claimed a signal, so the recorded-only bar-2 SELL is not published by
+        the bridge either. That is the deliberate rule (a strategy picks one way
+        to emit; the bridge is for recording-only strategies) and the test that
+        was here before asserted the opposite — two fills — which could only
+        ever have passed against the old, double-counting behaviour.
+
+        The bar-1 BUY still fills exactly once, at the next open.
         """
         candles = [_candle(100, 1), _candle(110, 2), _candle(120, 3)]
         bt = BacktestEngine().run(_MixedMode(INSTRUMENT), candles)
 
-        # 2 fills: one from the engine (returned signal), one from bridge
-        assert bt.num_trades == 2
-        # BUY at bar 2 open (returned signal via engine)
+        assert bt.num_trades == 1
         assert bt.fills[0]["side"] == "BUY"
         assert bt.fills[0]["price"] == 110.0
-        # SELL at bar 3 open (recorded signal via bridge, also next-open
-        # because the bridge fires at the bar the signal is recorded on,
-        # and the fill is at the next candle's close price)
-        assert bt.fills[1]["side"] == "SELL"
-        assert bt.fills[1]["price"] == 120.0
+        # The recorded-only signal produced no fill at all — a SELL would mean
+        # the bridge had carried it on top of the engine.
+        assert not any(f["side"] == "SELL" for f in bt.fills)
+
+    def test_a_signal_recorded_and_returned_fills_exactly_once(self):
+        """The double-count guard itself, on a strategy that does both for the
+        same signal object.
+
+        Each of the two signals is returned (so the engine queues it for
+        next_open) *and* sitting in ``strategy.signals`` (so the bridge would
+        see it). One order per signal comes out: two fills, at bars 2 and 3's
+        opens. A second order for either would be a doubled position.
+        """
+        candles = [_candle(100, 1), _candle(110, 2), _candle(120, 3)]
+        strategy = _RecordsAndReturns(INSTRUMENT)
+        bt = BacktestEngine().run(strategy, candles)
+
+        assert len(strategy.signals) == 2
+        assert bt.num_trades == 2
+        assert [(f["side"], f["price"]) for f in bt.fills] == [
+            ("BUY", 110.0), ("SELL", 120.0),
+        ]
 
     def test_reactive_path_matches_backtest_for_returning(self):
         """The reactive pipeline produces the same fill as the backtest

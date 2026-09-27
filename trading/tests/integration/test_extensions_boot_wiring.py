@@ -12,12 +12,14 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import pytest
 from tradex_config.schema import AppConfig
 from tradex_domain import OHLC, Candle
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.strategy import ScannerResult
 from tradex_domain.value_objects import Price, Quantity
 from tradex_runtime.startup import boot, boot_context
+from tradex_strategy.core.scanner import warmup_bars
 from tradex_strategy.extensions import all_scanners, all_strategies
 
 
@@ -108,8 +110,26 @@ class TestBootWiresDiscovery:
     def test_session_runs_discovered_scanner(self, monkeypatch) -> None:
         """The pullback scanner (close > 500 AND rsi < 40) scores 2/2 on a
         falling-but-high series, proving the full path: boot → ScannerEngine
-        → broker.history → AnalyticsEngine.rsi."""
-        broker = _fake_broker_with_history([600.0, 590.0, 580.0, 570.0])
+        → broker.history → AnalyticsEngine.rsi.
+
+        The series is 20 bars because ``rsi`` declares a 14-period and an
+        indicator needs one more bar than its period to emit a first value: 15
+        bars minimum, 20 for margin. It used to supply 4, so the RSI was not
+        warm and the condition was correctly reported as *no match* — which is
+        the fix this test was accidentally asserting against, since an unwarmed
+        indicator read as 0.0 matches ``rsi < 40`` on every instrument in the
+        universe. So ``matched_conditions`` came back ``["close"]`` and the
+        score 0.5.
+
+        The assertion now includes the indicator's value, so a future regression
+        to "unknown reads as 0.0" cannot come back through this test: an
+        unwarmed RSI is absent from ``indicator_values`` altogether, not 0.0.
+        """
+        # Falling, but never below 500, so `close > 500` matches and a
+        # strictly-falling series drives RSI to 0 — `rsi < 40` matches for the
+        # real reason rather than by accident of a missing history.
+        closes = [600.0 - i for i in range(20)]
+        broker = _fake_broker_with_history(closes)
         session = boot(AppConfig(mode="paper"), broker=broker)
         try:
             # Identify the two-condition pullback scanner by its condition
@@ -117,6 +137,10 @@ class TestBootWiresDiscovery:
             pullback = next(
                 s for s in all_scanners if {c.name for c in s.conditions} == {"close", "rsi"}
             )
+            # A genuinely warm indicator, not a token history — measured against
+            # the scanner's own definition of warm rather than a hand-rolled
+            # one, so it stays right if the rsi period changes.
+            assert len(closes) >= warmup_bars(pullback.conditions)
             results = session._scanner_engine.run(pullback)
             assert isinstance(results, list)
             assert all(isinstance(r, ScannerResult) for r in results)
@@ -124,6 +148,7 @@ class TestBootWiresDiscovery:
             for r in results:
                 assert r.matched_conditions == ["close", "rsi"]
                 assert r.score == 1.0
+                assert r.indicator_values["rsi"] == pytest.approx(0.0, abs=1e-9)
         finally:
             session.stop()
 

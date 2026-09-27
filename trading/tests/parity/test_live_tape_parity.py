@@ -119,9 +119,23 @@ def _replay_tape(
 
     pushed: list = []
 
+    class _Subscription:
+        """What a stream backend's ``subscribe_orders`` hands back.
+
+        The bridge owns the subscription and calls ``.dispose()`` on it unless
+        it was given an ``unsubscribe`` callback. Returning a bare string — as
+        this harness used to — made ``close()`` raise, which the bridge
+        swallows into an ERROR log: the loudest possible signal that a
+        money-path test's own plumbing was broken, buried in a captured log
+        nobody reads.
+        """
+
+        def dispose(self) -> None:
+            return None
+
     def subscribe_orders(handler):  # noqa: ANN001 — backend seam
         pushed.append(handler)
-        return "sub"
+        return _Subscription()
 
     bridge = LiveFillBridge(
         bus=bus, engine=engine, subscribe_orders=subscribe_orders,
@@ -269,8 +283,20 @@ _UPSTOX_STOP_FINAL = {**_UPSTOX_STOP_OPEN, "status": "complete",
 
 def test_dhan_stop_tape_fills_granular_after_trigger() -> None:
     """TRIGGER_PENDING maps to ACK; once triggered, partial+final deltas land
-    at the tape traded price. Equal-lot partials (5+5) require the trade-id
-    resolver — without it the composite fingerprint dedups the second one."""
+    at the venue's own per-trade price. Equal-lot partials (5+5) require the
+    trade-id resolver — without it the composite fingerprint dedups the second
+    one, and the fill carries the cumulative average instead of the trade's
+    price.
+
+    The trade-book rows below are the point of the test, so they are *rows*: an
+    order id, a trade id, and the traded quantity and price Dhan returns from
+    ``GET /trades``. They used to carry only the two ids, which
+    ``TradeBookFillIdResolver`` correctly rejects as "not a per-trade fill" —
+    so the resolver was inert, the bridge fell back to the cumulative average,
+    and the fill ids came out as ``avg-price:prov-1:5`` instead of ``t1``. A
+    fixture that cannot exercise the thing it is named for is worse than no
+    fixture, because it passes.
+    """
     from tradex_runtime.live_fill_bridge import TradeBookFillIdResolver
 
     broker = DhanBroker.from_fetch(
@@ -282,7 +308,15 @@ def test_dhan_stop_tape_fills_granular_after_trigger() -> None:
     broker.registry.add_alias("2885", iid)
     mapper = broker._transport._stream_order_from_row  # noqa: SLF001
 
-    trades = [{"orderId": "prov-1", "tradeId": f"t{n}"} for n in range(1, 10)]
+    # A trade book AHEAD of the stream: nine 5-share trades for a 10-share
+    # order, so the resolver's `limit` is what stops it over-filling.
+    trades = [
+        {
+            "orderId": "prov-1", "tradeId": f"t{n}",
+            "tradedQuantity": "5", "tradedPrice": str(_TRADED),
+        }
+        for n in range(1, 10)
+    ]
     resolver = TradeBookFillIdResolver(lambda: trades)
 
     engine, fills = _replay_tape(
@@ -320,6 +354,15 @@ def test_dhan_reject_and_cancel_rows_map_but_produce_no_fills() -> None:
 
 
 def test_upstox_stop_tape_fills_granular() -> None:
+    """Upstox's twin of the Dhan case, on Upstox's own field names.
+
+    The fill-id assertion is here for the same reason it is in the Dhan test:
+    the trade book has to be a trade book. It did not have to assert it before
+    because a resolver handed rows it can read and one it cannot produce the
+    same quantities and the same prices here — ``tradedPrice`` and
+    ``average_price`` are the same number on this tape — so an inert resolver
+    was invisible from the outside.
+    """
     from tradex_runtime.live_fill_bridge import TradeBookFillIdResolver
 
     broker = UpstoxBroker.from_fetch(
@@ -329,7 +372,13 @@ def test_upstox_stop_tape_fills_granular() -> None:
     broker.registry.register(_RELIANCE.instrument_id, {"key": "NSE_EQ|RELIANCE"})
     mapper = broker._transport._stream_order_from_row  # noqa: SLF001
 
-    trades = [{"order_id": "prov-1", "tradeId": f"t{n}"} for n in range(1, 10)]
+    trades = [
+        {
+            "order_id": "prov-1", "trade_id": f"t{n}",
+            "quantity": 5, "price": float(_TRADED),
+        }
+        for n in range(1, 10)
+    ]
     resolver = TradeBookFillIdResolver(lambda: trades, order_id_key="order_id")
 
     engine, fills = _replay_tape(
@@ -339,6 +388,7 @@ def test_upstox_stop_tape_fills_granular() -> None:
     order = engine.cache.get_order("prov-1")
     assert order.status == OrderStatus.FILLED
     assert [f.fill.quantity.value for f in fills] == [Decimal("5"), Decimal("5")]
+    assert [f.fill.fill_id for f in fills] == ["t1", "t2"]
     assert all(f.fill.price.value == _TRADED for f in fills)
 
 
