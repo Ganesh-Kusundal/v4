@@ -14,10 +14,11 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from tradex_config.schema import AppConfig, RiskConfig
+from tradex_config.schema import AppConfig
 from tradex_domain import BrokerId
 from tradex_runtime.session_impl import SessionState
 from tradex_runtime.startup import boot
+from trading.tests.risk_support import app_config, permissive_risk
 
 # ---------------------------------------------------------------------------
 # Boot modes — verify session starts correctly in each mode
@@ -28,21 +29,21 @@ class TestBootModes:
     """boot() works in paper, backtest, and replay modes."""
 
     def test_boot_paper_mode(self) -> None:
-        config = AppConfig(mode="paper")
+        config = AppConfig(risk=permissive_risk(), mode="paper")
         session = boot(config)
         assert session.state == SessionState.READY
         assert session.mode == "paper"
         session.stop()
 
     def test_boot_backtest_mode(self) -> None:
-        config = AppConfig(mode="backtest")
+        config = AppConfig(risk=permissive_risk(), mode="backtest")
         session = boot(config)
         assert session.state == SessionState.READY
         assert session.mode == "backtest"
         session.stop()
 
     def test_boot_replay_mode(self) -> None:
-        config = AppConfig(mode="replay")
+        config = AppConfig(risk=permissive_risk(), mode="replay")
         session = boot(config)
         assert session.state == SessionState.READY
         assert session.mode == "replay"
@@ -58,17 +59,23 @@ class TestBootSafety:
     """boot() rejects invalid configurations."""
 
     def test_invalid_mode_raises(self) -> None:
-        config = AppConfig(mode="invalid")
+        config = AppConfig(risk=permissive_risk(), mode="invalid")
         with pytest.raises(ValueError, match="unknown mode"):
             boot(config)
 
     def test_live_mode_with_paper_broker_raises(self) -> None:
-        config = AppConfig(mode="live", broker_id=BrokerId.PAPER, live_enabled=True)
+        config = AppConfig(
+            risk=permissive_risk(), mode="live",
+            broker_id=BrokerId.PAPER, live_enabled=True,
+        )
         with pytest.raises(ValueError, match="live mode requires a non-paper broker"):
             boot(config)
 
     def test_live_mode_without_live_enabled_raises(self) -> None:
-        config = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=False)
+        config = AppConfig(
+            risk=permissive_risk(), mode="live",
+            broker_id=BrokerId.DHAN, live_enabled=False,
+        )
         with pytest.raises(ValueError, match="live mode requires live_enabled"):
             boot(config)
 
@@ -83,7 +90,7 @@ class TestSessionPropertiesInModes:
 
     @pytest.mark.parametrize("mode", ["paper", "backtest", "replay"])
     def test_all_properties_accessible(self, mode: str) -> None:
-        config = AppConfig(mode=mode)
+        config = AppConfig(risk=permissive_risk(), mode=mode)
         session = boot(config)
         assert session.broker is not None
         assert session.engine is not None
@@ -92,7 +99,7 @@ class TestSessionPropertiesInModes:
 
     @pytest.mark.parametrize("mode", ["paper", "backtest", "replay"])
     def test_broker_id_is_paper(self, mode: str) -> None:
-        config = AppConfig(mode=mode)
+        config = AppConfig(risk=permissive_risk(), mode=mode)
         session = boot(config)
         assert session.broker_id == BrokerId.PAPER
         session.stop()
@@ -107,14 +114,14 @@ class TestRiskConfigPropagation:
     """RiskConfig is propagated to the execution engine."""
 
     def test_default_risk_config(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         # Session should be working with default risk config
         assert session.state == SessionState.READY
         session.stop()
 
     def test_custom_risk_config(self) -> None:
         config = AppConfig(
-            risk=RiskConfig(
+            risk=permissive_risk(
                 max_order_value=Decimal("100000"),
                 max_position_value=Decimal("500000"),
                 max_orders_per_minute=60,
@@ -123,3 +130,10 @@ class TestRiskConfigPropagation:
         session = boot(config)
         assert session.state == SessionState.READY
         session.stop()
+
+
+#: AC-10: a paper/live boot needs a named risk policy. This suite is
+#: about wiring, not risk, so it takes the permissive policy: real,
+#: huge value caps, and an explicit UNBOUNDED on the two P&L guards it
+#: has no mark service to satisfy.
+_CFG = app_config()

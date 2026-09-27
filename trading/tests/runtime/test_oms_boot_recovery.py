@@ -29,6 +29,7 @@ from tradex_execution.sqlite_event_store import SQLiteEventStore
 from tradex_execution.trading_cache import TradingCache
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.startup import _attach_event_store, _recover_oms_from_events
+from trading.tests.risk_support import permissive_risk
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -224,7 +225,7 @@ def test_boot_with_persistence_replays_events_into_cache(tmp_path: Path) -> None
     store.append(OrderPlaced(order=_order("pre-boot-2")))
     store.close()
 
-    cfg = AppConfig(persistence=PersistenceConfig(path=str(db)))
+    cfg = AppConfig(risk=permissive_risk(), persistence=PersistenceConfig(path=str(db)))
     session = boot(cfg)
     try:
         cache = session.engine.cache
@@ -252,7 +253,7 @@ def test_boot_with_persistence_appends_new_events_after_boot(tmp_path: Path) -> 
     from tradex_runtime.startup import boot
 
     db = _db(tmp_path)
-    cfg = AppConfig(persistence=PersistenceConfig(path=str(db)))
+    cfg = AppConfig(risk=permissive_risk(), persistence=PersistenceConfig(path=str(db)))
     session = boot(cfg)
     try:
         assert session.engine._event_store is not None
@@ -284,7 +285,7 @@ def test_boot_without_persistence_path_skips_event_store(tmp_path: Path) -> None
 
     before = set(os.listdir(tmp_path))
 
-    cfg = AppConfig()  # no persistence path
+    cfg = AppConfig(risk=permissive_risk())  # no persistence path
     session = boot(cfg)
     session.stop()
 
@@ -312,7 +313,7 @@ def test_event_replay_precedes_reconciliation(tmp_path: Path) -> None:
     store.append(OrderPlaced(order=_order("seq-check-1", OrderStatus.NEW)))
     store.close()
 
-    cfg = AppConfig(persistence=PersistenceConfig(path=str(db)))
+    cfg = AppConfig(risk=permissive_risk(), persistence=PersistenceConfig(path=str(db)))
     session = boot(cfg)
     try:
         # session is in READY state (start() was called)

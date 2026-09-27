@@ -8,6 +8,7 @@ import tradex_runtime.startup as startup_mod
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_runtime.session_impl import SessionState
+from trading.tests.risk_support import permissive_risk
 
 
 def _fake_live_broker() -> MagicMock:
@@ -22,7 +23,7 @@ def _fake_live_broker() -> MagicMock:
 
 
 def _live_cfg(tmp_path) -> AppConfig:
-    return AppConfig(
+    return AppConfig(risk=permissive_risk(),
         mode="live",
         broker_id=BrokerId.DHAN,
         live_enabled=True,
@@ -78,7 +79,7 @@ def test_live_boot_without_event_store_refuses_ready(monkeypatch, tmp_path) -> N
 
 def test_paper_boot_does_not_require_fail_closed_flags() -> None:
     """Paper mode must not enable live-only engine gates."""
-    session = startup_mod.boot(AppConfig(mode="paper"))
+    session = startup_mod.boot(AppConfig(risk=permissive_risk(), mode="paper"))
     try:
         engine = session.engine
         assert engine._require_risk is False  # noqa: SLF001

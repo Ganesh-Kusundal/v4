@@ -15,10 +15,11 @@ from tradex_interfaces.fastapi_app import create_app
 from tradex_runtime.feed_supervisor import FeedSupervisor
 from tradex_runtime.metrics import MetricsRegistry
 from tradex_runtime.session_impl import TradingSession
+from trading.tests.risk_support import app_config
 
 
 def _session_with_feed(state: str) -> TradingSession:
-    session = TradingSession.paper()
+    session = TradingSession.paper(config=_CFG)
     supervisor = FeedSupervisor()
     supervisor.connected()
     supervisor.recovery_started()
@@ -158,3 +159,9 @@ def test_queue_drops_increment_feed_queue_drops_total() -> None:
     assert drops is not None and drops >= 1, (
         f"Expected feed_queue_drops_total >= 1, got {drops!r}"
     )
+
+
+#: AC-10: the SDK session factories need a named risk policy like any
+#: other paper/live boot. Not a risk test: real, huge value caps and an
+#: explicit UNBOUNDED on the P&L guards.
+_CFG = app_config()

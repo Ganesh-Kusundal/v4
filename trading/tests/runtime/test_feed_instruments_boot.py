@@ -52,6 +52,7 @@ from tradex_runtime.feed_recovery import ParquetHistoryProvider
 from tradex_runtime.feed_supervisor import FeedState
 from tradex_runtime.market_feed import MarketFeed
 from tradex_runtime.startup import boot
+from trading.tests.risk_support import permissive_risk
 
 _VAR = "TRADEX_FEED_INSTRUMENTS"
 _EPOCH = 1789946400  # 2026-09-24T10:00Z
@@ -107,7 +108,7 @@ def _fake_live_broker() -> MagicMock:
 
 
 def _live_config(tmp_path, **kwargs: Any) -> AppConfig:
-    return AppConfig(
+    return AppConfig(risk=permissive_risk(),
         broker_id=BrokerId.DHAN,
         mode="live",
         live_enabled=True,
@@ -281,7 +282,7 @@ def test_a_refused_boot_for_want_of_a_tape_rolls_back(tmp_path, monkeypatch) -> 
 
 def test_paper_with_no_variable_is_unchanged() -> None:
     """The mode the first phase targets: no feed, no recovery, an order fills."""
-    session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+    session = boot(AppConfig(risk=permissive_risk(), broker_id=BrokerId.PAPER, mode="paper"))
     try:
         assert session.market_feed is None
         assert session.feed_recovery is None
@@ -313,7 +314,7 @@ def test_paper_with_a_named_tape_is_still_unchanged(monkeypatch) -> None:
         MarketFeed, "start", lambda self, *a, **kw: started.append(a) or None
     )
 
-    session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+    session = boot(AppConfig(risk=permissive_risk(), broker_id=BrokerId.PAPER, mode="paper"))
     try:
         assert session.market_feed is None
         assert built == [] and started == []

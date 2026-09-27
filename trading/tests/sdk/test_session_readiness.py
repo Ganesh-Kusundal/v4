@@ -25,6 +25,7 @@ from tradex_config.schema import FEED_INSTRUMENTS_ENV, AppConfig, PersistenceCon
 from tradex_domain import BrokerId
 from tradex_domain.instruments import Equity
 from tradex_runtime.session_impl import SessionState, TradingSession
+from trading.tests.risk_support import app_config, permissive_risk
 
 #: The tape every live boot below has to name. A live session that names none is
 #: refused by design — see test_live_factory_returns_ready.
@@ -79,7 +80,7 @@ def _fake_live_broker() -> MagicMock:
 
 
 def test_paper_factory_returns_ready() -> None:
-    session = TradingSession.paper()
+    session = TradingSession.paper(config=_CFG)
     assert session.state == SessionState.READY
     # Services are immediately usable — no explicit start() needed.
     assert session.broker is not None
@@ -103,7 +104,7 @@ def test_live_factory_returns_ready(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         session_mod,
         "AppConfig",
-        lambda **kwargs: AppConfig(
+        lambda **kwargs: AppConfig(risk=permissive_risk(),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
@@ -121,7 +122,7 @@ def test_live_factory_requires_confirm() -> None:
 def test_boot_paper_returns_ready() -> None:
     from tradex_runtime.startup import boot
 
-    session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+    session = boot(AppConfig(risk=permissive_risk(), broker_id=BrokerId.PAPER, mode="paper"))
     assert session.state == SessionState.READY
     assert session.broker is not None
     session.stop()
@@ -130,7 +131,7 @@ def test_boot_paper_returns_ready() -> None:
 def test_boot_backtest_returns_ready() -> None:
     from tradex_runtime.startup import boot
 
-    session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="backtest"))
+    session = boot(AppConfig(risk=permissive_risk(), broker_id=BrokerId.PAPER, mode="backtest"))
     assert session.state == SessionState.READY
     assert session.broker is not None
     session.stop()
@@ -159,13 +160,13 @@ def test_boot_live_returns_ready(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         startup,
         "AppConfig",
-        lambda **kwargs: AppConfig(
+        lambda **kwargs: AppConfig(risk=permissive_risk(),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
 
     session = startup.boot(
-        AppConfig(
+        AppConfig(risk=permissive_risk(),
             broker_id=BrokerId.DHAN,
             mode="live",
             live_enabled=True,
@@ -192,14 +193,14 @@ def test_boot_live_fails_when_verify_connection_false(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(
         startup,
         "AppConfig",
-        lambda **kwargs: AppConfig(
+        lambda **kwargs: AppConfig(risk=permissive_risk(),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
 
     with pytest.raises(RuntimeError, match="wire authentication|verify_connection"):
         startup.boot(
-            AppConfig(
+            AppConfig(risk=permissive_risk(),
                 broker_id=BrokerId.DHAN,
                 mode="live",
                 live_enabled=True,
@@ -231,12 +232,12 @@ def test_boot_live_has_one_feed_supervisor(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         startup,
         "AppConfig",
-        lambda **kwargs: AppConfig(
+        lambda **kwargs: AppConfig(risk=permissive_risk(),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
     session = startup.boot(
-        AppConfig(
+        AppConfig(risk=permissive_risk(),
             broker_id=BrokerId.DHAN,
             mode="live",
             live_enabled=True,
@@ -280,8 +281,14 @@ def test_boot_live_has_one_feed_supervisor(monkeypatch, tmp_path) -> None:
 def test_boot_context_returns_ready_session() -> None:
     from tradex_runtime.startup import boot_context
 
-    ctx = boot_context(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+    ctx = boot_context(AppConfig(risk=permissive_risk(), broker_id=BrokerId.PAPER, mode="paper"))
     assert ctx.session.state == SessionState.READY
     assert ctx.session.broker is not None
     ctx.close()
     assert ctx.session.state == SessionState.STOPPED
+
+
+#: AC-10: the SDK session factories need a named risk policy like any
+#: other paper/live boot. Not a risk test: real, huge value caps and an
+#: explicit UNBOUNDED on the P&L guards.
+_CFG = app_config()

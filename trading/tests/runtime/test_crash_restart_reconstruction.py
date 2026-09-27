@@ -20,6 +20,7 @@ from tradex_domain.execution import OrderRequest, Position
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Money, Price, Quantity
 from tradex_runtime.session_impl import SessionState
+from trading.tests.risk_support import permissive_risk
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 #: The balance the paper book holds after the ladder. A live broker's funds
@@ -49,7 +50,7 @@ def _broker(
 
 
 def _live_cfg(tmp_path) -> AppConfig:
-    return AppConfig(
+    return AppConfig(risk=permissive_risk(),
         mode="live",
         broker_id=BrokerId.DHAN,
         live_enabled=True,
@@ -66,7 +67,7 @@ def _cfg(tmp_path) -> AppConfig:
     store, the recovery fold, and the boot ordering under test are the same code
     the live path runs.
     """
-    return AppConfig(
+    return AppConfig(risk=permissive_risk(),
         mode="paper",
         broker_id=BrokerId.PAPER,
         live_enabled=False,

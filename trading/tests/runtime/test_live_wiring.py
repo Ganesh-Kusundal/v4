@@ -19,6 +19,7 @@ from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
 from tradex_runtime.startup import boot
+from trading.tests.risk_support import app_config, permissive_risk
 
 
 def _request() -> OrderRequest:
@@ -42,20 +43,20 @@ class TestPaperWiring:
     """PaperBroker boot wiring works correctly."""
 
     def test_paper_boot_returns_ready_session(self) -> None:
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(risk=permissive_risk(), mode="paper"))
         assert session.state == "READY"
         assert session.broker_id == BrokerId.PAPER
         assert session.mode == "paper"
         session.stop()
 
     def test_paper_session_routes_order_through_engine(self) -> None:
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(risk=permissive_risk(), mode="paper"))
         receipt = session.engine.submit(_request())
         assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
         session.stop()
 
     def test_paper_session_has_all_services(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         assert session.broker is not None
         assert session.engine is not None
         assert session.bus is not None
@@ -65,7 +66,7 @@ class TestPaperWiring:
     def test_paper_session_broker_returns_quote(self) -> None:
         from tradex_domain.market import Quote
 
-        session = boot()
+        session = boot(_CFG)
         quote = session.broker.get_quote(Equity.of("NSE", "RELIANCE"))
         assert isinstance(quote, Quote)
         session.stop()
@@ -73,7 +74,7 @@ class TestPaperWiring:
     def test_paper_session_portfolio_returns_account(self) -> None:
         from tradex_domain.execution import Account
 
-        session = boot()
+        session = boot(_CFG)
         account = session.broker.get_account()
         assert isinstance(account, Account)
         session.stop()
@@ -88,10 +89,17 @@ class TestLiveOrderGate:
     """Live orders require explicit opt-in via config."""
 
     def test_live_orders_default_off(self) -> None:
-        config = AppConfig(mode="paper")
+        config = AppConfig(risk=permissive_risk(), mode="paper")
         # Default config should not allow live orders
         assert config.live_enabled is False
 
     def test_live_orders_require_explicit_opt_in(self) -> None:
-        config = AppConfig(live_enabled=True)
+        config = AppConfig(risk=permissive_risk(), live_enabled=True)
         assert config.live_enabled is True
+
+
+#: AC-10: a paper/live boot needs a named risk policy. This suite is
+#: about wiring, not risk, so it takes the permissive policy: real,
+#: huge value caps, and an explicit UNBOUNDED on the two P&L guards it
+#: has no mark service to satisfy.
+_CFG = app_config()

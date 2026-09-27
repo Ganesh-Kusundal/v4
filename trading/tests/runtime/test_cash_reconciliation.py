@@ -17,6 +17,7 @@ from tradex_domain import BrokerId
 from tradex_domain.execution import Account
 from tradex_domain.value_objects import AccountId, Money
 from tradex_runtime.session_impl import SessionState
+from trading.tests.risk_support import permissive_risk
 
 
 def _broker(cash: Decimal) -> MagicMock:
@@ -34,7 +35,7 @@ def _broker(cash: Decimal) -> MagicMock:
 
 
 def _cfg(tmp_path) -> AppConfig:
-    return AppConfig(
+    return AppConfig(risk=permissive_risk(),
         mode="live",
         broker_id=BrokerId.DHAN,
         live_enabled=True,

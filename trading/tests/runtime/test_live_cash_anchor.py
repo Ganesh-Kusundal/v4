@@ -13,6 +13,7 @@ from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_domain.execution import Account
 from tradex_domain.value_objects import AccountId, Money
+from trading.tests.risk_support import permissive_risk
 
 
 def _broker_with_cash(cash: Decimal | None) -> MagicMock:
@@ -31,7 +32,7 @@ def _broker_with_cash(cash: Decimal | None) -> MagicMock:
 
 
 def _live_cfg(tmp_path) -> AppConfig:
-    return AppConfig(
+    return AppConfig(risk=permissive_risk(),
         mode="live",
         broker_id=BrokerId.DHAN,
         live_enabled=True,
@@ -71,7 +72,7 @@ def test_live_boot_anchors_cash_so_a_restart_can_fold_it(
     from tradex_runtime import startup as sm
 
     db = str(tmp_path / "orders.db")
-    cfg = AppConfig(
+    cfg = AppConfig(risk=permissive_risk(),
         mode="live",
         broker_id=BrokerId.DHAN,
         live_enabled=True,
@@ -137,7 +138,7 @@ def test_live_boot_reports_unknown_when_funds_call_raises(
 def test_paper_boot_binds_cash_provider() -> None:
     from tradex_runtime import startup as sm
 
-    session = sm.boot(AppConfig(mode="paper"))
+    session = sm.boot(AppConfig(risk=permissive_risk(), mode="paper"))
     try:
         risk = session.engine._risk
         assert risk.cash_provider_bound is True

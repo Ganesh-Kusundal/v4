@@ -16,6 +16,7 @@ from tradex_runtime.startup import boot
 from tradex_strategy.extensions import all_strategies
 from tradex_strategy.registry import StrategyRegistry
 from tradex_strategy.runtime import StrategyLifecycle
+from trading.tests.risk_support import permissive_risk
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -30,7 +31,7 @@ def _boot_paper(wire: bool = True):
     """
     from dataclasses import replace
 
-    config = AppConfig(mode="paper")
+    config = AppConfig(risk=permissive_risk(), mode="paper")
     config = replace(
         config,
         execution=replace(config.execution, auto_register_examples=True),

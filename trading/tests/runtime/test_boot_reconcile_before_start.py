@@ -19,6 +19,7 @@ from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_execution.reconciliation import DriftItem, DriftSeverity
 from tradex_runtime import startup as startup_mod
+from trading.tests.risk_support import permissive_risk
 
 
 def _patched_boot_with_drift(
@@ -51,7 +52,7 @@ def _patched_boot_with_drift(
         "tradex_execution.engine.ReconciliationEngine.reconcile",
         fake_reconcile,
     )
-    cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
+    cfg = AppConfig(risk=permissive_risk(), mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
                     persistence=PersistenceConfig(path=str(tmp_path / "orders.db")))
     return cfg, broker
 

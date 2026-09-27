@@ -27,6 +27,7 @@ from unittest.mock import MagicMock
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_strategy.extensions import all_strategies
+from trading.tests.risk_support import permissive_risk
 
 
 def _live_broker() -> MagicMock:
@@ -45,7 +46,7 @@ def _live_broker() -> MagicMock:
 
 
 def _live_cfg(tmp_path) -> AppConfig:
-    return AppConfig(
+    return AppConfig(risk=permissive_risk(),
         mode="live",
         broker_id=BrokerId.DHAN,
         live_enabled=True,

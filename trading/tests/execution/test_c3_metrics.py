@@ -26,6 +26,7 @@ from tradex_execution.risk import RiskManager
 from tradex_execution.trading_cache import TradingCache
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.metrics import MetricsRegistry
+from trading.tests.risk_support import permissive_risk
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -579,7 +580,7 @@ def test_boot_wires_metrics_into_risk_and_mtm() -> None:
     from tradex_config.schema import AppConfig
     from tradex_runtime.startup import boot
 
-    session = boot(AppConfig(mode="paper"))
+    session = boot(AppConfig(risk=permissive_risk(), mode="paper"))
     try:
         assert session.metrics is not None
         risk = session.engine._risk  # type: ignore[attr-defined]

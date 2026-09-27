@@ -14,6 +14,7 @@ from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_runtime.session_impl import SessionState
 from tradex_runtime.startup import boot
 from tradex_runtime.streaming import StreamSubscription
+from trading.tests.risk_support import app_config
 
 # ---------------------------------------------------------------------------
 # Session state edges
@@ -24,7 +25,7 @@ class TestSessionStateEdges:
     """Session lifecycle edge cases."""
 
     def test_state_property_reflects_lifecycle(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         assert session.state == SessionState.READY
         session.stop()
         assert session.state == SessionState.STOPPED
@@ -41,7 +42,7 @@ class TestBusSubscriptionEdges:
     def test_subscribe_quotes_returns_disposable(self) -> None:
         from tradex_domain.market import Quote
 
-        session = boot()
+        session = boot(_CFG)
         received: list[Quote] = []
         d = session.bus.of_type(Quote).subscribe(received.append)
         assert not d.is_disposed
@@ -51,7 +52,7 @@ class TestBusSubscriptionEdges:
     def test_start_market_feed_raises_in_paper_mode(self) -> None:
         from tradex_domain.instruments import Equity
 
-        session = boot()
+        session = boot(_CFG)
         assert session.market_feed is None
         with pytest.raises(CapabilityNotSupportedError, match="paper"):
             session.start_market_feed([Equity.of("NSE", "RELIANCE")])
@@ -64,7 +65,7 @@ class TestBusSubscriptionEdges:
         from tradex_domain.market import Depth
         from tradex_domain.value_objects import Price, Quantity
 
-        session = boot()
+        session = boot(_CFG)
         received: list[Depth] = []
         d = session.bus.of_type(Depth).subscribe(received.append)
         depth = Depth(
@@ -81,7 +82,7 @@ class TestBusSubscriptionEdges:
     def test_stop_disposes_subscriptions(self) -> None:
         from tradex_domain.market import Quote
 
-        session = boot()
+        session = boot(_CFG)
         sub = StreamSubscription(session.bus.of_type(Quote).subscribe(lambda q: None), "quotes")
         session._subscriptions.append(sub)
         assert sub.is_active
@@ -101,10 +102,17 @@ class TestStreamSubscriptionRepr:
     def test_repr(self) -> None:
         from tradex_domain.market import Quote
 
-        session = boot()
+        session = boot(_CFG)
         sub = StreamSubscription(session.bus.of_type(Quote).subscribe(lambda q: None), "quotes")
         r = repr(sub)
         assert "StreamSubscription" in r
         assert "quotes" in r
         sub.cancel()
         session.stop()
+
+
+#: AC-10: a paper/live boot needs a named risk policy. This suite is
+#: about wiring, not risk, so it takes the permissive policy: real,
+#: huge value caps, and an explicit UNBOUNDED on the two P&L guards it
+#: has no mark service to satisfy.
+_CFG = app_config()

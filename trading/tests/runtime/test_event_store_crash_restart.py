@@ -22,6 +22,7 @@ from tradex_execution.sqlite_event_store import SQLiteEventStore
 from tradex_execution.trading_cache import TradingCache
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.startup import _recover_oms_from_events
+from trading.tests.risk_support import permissive_risk
 
 
 def _market_buy() -> OrderRequest:
@@ -148,7 +149,7 @@ def test_live_boot_ready_after_recover_when_broker_matches(
     )
 
     session = startup_mod.boot(
-        AppConfig(
+        AppConfig(risk=permissive_risk(),
             mode="live",
             broker_id=BrokerId.DHAN,
             live_enabled=True,
@@ -187,7 +188,7 @@ def test_live_boot_refuses_ready_after_recover_on_high_recon_drift(
     )
 
     session = startup_mod.boot(
-        AppConfig(
+        AppConfig(risk=permissive_risk(),
             mode="live",
             broker_id=BrokerId.DHAN,
             live_enabled=True,

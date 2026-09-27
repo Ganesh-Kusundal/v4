@@ -16,6 +16,7 @@ from decimal import Decimal
 
 from tradex_domain.events import CashAccountInitialized, OrderFilled
 from tradex_execution.recovery import InMemoryEventStore, fold_cash
+from trading.tests.risk_support import permissive_risk
 
 
 def _anchor(amount: str) -> CashAccountInitialized:
@@ -100,7 +101,7 @@ def test_a_fill_bearing_log_without_an_anchor_is_not_anchored_from_broker_funds(
     from tradex_runtime import startup as sm
 
     db = str(tmp_path / "orders.db")
-    cfg = AppConfig(
+    cfg = AppConfig(risk=permissive_risk(),
         mode="paper",
         broker_id=BrokerId.PAPER,
         live_enabled=False,
@@ -165,7 +166,7 @@ def test_restart_does_not_append_a_second_anchor(monkeypatch, tmp_path) -> None:
     from tradex_runtime import startup as sm
 
     db = str(tmp_path / "orders.db")
-    cfg = AppConfig(
+    cfg = AppConfig(risk=permissive_risk(),
         mode="paper",
         broker_id=BrokerId.PAPER,
         live_enabled=False,

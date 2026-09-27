@@ -14,6 +14,7 @@ from tradex_domain import BrokerId
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.session_impl import TradingSession
 from tradex_runtime.startup import boot
+from trading.tests.risk_support import app_config, permissive_risk
 
 
 def _graph(session: TradingSession) -> dict[str, object]:
@@ -34,9 +35,9 @@ def _graph(session: TradingSession) -> dict[str, object]:
 
 def test_paper_factory_matches_boot() -> None:
     shared_bus = ReactiveBus()
-    via_factory = TradingSession.paper(bus=shared_bus)
+    via_factory = TradingSession.paper(config=_CFG, bus=shared_bus)
     via_boot = boot(
-        AppConfig(mode="paper", broker_id=BrokerId.PAPER),
+        AppConfig(risk=permissive_risk(), mode="paper", broker_id=BrokerId.PAPER),
         bus=shared_bus,
         wire_strategies=False,
     )
@@ -46,7 +47,7 @@ def test_paper_factory_matches_boot() -> None:
 
 
 def test_paper_session_ready_and_services_usable() -> None:
-    session = TradingSession.paper()
+    session = TradingSession.paper(config=_CFG)
     assert session.state.value == "READY"
     session.stop()
 
@@ -57,3 +58,9 @@ def test_appconfig_untouched() -> None:
     assert {f.name for f in fields(AppConfig)} >= {
         "broker_id", "mode", "risk", "live_enabled", "execution"
     }
+
+
+#: AC-10: the SDK session factories need a named risk policy like any
+#: other paper/live boot. Not a risk test: real, huge value caps and an
+#: explicit UNBOUNDED on the P&L guards.
+_CFG = app_config()

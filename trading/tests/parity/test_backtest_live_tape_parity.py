@@ -109,6 +109,7 @@ from tradex_runtime.tape_recorder import (
 )
 from tradex_strategy import ReactiveStrategyEngine
 from tradex_strategy.core.sizing import PositionSizer
+from trading.tests.risk_support import permissive_risk
 
 #: The backtest engine under test, imported under a private alias so the two
 #: paths stay visually distinct in the helpers below.
@@ -358,7 +359,7 @@ def _run_live(
     bus = ReactiveBus()
     session = TradingSession.paper(
         bus=bus,
-        config=AppConfig(execution=ExecutionConfig(fees_enabled=True)),
+        config=AppConfig(risk=permissive_risk(), execution=ExecutionConfig(fees_enabled=True)),
     )
     strategy_engine = ReactiveStrategyEngine(
         session.bus, fill_reference="next_open", sizer=sizer,

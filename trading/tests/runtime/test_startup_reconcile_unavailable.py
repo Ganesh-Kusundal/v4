@@ -11,6 +11,7 @@ from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fill_sources import SimulatedFillSource
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.session_impl import SessionState
+from trading.tests.risk_support import permissive_risk
 
 
 def test_run_startup_reconciliation_unavailable_trips_kill_switch() -> None:
@@ -58,7 +59,7 @@ def test_live_boot_reconcile_unavailable_refuses_ready(monkeypatch, tmp_path) ->
         lambda _pid, **_kw: broker,
     )
 
-    cfg = AppConfig(
+    cfg = AppConfig(risk=permissive_risk(),
         mode="live",
         broker_id=BrokerId.DHAN,
         live_enabled=True,

@@ -13,6 +13,7 @@ from __future__ import annotations
 from tradex_config.schema import AppConfig
 from tradex_domain.events import ErrorOccurred
 from tradex_runtime import startup as startup_mod
+from trading.tests.risk_support import permissive_risk
 
 
 def test_error_occurred_counter_increments_after_publish() -> None:
@@ -20,7 +21,7 @@ def test_error_occurred_counter_increments_after_publish() -> None:
     ``engine.errors.total`` (or equivalent). The principal-architect
     fix wires a subscriber that logs + counts.
     """
-    cfg = AppConfig(mode="paper")
+    cfg = AppConfig(risk=permissive_risk(), mode="paper")
     session = startup_mod.boot(cfg)
     try:
         engine = session.engine

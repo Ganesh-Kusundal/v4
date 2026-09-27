@@ -26,6 +26,7 @@ from tradex_runtime.live import (
     provider_environment,
 )
 from tradex_runtime.startup import RuntimeContext, _broker_matches_config
+from trading.tests.risk_support import permissive_risk
 
 # ---------------------------------------------------------------------------
 # Task 2: config/schema.py
@@ -105,14 +106,14 @@ class TestStartupPorts:
     def test_broker_matches_config_paper(self) -> None:
         from tradex_brokers import PaperBroker
 
-        config = AppConfig(broker=BrokerConfig(name="paper"))
+        config = AppConfig(risk=permissive_risk(), broker=BrokerConfig(name="paper"))
         broker = PaperBroker()
         assert _broker_matches_config(config, broker) is True
 
     def test_broker_matches_config_mismatch(self) -> None:
         from tradex_brokers import DhanBroker
 
-        config = AppConfig(broker=BrokerConfig(name="upstox"))
+        config = AppConfig(risk=permissive_risk(), broker=BrokerConfig(name="upstox"))
         broker = DhanBroker()
         assert _broker_matches_config(config, broker) is False
 
@@ -121,7 +122,7 @@ class TestStartupPorts:
         class CustomBroker:
             provider: str = "dhan"
 
-        config = AppConfig(broker=BrokerConfig(name="dhan"))
+        config = AppConfig(risk=permissive_risk(), broker=BrokerConfig(name="dhan"))
         assert _broker_matches_config(config, CustomBroker()) is True
 
     def test_runtime_context_is_dataclass(self) -> None:

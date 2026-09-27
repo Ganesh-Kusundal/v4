@@ -13,6 +13,7 @@ from tradex_domain.strategy import ScannerDefinition, StrategyContext
 from tradex_domain.value_objects import Price, Quantity
 from tradex_strategy.core.protocols import Strategy
 from tradex_strategy.extensions import all_scanners, all_strategies
+from trading.tests.risk_support import permissive_risk
 
 INSTRUMENT = Equity.of(ExchangeId.NSE, "RELIANCE")
 
@@ -299,7 +300,7 @@ class TestNifty500TechnicalScanner:
             broker.history = history
             return broker
 
-        session = boot(AppConfig(mode="paper"), broker=fake_broker())
+        session = boot(AppConfig(risk=permissive_risk(), mode="paper"), broker=fake_broker())
         try:
             results = session._scanner_engine.run(nifty500_technical_scanner)
             assert isinstance(results, list)

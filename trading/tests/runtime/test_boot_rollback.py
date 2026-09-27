@@ -18,6 +18,7 @@ import pytest
 import tradex_runtime.startup as startup_mod
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
+from trading.tests.risk_support import permissive_risk
 
 
 def test_safe_teardown_handles_non_live(monkeypatch) -> None:
@@ -84,7 +85,7 @@ def test_paper_boot_failure_uses_rollback(monkeypatch) -> None:
         fake_boot_tail,
     )
 
-    cfg = AppConfig(mode="paper")
+    cfg = AppConfig(risk=permissive_risk(), mode="paper")
 
     with pytest.raises(RuntimeError, match="simulated non-live boot failure"):
         startup_mod.boot(cfg)
@@ -122,7 +123,7 @@ def test_live_boot_failure_still_releases_lock(monkeypatch, tmp_path) -> None:
         fake_boot_tail,
     )
 
-    cfg = AppConfig(
+    cfg = AppConfig(risk=permissive_risk(),
         mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
         persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
     )

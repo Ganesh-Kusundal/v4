@@ -21,6 +21,7 @@ from tradex_execution.fill_sources import PaperFillSource, SimulatedFillSource
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.session_impl import SessionState
 from tradex_runtime.startup import boot
+from trading.tests.risk_support import app_config
 
 
 def _make_equity() -> Equity:
@@ -48,27 +49,27 @@ class TestSessionLifecycle:
     """Session state transitions."""
 
     def test_boot_returns_ready_session(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         assert session.state == SessionState.READY
         session.stop()
 
     def test_stop_transitions_to_stopped(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         session.stop()
         assert session.state == SessionState.STOPPED
 
     def test_double_stop_is_safe(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         session.stop()
         session.stop()  # should not raise
 
     def test_broker_id_is_paper_by_default(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         assert session.broker_id == BrokerId.PAPER
         session.stop()
 
     def test_mode_is_paper_by_default(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         assert session.mode == "paper"
         session.stop()
 
@@ -79,7 +80,7 @@ class TestSessionLifecycle:
         stop() the daemon receive loop and reconnect machinery stayed armed,
         minting fresh tokens forever.
         """
-        session = boot()
+        session = boot(_CFG)
         broker = session._broker
         assert broker._connected is True
         session.stop()
@@ -123,14 +124,21 @@ class TestSessionCapabilities:
     """Session capabilities and broker access."""
 
     def test_capabilities_accessible(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         caps = session.capabilities
         assert caps is not None
         assert caps.supports_market_order is True
         session.stop()
 
     def test_bus_is_reactive(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         from tradex_reactive.bus import ReactiveBus
         assert isinstance(session.bus, ReactiveBus)
         session.stop()
+
+
+#: AC-10: a paper/live boot needs a named risk policy. This suite is
+#: about wiring, not risk, so it takes the permissive policy: real,
+#: huge value caps, and an explicit UNBOUNDED on the two P&L guards it
+#: has no mark service to satisfy.
+_CFG = app_config()

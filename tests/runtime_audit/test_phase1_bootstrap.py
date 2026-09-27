@@ -11,6 +11,8 @@ from tradex_domain import BrokerId
 from tradex_runtime.session_impl import SessionState, TradingSession
 from tradex_runtime.startup import RuntimeContext, boot, boot_context
 
+from trading.tests.risk_support import permissive_risk
+
 
 def test_bootstrap_paper_session_success():
     """Verify clean composition root bootstrap in paper mode.
@@ -20,7 +22,7 @@ def test_bootstrap_paper_session_success():
     ``TradingSession``; ``boot_context`` is the surface that exposes
     ``session``/``engine``/``bus``/``broker`` together with ``close()``.
     """
-    ctx = boot_context(AppConfig(mode="paper"))
+    ctx = boot_context(AppConfig(risk=permissive_risk(), mode="paper"))
     try:
         assert isinstance(ctx, RuntimeContext)
         assert isinstance(ctx.session, TradingSession)
@@ -63,7 +65,7 @@ def test_bootstrap_live_fails_without_credentials():
     ]
     saved = {k: os.environ.pop(k) for k in dhan_env}
     try:
-        cfg = AppConfig(
+        cfg = AppConfig(risk=permissive_risk(),
             broker_id=BrokerId.DHAN,
             mode="live",
             live_enabled=True,
