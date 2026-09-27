@@ -372,6 +372,23 @@ def _time_of(record: Any) -> datetime | None:
     return _field(record, "time") or _field(record, "timestamp")
 
 
+def _quantity_of(record: Any) -> Any:
+    """A record's size, under either name it is written.
+
+    The second half of :func:`_time_of`'s bargain, and it was missing: the
+    engine's records carry ``qty`` and a domain ``Fill`` carries ``quantity``,
+    so reading only the first raised "a fill record is missing its quantity" on
+    exactly the ``Fill`` objects this function's docstring promises to accept.
+    One of the two callers was being made to convert after all, and the failure
+    was a ``ValidationReportError`` about a field that was present.
+
+    ``Price`` and ``Quantity`` need no help: both render as their decimal value,
+    so ``_decimal`` reads a wrapped number and a bare one the same way.
+    """
+    qty = _field(record, "qty")
+    return _field(record, "quantity") if qty is None else qty
+
+
 def _is_buy(side: Any) -> bool:
     text = str(getattr(side, "value", side)).strip().upper()
     if text in {"BUY", "B", "LONG"}:
@@ -401,7 +418,7 @@ def _executed(records: Sequence[Any]) -> list[tuple[datetime, bool, Decimal, Dec
     for record in records:
         if _field(record, "rejected"):
             continue
-        qty = _decimal(_field(record, "qty"), "quantity")
+        qty = _decimal(_quantity_of(record), "quantity")
         price = _decimal(_field(record, "price"), "price")
         if qty == 0 or price <= 0:
             continue
@@ -525,7 +542,7 @@ def round_trips_from_fills(
     for record in sorted(records, key=_time_of):
         if _field(record, "rejected"):
             continue
-        qty = _decimal(_field(record, "qty"), "quantity")
+        qty = _decimal(_quantity_of(record), "quantity")
         price = _decimal(_field(record, "price"), "price")
         if qty == 0 or price <= 0:
             continue
