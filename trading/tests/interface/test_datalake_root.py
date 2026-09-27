@@ -15,7 +15,10 @@ process working directory.
 from __future__ import annotations
 
 import ast
+from datetime import date, datetime, timedelta
+from datetime import time as dtime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -185,16 +188,59 @@ class TestDatalakeRoot:
 
     def test_serve_finds_bars_from_foreign_cwd(self, monkeypatch, tmp_path):
         """End-to-end regression: history endpoint returns datalake bars even
-        when the process cwd has no data/ (the exact 2026-09-02 breakage)."""
-        fastapi = pytest.importorskip("fastapi")
+        when the process cwd has no data/ (the exact 2026-09-02 breakage).
+
+        The lake is a fixture, seeded through the production writer. It used to
+        be whatever sat in ``<repo>/data``, which made this test pass on a
+        developer machine and fail on a fresh clone and in CI — ``data/`` is
+        gitignored, so there the endpoint answered ``source: "none"`` and this
+        asserted against a lake nobody had. What is under test is that the route
+        resolves the root through the anchored accessor and not through the
+        process cwd, which a fixture lake proves exactly as well as a real one:
+        the cwd has no ``data/`` either way, and ``seed_e2e_datalake`` writes
+        real M1 bars that the 5m request resamples from.
+        """
+        pytest.importorskip("fastapi")
         pytest.importorskip("pandas")
+        import pandas as pd
+        import tradex_market_data.paths as lake_paths
         from fastapi.testclient import TestClient
         from tradex_interfaces.fastapi_app import create_app
+        from tradex_market_data.parquet_storage import ParquetStorage
 
-        assert fastapi is not None
-        monkeypatch.chdir(tmp_path)  # cwd without data/, like trading/ on 09-02
+        # A scratch lake, one symbol, a few sessions of real 1m bars.
+        lake = tmp_path / "lake"
+        store = ParquetStorage(lake)
+        stamps = [
+            datetime.combine(day, dtime(9, 15)) + timedelta(minutes=i)
+            for day in (date(2026, 8, 3), date(2026, 8, 4), date(2026, 8, 5))
+            for i in range(375)
+        ]
+        store.upsert(pd.DataFrame([
+            dict(symbol="RELIANCE", exchange="NSE", kind="equity", timeframe="1m",
+                 timestamp=ts, open=100.0, high=101.0, low=99.0, close=100.0, volume=10)
+            for ts in stamps
+        ]))
+        assert len(store.read(symbols=["RELIANCE"], timeframe="1m")) == len(stamps)
+
+        monkeypatch.setattr(lake_paths, "DATALAKE_ROOT", str(lake))
+        foreign = tmp_path / "elsewhere"
+        foreign.mkdir()
+        monkeypatch.chdir(foreign)  # cwd without data/, like trading/ on 09-02
         client = TestClient(create_app(session=None))
-        resp = client.get("/api/charts/history/NSE:RELIANCE", params={"interval": "5m"})
+        # An explicit window around the fixture. With none supplied the route
+        # defaults to [now - lookback, now], and a fixture dated a fortnight ago
+        # would then be correctly reported as empty -- which is the route working,
+        # not the regression this guards.
+        ist = ZoneInfo("Asia/Kolkata")
+        resp = client.get(
+            "/api/charts/history/NSE:RELIANCE",
+            params={
+                "interval": "5m",
+                "from": int(datetime(2026, 8, 3, tzinfo=ist).timestamp()),
+                "to": int(datetime(2026, 8, 6, tzinfo=ist).timestamp()),
+            },
+        )
         assert resp.status_code == 200
         body = resp.json()
         assert body["source"] == "datalake", (
