@@ -181,6 +181,9 @@ class TestRejectionReasonCounters:
                 avg_price=Price(Decimal("200")),
                 realized_pnl=Money(amount=pnl[0], currency="INR"),
                 unrealized_pnl=Money(amount=Decimal("0"), currency="INR"),
+                mark_price=Price(Decimal("200")),
+                marked_at=datetime(2026, 9, 24, 9, 15, tzinfo=UTC),
+                mark_source="TEST",
             )]
 
         rm = RiskManager(
@@ -208,6 +211,9 @@ class TestRejectionReasonCounters:
                 avg_price=Price(Decimal("100")),
                 realized_pnl=Money(amount=pnl[0], currency="INR"),
                 unrealized_pnl=Money(amount=Decimal("0"), currency="INR"),
+                mark_price=Price(Decimal("100")),
+                marked_at=datetime(2026, 9, 24, 10, 0, tzinfo=UTC),
+                mark_source="TEST",
             )]
 
         rm = RiskManager(
@@ -407,17 +413,18 @@ class TestRiskExposureGauges:
 
     def test_daily_loss_gauge_emitted(self) -> None:
         reg = MetricsRegistry()
-        call_n = [0]
+        pnl = [Decimal("0")]
 
         def _pnl_positions():
-            call_n[0] += 1
-            pnl = Decimal("0") if call_n[0] <= 1 else Decimal("-300")
             return [Position(
                 instrument=_INST,
                 quantity=Quantity(Decimal("10")),
                 avg_price=Price(Decimal("100")),
-                realized_pnl=Money(amount=pnl, currency="INR"),
+                realized_pnl=Money(amount=pnl[0], currency="INR"),
                 unrealized_pnl=Money(amount=Decimal("0"), currency="INR"),
+                mark_price=Price(Decimal("100")),
+                marked_at=datetime(2026, 9, 24, 10, 0, tzinfo=UTC),
+                mark_source="TEST",
             )]
 
         rm = RiskManager(
@@ -427,7 +434,8 @@ class TestRiskExposureGauges:
         )
         ts = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
         rm.check(_req(), now=ts)   # seeds baseline with pnl=0
-        rm.check(_req(), now=ts)   # sees pnl=-300, daily_loss should be 300
+        pnl[0] = Decimal("-300")   # the day is now down 300
+        rm.check(_req(), now=ts)   # gauge should read 300
         assert reg.get("daily_loss") == pytest.approx(300.0, rel=0.01)
 
     def test_drawdown_pct_gauge_emitted(self) -> None:
@@ -443,6 +451,9 @@ class TestRiskExposureGauges:
                 avg_price=Price(Decimal("100")),
                 realized_pnl=Money(amount=pnl, currency="INR"),
                 unrealized_pnl=Money(amount=Decimal("0"), currency="INR"),
+                mark_price=Price(Decimal("100")),
+                marked_at=datetime(2026, 9, 24, 10, 0, tzinfo=UTC),
+                mark_source="TEST",
             )]
 
         rm = RiskManager(
