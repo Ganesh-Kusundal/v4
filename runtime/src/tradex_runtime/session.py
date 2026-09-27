@@ -1,9 +1,9 @@
 """Composition façade for :class:`TradingSession`.
 
-``TradingSession`` is still implemented under ``tradex_trading.sdk``; callers
-outside the composition root should import from here instead of the shim path.
+The implementation lives in :mod:`tradex_runtime.session_impl`; callers
+outside the composition root should import from here.
 """
 
-from tradex_trading.sdk.session import SessionState, TradingSession
+from tradex_runtime.session_impl import SessionState, TradingSession
 
 __all__ = ["SessionState", "TradingSession"]

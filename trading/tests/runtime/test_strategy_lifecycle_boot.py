@@ -12,11 +12,10 @@ No broker, no SQLite.  paper mode only.
 from __future__ import annotations
 
 from tradex_config.schema import AppConfig
+from tradex_runtime.startup import boot
 from tradex_strategy.extensions import all_strategies
 from tradex_strategy.registry import StrategyRegistry
 from tradex_strategy.runtime import StrategyLifecycle
-
-from tradex_trading.runtime.startup import boot
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -150,7 +149,7 @@ def test_no_registry_when_wire_strategies_false() -> None:
 
 def test_session_stop_fully_completes_with_registry() -> None:
     """session.stop() must complete without raising even when registry is wired."""
-    from tradex_trading.sdk.session import SessionState
+    from tradex_runtime.session_impl import SessionState
 
     session = _boot_paper(wire=True)
     session.stop()

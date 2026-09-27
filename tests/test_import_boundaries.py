@@ -15,7 +15,6 @@ _SRC = {
     "domain": _ROOT / "domain/src",
     "brokers": _ROOT / "brokers/src",
     "config": _ROOT / "config/src",
-    "trading": _ROOT / "trading/src",
     "research": _ROOT / "research/src",
     "operations": _ROOT / "operations/src",
     "observability": _ROOT / "observability/src",
@@ -98,9 +97,14 @@ _ALLOWED: dict[str, set[str]] = {
         "tradex_trading",  # sdk session only (config → tradex_config)
     },
     "persistence": {"tradex_execution"},
-    # Composition root + shims may import every extracted package.
-    "trading": set(_INTERNAL) - {"tradex_trading"},
 }
+# ``trading`` (the ``tradex_trading`` composition root) no longer has a source
+# tree: the last real code under it — the SDK session and live fill bridge — has
+# been moved into ``runtime`` and the whole package is deleted. Its entry was
+# removed from ``_SRC``/``_ALLOWED`` so the scan no longer targets a directory
+# that is gone, and the composition-root allowlist went with it. ``tradex_trading``
+# stays in ``_INTERNAL`` (below) so every negative guard still fails if any package
+# imports it again.
 
 # file → extra allowed modules (for the documented importlib exception)
 _EXCEPTIONS = {
@@ -180,20 +184,38 @@ def test_brokers_never_imports_trading() -> None:
         assert not violations, f"{path.relative_to(_ROOT)} imports {sorted(violations)}"
 
 
-def test_trading_only_imports_allowed_internals() -> None:
-    forbidden = _INTERNAL - _ALLOWED["trading"]
-    for path in _py_files(_SRC["trading"]):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        imported = _imported_modules(tree)
-        imported -= {"tradex_trading"}
-        violations = imported & forbidden
-        assert not violations, f"{path.relative_to(_ROOT)} imports {sorted(violations)}"
+def test_trading_composition_root_is_gone() -> None:
+    """The ``tradex_trading`` composition root has been fully retired.
+
+    Its last real code — the SDK session (:mod:`tradex_runtime.session_impl`),
+    the live fill bridge and the stream handles — now lives in ``runtime``, and
+    the package tree has been deleted. This is the guard that makes that move
+    stick: re-creating ``trading/src/tradex_trading`` (or re-pointing any
+    package back into it) fails the build instead of quietly rebuilding the
+    ``runtime -> trading -> runtime`` ring the extraction existed to remove.
+    """
+    assert not (_ROOT / "trading/src/tradex_trading").exists(), (
+        "trading/src/tradex_trading was re-created; the session/live-fill code "
+        "belongs in tradex_runtime, so re-adding the composition root needs an "
+        "explicit decision."
+    )
+    # Belt and braces: nothing under any scanned package may import it, even
+    # if someone re-adds the directory somewhere the assertion above misses.
+    for pkg, src in _SRC.items():
+        for path in _py_files(src):
+            dotted = _imported_dotted(
+                ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            )
+            hits = sorted(
+                m for m in dotted if m == "tradex_trading" or m.startswith("tradex_trading.")
+            )
+            assert not hits, f"{path.relative_to(_ROOT)} imports {hits}"
 
 
 def test_extracted_packages_respect_allowed_internals() -> None:
     """Each extracted package only imports its declared internal dependencies."""
     for pkg, allowed in _ALLOWED.items():
-        if pkg in {"domain", "brokers", "trading", "research", "operations", "config"}:
+        if pkg in {"domain", "brokers", "research", "operations", "config"}:
             continue
         if pkg not in _SRC:
             continue
@@ -445,7 +467,10 @@ def test_single_execution_authority_in_active_spine() -> None:
 _RETIRED_PREFIX = "tradex_trading.events"
 
 _RETIRED_SCAN_ROOTS = (
-    _ROOT / "trading/src",
+    # ``trading/src`` was dropped when the whole ``tradex_trading`` tree was
+    # deleted; nothing under it remains to import the retired stack. The
+    # negative ``tradex_trading.events`` assertion in
+    # ``test_retired_events_stack_is_actually_gone`` still guards re-creation.
     _ROOT / "trading/scripts",
 )
 
@@ -593,10 +618,10 @@ def test_wave_c6_scan_roots_are_not_empty() -> None:
         f"no .py files found under {_RESEARCH_PACKAGE_SRC.relative_to(_ROOT)}; "
         "the research package boundary scan is not looking at anything"
     )
-    assert _py_files(_RESEARCH_SHIM_SRC), (
-        f"no .py files found under {_RESEARCH_SHIM_SRC.relative_to(_ROOT)}; "
-        "the research shim boundary scan is not looking at anything"
-    )
+    # The research compatibility shim under ``trading/src/tradex_trading/research``
+    # was removed with the rest of the ``tradex_trading`` tree, so it is no longer
+    # a scan root; ``_RESEARCH_SHIM_SRC`` stays defined for the negative-path
+    # guard above, which is now a vacuous pass over a directory that is gone.
     assert _py_files(_ROUTES_SRC), (
         f"no .py files found under {_ROUTES_SRC.relative_to(_ROOT)}; "
         "the routes boundary scan is not looking at anything"

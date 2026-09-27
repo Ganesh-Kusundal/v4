@@ -17,9 +17,8 @@ from tradex_domain import OHLC, Candle
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.strategy import ScannerResult
 from tradex_domain.value_objects import Price, Quantity
+from tradex_runtime.startup import boot, boot_context
 from tradex_strategy.extensions import all_scanners, all_strategies
-
-from tradex_trading.runtime.startup import boot, boot_context
 
 
 def _fake_broker_with_history(closes: list[float]) -> MagicMock:

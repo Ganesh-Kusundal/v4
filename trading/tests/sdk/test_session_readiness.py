@@ -21,8 +21,7 @@ from unittest.mock import MagicMock
 import pytest
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
-
-from tradex_trading.sdk.session import SessionState, TradingSession
+from tradex_runtime.session_impl import SessionState, TradingSession
 
 
 def _fake_live_broker() -> MagicMock:
@@ -52,8 +51,7 @@ def test_paper_factory_returns_ready() -> None:
 
 def test_live_factory_returns_ready(monkeypatch, tmp_path) -> None:
     import tradex_runtime.live as runtime_live
-
-    import tradex_trading.sdk.session as session_mod
+    import tradex_runtime.session_impl as session_mod
 
     monkeypatch.setattr(
         runtime_live, "build_broker_from_env", lambda _provider: _fake_live_broker()

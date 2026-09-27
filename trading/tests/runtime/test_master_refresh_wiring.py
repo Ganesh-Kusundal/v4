@@ -11,8 +11,7 @@ from unittest.mock import MagicMock
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_runtime.master_lifecycle import MasterLoader
-
-from tradex_trading.sdk.session import TradingSession
+from tradex_runtime.session_impl import TradingSession
 
 
 class _BrokerWithMasterLoader:
@@ -76,8 +75,7 @@ class _PlainBroker:
 
 def test_live_starts_master_refresh_scheduler(monkeypatch, tmp_path) -> None:
     import tradex_runtime.live as runtime_live
-
-    import tradex_trading.sdk.session as session_mod
+    import tradex_runtime.session_impl as session_mod
 
     broker = _BrokerWithMasterLoader()
     monkeypatch.setattr(runtime_live, "build_broker_from_env", lambda _provider: broker)
@@ -104,8 +102,7 @@ def test_live_starts_master_refresh_scheduler(monkeypatch, tmp_path) -> None:
 
 def test_live_without_loader_starts_no_scheduler(monkeypatch, tmp_path) -> None:
     import tradex_runtime.live as runtime_live
-
-    import tradex_trading.sdk.session as session_mod
+    import tradex_runtime.session_impl as session_mod
 
     broker = _PlainBroker()
     monkeypatch.setattr(runtime_live, "build_broker_from_env", lambda _provider: broker)

@@ -26,8 +26,7 @@ from tradex_execution.engine import (
 )
 from tradex_execution.fill_sources import PaperFillSource
 from tradex_reactive.bus import ReactiveBus
-
-from tradex_trading.runtime.startup import boot
+from tradex_runtime.startup import boot
 
 
 def _equity() -> Equity:

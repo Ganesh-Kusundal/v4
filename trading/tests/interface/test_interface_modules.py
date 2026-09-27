@@ -208,7 +208,7 @@ class TestRunCli:
         with patch(
             "tradex_interfaces.fastapi_app.start_fastapi_server"
         ) as start, patch(
-            "tradex_trading.sdk.session.TradingSession.paper",
+            "tradex_runtime.session_impl.TradingSession.paper",
             side_effect=AssertionError("serve must reuse the runtime session"),
         ):
             result = main(["serve", "--port", "8099"])

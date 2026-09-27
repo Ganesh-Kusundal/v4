@@ -19,7 +19,7 @@ def test_serve_forwards_live_host_and_broker() -> None:
     session = _live_session()
 
     with patch(
-        "tradex_trading.sdk.session.TradingSession.live",
+        "tradex_runtime.session_impl.TradingSession.live",
         return_value=session,
     ) as live, patch(
         "tradex_interfaces.fastapi_app.start_fastapi_server",
@@ -46,7 +46,7 @@ def test_live_non_loopback_serve_fails_before_session_creation(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with patch(
-        "tradex_trading.sdk.session.TradingSession.live",
+        "tradex_runtime.session_impl.TradingSession.live",
     ) as live, patch(
         "tradex_interfaces.fastapi_app.start_fastapi_server",
     ) as start:
@@ -75,7 +75,7 @@ def test_live_missing_key_fails_before_session_creation(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with patch(
-        "tradex_trading.sdk.session.TradingSession.live",
+        "tradex_runtime.session_impl.TradingSession.live",
     ) as live, patch(
         "tradex_interfaces.fastapi_app.start_fastapi_server",
     ) as start:

@@ -16,8 +16,7 @@ from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_domain.execution import Account
 from tradex_domain.value_objects import AccountId, Money
-
-from tradex_trading.sdk.session import SessionState
+from tradex_runtime.session_impl import SessionState
 
 
 def _broker(cash: Decimal) -> MagicMock:

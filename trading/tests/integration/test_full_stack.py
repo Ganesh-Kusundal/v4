@@ -23,9 +23,8 @@ from tradex_domain.value_objects import Price, Quantity
 from tradex_execution.trading_cache import TradingCache
 from tradex_reactive.bus import ReactiveBus
 from tradex_replay.backtest import BacktestEngine
+from tradex_runtime.session_impl import SessionState, TradingSession
 from tradex_strategy.core.buy_and_hold import BuyAndHoldStrategy
-
-from tradex_trading.sdk.session import SessionState, TradingSession
 
 
 def _now() -> datetime:

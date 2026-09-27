@@ -45,11 +45,10 @@ from tradex_domain import (
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
 from tradex_reactive.bus import ReactiveBus
+from tradex_runtime.session_impl import TradingSession
+from tradex_runtime.startup import boot
 from tradex_strategy import ReactiveStrategyEngine
 from tradex_strategy.extensions import all_strategies
-
-from tradex_trading.runtime.startup import boot
-from tradex_trading.sdk.session import TradingSession
 
 # The shipped SMA-crossover example: BUY on the fast/SMA crossing above the
 # slow/SMA. Discovered via the public ``all_strategies`` registry.

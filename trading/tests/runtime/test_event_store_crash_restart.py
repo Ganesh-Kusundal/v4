@@ -129,8 +129,7 @@ def test_live_boot_ready_after_recover_when_broker_matches(
     import tradex_runtime.startup as startup_mod
     from tradex_config.schema import AppConfig, PersistenceConfig
     from tradex_domain import BrokerId
-
-    from tradex_trading.sdk.session import SessionState
+    from tradex_runtime.session_impl import SessionState
 
     db = tmp_path / "orders.db"
     order_id, expected_qty = _run_session(db)
@@ -174,8 +173,7 @@ def test_live_boot_refuses_ready_after_recover_on_high_recon_drift(
     import tradex_runtime.startup as startup_mod
     from tradex_config.schema import AppConfig, PersistenceConfig
     from tradex_domain import BrokerId
-
-    from tradex_trading.sdk.session import SessionState
+    from tradex_runtime.session_impl import SessionState
 
     db = tmp_path / "orders.db"
     _run_session(db)

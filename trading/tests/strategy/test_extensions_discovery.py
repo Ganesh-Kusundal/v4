@@ -282,11 +282,10 @@ class TestNifty500TechnicalScanner:
 
         from tradex_config.schema import AppConfig
         from tradex_domain.market import HistoricalSeries
+        from tradex_runtime.startup import boot
         from tradex_strategy.extensions.scanners.nifty500_technical import (
             nifty500_technical_scanner,
         )
-
-        from tradex_trading.runtime.startup import boot
 
         def fake_broker() -> MagicMock:
             broker = MagicMock()

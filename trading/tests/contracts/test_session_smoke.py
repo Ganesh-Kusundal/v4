@@ -51,8 +51,8 @@ class TestBootSmoke:
     """boot() composition root produces a working session."""
 
     def test_boot_default_returns_session(self) -> None:
-        from tradex_trading.runtime.startup import boot
-        from tradex_trading.sdk.session import SessionState, TradingSession
+        from tradex_runtime.session_impl import SessionState, TradingSession
+        from tradex_runtime.startup import boot
 
         session = boot()
         assert isinstance(session, TradingSession)
@@ -60,14 +60,14 @@ class TestBootSmoke:
         session.stop()
 
     def test_boot_default_is_paper_mode(self) -> None:
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         assert session.broker_id == BrokerId.PAPER
         session.stop()
 
     def test_boot_session_has_all_services(self) -> None:
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         # Access all services — should not raise
@@ -78,7 +78,7 @@ class TestBootSmoke:
         session.stop()
 
     def test_boot_session_has_capabilities(self) -> None:
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         caps = session.capabilities
@@ -87,8 +87,7 @@ class TestBootSmoke:
 
     def test_boot_session_has_bus(self) -> None:
         from tradex_reactive.bus import ReactiveBus
-
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         assert isinstance(session.bus, ReactiveBus)
@@ -104,8 +103,7 @@ class TestOrderSubmissionSmoke:
 
     def test_submit_order_returns_receipt(self) -> None:
         from tradex_domain.execution import OrderReceipt
-
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         receipt = session.engine.submit(_make_request())
@@ -114,7 +112,7 @@ class TestOrderSubmissionSmoke:
         session.stop()
 
     def test_submit_order_publishes_events(self) -> None:
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         events: list[Any] = []
@@ -129,7 +127,7 @@ class TestOrderSubmissionSmoke:
         session.stop()
 
     def test_submit_multiple_orders(self) -> None:
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         for i in range(5):
@@ -139,8 +137,7 @@ class TestOrderSubmissionSmoke:
 
     def test_broker_returns_quote(self) -> None:
         from tradex_domain.market import Quote
-
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         quote = session.broker.get_quote(_make_equity())
@@ -149,8 +146,7 @@ class TestOrderSubmissionSmoke:
 
     def test_broker_returns_ltp(self) -> None:
         from tradex_domain.value_objects import Price
-
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         ltp = session.broker.ltp(_make_equity())
@@ -159,8 +155,7 @@ class TestOrderSubmissionSmoke:
 
     def test_portfolio_service_returns_account(self) -> None:
         from tradex_domain.execution import Account
-
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         account = session.broker.get_account()
@@ -176,8 +171,8 @@ class TestSessionLifecycle:
     """Session lifecycle: NEW → READY → STOPPED."""
 
     def test_stop_transitions_to_stopped(self) -> None:
-        from tradex_trading.runtime.startup import boot
-        from tradex_trading.sdk.session import SessionState
+        from tradex_runtime.session_impl import SessionState
+        from tradex_runtime.startup import boot
 
         session = boot()
         assert session.state == SessionState.READY
@@ -185,7 +180,7 @@ class TestSessionLifecycle:
         assert session.state == SessionState.STOPPED
 
     def test_double_stop_is_safe(self) -> None:
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         session.stop()
@@ -200,7 +195,7 @@ class TestKillSwitchSmoke:
     """Kill switch blocks order submission."""
 
     def test_kill_switch_rejects_orders(self) -> None:
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         session._engine.kill_switch = True
@@ -211,7 +206,7 @@ class TestKillSwitchSmoke:
         session.stop()
 
     def test_kill_switch_publishes_no_fill_events(self) -> None:
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         events: list[Any] = []
@@ -234,8 +229,7 @@ class TestBusSubscriptionSmoke:
 
     def test_subscribe_quotes(self) -> None:
         from tradex_domain.market import Quote
-
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         quotes: list[Any] = []
@@ -244,7 +238,7 @@ class TestBusSubscriptionSmoke:
         session.stop()
 
     def test_subscribe_fills(self) -> None:
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         session = boot()
         fills: list[Any] = []

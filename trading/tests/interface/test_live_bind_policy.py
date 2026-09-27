@@ -166,7 +166,7 @@ def test_serve_app_rejects_live_non_loopback_before_session(
     monkeypatch.setenv("TRADEX_SERVE_API_KEY", "secret")
     monkeypatch.setenv("TRADEX_SERVE_HOST", "0.0.0.0")
 
-    with patch("tradex_trading.sdk.session.TradingSession.live") as live:
+    with patch("tradex_runtime.session_impl.TradingSession.live") as live:
         with pytest.raises(ValueError) as exc_info:
             fastapi_app.serve_app()
 
@@ -186,7 +186,7 @@ def test_serve_app_builds_non_live_dhan_session(
     app = object()
 
     with patch(
-        "tradex_trading.sdk.session.TradingSession.live",
+        "tradex_runtime.session_impl.TradingSession.live",
     ) as live, patch(
         "tradex_runtime.startup.boot",
         return_value=session,

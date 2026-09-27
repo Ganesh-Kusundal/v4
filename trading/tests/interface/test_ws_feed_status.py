@@ -14,8 +14,7 @@ from tradex_interfaces._helpers import feed_status_payload
 from tradex_interfaces.fastapi_app import create_app
 from tradex_runtime.feed_supervisor import FeedSupervisor
 from tradex_runtime.metrics import MetricsRegistry
-
-from tradex_trading.sdk.session import TradingSession
+from tradex_runtime.session_impl import TradingSession
 
 
 def _session_with_feed(state: str) -> TradingSession:

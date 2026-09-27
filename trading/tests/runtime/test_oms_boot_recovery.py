@@ -28,8 +28,7 @@ from tradex_domain.value_objects import OrderId, Price, Quantity
 from tradex_execution.sqlite_event_store import SQLiteEventStore
 from tradex_execution.trading_cache import TradingCache
 from tradex_reactive.bus import ReactiveBus
-
-from tradex_trading.runtime.startup import _attach_event_store, _recover_oms_from_events
+from tradex_runtime.startup import _attach_event_store, _recover_oms_from_events
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -215,7 +214,7 @@ def test_attach_event_store_does_not_append_non_order_events(tmp_path: Path) -> 
 
 def test_boot_with_persistence_replays_events_into_cache(tmp_path: Path) -> None:
     """Full boot(): pre-existing events are replayed into the OMS cache."""
-    from tradex_trading.runtime.startup import boot
+    from tradex_runtime.startup import boot
 
     db = _db(tmp_path)
 
@@ -250,8 +249,7 @@ def test_boot_with_persistence_appends_new_events_after_boot(tmp_path: Path) -> 
 
     from tradex_domain import OrderRequest, OrderSide, OrderType, Quantity
     from tradex_domain.instruments import Equity
-
-    from tradex_trading.runtime.startup import boot
+    from tradex_runtime.startup import boot
 
     db = _db(tmp_path)
     cfg = AppConfig(persistence=PersistenceConfig(path=str(db)))
@@ -282,7 +280,7 @@ def test_boot_without_persistence_path_skips_event_store(tmp_path: Path) -> None
     """boot() with no persistence.path must not create any SQLite files."""
     import os
 
-    from tradex_trading.runtime.startup import boot
+    from tradex_runtime.startup import boot
 
     before = set(os.listdir(tmp_path))
 
@@ -306,8 +304,8 @@ def test_event_replay_precedes_reconciliation(tmp_path: Path) -> None:
     pre-boot orders, the recovery ran before the reconciliation step that
     gates session.start().
     """
-    from tradex_trading.runtime.startup import boot
-    from tradex_trading.sdk.session import SessionState
+    from tradex_runtime.session_impl import SessionState
+    from tradex_runtime.startup import boot
 
     db = _db(tmp_path)
     store = SQLiteEventStore(db)

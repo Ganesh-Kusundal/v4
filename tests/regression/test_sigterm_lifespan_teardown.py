@@ -48,9 +48,9 @@ from tradex_execution.sqlite_event_store import SQLiteEventStore
 from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 from tradex_interfaces.fastapi_app import create_app
 from tradex_reactive.bus import ReactiveBus
+from tradex_runtime.session_impl import SessionState, TradingSession
 from tradex_runtime.shutdown import ShutdownCoordinator
 from tradex_runtime.writer_lock import SingleWriterLock
-from tradex_trading.sdk.session import SessionState, TradingSession
 
 
 def _fake_broker() -> MagicMock:

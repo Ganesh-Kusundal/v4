@@ -127,8 +127,7 @@ def test_modify_order_end_to_end_paper_session():
     from tradex_domain.execution import Order
     from tradex_domain.instruments import Equity
     from tradex_domain.value_objects import OrderId, Price, Quantity
-
-    from tradex_trading.sdk.session import TradingSession
+    from tradex_runtime.session_impl import TradingSession
 
     session = TradingSession.paper()
     try:
@@ -700,8 +699,7 @@ def test_post_order_with_instrument_id():
 
 def test_post_order_rejects_active_replay_guard_and_recovers():
     from tradex_interfaces.replay_guard import ReplayGuard
-
-    from tradex_trading.sdk.session import TradingSession
+    from tradex_runtime.session_impl import TradingSession
 
     guard = ReplayGuard()
     guard.acquire("run-1")
@@ -783,7 +781,7 @@ def test_post_order_same_key_reaches_engine_with_same_correlation_id():
 
 def test_post_order_http_retry_is_deduplicated_by_engine():
     """The same HTTP idempotency key produces one paper order and one ID."""
-    from tradex_trading.sdk.session import TradingSession
+    from tradex_runtime.session_impl import TradingSession
 
     session = TradingSession.paper()
     try:
@@ -1170,8 +1168,7 @@ def _make_feed_session(broker, bus=None, capabilities=None):
     from tradex_execution.trading_cache import TradingCache
     from tradex_reactive.bus import ReactiveBus
     from tradex_runtime.market_feed import MarketFeed
-
-    from tradex_trading.sdk.session import TradingSession
+    from tradex_runtime.session_impl import TradingSession
 
     _bus = bus if bus is not None else ReactiveBus()
     session = TradingSession(
@@ -1335,8 +1332,7 @@ def _make_order_stream_session(backend=None):
     from tradex_execution.fill_sources import PaperFillSource
     from tradex_execution.trading_cache import TradingCache
     from tradex_reactive.bus import ReactiveBus
-
-    from tradex_trading.sdk.session import TradingSession
+    from tradex_runtime.session_impl import TradingSession
 
     _bus = ReactiveBus()
     session = TradingSession(
@@ -1579,7 +1575,7 @@ class TestPaperSessionEndToEnd:
 
     @pytest.fixture()
     def client(self):
-        from tradex_trading.sdk.session import TradingSession
+        from tradex_runtime.session_impl import TradingSession
 
         session = TradingSession.paper()
         app = create_app(session=session)

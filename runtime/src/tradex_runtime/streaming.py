@@ -30,9 +30,18 @@ class StreamSubscription:
 
 
 class BackendStreamSubscription(StreamSubscription):
-    """Session handle over a broker WS backend subscription (string id)."""
+    """Session handle over a broker WS backend subscription (string id).
+
+    Broker order/portfolio backends return a string subscription id rather
+    than an RxPY disposable. ``cancel()`` routes through the backend's
+    ``unsubscribe(id)`` so ``TradingSession.stop()`` (which iterates and
+    cancels every handle) never crashes on a bare string.
+    """
 
     def __init__(self, backend: Any, subscription_id: str, topic: str = ""):
+        # ``StreamSubscription`` is RxPY-disposable-based; this handle is
+        # backend-id-based, so the base ``_disposable`` stays None (defensive
+        # guard: nothing on the base may dereference it for this subclass).
         self._disposable = None  # type: ignore[assignment]
         self._backend = backend
         self._subscription_id = subscription_id
@@ -41,6 +50,8 @@ class BackendStreamSubscription(StreamSubscription):
         self._cancelled = False
 
     def cancel(self) -> None:
+        # Lock the check-and-set so concurrent cancels (e.g. session.stop()
+        # racing a client unsubscribe) never double-invoke the backend.
         with self._cancel_lock:
             if self._cancelled:
                 return

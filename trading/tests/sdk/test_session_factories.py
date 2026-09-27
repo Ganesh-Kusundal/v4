@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import pytest
 from tradex_domain import BrokerId
-
-from tradex_trading.sdk.session import SessionState, TradingSession
+from tradex_runtime.session_impl import SessionState, TradingSession
 
 # ---------------------------------------------------------------------------
 # Tests — paper() factory

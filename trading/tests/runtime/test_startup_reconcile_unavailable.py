@@ -10,8 +10,7 @@ from tradex_domain import BrokerId
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fill_sources import SimulatedFillSource
 from tradex_reactive.bus import ReactiveBus
-
-from tradex_trading.sdk.session import SessionState
+from tradex_runtime.session_impl import SessionState
 
 
 def test_run_startup_reconciliation_unavailable_trips_kill_switch() -> None:

@@ -14,8 +14,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from tradex_config.schema import AppConfig, RiskConfig
-
-from tradex_trading.runtime.startup import boot
+from tradex_runtime.startup import boot
 
 
 def test_paper_boot_binds_cash_provider_when_configured() -> None:

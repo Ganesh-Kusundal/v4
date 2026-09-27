@@ -13,8 +13,7 @@ import pytest
 from tradex_domain import BrokerId
 from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_reactive.bus import ReactiveBus
-
-from tradex_trading.sdk.session import SessionState, TradingSession
+from tradex_runtime.session_impl import SessionState, TradingSession
 
 
 class _FakeMonitor:

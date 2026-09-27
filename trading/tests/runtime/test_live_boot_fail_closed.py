@@ -7,8 +7,7 @@ from unittest.mock import MagicMock
 import tradex_runtime.startup as startup_mod
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
-
-from tradex_trading.sdk.session import SessionState
+from tradex_runtime.session_impl import SessionState
 
 
 def _fake_live_broker() -> MagicMock:

@@ -23,8 +23,7 @@ from tradex_domain import BrokerId
 from tradex_domain.protocols import BrokerAdapter
 
 if TYPE_CHECKING:
-    from tradex_trading.sdk.session import TradingSession
-
+    from tradex_runtime.session_impl import TradingSession
     from tradex_runtime.writer_lock import SingleWriterLock
 
 from tradex_config.schema import AppConfig
@@ -370,11 +369,11 @@ def _boot_tail(
     """Steps 5→end of :func:`boot`, extracted so the live path can be
     rollback-wrapped. The body is the original ``boot()`` logic unchanged.
     """
-    # ponytail: defer sdk import — tradex_trading.__init__ eagerly imports boot
-    # and would re-enter this module while it is still loading.
-    from tradex_trading.sdk.session import TradingSession
-
+    # Function-local: keeps this module importable on its own and defers the
+    # session module until boot actually runs (it is same-package, so this is
+    # not a cross-package layering edge).
     from tradex_runtime.feed_supervisor import FeedSupervisor
+    from tradex_runtime.session_impl import TradingSession
 
     feed_supervisor = FeedSupervisor() if cfg.mode == "live" else None
 
@@ -559,7 +558,7 @@ def _boot_tail(
             stream_backend, "subscribe_orders"
         ):
             try:
-                from tradex_trading.sdk.live_fill_bridge import (
+                from tradex_runtime.live_fill_bridge import (
                     LiveFillBridge,
                     TradeBookFillIdResolver,
                 )

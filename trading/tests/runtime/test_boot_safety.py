@@ -8,8 +8,7 @@ import pytest
 from tradex_brokers.common.capabilities import dhan_capabilities
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
-
-from tradex_trading.runtime.startup import boot
+from tradex_runtime.startup import boot
 
 
 class TestBootModeValidation:

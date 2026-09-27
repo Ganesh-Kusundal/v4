@@ -49,8 +49,7 @@ class TestShutdownCoordinator:
         """RuntimeContext.close() delegates to ShutdownCoordinator with
         the correct phase ordering."""
         from tradex_config.schema import AppConfig
-
-        from tradex_trading.runtime.startup import boot
+        from tradex_runtime.startup import boot
 
         cfg = AppConfig(mode="paper")
         session = boot(cfg)

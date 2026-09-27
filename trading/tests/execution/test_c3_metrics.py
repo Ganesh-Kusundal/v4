@@ -566,8 +566,7 @@ def test_reconciliation_drift_appears_in_prometheus_output() -> None:
 def test_boot_wires_metrics_into_risk_and_mtm() -> None:
     """Without this, C3 counters/gauges exist in unit tests but stay dark in paper/live."""
     from tradex_config.schema import AppConfig
-
-    from tradex_trading.runtime.startup import boot
+    from tradex_runtime.startup import boot
 
     session = boot(AppConfig(mode="paper"))
     try:

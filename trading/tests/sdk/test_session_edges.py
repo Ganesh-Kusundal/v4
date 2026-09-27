@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import pytest
 from tradex_domain.errors import CapabilityNotSupportedError
-
-from tradex_trading.runtime.startup import boot
-from tradex_trading.sdk.session import SessionState
-from tradex_trading.sdk.streaming import StreamSubscription
+from tradex_runtime.session_impl import SessionState
+from tradex_runtime.startup import boot
+from tradex_runtime.streaming import StreamSubscription
 
 # ---------------------------------------------------------------------------
 # Session state edges

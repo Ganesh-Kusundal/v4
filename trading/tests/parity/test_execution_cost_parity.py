@@ -30,9 +30,8 @@ from tradex_execution.fill_sources import SimulatedFillSource
 from tradex_execution.slippage import PercentageSlippageModel
 from tradex_reactive.bus import ReactiveBus
 from tradex_replay.backtest import BacktestEngine
+from tradex_runtime.startup import boot
 from tradex_strategy import ReactiveStrategyEngine
-
-from tradex_trading.runtime.startup import boot
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 
@@ -219,7 +218,7 @@ class TestExecutionConfigWiring:
     def test_paper_factory_honors_execution_config(self) -> None:
         """TradingSession.paper(config=...) wires fees + slippage too, so the
         SDK factory and boot() book identical execution costs."""
-        from tradex_trading.sdk.session import TradingSession
+        from tradex_runtime.session_impl import TradingSession
 
         session = TradingSession.paper(config=AppConfig(
             execution=ExecutionConfig(fees_enabled=True, slippage_bps=10),

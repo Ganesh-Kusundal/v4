@@ -4,6 +4,10 @@ Lifecycle: NEW -> READY -> STOPPED.
 Consumers access engine, broker, bus, cache directly (service layer removed).
 
 Ported from v3 SDK session (WS-B, FDS 05 §5, D-8/D-9/D-15/D-16/D-17).
+
+Lives here, not behind a facade, so that ``tradex_runtime`` no longer depends
+on ``tradex_trading``. ``tradex_runtime.session`` re-exports it and remains the
+name callers should import.
 """
 
 from __future__ import annotations
@@ -39,11 +43,8 @@ from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 
 if TYPE_CHECKING:
     # Type-only: used solely in the ``_subscriptions`` annotation below, which
-    # is a string under ``from __future__ import annotations``. Importing it
-    # eagerly made this module depend on tradex_runtime at runtime, and since
-    # tradex_runtime.startup imports *this* module, the pair formed the
-    # runtime -> trading -> runtime cycle that made
-    # ``import tradex_runtime.session`` fail on its own.
+    # is a string under ``from __future__ import annotations``. Same package, so
+    # this is a self-edge at worst and never a cross-package layering concern.
     from tradex_runtime.streaming import StreamSubscription
 
 log = logging.getLogger(__name__)
@@ -384,16 +385,14 @@ class TradingSession:
         # for a non-PAPER label; everything else is boot()'s wiring.
         from tradex_brokers.paper.adapter import PaperBroker
 
-        # Keep this import going through the tradex_trading.runtime.startup
-        # shim, not tradex_runtime directly. Both are function-local, but the
-        # static import-cycle guard (tests/test_import_boundaries.py) walks all
-        # ImportFrom nodes regardless of scope, so a direct tradex_runtime
-        # import here closes the runtime -> trading -> runtime ring
-        # (tradex_runtime.startup imports this module). The shim is a leaf that
-        # resolves tradex_runtime lazily at runtime, so the static graph stays
-        # acyclic. This indirection retires when TradingSession moves into
-        # tradex_runtime, which is the documented plan.
-        from tradex_trading.runtime.startup import boot
+        # Function-local to keep the ``paper()`` factory import-light. This is a
+        # same-package import (``tradex_runtime`` -> ``tradex_runtime``), so it
+        # is excluded from the package import graph as a self-edge and cannot
+        # close a cycle. It used to go through the ``tradex_trading.runtime``
+        # shim purely to dodge the old runtime -> trading -> runtime ring; that
+        # indirection retires with the move of TradingSession into
+        # tradex_runtime.
+        from tradex_runtime.startup import boot
 
         cfg = config or AppConfig()
         cfg = replace(
@@ -496,10 +495,9 @@ class TradingSession:
         # Thin wrapper over the single composition root [REF-6]: boot() owns
         # broker construction (env auth), the thread-safe bus, fill source,
         # stream backend, fill bridge, market feed and master scheduler.
-        # See the note in paper() above: this must stay behind the
-        # tradex_trading.runtime.startup shim to keep the static import graph
-        # acyclic until TradingSession moves into tradex_runtime.
-        from tradex_trading.runtime.startup import boot
+        # See the note in paper() above: function-local and same-package, so it
+        # is not a cross-package edge.
+        from tradex_runtime.startup import boot
 
         cfg = AppConfig(
             broker_id=broker_id,

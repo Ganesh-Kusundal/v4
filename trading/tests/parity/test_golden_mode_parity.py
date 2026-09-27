@@ -51,10 +51,9 @@ from tradex_execution.fill_sources import (
 from tradex_execution.slippage import FixedSlippageModel
 from tradex_reactive.bus import ReactiveBus
 from tradex_replay.backtest import BacktestEngine
+from tradex_runtime.session_impl import TradingSession
 from tradex_strategy import ReactiveStrategyEngine
 from tradex_strategy.extensions.strategies.sma_cross import SmaCrossStrategy
-
-from tradex_trading.sdk.session import TradingSession
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 CLOSES = [10.0] * 20 + [11.0, 12.0, 13.0]

@@ -80,9 +80,6 @@ jobs:
       - name: Mypy (runtime)
         run: uv run --no-sync mypy runtime/src/tradex_runtime
 
-      - name: Mypy (trading)
-        run: uv run --no-sync mypy trading/src/tradex_trading
-
       - name: Mypy (market_data)
         run: uv run --no-sync mypy market_data/src/tradex_market_data
 
@@ -108,7 +105,7 @@ jobs:
         run: >-
           uv run --no-sync python -m pytest
           --cov=tradex_domain --cov=tradex_brokers --cov=tradex_config
-          --cov=tradex_trading --cov=tradex_research --cov=tradex_operations
+          --cov=tradex_research --cov=tradex_operations
           --cov=tradex_observability --cov=tradex_analytics
           --cov=tradex_reactive --cov=tradex_execution --cov=tradex_strategy
           --cov=tradex_replay --cov=tradex_application

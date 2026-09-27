@@ -19,8 +19,7 @@ from tradex_domain.enums import OrderSide, OrderType, TimeInForce
 from tradex_domain.execution import OrderRequest, Position
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Money, Price, Quantity
-
-from tradex_trading.sdk.session import SessionState
+from tradex_runtime.session_impl import SessionState
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 #: The balance the paper book holds after the ladder. A live broker's funds

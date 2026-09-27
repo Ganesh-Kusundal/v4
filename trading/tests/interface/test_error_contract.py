@@ -108,8 +108,7 @@ def test_ready_reports_feed_state() -> None:
     from unittest.mock import MagicMock
 
     from tradex_runtime.feed_supervisor import FeedSupervisor
-
-    from tradex_trading.sdk.session import SessionState
+    from tradex_runtime.session_impl import SessionState
 
     session = MagicMock()
     session.state = SessionState.READY
@@ -126,7 +125,7 @@ def test_ready_reports_feed_state() -> None:
 def test_ready_without_feed_supervisor_keeps_legacy_shape() -> None:
     from unittest.mock import MagicMock
 
-    from tradex_trading.sdk.session import SessionState
+    from tradex_runtime.session_impl import SessionState
 
     session = MagicMock()
     session.state = SessionState.READY
@@ -142,8 +141,7 @@ def test_is_ready_requires_ready_feed_for_live_session() -> None:
     from unittest.mock import MagicMock
 
     from tradex_runtime.feed_supervisor import FeedSupervisor
-
-    from tradex_trading.sdk.session import SessionState
+    from tradex_runtime.session_impl import SessionState
 
     session = MagicMock()
     session.state = SessionState.READY

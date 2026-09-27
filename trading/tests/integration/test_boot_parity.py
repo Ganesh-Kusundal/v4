@@ -12,9 +12,8 @@ from dataclasses import fields, is_dataclass
 from tradex_config.schema import AppConfig
 from tradex_domain import BrokerId
 from tradex_reactive.bus import ReactiveBus
-
-from tradex_trading.runtime.startup import boot
-from tradex_trading.sdk.session import TradingSession
+from tradex_runtime.session_impl import TradingSession
+from tradex_runtime.startup import boot
 
 
 def _graph(session: TradingSession) -> dict[str, object]:

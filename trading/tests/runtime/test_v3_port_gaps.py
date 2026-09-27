@@ -25,8 +25,7 @@ from tradex_runtime.live import (
     load_env_file,
     provider_environment,
 )
-
-from tradex_trading.runtime.startup import RuntimeContext, _broker_matches_config
+from tradex_runtime.startup import RuntimeContext, _broker_matches_config
 
 # ---------------------------------------------------------------------------
 # Task 2: config/schema.py

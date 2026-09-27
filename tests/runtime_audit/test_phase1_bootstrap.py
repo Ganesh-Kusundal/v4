@@ -8,8 +8,8 @@ from decimal import Decimal
 import pytest
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
+from tradex_runtime.session_impl import SessionState, TradingSession
 from tradex_runtime.startup import RuntimeContext, boot, boot_context
-from tradex_trading.sdk.session import SessionState, TradingSession
 
 
 def test_bootstrap_paper_session_success():

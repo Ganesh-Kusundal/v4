@@ -38,8 +38,7 @@ from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fill_sources import PaperFillSource
 from tradex_execution.trading_cache import TradingCache
 from tradex_reactive.bus import ReactiveBus
-
-from tradex_trading.sdk.live_fill_bridge import LiveFillBridge
+from tradex_runtime.live_fill_bridge import LiveFillBridge
 
 _RELIANCE = Equity.of("NSE", "RELIANCE")
 _CORR = "strat-tape-1"
@@ -272,7 +271,7 @@ def test_dhan_stop_tape_fills_granular_after_trigger() -> None:
     """TRIGGER_PENDING maps to ACK; once triggered, partial+final deltas land
     at the tape traded price. Equal-lot partials (5+5) require the trade-id
     resolver — without it the composite fingerprint dedups the second one."""
-    from tradex_trading.sdk.live_fill_bridge import TradeBookFillIdResolver
+    from tradex_runtime.live_fill_bridge import TradeBookFillIdResolver
 
     broker = DhanBroker.from_fetch(
         fetch=lambda method, url, **kw: {"data": {}},
@@ -321,7 +320,7 @@ def test_dhan_reject_and_cancel_rows_map_but_produce_no_fills() -> None:
 
 
 def test_upstox_stop_tape_fills_granular() -> None:
-    from tradex_trading.sdk.live_fill_bridge import TradeBookFillIdResolver
+    from tradex_runtime.live_fill_bridge import TradeBookFillIdResolver
 
     broker = UpstoxBroker.from_fetch(
         fetch=lambda method, url, **kw: {"data": {}},
