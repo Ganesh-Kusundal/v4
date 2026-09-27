@@ -249,10 +249,25 @@ def boot(
         FeeCalculator() if cfg.execution.fees_enabled else None
     )
 
-    # 4. Create fill source based on mode
+    # 4. Create fill source based on mode. In paper the two Flow-B fill paths
+    #    are selectable per run (AC-14 / spec lane 2d): "book_matching" walks the
+    #    paper broker's simulated book (the oracle), "slippage_model" fills at
+    #    the live quote through the slippage model. Both satisfy the same
+    #    FillSource seam, so everything downstream (risk, ledger, fees) is
+    #    identical and the only difference is how the price was found.
     fill_source: Any
     if cfg.mode == "paper":
-        fill_source = PaperFillSource(slippage_model=slippage_model)
+        from tradex_runtime.paper_book_fill_source import (
+            BOOK_MATCHING,
+            PaperBookFillSource,
+        )
+
+        if cfg.execution.fill_path == BOOK_MATCHING:
+            fill_source = PaperBookFillSource(
+                spread_bps=cfg.execution.book_spread_bps,
+            )
+        else:
+            fill_source = PaperFillSource(slippage_model=slippage_model)
     elif cfg.mode == "backtest":
         fill_source = SimulatedFillSource(slippage_model=slippage_model)
     elif cfg.mode == "live":

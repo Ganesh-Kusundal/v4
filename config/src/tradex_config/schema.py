@@ -182,6 +182,25 @@ class ExecutionConfig:
     fees_enabled: bool = True
     slippage_bps: Decimal | None = None
     fill_reference: str = "next_open"
+    #: Which paper fill path this run uses (AC-14, spec lane 2d).
+    #:
+    #: ``"slippage_model"`` (the default) fills at the live quote through a
+    #: slippage model — the path paper mode has always used, kept as the default
+    #: so a run that names no path behaves exactly as it did before. The other
+    #: value, ``"book_matching"``, fills by walking the paper broker's simulated
+    #: multi-level book and is the ORACLE the slippage path is measured against
+    #: (``trading/tests/parity/test_slippage_vs_book_parity.py``). The two
+    #: coexist on purpose: running the same recorded session through both is how
+    #: the paper path is proven to agree with itself before a strategy is
+    #: promoted, so neither can be removed when the other is fixed.
+    fill_path: str = "slippage_model"
+    #: Half-spread the oracle's book is seeded with, in basis points of the mid.
+    #: A top-of-book fill costs ``mid * book_spread_bps / 10_000`` per share,
+    #: which is exactly what ``slippage_bps`` charges through the production
+    #: ``PercentageSlippageModel`` — so the two paths are comparable at the same
+    #: constant even when the price moves (see
+    #: ``trading/tests/parity/test_slippage_vs_book_parity.py``).
+    book_spread_bps: Decimal = Decimal("5")
     #: Register the auto-discovered example strategies on boot.
     #:
     #: Off by default. The discovered examples are bound to a hardcoded
@@ -204,6 +223,19 @@ class ExecutionConfig:
             raise ValueError(
                 f"fill_reference must be 'next_open' or 'signal_close', "
                 f"got {self.fill_reference!r}"
+            )
+        if self.fill_path not in ("book_matching", "slippage_model"):
+            raise ValueError(
+                f"fill_path must be 'book_matching' or 'slippage_model', "
+                f"got {self.fill_path!r}"
+            )
+        if not isinstance(self.book_spread_bps, Decimal):
+            object.__setattr__(
+                self, "book_spread_bps", Decimal(str(self.book_spread_bps))
+            )
+        if self.book_spread_bps < 0:
+            raise ValueError(
+                f"book_spread_bps must be >= 0, got {self.book_spread_bps!r}"
             )
 
 
