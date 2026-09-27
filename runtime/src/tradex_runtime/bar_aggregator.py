@@ -4,9 +4,14 @@ One aggregation code path for every source: live broker quotes (MarketFeed)
 and synthetic generator quotes (replay) both feed the same buckets, so a
 forming bar means the same thing regardless of where the ticks came from.
 
-The IST session grid rules here mirror the datalake's (09:15-15:30, calendar
-day boundary): a bucket closes when the first quote past its end arrives. The
-session close is not the aggregator's to decide — :meth:`BarAggregator.flush`
+The IST session grid rules live in ``tradex_domain.timeframe`` — the one
+definition, anchored at the 09:15 session open — because two history sites
+bucket the same M1 bars into wider ones and a second copy here is a second
+grid. :func:`bucket_start` is re-exported from there, not redefined, so
+``domain <- brokers <- trading`` holds and the live feed cannot disagree with
+the chart.
+
+The session close is not the aggregator's to decide — :meth:`BarAggregator.flush`
 closes whatever is open and it is the caller's to call at 15:30 (or on teardown
 or replay stop), so nothing here reads a wall clock and no test has to inject
 one to reach the close deterministically.
@@ -18,25 +23,15 @@ import math
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 
 from tradex_domain.enums import Timeframe
-from tradex_domain.market_calendar import MARKET_OPEN
-from tradex_domain.timeframe import bucket_seconds
+from tradex_domain.timeframe import bucket_seconds, bucket_start
 
 #: Minimum spacing between two forming-bar frames for one (bucket) — a burst
 #: of quotes must not flood the socket. Closed-bar frames bypass the throttle.
 FORMING_FRAME_MIN_INTERVAL = 1.0
-
-#: Daily bucket width, read from the canonical timeframe registry rather than
-#: re-stated as a magic number (day detection in :func:`bucket_start`).
-_DAY_SECONDS = bucket_seconds(Timeframe.D1)
-_WEEK_SECONDS = bucket_seconds(Timeframe.W1)
-
-#: Intraday buckets are anchored at the session open, read from the one copy of
-#: 09:15 in the domain calendar rather than restated here.
-_SESSION_OPEN = MARKET_OPEN
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,52 +53,6 @@ class BarFrame:
     feed_id: str | None = None
     connection_generation: int | None = None
     quality_flags: tuple[str, ...] = ()
-
-
-def bucket_start(ts: datetime, seconds: int) -> datetime:
-    """Floor *ts* onto the fixed-interval grid in Asia/Kolkata.
-
-    Datalake and chart history stamp buckets as IST wall clock. A naive
-    ``timestamp()`` follows the process timezone and shifts daily (and any
-    multi-hour) buckets off the history series on a non-IST host.
-
-    Three anchors, one per grid shape, because a fixed-length epoch floor is
-    wrong for each of them:
-
-    * **Daily** — IST midnight.
-    * **Weekly** — IST **Monday** 00:00, not a 604800s epoch multiple: 604800 is
-      divisible by 7 days but the IST epoch origin is a Thursday, so an epoch
-      floor lands mid-week and every weekly bar is off.
-    * **Intraday** (every remaining width the canonical registry serves) — the
-      09:15 session open, so the bucket holding *ts* is 09:15 plus the largest
-      whole multiple of *seconds* that does not pass *ts*. The epoch floor is
-      skewed twice over: by the 19,800s IST offset, and by 33,300s because the
-      open is not a whole number of every bar width from midnight. 33,300 is a
-      multiple of 60, 300 and 900 and not of 1800 or 3600, so 30m and hourly
-      came out shifted — an hourly bar stamped 08:30 holding only the session's
-      first fifteen minutes — while 1m/5m/15m were unaffected. That is why the
-      defect is invisible on a 1m chart and obvious on an hourly one.
-    """
-    from zoneinfo import ZoneInfo
-
-    ist = ZoneInfo("Asia/Kolkata")
-    aware = ts.replace(tzinfo=ist) if ts.tzinfo is None else ts.astimezone(ist)
-    if seconds == _DAY_SECONDS:
-        start = aware.replace(hour=0, minute=0, second=0, microsecond=0)
-        return start.replace(tzinfo=None)
-    if seconds == _WEEK_SECONDS:
-        midnight = aware.replace(hour=0, minute=0, second=0, microsecond=0)
-        start = midnight - timedelta(days=midnight.weekday())
-        return start.replace(tzinfo=None)
-    naive = aware.replace(tzinfo=None)
-    opening = naive.replace(
-        hour=_SESSION_OPEN.hour, minute=_SESSION_OPEN.minute, second=0, microsecond=0
-    )
-    # Floor, not truncate: a sub-second tick 0.4s before a seam belongs to the
-    # bar before it. Both operands are IST wall clock and IST has no DST, so
-    # the naive delta is the elapsed time.
-    offset = math.floor((naive - opening).total_seconds())
-    return opening + timedelta(seconds=(offset // seconds) * seconds)
 
 
 def _tf_seconds(timeframe: Timeframe) -> int:

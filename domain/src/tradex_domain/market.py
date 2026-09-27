@@ -230,38 +230,38 @@ def _aggregate(chunk: list[Candle]) -> Candle:
 
 
 def _bucketize(candles: list[Candle], timeframe: Timeframe) -> dict[int, Candle]:
-    import calendar
+    """Group M1 candles into one candle per bar of *timeframe*.
 
+    The grid is :func:`tradex_domain.timeframe.bucket_start` — the one
+    session-anchored definition, shared with the live aggregator and the bulk
+    provider. It used to floor to the epoch here, which put 30m bars at 09:00
+    and hourly ones at 08:30 while the live feed had already moved to the 09:15
+    open: a 30 minute backtest and a 30 minute chart reading different bars.
+    """
     from tradex_domain.market_calendar import IST
-    from tradex_domain.timeframe import bucket_seconds
+    from tradex_domain.timeframe import bucket_seconds, bucket_start
 
     seconds = bucket_seconds(timeframe)
     buckets: dict[int, list[Candle]] = {}
     for candle in candles:
-        # Handle IST-naive timestamps correctly: attach IST before
-        # computing epoch so bucket keys align to IST wall-clock
-        # boundaries (C2 fix — previously utctimetuple treated naive
-        # timestamps as UTC, shifting all buckets by −5:30 hours).
-        ts = candle.timestamp
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=IST)
-        epoch = calendar.timegm(ts.utctimetuple())
-        key = (epoch // seconds) * seconds
+        start = bucket_start(candle.timestamp, seconds)
+        # Keyed on the true epoch second of the IST bucket start, so the keys
+        # stay comparable and ordered across days; the candle itself is stamped
+        # with the naive IST wall clock the datalake stores.
+        key = int(start.replace(tzinfo=IST).timestamp())
         buckets.setdefault(key, []).append(candle)
     out: dict[int, Candle] = {}
     for key, chunk in buckets.items():
         agg = _aggregate(chunk)
         # Override timeframe to target (_aggregate uses the source candle's timeframe)
-        # Bucket timestamp is the bucket START (epoch-aligned), not the last
-        # candle's close time — so M1→M5/D1 bars are open-aligned for
-        # indicators/backtests.  ``key`` is already ``(epoch // seconds)*seconds``.
-        bucket_start = datetime.fromtimestamp(key, tz=UTC).astimezone(IST).replace(tzinfo=None)
+        # and timestamp to the bucket START, not the last candle's close time —
+        # so M1→M5/D1 bars are open-aligned for indicators/backtests.
         out[key] = Candle(
             instrument=agg.instrument,
             timeframe=timeframe,
             ohlc=agg.ohlc,
             volume=agg.volume,
-            timestamp=bucket_start,
+            timestamp=datetime.fromtimestamp(key, tz=UTC).astimezone(IST).replace(tzinfo=None),
         )
     return out
 

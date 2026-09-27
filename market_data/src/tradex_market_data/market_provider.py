@@ -161,9 +161,9 @@ class BulkPrefetchMarketProvider:
             df = self._by_symbol.get(symbol)
         if df is None:
             df = pd.DataFrame(columns=_BASE_COLUMNS)
-        # Filter on wall time: prefetched M1 frames carry naive IST
-        # timestamps (store convention); resampled views carry UTC-aware
-        # ones whose wall values match _bucketize's keys. Guard the .dt
+        # Filter on wall time: both the prefetched M1 frames and the resampled
+        # views carry naive IST timestamps (store convention, and the grid's
+        # own output), matching the window the caller passed in. Guard the .dt
         # access: an empty frame (object dtype) or a non-datetime column
         # raises AttributeError on .dt.
         ts_col = df["timestamp"]
@@ -200,26 +200,43 @@ class BulkPrefetchMarketProvider:
     def _resampled_frame(self, timeframe: Timeframe) -> dict[str, Any]:
         """M1 -> target timeframe for every symbol in one vectorized pass.
 
-        Mirrors ``HistoricalSeries.resample``/_bucketize semantics exactly:
-        epoch-aligned buckets computed with naive IST wall time treated as
-        UTC, open=first / high=max / low=min / close=last, volume summed,
-        bucket timestamp = bucket start as UTC. Cached per timeframe because
-        a scan requests the same timeframe for the entire universe.
+        Same grid as ``HistoricalSeries.resample`` and the live aggregator, and
+        the same OHLCV rules: open=first / high=max / low=min / close=last,
+        volume summed, bucket timestamp = the bucket start.
+
+        The grid itself is not restated here. It used to be ``(wall //
+        seconds) * seconds`` on wall seconds read as UTC, which is the epoch
+        floor the other two sites stopped doing: 30m bars began at 09:00 and
+        hourly ones at 08:30, so a scan and the chart it belongs to read
+        different bars. Now every distinct minute stamp in the frame is put
+        through ``tradex_domain.timeframe.bucket_wall_seconds`` and the answer
+        is broadcast back — a prefetched scan carries ~10^6 rows but a few
+        hundred distinct stamps, so the scalar grid is evaluated a few hundred
+        times and the rest is a hash lookup. Transcribing the grid into
+        vectorized arithmetic would be a second implementation, and a second
+        implementation is how these two halves came to disagree.
+
+        Cached per timeframe because a scan requests the same timeframe for the
+        entire universe.
         """
         cached = self._resampled.get(timeframe)
         if cached is not None:
             return cached
-        from tradex_domain.timeframe import bucket_seconds
+        from tradex_domain.timeframe import bucket_seconds, bucket_wall_seconds
 
         seconds = bucket_seconds(timeframe)
         all_rows = pd.concat(self._by_symbol.values(), ignore_index=True)
         if all_rows.empty:
             self._resampled[timeframe] = {}
             return {}
-        # datetime64 -> whole seconds since epoch, matching
-        # calendar.timegm(ts.utctimetuple()) used by _bucketize.
-        epoch_s = all_rows["timestamp"].astype("datetime64[s]").astype("int64")
-        bucket = (epoch_s // seconds) * seconds
+        # datetime64 -> whole seconds of the same IST wall clock the datalake
+        # stores, which is what the domain grid counts from.
+        wall_s = all_rows["timestamp"].astype("datetime64[s]").astype("int64")
+        grid = {
+            int(stamp): bucket_wall_seconds(int(stamp), seconds)
+            for stamp in wall_s.unique()
+        }
+        bucket = wall_s.map(grid)
         grouped = all_rows.groupby(
             [all_rows["symbol"], bucket.rename("bucket")], sort=False
         ).agg(
@@ -230,9 +247,11 @@ class BulkPrefetchMarketProvider:
             volume=("volume", "sum"),
         )
         grouped = grouped.reset_index()
-        # Bucket start rendered as UTC mirrors _bucketize's
-        # datetime.fromtimestamp(key, tz=UTC).
-        grouped["timestamp"] = pd.to_datetime(grouped["bucket"], unit="s", utc=True)
+        # Bucket start as naive IST wall clock, like every other candle the
+        # platform builds — the store's own stamps are naive, and the
+        # aggregator emits the same. A tz-aware stamp here read as UTC by a
+        # consumer is a second convention for one field.
+        grouped["timestamp"] = pd.to_datetime(grouped["bucket"], unit="s")
         grouped = grouped.sort_values(["symbol", "timestamp"]).reset_index(drop=True)
         by_symbol = {
             str(sym): sub[["timestamp", "open", "high", "low", "close", "volume"]]
