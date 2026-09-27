@@ -65,13 +65,22 @@ _BODY = {
 
 
 class _StubResult:
-    """The slice of ``BacktestResult`` the route reads back."""
+    """The slice of ``BacktestResult`` the route reads back.
+
+    Hand-maintained, and that has a cost worth stating: a field the route starts
+    reading and this class does not carry fails as an ``AttributeError`` inside
+    the route — a 500, and a failure in a test about the event loop that reads
+    like a loop defect. ``num_unfilled`` was exactly that. Every field the route
+    touches on a result is therefore listed here, and the stub is the slice
+    ``run_backtest`` reads: metrics, ``equity_curve`` and ``fills``.
+    """
 
     total_return = 0.0
     sharpe = 0.0
     max_drawdown = 0.0
     num_trades = 0
     num_rejected = 0
+    num_unfilled = 0
     total_fees = 0.0
     equity_curve: list[float] = []
     fills: list[dict[str, Any]] = []
