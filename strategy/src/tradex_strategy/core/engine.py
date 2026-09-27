@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Iterable
 from decimal import Decimal
 from typing import Any
 
@@ -20,6 +21,16 @@ from tradex_strategy.core.sizing import PositionSizer, unconfigured_sizer
 log = logging.getLogger(__name__)
 
 _FILL_REFERENCES = frozenset({"next_open", "signal_close"})
+
+#: Order statuses a stop does NOT touch (the order is settled). Mirrors the
+#: kill switch's terminal set and deliberately EXCLUDES ``UNKNOWN``: an
+#: UNKNOWN order crossed the venue boundary and may still be live, so a
+#: strategy stop must reach it.
+_SETTLED_STATUSES = frozenset({
+    OrderStatus.FILLED,
+    OrderStatus.CANCELLED,
+    OrderStatus.REJECTED,
+})
 
 
 class ReactiveStrategyEngine:
@@ -79,7 +90,15 @@ class ReactiveStrategyEngine:
         self._bus = bus
         self._sizer = sizer if sizer is not None else unconfigured_sizer()
         self._strategies: dict[str, Any] = {}
-        self._disposables: list = []
+        # Per-strategy subscriptions (AC-8). Keyed by strategy_id so a
+        # single strategy can be stopped/unregistered without touching any
+        # other strategy's delivery — RxPY disposables are independent, so
+        # disposing one strategy's observers cannot silence another's.
+        self._disposables: dict[str, list] = {}
+        # Strategy ids whose event delivery is gated (PAUSED or STOPPED).
+        # Checked by every wrapper handler; PAUSED keeps its subscriptions
+        # alive so resume() re-attaches without re-registering.
+        self._gated: set[str] = set()
         self._bar_count = 0
         # Per-signal nonce for deterministic correlation ids (seeded per
         # engine instance, so ids are stable within a replay run).
@@ -134,6 +153,8 @@ class ReactiveStrategyEngine:
     def _wrap_on_bar(self, strategy: Any) -> Any:
         """Wrap strategy.on_bar to inject context and bridge Signal→Order."""
         def handler(candle: Any) -> Any:
+            if strategy.strategy_id in self._gated:
+                return None
             # Increment first so ``deferred_at_bar`` (set when a signal is
             # deferred) and the max-age sweep (which computes
             # ``_bar_count - deferred_at_bar``) share a consistent index
@@ -209,6 +230,7 @@ class ReactiveStrategyEngine:
                     quantity=quantity,
                     correlation_id=pending["correlation_id"],
                     tag=f"{pending['strategy_id']}@{version}",
+                    strategy_id=pending["strategy_id"],
                     reference_timestamp=getattr(candle, "timestamp", None),
                 )
                 self._bus.publish(PlaceOrderCommand(request=request))
@@ -273,6 +295,7 @@ class ReactiveStrategyEngine:
             status=OrderStatus.CANCELLED,
             correlation_id=correlation_id,
             tag=f"{pending['strategy_id']}@{version}",
+            strategy_id=pending["strategy_id"],
         )
         log.warning(
             "strategy %s deferred order on %s cancelled after %d bars "
@@ -288,6 +311,8 @@ class ReactiveStrategyEngine:
     def _wrap_on_quote(self, strategy: Any) -> Any:
         """Wrap strategy.on_quote to inject context and bridge Signal→Order."""
         def handler(quote: Any) -> Any:
+            if strategy.strategy_id in self._gated:
+                return None
             ctx = self._make_context(timestamp=getattr(quote, "timestamp", None))
             result = strategy.on_quote(ctx, quote)
             self._maybe_publish_order(result, strategy, quote)
@@ -297,6 +322,8 @@ class ReactiveStrategyEngine:
     def _wrap_on_depth(self, strategy: Any) -> Any:
         """Wrap strategy.on_depth to inject context."""
         def handler(depth: Any) -> Any:
+            if strategy.strategy_id in self._gated:
+                return None
             ctx = self._make_context(timestamp=getattr(depth, "timestamp", None))
             if hasattr(strategy, "on_depth"):
                 result = strategy.on_depth(ctx, depth)
@@ -307,6 +334,8 @@ class ReactiveStrategyEngine:
     def _wrap_on_fill(self, strategy: Any) -> Any:
         """Wrap strategy.on_fill to inject context."""
         def handler(fill: Any) -> Any:
+            if strategy.strategy_id in self._gated:
+                return None
             ctx = self._make_context()
             return strategy.on_fill(ctx, fill)
         return handler
@@ -378,6 +407,7 @@ class ReactiveStrategyEngine:
             quantity=quantity,
             correlation_id=correlation_id,
             tag=tag,
+            strategy_id=strategy_id,
             reference_timestamp=getattr(event, "timestamp", None),
         )
         self._bus.publish(PlaceOrderCommand(request=request))
@@ -422,7 +452,7 @@ class ReactiveStrategyEngine:
         from tradex_domain import Candle, Fill, Quote
         from tradex_domain.market import Depth
 
-        self._disposables.extend([
+        self._disposables.setdefault(strategy.strategy_id, []).extend([
             self._bus.of_type(Candle).subscribe(self._wrap_on_bar(strategy)),
             self._bus.of_type(Quote).subscribe(self._wrap_on_quote(strategy)),
             self._bus.of_type(Depth).subscribe(self._wrap_on_depth(strategy)),
@@ -430,23 +460,100 @@ class ReactiveStrategyEngine:
         ])
 
     def unregister(self, strategy_id: str) -> None:
-        """Unregister a strategy by ID.
+        """Unregister a strategy by ID, disposing only its subscriptions.
 
         Args:
             strategy_id: Unique identifier of the strategy to remove
         """
         self._strategies.pop(strategy_id, None)
+        self._gated.discard(strategy_id)
+        self._dispose_strategy(strategy_id)
 
-    def dispose_all(self) -> None:
-        """Clean up all subscriptions and drop deferred orders."""
-        for disposable in self._disposables:
+    def _dispose_strategy(self, strategy_id: str) -> None:
+        """Dispose *only* this strategy's subscriptions (others untouched)."""
+        for disposable in self._disposables.pop(strategy_id, []):
             try:
                 disposable.dispose()
             except Exception:  # pragma: no cover
                 pass
+
+    def dispose_all(self) -> None:
+        """Clean up all subscriptions and drop deferred orders."""
+        for strategy_id in list(self._disposables):
+            self._dispose_strategy(strategy_id)
         self._disposables.clear()
+        self._gated.clear()
         self._strategies.clear()
         self._pending.clear()
+
+    # ------------------------------------------------------------------
+    # Per-strategy lifecycle control (AC-8)
+    # ------------------------------------------------------------------
+
+    def pause_strategy(self, strategy_id: str) -> None:
+        """Gate delivery to *strategy_id*, keeping its subscriptions.
+
+        The strategy stops receiving events immediately (synchronously) but
+        stays registered, so :meth:`resume_strategy` re-attaches without
+        re-subscribing. Other strategies are untouched.
+        """
+        if strategy_id in self._strategies:
+            self._gated.add(strategy_id)
+
+    def resume_strategy(self, strategy_id: str) -> None:
+        """Re-open delivery to *strategy_id* (undoes :meth:`pause_strategy`)."""
+        self._gated.discard(strategy_id)
+
+    def stop_strategy(
+        self,
+        strategy_id: str,
+        *,
+        cancel: Any | None = None,
+        working_orders: Iterable[Any] = (),
+    ) -> list[str]:
+        """Stop *strategy_id* synchronously: gate, dispose, cancel working orders.
+
+        - Delivery is gated immediately, on the call — not on the next event.
+        - This strategy's subscriptions are disposed; no other strategy's are
+          touched, so the rest of the book keeps running (AC-8 isolation).
+        - Every *working* (non-terminal) order belonging to the strategy is
+          passed to ``cancel(order_id)`` and the ids that could not be
+          cancelled are returned. ``UNKNOWN`` is treated as working, mirroring
+          the kill switch: an UNKNOWN order crossed the venue boundary and may
+          be live, so it must be reached.
+        - Open positions and their protective legs are deliberately NOT
+          touched — flattening is a separate explicit command, not part of a
+          stop. This method only ever *reads* ``working_orders``.
+
+        ``cancel`` is a caller-supplied callable (the execution engine's own
+        ``cancel``) so the strategy layer never imports the execution layer.
+        """
+        # 1. Synchronous delivery gate + drop this strategy's subscriptions.
+        self._gated.add(strategy_id)
+        self._dispose_strategy(strategy_id)
+        # 2. Cancel working orders, UNKNOWN-aware. Positions are never read.
+        failures: list[str] = []
+        if cancel is not None:
+            for order in working_orders:
+                # Isolation is enforced HERE, not left to the caller's
+                # filtering: an order belonging to another strategy is never
+                # cancelled, even if the caller hands us a mixed list. An
+                # order with no strategy_id is left alone too -- it is not
+                # provably this strategy's, and "probably" is how one
+                # strategy's stop flattens another's book.
+                if getattr(order, "strategy_id", None) != strategy_id:
+                    continue
+                if order.status in _SETTLED_STATUSES:
+                    continue
+                try:
+                    cancel(order.order_id)
+                except Exception as exc:  # noqa: BLE001 — one failure must not stop the rest
+                    log.error(
+                        "stop_strategy %s: cancel failed for %s: %s",
+                        strategy_id, order.order_id, exc,
+                    )
+                    failures.append(str(order.order_id.value))
+        return failures
 
     @property
     def strategies(self) -> dict:

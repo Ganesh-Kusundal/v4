@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from tradex_domain.enums import OrderSide
-from tradex_domain.execution import Fill
+from tradex_domain.execution import Fill, Position
 from tradex_domain.market import Candle
 from tradex_domain.utils import q2
 
@@ -224,6 +224,97 @@ def round_trip_trades(
             )
 
     return trades
+
+
+# ---------------------------------------------------------------------------
+# Per-strategy P&L (AC-9)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyPnl:
+    """Realized P&L of one strategy over a set of fills."""
+
+    strategy_id: str | None
+    realized_pnl: Decimal
+    num_round_trips: int
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "strategy_id": self.strategy_id,
+            "realized_pnl": float(self.realized_pnl),
+            "num_round_trips": self.num_round_trips,
+        }
+
+
+def pnl_by_strategy(
+    fills: Iterable[Fill],
+    *,
+    cost_by_order: Mapping[str, Decimal] | None = None,
+) -> dict[str | None, StrategyPnl]:
+    """Group *fills* into per-strategy realized P&L.
+
+    Fills are bucketed by ``fill.strategy_id`` FIRST and each bucket is
+    matched independently by :func:`round_trip_trades`. That ordering is
+    load-bearing: the lot matcher keys open lots by symbol alone, so
+    matching a mixed set would let one strategy's exit close another
+    strategy's entry and move P&L between the two books. Bucketing first
+    means a round trip can only ever pair fills of the same strategy.
+
+    ``strategy_id is None`` is a real bucket, not an error: an ad-hoc or
+    pre-attribute order has no strategy, and it is reported under ``None``
+    rather than dropped or folded into some strategy's total.
+
+    Returns
+    -------
+    dict
+        Keyed by ``strategy_id`` (including the ``None`` key), sorted by id
+        so the output is stable.
+    """
+    buckets: dict[str | None, list[Fill]] = {}
+    for fill in fills:
+        buckets.setdefault(fill.strategy_id, []).append(fill)
+
+    out: dict[str | None, StrategyPnl] = {}
+    for sid in sorted(buckets, key=lambda s: (s is not None, s or "")):
+        trades = round_trip_trades(buckets[sid], cost_by_order=cost_by_order)
+        out[sid] = StrategyPnl(
+            strategy_id=sid,
+            realized_pnl=q2(sum((t.net_pnl for t in trades), _ZERO)),
+            num_round_trips=len(trades),
+        )
+    return out
+
+
+def positions_pnl_by_strategy(
+    positions: Iterable[Position],
+) -> dict[str | None, StrategyPnl]:
+    """Group open/closed *positions* by their strategy, summing total P&L.
+
+    The complement of :func:`pnl_by_strategy` for the still-open book: a
+    position's ``strategy_id`` is set by the fill that opened it, so this
+    answers "what does each strategy currently have at risk" without
+    re-deriving attribution from the order table. The ``None`` bucket is
+    real (a manual position) and is reported, never dropped.
+    """
+    out: dict[str | None, StrategyPnl] = {}
+    for pos in positions:
+        sid = pos.strategy_id
+        agg = out.get(sid)
+        total = pos.total_pnl.amount
+        if agg is None:
+            out[sid] = StrategyPnl(
+                strategy_id=sid,
+                realized_pnl=q2(total),
+                num_round_trips=0,
+            )
+        else:
+            out[sid] = StrategyPnl(
+                strategy_id=sid,
+                realized_pnl=q2(agg.realized_pnl + total),
+                num_round_trips=agg.num_round_trips,
+            )
+    return {sid: out[sid] for sid in sorted(out, key=lambda s: (s is not None, s or ""))}
 
 
 @dataclass(frozen=True, slots=True)

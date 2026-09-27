@@ -119,6 +119,7 @@ def protective_request(
     quantity: Quantity,
     correlation_id: CorrelationId | None = None,
     tag: str | None = None,
+    strategy_id: str | None = None,
     reference_timestamp: Any = None,
     order_type: OrderType = OrderType.MARKET,
 ) -> OrderRequest:
@@ -157,6 +158,7 @@ def protective_request(
         price=entry,
         correlation_id=correlation_id,
         tag=tag,
+        strategy_id=strategy_id,
         reference_timestamp=reference_timestamp,
         **legs,
     )

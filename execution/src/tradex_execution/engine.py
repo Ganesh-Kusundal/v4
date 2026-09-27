@@ -1037,6 +1037,10 @@ class ExecutionEngine:
             trigger_price=request.trigger_price,
             product_type=request.product_type,
             tag=request.tag,
+            # The strategy that produced this order, copied verbatim so a
+            # null stays null: an ad-hoc order is never attributed to a
+            # strategy it did not come from.
+            strategy_id=request.strategy_id,
             # Preserve protective legs so bracket identity survives on
             # rejected/OMS records (see ``_is_bracket_order``).
             target_price=request.target_price,

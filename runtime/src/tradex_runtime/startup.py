@@ -537,7 +537,30 @@ def _boot_tail(
                 strategy_id=strategy.strategy_id,
                 version=str(getattr(strategy, "version", "1.0.0")),
             )
-            strategy_registry.register(StrategyRuntime(artifact, strategy))
+            sid = strategy.strategy_id
+
+            def _stop_one(sid: str = sid) -> None:
+                # AC-8: stopping this strategy halts its order flow NOW,
+                # disposes its subscriptions, and cancels its WORKING orders
+                # (UNKNOWN-aware). Open positions and their protective legs
+                # are left alone — flattening is a separate explicit command.
+                # The engine does the per-strategy filtering itself, so the
+                # whole order book can be handed over unchanged.
+                strategy_engine.stop_strategy(
+                    sid,
+                    cancel=engine.cancel,
+                    working_orders=engine.cache.all_orders(),
+                )
+
+            strategy_registry.register(
+                StrategyRuntime(
+                    artifact,
+                    strategy,
+                    on_pause=lambda sid=sid: strategy_engine.pause_strategy(sid),
+                    on_resume=lambda sid=sid: strategy_engine.resume_strategy(sid),
+                    on_stop=lambda sid=sid: _stop_one(sid),
+                ),
+            )
             strategy_engine.register(strategy)
 
     # 7. Connect broker (loads instruments/registry for live brokers)
