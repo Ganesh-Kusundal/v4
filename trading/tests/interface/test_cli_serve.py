@@ -19,9 +19,9 @@ def test_serve_forwards_live_host_and_broker() -> None:
     session = _live_session()
 
     with patch(
-        "tradex_runtime.session_impl.TradingSession.live",
+        "tradex_runtime.startup.boot",
         return_value=session,
-    ) as live, patch(
+    ) as boot, patch(
         "tradex_interfaces.fastapi_app.start_fastapi_server",
     ) as start:
         result = run_cli(
@@ -37,7 +37,12 @@ def test_serve_forwards_live_host_and_broker() -> None:
         )
 
     assert result == 0
-    live.assert_called_once_with(BrokerId.DHAN, confirm=True)
+    # A live serve boots through the composition root with the operator's risk
+    # policy (AC-10 refuses to boot an incomplete one), not through the
+    # TradingSession.live() factory, which cannot carry a policy.
+    boot.assert_called_once()
+    assert boot.call_args.args[0].broker_id is BrokerId.DHAN
+    assert boot.call_args.args[0].live_enabled is True
     assert start.call_args.args[0] is session
     assert start.call_args.kwargs["host"] == "::1"
 

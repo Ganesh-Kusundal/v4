@@ -115,6 +115,24 @@ class TestBuildParser:
 class TestRunCli:
     """run_cli — CLI runner."""
 
+    @pytest.fixture(autouse=True)
+    def _declared_risk_policy(self, monkeypatch) -> None:
+        """``main()`` boots through ``from_env``, and AC-10 refuses to boot a
+        session whose risk policy is incomplete. These tests exercise the CLI
+        plumbing, not the risk gate, so they declare a complete policy the way
+        an operator would: five named values, not a bypass.
+        """
+        monkeypatch.setenv("TRADEX_RISK_MAX_ORDER_VALUE", "1000000")
+        monkeypatch.setenv("TRADEX_RISK_MAX_POSITION_VALUE", "1000000")
+        monkeypatch.setenv("TRADEX_RISK_MAX_ORDERS_PER_MINUTE", "100")
+        monkeypatch.setenv("TRADEX_RISK_MAX_DAILY_LOSS", "1000000")
+        monkeypatch.setenv("TRADEX_RISK_MAX_DRAWDOWN_PCT", "0.5")
+        # `serve` without a runtime resolves serve_app(), which defaults to
+        # live mode and therefore demands an API key. These tests are about CLI
+        # plumbing, so they ask for paper explicitly.
+        monkeypatch.setenv("TRADEX_SERVE_MODE", "paper")
+        monkeypatch.setenv("TRADEX_SERVE_BROKER", "PAPER")
+
     def test_health_without_runtime(self) -> None:
         """health command without runtime should print ok."""
         result = run_cli(["health"])
@@ -225,6 +243,20 @@ class TestCliMain:
     The old implementation read ``args.env_file`` before ``args`` was parsed,
     so every ``tradex`` invocation died with ``UnboundLocalError``.
     """
+
+    @pytest.fixture(autouse=True)
+    def _declared_risk_policy(self, monkeypatch) -> None:
+        """``main()`` boots through ``from_env``, and AC-10 refuses to boot a
+        session whose risk policy is incomplete. These tests exercise the CLI
+        plumbing, not the risk gate, so they declare a complete policy the way
+        an operator would: five named values, not a bypass. The gate's own
+        suite is what proves a MISSING policy still refuses.
+        """
+        monkeypatch.setenv("TRADEX_RISK_MAX_ORDER_VALUE", "1000000")
+        monkeypatch.setenv("TRADEX_RISK_MAX_POSITION_VALUE", "1000000")
+        monkeypatch.setenv("TRADEX_RISK_MAX_ORDERS_PER_MINUTE", "100")
+        monkeypatch.setenv("TRADEX_RISK_MAX_DAILY_LOSS", "1000000")
+        monkeypatch.setenv("TRADEX_RISK_MAX_DRAWDOWN_PCT", "0.5")
 
     def test_main_health_returns_zero(self, capsys) -> None:
         result = main(["health"])

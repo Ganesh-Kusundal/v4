@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
@@ -183,11 +184,14 @@ def run_cli(argv: list[str] | None = None, runtime: Any | None = None) -> int:
         return 1
 
     if args.command == "quote":
-        from tradex_config.schema import AppConfig
-        from tradex_domain import BrokerId, Equity
+        from tradex_config.env import from_env
+        from tradex_domain import Equity
         from tradex_runtime.startup import boot
 
-        session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+        # via from_env, not a hand-built AppConfig: AC-10 makes a missing risk
+        # limit a refusal to boot, and from_env is the only route that can
+        # carry a complete policy (all five limits, from TRADEX_RISK_*).
+        session = boot(from_env())
         try:
             eq = Equity.of(args.exchange, args.symbol)
             quote = session.broker.ltp(eq)
@@ -203,9 +207,8 @@ def run_cli(argv: list[str] | None = None, runtime: Any | None = None) -> int:
         return 0
 
     if args.command == "order":
-        from tradex_config.schema import AppConfig
+        from tradex_config.env import from_env
         from tradex_domain import (
-            BrokerId,
             Equity,
             OrderRequest,
             OrderSide,
@@ -215,7 +218,8 @@ def run_cli(argv: list[str] | None = None, runtime: Any | None = None) -> int:
         )
         from tradex_runtime.startup import boot
 
-        session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+        # via from_env: same reason as the quote command above.
+        session = boot(from_env())
         try:
             eq = Equity.of(args.exchange, args.symbol)
             req = OrderRequest(
@@ -285,11 +289,13 @@ def main(argv: list[str] | None = None) -> int:
             names = load_env_file(env_path, override=True)
             print(f"env_file={env_path} ({len(names)} entries)")
 
-    from tradex_config.schema import AppConfig
-    from tradex_domain import BrokerId
+    from tradex_config.env import from_env
     from tradex_runtime.startup import boot
 
-    session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+    # via from_env: the operator's TRADEX_RISK_* policy has to reach boot, and
+    # a literal AppConfig here cannot carry one (AC-10 refuses to boot without
+    # a complete risk policy, which made every `tradex` command unusable).
+    session = boot(from_env())
     runtime = types.SimpleNamespace(
         session=session,
         config=types.SimpleNamespace(environment=session.mode.upper()),
@@ -375,7 +381,7 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
     explicit CLI invocation is the confirmation gate.
     """
     from tradex_domain import BrokerId
-    from tradex_runtime.session import TradingSession
+    from tradex_runtime.startup import boot
 
     from tradex_interfaces.fastapi_app import (
         _require_api_key_for_live,
@@ -395,10 +401,20 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
             if session is None:
                 reused = False
         if session is None:
-            if broker_id is BrokerId.PAPER:
-                session = TradingSession.paper()
-            else:
-                session = TradingSession.live(broker_id, confirm=True)
+            # Both constructions go through from_env: AC-10 refuses to boot a
+            # session with an incomplete risk policy, and neither the
+            # TradingSession.paper()/live() factories nor a literal AppConfig
+            # can carry one. from_env is the only route that reads the
+            # operator's TRADEX_RISK_* policy. The explicit --broker argument
+            # is honoured over the env default.
+            from tradex_config.env import from_env
+
+            config = replace(
+                from_env(),
+                broker_id=broker_id,
+                live_enabled=broker_id is not BrokerId.PAPER,
+            )
+            session = boot(config, wire_strategies=False)
         assert session is not None
         start_fastapi_server(
             session,

@@ -486,9 +486,11 @@ def serve_app() -> FastAPI:
     factory invocation is outside enforcement of the loopback policy.
     """
     import os
+    from dataclasses import replace
 
+    from tradex_config.env import from_env
     from tradex_domain import BrokerId
-    from tradex_runtime.session import TradingSession
+    from tradex_runtime.startup import boot
 
     broker = os.environ.get(_SERVE_ENV_BROKER, "PAPER").strip().upper()
     mode = _normalize_session_mode(os.environ.get(_SERVE_ENV_MODE, "live"))
@@ -497,18 +499,21 @@ def serve_app() -> FastAPI:
     _require_api_key_for_live(mode, api_key)
     _require_live_bind_loopback(broker, mode, host)
 
+    # Every mode builds its config from ``from_env`` rather than a literal
+    # AppConfig or a bare session factory. AC-10 refuses to boot a session whose
+    # risk policy is incomplete, and ``from_env`` is the only route carrying a
+    # complete one, so the previous two constructions made `tradex serve`
+    # unusable. ``broker``/``mode`` are explicit here because this function
+    # already resolved them from its own SERVE_* variables.
+    config = from_env()
     if mode == "paper":
-        session = TradingSession.paper(broker_id=broker)
+        session = boot(config, wire_strategies=False)
     elif mode == "live":
-        session = TradingSession.live(BrokerId(broker), confirm=True)
+        config = replace(config, broker_id=BrokerId(broker), live_enabled=True)
+        session = boot(config, wire_strategies=False)
     else:
-        from tradex_config.schema import AppConfig
-        from tradex_runtime.startup import boot
-
-        session = boot(
-            AppConfig(broker_id=BrokerId(broker), mode=mode),
-            wire_strategies=False,
-        )
+        config = replace(config, broker_id=BrokerId(broker), mode=mode)
+        session = boot(config, wire_strategies=False)
     return create_app(session, api_key=api_key)
 
 

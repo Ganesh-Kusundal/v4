@@ -1724,6 +1724,15 @@ class TestStartFastapiServerGuards:
         monkeypatch.setenv("TRADEX_SERVE_MODE", "paper")
         monkeypatch.setenv("TRADEX_SERVE_API_KEY", "worker-secret")
         monkeypatch.setenv("TRADEX_SERVE_HOST", "127.0.0.1")
+        # AC-10: a boot needs a named risk policy, and from_env is the only
+        # route that carries one into this factory (used by every spawned
+        # worker). Not a risk test: values are huge and the two guards that
+        # need a mark service are explicitly opted out.
+        monkeypatch.setenv("TRADEX_RISK_MAX_ORDER_VALUE", "1000000")
+        monkeypatch.setenv("TRADEX_RISK_MAX_POSITION_VALUE", "1000000")
+        monkeypatch.setenv("TRADEX_RISK_MAX_ORDERS_PER_MINUTE", "100")
+        monkeypatch.setenv("TRADEX_RISK_MAX_DAILY_LOSS", "1000000")
+        monkeypatch.setenv("TRADEX_RISK_MAX_DRAWDOWN_PCT", "0.5")
         app = serve_app()
         assert isinstance(app, FastAPI)
         assert str(app.state.session.state) == "READY"
