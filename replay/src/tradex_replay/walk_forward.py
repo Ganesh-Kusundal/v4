@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -62,9 +62,14 @@ __all__ = [
     "EMBARGO_FRACTION",
     "MIN_OOS_BARS_PER_FOLD",
     "InsufficientSampleError",
+    "OosSegment",
     "WalkForwardFoldError",
     "WalkForwardReport",
     "WalkForwardStep",
+    "group_by_date",
+    "iter_oos_segments",
+    "iter_oos_segments_by_date",
+    "oos_equity_segment",
     "require_min_oos_bars",
     "run_walk_forward",
     "run_walk_forward_by_date",
@@ -153,6 +158,12 @@ class WalkForwardReport:
     #: Calendar days between the first and the last scored out of sample bar.
     #: A span, not a claim of continuous out of sample data.
     oos_span_days: float = 0.0
+    #: The concatenated out of sample series, exactly the one
+    #: ``aggregate_oos_sharpe`` and ``aggregate_oos_maxdd`` were read from.  It is
+    #: here so a report is judged on the series it graded: a caller that
+    #: recomputed a Sharpe from the per fold results would be reading a different
+    #: object, which is the mistake this whole report exists to prevent.
+    oos_equity_curve: tuple[float, ...] = ()
 
     @property
     def success_rate(self) -> float:
@@ -349,10 +360,7 @@ def run_walk_forward_by_date(
         raise ValueError("run_walk_forward_by_date: data is empty")
     frequency = _bar_frequency(data)
 
-    by_date: dict[date, list[Any]] = {}
-    for item in data:
-        by_date.setdefault(item.timestamp.date(), []).append(item)
-    dates = sorted(by_date)
+    by_date, dates = group_by_date(data)
 
     steps: list[WalkForwardStep] = []
     step_idx = 0
@@ -380,6 +388,138 @@ def run_walk_forward_by_date(
         start += test_days
 
     return _report(steps, frequency)
+
+
+# ------------------------------------------------------- the same windows, unrun
+
+
+@dataclass(frozen=True, slots=True)
+class OosSegment:
+    """One fold's out of sample window, derived without running anything.
+
+    The validation entry point grades a walk forward run it did not produce, so
+    it needs the run's *windows* as well as its results: the round trips it
+    counts are paired against the scored bars, and the cost stress is a rerun of
+    the same segment. Re-deriving the windows from a second implementation would
+    be a way for the two to disagree, so these come from the same partition
+    :func:`_fold` runs on — there is one definition of a fold's shape, and both
+    callers use it.
+
+    The three bar lists are the fold's out of sample run, in the order it is
+    handed to a strategy:
+
+    - :attr:`oos_input` — warmup, then the embargo gap, then the scored bars.
+      This is what a rerun of the fold is given.
+    - :attr:`scored_bars` — the embargo gap removed, and no warmup. These are
+      the only bars a criterion may read: a trade opened on a warmup bar is a
+      training trade, however profitable it turned out.
+    - the embargo gap itself is in neither list, and is not scored or claimed.
+    """
+
+    step_index: int
+    train_start: int
+    train_end: int
+    test_start: int
+    test_end: int
+    warmup_bars: int
+    embargo_bars: int
+    oos_bar_count: int
+    oos_input: list[Any] = field(default_factory=list)
+    scored_bars: list[Any] = field(default_factory=list)
+
+
+def group_by_date(data: Sequence[Any]) -> tuple[dict[date, list[Any]], list[date]]:
+    """The bars bucketed by calendar date, and the sorted dates.
+
+    Split out of :func:`run_walk_forward_by_date` so a caller that needs the same
+    windows afterwards does not group them a second time and get a second
+    ordering.
+    """
+    by_date: dict[date, list[Any]] = {}
+    for item in data:
+        by_date.setdefault(item.timestamp.date(), []).append(item)
+    return by_date, sorted(by_date)
+
+
+def iter_oos_segments(
+    data: Sequence[Any],
+    *,
+    train_window: int,
+    test_window: int,
+    step_size: int | None = None,
+    purge_bars: int = 0,
+    warmup_bars: int = DEFAULT_WARMUP_BARS,
+) -> Iterator[tuple[Sequence[Any], OosSegment]]:
+    """Yield ``(training data, segment)`` for each fold :func:`run_walk_forward`
+    would run, in the same order and the same number.
+
+    The stride, the loop bound and the partition are the run's own, so a report
+    built from these windows is measuring the segments the run actually used —
+    which :func:`tradex_replay.validation` asserts by comparing the two counts
+    rather than trusting it.
+    """
+    _step = step_size or test_window
+    step_idx = 0
+    start = 0
+    while start + train_window + test_window <= len(data):
+        train_end = start + train_window
+        test_end = train_end + test_window
+        yield (
+            data[start:train_end],
+            _segment(
+                step_index=step_idx,
+                train_start=start,
+                train_end=train_end,
+                test_start=train_end,
+                test_end=test_end,
+                train_data=data[start:train_end],
+                test_data=data[train_end:test_end],
+                warmup_bars=warmup_bars,
+                embargo_override=purge_bars,
+            ),
+        )
+        step_idx += 1
+        start += _step
+
+
+def iter_oos_segments_by_date(
+    by_date: dict[date, list[Any]],
+    dates: Sequence[date],
+    *,
+    train_days: int,
+    test_days: int,
+    purge_bars: int = 0,
+    warmup_bars: int = DEFAULT_WARMUP_BARS,
+) -> Iterator[tuple[Sequence[Any], OosSegment]]:
+    """The calendar-windowed counterpart of :func:`iter_oos_segments`.
+
+    Takes the grouping :func:`group_by_date` produced, because the caller has
+    usually built it already to run the walk forward. Step indices are day
+    offsets into *dates*, matching :func:`run_walk_forward_by_date`.
+    """
+    step_idx = 0
+    start = 0
+    while start + train_days + test_days <= len(dates):
+        train_dates = dates[start:start + train_days]
+        test_dates = dates[start + train_days:start + train_days + test_days]
+        train_data = [c for d in train_dates for c in by_date[d]]
+        test_data = [c for d in test_dates for c in by_date[d]]
+        yield (
+            train_data,
+            _segment(
+                step_index=step_idx,
+                train_start=start,
+                train_end=start + train_days,
+                test_start=start + train_days,
+                test_end=start + train_days + test_days,
+                train_data=train_data,
+                test_data=test_data,
+                warmup_bars=warmup_bars,
+                embargo_override=purge_bars,
+            ),
+        )
+        step_idx += 1
+        start += test_days
 
 
 # --------------------------------------------------------------------------- helpers
@@ -432,7 +572,7 @@ def _embargo_bars(window_length_bars: int) -> int:
     return max(1, math.ceil(EMBARGO_FRACTION * window_length_bars))
 
 
-def _oos_segment(result: BacktestResult, oos_bar_count: int) -> list[float]:
+def oos_equity_segment(result: BacktestResult, oos_bar_count: int) -> list[float]:
     """The out of sample part of a run's equity curve.
 
     The engine seeds the curve with the initial capital and appends one
@@ -440,6 +580,10 @@ def _oos_segment(result: BacktestResult, oos_bar_count: int) -> list[float]:
     last ``oos_bar_count + 1`` points.  The warmup bars in front of it are
     training data: a cross there is a training trade, and letting it into the
     out of sample curve reports in sample profit as out of sample.
+
+    Public because the cost stress in ``tradex_replay.validation`` takes the
+    *same* slice off a rerun, and the two P&L figures it compares are only
+    comparable if both were cut the same way.
     """
     curve = list(result.equity_curve)
     if not curve:
@@ -448,27 +592,26 @@ def _oos_segment(result: BacktestResult, oos_bar_count: int) -> list[float]:
     return curve[len(curve) - keep:] if len(curve) > keep else curve
 
 
-def _fold(
+def _oos_partition(
     *,
     step_index: int,
-    train_start: int,
-    train_end: int,
-    test_start: int,
-    test_end: int,
     train_data: Sequence[Any],
     test_data: Sequence[Any],
-    run_fn: Callable[[dict[str, Any], Sequence[Any]], BacktestResult],
-    optimize_fn: Callable[[Sequence[Any]], dict[str, Any]],
-    score_fn: Callable[[BacktestResult], float] | None,
     warmup_bars: int,
     embargo_override: int,
-) -> WalkForwardStep:
-    """Optimize on the train window, then run in-sample and out-of-sample.
+) -> tuple[list[Any], list[Any], list[Any], int]:
+    """The three slices of one fold's out of sample run, and the embargo.
 
-    Any exception raised by the run propagates as a :class:`WalkForwardFoldError`
-    naming this fold.  There is no handler, deliberately: every handler this
-    function used to carry was a place a failed fold became a zero score and
-    the report continued without it.
+    ``(warmup, embargo gap, scored bars, embargo length)``, in the order a fold's
+    run sees them. Both :func:`_fold` and :func:`_segment` — and so both the run
+    and the validation entry point that grades it — go through here, so "which
+    bars are out of sample" has one answer in this module rather than two that
+    can drift apart.
+
+    The two guards live here too, for the same reason: a fold that cannot carry
+    its warmup, or that would score fewer than
+    :data:`MIN_OOS_BARS_PER_FOLD` bars, is not a smaller fold, it is a failed
+    one.
     """
     if len(train_data) < warmup_bars:
         raise WalkForwardFoldError(
@@ -493,6 +636,71 @@ def _fold(
         require_min_oos_bars(len(oos_bars), minimum=MIN_OOS_BARS_PER_FOLD)
     except InsufficientSampleError as exc:
         raise WalkForwardFoldError(step_index, str(exc)) from exc
+    return warmup, gap, oos_bars, embargo
+
+
+def _segment(
+    *,
+    step_index: int,
+    train_start: int,
+    train_end: int,
+    test_start: int,
+    test_end: int,
+    train_data: Sequence[Any],
+    test_data: Sequence[Any],
+    warmup_bars: int,
+    embargo_override: int,
+) -> OosSegment:
+    warmup, gap, scored, embargo = _oos_partition(
+        step_index=step_index,
+        train_data=train_data,
+        test_data=test_data,
+        warmup_bars=warmup_bars,
+        embargo_override=embargo_override,
+    )
+    return OosSegment(
+        step_index=step_index,
+        train_start=train_start,
+        train_end=train_end,
+        test_start=test_start,
+        test_end=test_end,
+        warmup_bars=warmup_bars,
+        embargo_bars=embargo,
+        oos_bar_count=len(scored),
+        oos_input=[*warmup, *gap, *scored],
+        scored_bars=scored,
+    )
+
+
+def _fold(
+    *,
+    step_index: int,
+    train_start: int,
+    train_end: int,
+    test_start: int,
+    test_end: int,
+    train_data: Sequence[Any],
+    test_data: Sequence[Any],
+    run_fn: Callable[[dict[str, Any], Sequence[Any]], BacktestResult],
+    optimize_fn: Callable[[Sequence[Any]], dict[str, Any]],
+    score_fn: Callable[[BacktestResult], float] | None,
+    warmup_bars: int,
+    embargo_override: int,
+) -> WalkForwardStep:
+    """Optimize on the train window, then run in-sample and out-of-sample.
+
+    Any exception raised by the run propagates as a :class:`WalkForwardFoldError`
+    naming this fold.  There is no handler, deliberately: every handler this
+    function used to carry was a place a failed fold became a zero score and
+    the report continued without it.
+    """
+    warmup, gap, oos_bars, embargo = _oos_partition(
+        step_index=step_index,
+        train_data=train_data,
+        test_data=test_data,
+        warmup_bars=warmup_bars,
+        embargo_override=embargo_override,
+    )
 
     try:
         best_params = optimize_fn(train_data)
@@ -522,7 +730,7 @@ def _fold(
         warmup_bars=warmup_bars,
         embargo_bars=embargo,
         oos_bar_count=len(oos_bars),
-        oos_equity_curve=_oos_segment(oos, len(oos_bars)),
+        oos_equity_curve=oos_equity_segment(oos, len(oos_bars)),
         oos_start=stamps[0] if stamps else None,
         oos_end=stamps[-1] if stamps else None,
     )
@@ -541,6 +749,7 @@ def _report(steps: Sequence[WalkForwardStep], frequency: str) -> WalkForwardRepo
         successful_steps=len(steps),
         bar_frequency=frequency,
         oos_span_days=_oos_span_days(steps),
+        oos_equity_curve=tuple(_stitched_curve(steps)),
     )
 
 
@@ -557,6 +766,37 @@ def _oos_span_days(steps: Sequence[WalkForwardStep]) -> float:
     return (max(ends) - min(starts)).total_seconds() / 86_400.0
 
 
+def _stitched_curve(steps: Sequence[WalkForwardStep]) -> list[float]:
+    """The concatenated out of sample series every aggregate is read from.
+
+    Segments are chained multiplicatively, each normalized to its own start, so
+    a fold is measured on its own scale and then joined.  A result carrying no
+    equity curve at all still gets a series, chained from its total return per
+    fold: one observation per fold is coarse, but it is a series.
+
+    Exposed on the report as :attr:`WalkForwardReport.oos_equity_curve` because
+    the Sharpe and the drawdown are properties *of this curve*. A caller that
+    re-derived the series from the per fold results would be reading a different
+    object, and the one thing a validation report must not do is take a number
+    from somewhere other than the series it graded.
+    """
+    segments = [s.oos_equity_curve for s in steps if len(s.oos_equity_curve) > 1]
+    if segments:
+        stitched: list[float] = [segments[0][0]]
+        for seg in segments:
+            base = seg[0] or 1.0
+            norm = [x / base for x in seg[1:]]
+            last = stitched[-1]
+            stitched.extend(v * last for v in norm)
+        return stitched
+
+    chained = [1.0]
+    for s in steps:
+        if s.out_of_sample_result is not None:
+            chained.append(chained[-1] * (1.0 + s.out_of_sample_result.total_return))
+    return chained
+
+
 def _aggregate(
     steps: Sequence[WalkForwardStep], frequency: str
 ) -> tuple[float, float, float]:
@@ -567,31 +807,15 @@ def _aggregate(
     fold the same as a 3000 bar one, and it usually comes out higher, because
     the variance of a mean is smaller than the variance of the whole.
     """
-    segments = [s.oos_equity_curve for s in steps if len(s.oos_equity_curve) > 1]
-    if segments:
-        stitched: list[float] = [segments[0][0]]
-        for seg in segments:
-            base = seg[0] or 1.0
-            norm = [x / base for x in seg[1:]]
-            last = stitched[-1]
-            stitched.extend(v * last for v in norm)
-        agg_return = (stitched[-1] - stitched[0]) / stitched[0] if stitched[0] else 0.0
-        return (
-            agg_return,
-            sharpe_ratio(_returns(stitched), frequency=frequency),
-            max_drawdown(stitched),
-        )
-
-    # A result carrying no equity curve at all still gets a series, chained from
-    # its total return per fold, and a Sharpe computed on *that*.  One
-    # observation per fold is coarse, but it is a series — reporting the mean of
-    # the per fold Sharpes instead would report a number that means nothing.
-    chained = [1.0]
-    for s in steps:
-        if s.out_of_sample_result is not None:
-            chained.append(chained[-1] * (1.0 + s.out_of_sample_result.total_return))
-    agg_return = (chained[-1] - chained[0]) / chained[0] if chained[0] else 0.0
-    return agg_return, sharpe_ratio(_returns(chained), frequency=frequency), 0.0
+    curve = _stitched_curve(steps)
+    agg_return = (curve[-1] - curve[0]) / curve[0] if curve and curve[0] else 0.0
+    sharpe = sharpe_ratio(_returns(curve), frequency=frequency)
+    # A drawdown needs more than one observation per fold to mean anything, so
+    # the curve-less fallback reports 0.0 rather than a number off one point per
+    # fold — the same reason it is not read as "no drawdown occurred".
+    if any(len(s.oos_equity_curve) > 1 for s in steps):
+        return agg_return, sharpe, max_drawdown(curve)
+    return agg_return, sharpe, 0.0
 
 
 def _returns(curve: Sequence[float]) -> list[float]:

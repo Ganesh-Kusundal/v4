@@ -70,9 +70,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from tradex_domain.utils import q2
+
 from tradex_analytics.reports import sharpe_ratio
 from tradex_analytics.trade_metrics import Trade, compute_statistics
-from tradex_domain.utils import q2
 
 # --------------------------------------------------------------------------- the bar
 
@@ -271,13 +272,18 @@ GATING_FIELDS: tuple[str, ...] = tuple(c.field for c in PROMOTION_CRITERIA)
 #: raises. A ``None`` here is the single most likely way a report could be
 #: built with a criterion unevaluated, and it is a ``>= 0.0`` on two of them.
 _METRIC_PRODUCERS: Mapping[str, str] = {
-    "oos_sharpe": "the concatenated out of sample equity curve (WalkForwardReport.oos_equity_curve)",
+    "oos_sharpe": (
+        "the concatenated out of sample equity curve (WalkForwardReport.oos_equity_curve)"
+    ),
     "oos_round_trips": "round_trips_from_fills over the out of sample fill records",
     "oos_fills": "oos_fills_in over the out of sample fill records",
     "oos_span_days": "WalkForwardReport.oos_span_days",
     "deflated_sharpe": "GridSearchResult.deflated_sharpe (lane 1e)",
     "param_stability_share_of_grid": "GridSearchResult.param_stability_share_of_grid (lane 1e)",
-    "net_pnl_at_2x_costs": f"a rerun of the out of sample segments at {COST_STRESS_MULTIPLIER:g}x the modelled costs",
+    "net_pnl_at_2x_costs": (
+        f"a rerun of the out of sample segments at {COST_STRESS_MULTIPLIER:g}x "
+        "the modelled costs"
+    ),
 }
 
 
