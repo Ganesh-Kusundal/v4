@@ -840,6 +840,10 @@ class PaperBroker(BaseBroker):
             quantity=order.filled_quantity,
             price=price,
             timestamp=datetime.now(UTC),
+            # The paper book is the one place a DELIVERY order is guaranteed to
+            # be affordable to inspect, so the label belongs here too: a fill
+            # with no product is priced as INTRADAY and counted.
+            product_type=order.product_type,
         )
         self._positions[instrument_id] = _domain_apply_fill(current, fill)
 
