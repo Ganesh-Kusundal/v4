@@ -32,6 +32,7 @@ from tradex_reactive.bus import ReactiveBus
 from tradex_replay.backtest import BacktestEngine
 from tradex_runtime.startup import boot
 from tradex_strategy import ReactiveStrategyEngine
+from trading.tests.risk_support import permissive_risk
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 
@@ -199,7 +200,7 @@ class TestExecutionConfigWiring:
     def test_boot_wires_fees_and_slippage_from_config(self) -> None:
         """boot(execution=...) fills with slippage and deducts fees — end to
         end through the composition root, no strategy needed."""
-        session = boot(AppConfig(
+        session = boot(AppConfig(risk=permissive_risk(),
             mode="paper",
             execution=ExecutionConfig(fees_enabled=True, slippage_bps=10),
         ))
@@ -225,7 +226,7 @@ class TestExecutionConfigWiring:
         SDK factory and boot() book identical execution costs."""
         from tradex_runtime.session_impl import TradingSession
 
-        session = TradingSession.paper(config=AppConfig(
+        session = TradingSession.paper(config=AppConfig(risk=permissive_risk(),
             execution=ExecutionConfig(fees_enabled=True, slippage_bps=10),
         ))
         try:

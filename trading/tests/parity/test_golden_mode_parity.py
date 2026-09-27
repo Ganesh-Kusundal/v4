@@ -56,6 +56,7 @@ from tradex_runtime.session_impl import TradingSession
 from tradex_strategy import ReactiveStrategyEngine
 from tradex_strategy.core.sizing import PositionSizer
 from tradex_strategy.extensions.strategies.sma_cross import SmaCrossStrategy
+from trading.tests.risk_support import app_config
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 CLOSES = [10.0] * 20 + [11.0, 12.0, 13.0]
@@ -129,7 +130,7 @@ class TestGoldenReactiveParity:
     and carry non-zero reference prices on every strategy order."""
 
     def test_paper_path_fills_at_reference_price_not_nominal(self) -> None:
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         strategy = SmaCrossStrategy("golden-paper", INSTRUMENT)
         strategy_engine = ReactiveStrategyEngine(session.bus, sizer=_one_share_sizer())
         strategy_engine.register(strategy)
@@ -189,7 +190,7 @@ class TestGoldenReactiveParity:
         bt_strategy = SmaCrossStrategy("golden-count-bt", INSTRUMENT)
         result = BacktestEngine().run(bt_strategy, _candles())
 
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         paper_strategy = SmaCrossStrategy("golden-count-paper", INSTRUMENT)
         strategy_engine = ReactiveStrategyEngine(session.bus)
         strategy_engine.register(paper_strategy)
@@ -377,7 +378,7 @@ class TestAccountingConvergence:
     def test_exact_fill_price_equals_backtest_next_open(self) -> None:
         """Unified price reference: paper and backtest fill the bar-21 signal
         at bar 22's OPEN (12.0) — identical prices, not just identical P&L."""
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         strategy = SmaCrossStrategy("golden-exact", INSTRUMENT)
         strategy_engine = ReactiveStrategyEngine(session.bus, sizer=_one_share_sizer())
         strategy_engine.register(strategy)
@@ -438,7 +439,7 @@ class TestAccountingConvergence:
         assert bt.equity_curve[-1] == 100069.58
 
         # --- Path B: reactive paper session (end-to-end boot composition) ---
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         strategy_engine = ReactiveStrategyEngine(session.bus)
         strategy_engine.register(_TimedPartial(INSTRUMENT))
         fills: list = []
@@ -514,3 +515,9 @@ class TestFillSourceParity:
         assert simulated == paper
         # 100 + 0.25 — both modes applied the identical adjustment.
         assert simulated.value == Decimal("100.25")
+
+
+#: AC-10: the SDK session factories need a named risk policy like any
+#: other paper/live boot. Not a risk test: real, huge value caps and an
+#: explicit UNBOUNDED on the P&L guards.
+_CFG = app_config()

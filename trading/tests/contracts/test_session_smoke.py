@@ -21,10 +21,16 @@ from tradex_domain.events import OrderFilled, OrderPlaced
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
+from trading.tests.risk_support import app_config
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+#: AC-10: booting paper requires a named risk policy. This suite submits
+#: real orders, so it takes the permissive one — the risk gate stays in the
+#: path and is simply far above any notional here.
+_CFG = app_config()
 
 def _make_equity() -> Equity:
     return Equity.of("NSE", "RELIANCE")
@@ -56,7 +62,7 @@ class TestBootSmoke:
         from tradex_runtime.session_impl import SessionState, TradingSession
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         assert isinstance(session, TradingSession)
         assert session.state == SessionState.READY
         session.stop()
@@ -64,14 +70,14 @@ class TestBootSmoke:
     def test_boot_default_is_paper_mode(self) -> None:
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         assert session.broker_id == BrokerId.PAPER
         session.stop()
 
     def test_boot_session_has_all_services(self) -> None:
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         # Access all services — should not raise
         assert session.broker is not None
         assert session.engine is not None
@@ -82,7 +88,7 @@ class TestBootSmoke:
     def test_boot_session_has_capabilities(self) -> None:
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         caps = session.capabilities
         assert caps.supports_market_order is True
         session.stop()
@@ -91,7 +97,7 @@ class TestBootSmoke:
         from tradex_reactive.bus import ReactiveBus
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         assert isinstance(session.bus, ReactiveBus)
         session.stop()
 
@@ -107,7 +113,7 @@ class TestOrderSubmissionSmoke:
         from tradex_domain.execution import OrderReceipt
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         receipt = session.engine.submit(_make_request())
         assert isinstance(receipt, OrderReceipt)
         assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
@@ -116,7 +122,7 @@ class TestOrderSubmissionSmoke:
     def test_submit_order_publishes_events(self) -> None:
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         events: list[Any] = []
         session.bus.stream().subscribe(lambda m: events.append(m))
 
@@ -142,7 +148,7 @@ class TestOrderSubmissionSmoke:
         """
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         for i in range(5):
             receipt = session.engine.submit(_make_request(quantity="1"))
             assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
@@ -152,7 +158,7 @@ class TestOrderSubmissionSmoke:
         from tradex_domain.market import Quote
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         quote = session.broker.get_quote(_make_equity())
         assert isinstance(quote, Quote)
         session.stop()
@@ -161,7 +167,7 @@ class TestOrderSubmissionSmoke:
         from tradex_domain.value_objects import Price
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         ltp = session.broker.ltp(_make_equity())
         assert isinstance(ltp, Price)
         session.stop()
@@ -170,7 +176,7 @@ class TestOrderSubmissionSmoke:
         from tradex_domain.execution import Account
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         account = session.broker.get_account()
         assert isinstance(account, Account)
         session.stop()
@@ -187,7 +193,7 @@ class TestSessionLifecycle:
         from tradex_runtime.session_impl import SessionState
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         assert session.state == SessionState.READY
         session.stop()
         assert session.state == SessionState.STOPPED
@@ -195,7 +201,7 @@ class TestSessionLifecycle:
     def test_double_stop_is_safe(self) -> None:
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         session.stop()
         session.stop()  # Should not raise
 
@@ -210,7 +216,7 @@ class TestKillSwitchSmoke:
     def test_kill_switch_rejects_orders(self) -> None:
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         session._engine.kill_switch = True
 
         receipt = session.engine.submit(_make_request())
@@ -221,7 +227,7 @@ class TestKillSwitchSmoke:
     def test_kill_switch_publishes_no_fill_events(self) -> None:
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         events: list[Any] = []
         session.bus.stream().subscribe(lambda m: events.append(m))
 
@@ -244,7 +250,7 @@ class TestBusSubscriptionSmoke:
         from tradex_domain.market import Quote
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         quotes: list[Any] = []
         sub = session.bus.of_type(Quote).subscribe(lambda q: quotes.append(q))
         assert sub is not None
@@ -253,7 +259,7 @@ class TestBusSubscriptionSmoke:
     def test_subscribe_fills(self) -> None:
         from tradex_runtime.startup import boot
 
-        session = boot()
+        session = boot(_CFG)
         fills: list[Any] = []
         sub = session.bus.of_type(OrderFilled).subscribe(lambda f: fills.append(f))
         assert sub is not None

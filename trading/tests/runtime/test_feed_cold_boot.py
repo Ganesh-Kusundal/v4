@@ -45,6 +45,7 @@ from tradex_runtime.bar_aggregator import BarFrame
 from tradex_runtime.feed_recovery import FeedRecoveryCoordinator, ParquetHistoryProvider
 from tradex_runtime.feed_supervisor import FeedState, FeedSupervisor
 from tradex_runtime.market_feed import FeedNotReadyError, MarketFeed
+from trading.tests.risk_support import permissive_risk
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -81,7 +82,7 @@ def _boot_live(tmp_path, monkeypatch) -> Any:
         live_mod, "build_broker_from_env", lambda _broker_id, **_kw: fake
     )
     return startup.boot(
-        AppConfig(
+        AppConfig(risk=permissive_risk(),
             broker_id=BrokerId.DHAN,
             mode="live",
             live_enabled=True,

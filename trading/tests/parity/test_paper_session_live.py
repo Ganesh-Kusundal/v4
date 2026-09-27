@@ -49,6 +49,7 @@ from tradex_runtime.session_impl import TradingSession
 from tradex_runtime.startup import boot
 from tradex_strategy import ReactiveStrategyEngine
 from tradex_strategy.extensions import all_strategies
+from trading.tests.risk_support import app_config, permissive_risk
 
 # The shipped SMA-crossover example: BUY on the fast/SMA crossing above the
 # slow/SMA. Discovered via the public ``all_strategies`` registry.
@@ -124,7 +125,7 @@ class TestPaperSessionLiveParity:
         # first). The exact documented CQRS spine is asserted below.
         events: list[object] = []
         bus = ReactiveBus(message_log=events)
-        session = TradingSession.paper(bus=bus)
+        session = TradingSession.paper(config=_CFG, bus=bus)
         strategy_engine = ReactiveStrategyEngine(session.bus)
         # NOTE: this registers the module-level discovered singleton, whose
         # close history accumulates across on_bar calls. The 1-order/1-fill
@@ -183,7 +184,7 @@ class TestPaperSessionLiveParity:
         """
         events: list[object] = []
         bus = ReactiveBus(message_log=events)
-        session = TradingSession.paper(bus=bus)
+        session = TradingSession.paper(config=_CFG, bus=bus)
         strategy_engine = ReactiveStrategyEngine(session.bus)
         strategy = next(
             s for s in all_strategies if s.strategy_id == _MEAN_REVERSION_ID
@@ -244,7 +245,7 @@ class TestPaperSessionLiveParity:
         )
 
         bus = ReactiveBus()
-        session = TradingSession.paper(bus=bus)
+        session = TradingSession.paper(config=_CFG, bus=bus)
         strategy_engine = ReactiveStrategyEngine(session.bus)
         strategy = SmaCrossStrategy("stream_fill_test", Equity.of("NSE", "RELIANCE"))
         strategy_engine.register(strategy)
@@ -263,7 +264,7 @@ class TestPaperSessionLiveParity:
 
     def test_paper_session_is_ready_and_stoppable(self) -> None:
         """The factory returns a READY session; stop() tears everything down."""
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         try:
             assert session.state.value == "READY"
             assert session.mode == "paper"
@@ -291,7 +292,7 @@ class TestPaperSessionLiveParity:
         """
         from dataclasses import replace
 
-        config = AppConfig(mode="backtest")
+        config = AppConfig(risk=permissive_risk(), mode="backtest")
         # Examples are opt-in; this test drives a discovered one deliberately.
         config = replace(
             config,
@@ -379,3 +380,9 @@ class TestPaperSessionLiveParity:
             rec_sub.dispose()
             sub.dispose()
             session.stop()
+
+
+#: AC-10: the SDK session factories need a named risk policy like any
+#: other paper/live boot. Not a risk test: real, huge value caps and an
+#: explicit UNBOUNDED on the P&L guards.
+_CFG = app_config()

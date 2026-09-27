@@ -71,6 +71,7 @@ from tradex_runtime.feed_supervisor import FeedState
 from tradex_runtime.live_fill_bridge import AVG_PRICE_FALLBACK_METRIC
 from tradex_runtime.market_feed import FeedNotReadyError, MarketFeed
 from tradex_runtime.startup import boot
+from trading.tests.risk_support import permissive_risk
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 _EPOCH = int(datetime(2026, 9, 24, 10, 0, tzinfo=UTC).timestamp())
@@ -102,7 +103,7 @@ def _fake_live_broker() -> MagicMock:
 
 
 def _live_config(tmp_path) -> AppConfig:
-    return AppConfig(
+    return AppConfig(risk=permissive_risk(),
         broker_id=BrokerId.DHAN,
         mode="live",
         live_enabled=True,
@@ -378,7 +379,7 @@ def test_offline_modes_construct_no_feed_and_start_no_recovery(
     calls = _spy_on_feed(monkeypatch)
 
     session = boot(
-        AppConfig(broker_id=BrokerId.PAPER, mode=mode),
+        AppConfig(risk=permissive_risk(), broker_id=BrokerId.PAPER, mode=mode),
         feed_instruments=[INSTRUMENT],
     )
     try:
@@ -393,7 +394,7 @@ def test_offline_modes_construct_no_feed_and_start_no_recovery(
 
 def test_paper_mode_still_trades() -> None:
     """The paper path is byte for byte unchanged: an order still fills."""
-    session = boot(AppConfig(broker_id=BrokerId.PAPER, mode="paper"))
+    session = boot(AppConfig(risk=permissive_risk(), broker_id=BrokerId.PAPER, mode="paper"))
     try:
         receipt = session.engine.submit(_order("paper-unaffected"))
         assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)

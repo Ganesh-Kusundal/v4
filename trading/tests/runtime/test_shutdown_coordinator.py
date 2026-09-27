@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tradex_runtime.shutdown import ShutdownCoordinator
+from trading.tests.risk_support import permissive_risk
 
 
 class TestShutdownCoordinator:
@@ -51,7 +52,7 @@ class TestShutdownCoordinator:
         from tradex_config.schema import AppConfig
         from tradex_runtime.startup import boot
 
-        cfg = AppConfig(mode="paper")
+        cfg = AppConfig(risk=permissive_risk(), mode="paper")
         session = boot(cfg)
         # close() should run without error and in the right order
         session.stop()

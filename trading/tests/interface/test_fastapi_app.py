@@ -16,6 +16,7 @@ from tradex_interfaces.fastapi_app import (  # noqa: E402
     create_app,
     start_fastapi_server,
 )
+from trading.tests.risk_support import app_config  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Health endpoints
@@ -129,7 +130,7 @@ def test_modify_order_end_to_end_paper_session():
     from tradex_domain.value_objects import OrderId, Price, Quantity
     from tradex_runtime.session_impl import TradingSession
 
-    session = TradingSession.paper()
+    session = TradingSession.paper(config=_CFG)
     try:
         # Register RELIANCE in the paper universe and seed an open order.
         reliance = Equity.of("NSE", "RELIANCE")
@@ -703,7 +704,7 @@ def test_post_order_rejects_active_replay_guard_and_recovers():
 
     guard = ReplayGuard()
     guard.acquire("run-1")
-    session = TradingSession.paper()
+    session = TradingSession.paper(config=_CFG)
     try:
         client = TestClient(
             create_app(session=session, api_key="secret", replay_guard=guard)
@@ -783,7 +784,7 @@ def test_post_order_http_retry_is_deduplicated_by_engine():
     """The same HTTP idempotency key produces one paper order and one ID."""
     from tradex_runtime.session_impl import TradingSession
 
-    session = TradingSession.paper()
+    session = TradingSession.paper(config=_CFG)
     try:
         client = TestClient(create_app(session=session))
         body = {
@@ -1577,7 +1578,7 @@ class TestPaperSessionEndToEnd:
     def client(self):
         from tradex_runtime.session_impl import TradingSession
 
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         app = create_app(session=session)
         yield TestClient(app)
         session.stop()
@@ -1727,3 +1728,9 @@ class TestStartFastapiServerGuards:
         assert isinstance(app, FastAPI)
         assert str(app.state.session.state) == "READY"
         assert app.state.api_key == "worker-secret"
+
+
+#: AC-10: the SDK session factories need a named risk policy like any
+#: other paper/live boot. Not a risk test: real, huge value caps and an
+#: explicit UNBOUNDED on the P&L guards.
+_CFG = app_config()

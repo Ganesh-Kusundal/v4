@@ -12,6 +12,7 @@ from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_runtime.master_lifecycle import MasterLoader
 from tradex_runtime.session_impl import TradingSession
+from trading.tests.risk_support import permissive_risk
 
 
 class _BrokerWithMasterLoader:
@@ -94,7 +95,7 @@ def test_live_starts_master_refresh_scheduler(named_tape, monkeypatch, tmp_path)
     monkeypatch.setattr(
         session_mod,
         "AppConfig",
-        lambda **kwargs: AppConfig(
+        lambda **kwargs: AppConfig(risk=permissive_risk(),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
@@ -123,7 +124,7 @@ def test_live_without_loader_starts_no_scheduler(
     monkeypatch.setattr(
         session_mod,
         "AppConfig",
-        lambda **kwargs: AppConfig(
+        lambda **kwargs: AppConfig(risk=permissive_risk(),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )

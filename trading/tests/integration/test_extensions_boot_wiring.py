@@ -21,6 +21,7 @@ from tradex_domain.value_objects import Price, Quantity
 from tradex_runtime.startup import boot, boot_context
 from tradex_strategy.core.scanner import warmup_bars
 from tradex_strategy.extensions import all_scanners, all_strategies
+from trading.tests.risk_support import app_config, permissive_risk
 
 
 def _fake_broker_with_history(closes: list[float]) -> MagicMock:
@@ -63,7 +64,7 @@ def _paper_with_examples() -> AppConfig:
     """A paper config that opts into the auto-discovered example strategies."""
     from dataclasses import replace
 
-    config = AppConfig(mode="paper")
+    config = AppConfig(risk=permissive_risk(), mode="paper")
     return replace(
         config,
         execution=replace(config.execution, auto_register_examples=True),
@@ -88,7 +89,10 @@ class TestBootWiresDiscovery:
             session.stop()
 
     def test_boot_binds_scanner_engine_and_definitions(self, monkeypatch) -> None:
-        session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
+        session = boot(
+            AppConfig(risk=permissive_risk(), mode="paper"),
+            broker=_fake_broker_with_history([10.0]),
+        )
         try:
             assert session._scanner_engine is not None  # noqa: SLF001 – wiring probe
             assert all_scanners  # sanity: discovery found the shipped scanners
@@ -97,7 +101,10 @@ class TestBootWiresDiscovery:
             session.stop()
 
     def test_run_all_runs_every_discovered_scanner(self, monkeypatch) -> None:
-        session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
+        session = boot(
+            AppConfig(risk=permissive_risk(), mode="paper"),
+            broker=_fake_broker_with_history([10.0]),
+        )
         try:
             results = {}
             for i, definition in enumerate(session._scanner_definitions):
@@ -130,7 +137,7 @@ class TestBootWiresDiscovery:
         # real reason rather than by accident of a missing history.
         closes = [600.0 - i for i in range(20)]
         broker = _fake_broker_with_history(closes)
-        session = boot(AppConfig(mode="paper"), broker=broker)
+        session = boot(AppConfig(risk=permissive_risk(), mode="paper"), broker=broker)
         try:
             # Identify the two-condition pullback scanner by its condition
             # names (ScannerDefinition carries no name field).
@@ -153,7 +160,10 @@ class TestBootWiresDiscovery:
             session.stop()
 
     def test_session_runs_every_discovered_scanner(self, monkeypatch) -> None:
-        session = boot(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
+        session = boot(
+            AppConfig(risk=permissive_risk(), mode="paper"),
+            broker=_fake_broker_with_history([10.0]),
+        )
         try:
             for definition in all_scanners:
                 results = session._scanner_engine.run(definition)
@@ -162,7 +172,10 @@ class TestBootWiresDiscovery:
             session.stop()
 
     def test_boot_context_carries_strategy_engine(self, monkeypatch) -> None:
-        ctx = boot_context(AppConfig(mode="paper"), broker=_fake_broker_with_history([10.0]))
+        ctx = boot_context(
+            AppConfig(risk=permissive_risk(), mode="paper"),
+            broker=_fake_broker_with_history([10.0]),
+        )
         try:
             assert ctx.strategy_engine is not None
             assert ctx.session.strategy_engine is ctx.strategy_engine
@@ -175,7 +188,10 @@ class TestBootWiresDiscovery:
         from tradex_market_data.market_provider import ParquetMarketProvider
 
         for mode in ("backtest", "replay"):
-            session = boot(AppConfig(mode=mode), broker=_fake_broker_with_history([10.0]))
+            session = boot(
+                AppConfig(risk=permissive_risk(), mode=mode),
+                broker=_fake_broker_with_history([10.0]),
+            )
             try:
                 engine = session._scanner_engine  # noqa: SLF001 – wiring probe
                 assert isinstance(engine._market, ParquetMarketProvider)  # noqa: SLF001
@@ -188,12 +204,15 @@ class TestBootWiresDiscovery:
         from tradex_market_data.backtest_loader import ParquetBacktestLoader
 
         for mode in ("backtest", "replay"):
-            session = boot(AppConfig(mode=mode), broker=_fake_broker_with_history([10.0]))
+            session = boot(
+                AppConfig(risk=permissive_risk(), mode=mode),
+                broker=_fake_broker_with_history([10.0]),
+            )
             try:
                 assert isinstance(session.backtest, ParquetBacktestLoader)
             finally:
                 session.stop()
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(risk=permissive_risk(), mode="paper"))
         try:
             assert session.backtest is None
         finally:
@@ -204,7 +223,7 @@ def test_paper_boot_with_real_broker_runs_discovered_scanner() -> None:
     """End-to-end with the real PaperBroker (no mocks): the paper broker's
     empty history still yields ScannerResults — proving the wiring, not the
     scoring. This is the canonical path used by ``boot()`` defaults."""
-    session = boot()
+    session = boot(_CFG)
     try:
         assert session._scanner_engine is not None  # noqa: SLF001 – wiring probe
         for definition in all_scanners:
@@ -212,3 +231,10 @@ def test_paper_boot_with_real_broker_runs_discovered_scanner() -> None:
             assert isinstance(results, list)
     finally:
         session.stop()
+
+
+#: AC-10: a paper/live boot needs a named risk policy. This suite is
+#: about wiring, not risk, so it takes the permissive policy: real,
+#: huge value caps, and an explicit UNBOUNDED on the two P&L guards it
+#: has no mark service to satisfy.
+_CFG = app_config()

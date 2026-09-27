@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from tradex_config.schema import AppConfig
 from tradex_runtime import startup as startup_mod
+from trading.tests.risk_support import permissive_risk
 
 
 def test_broker_close_called_exactly_once_per_teardown() -> None:
@@ -25,7 +26,7 @@ def test_broker_close_called_exactly_once_per_teardown() -> None:
     call. Pin: the broker sees ``close()`` exactly once per
     teardown path.
     """
-    cfg = AppConfig(mode="paper")
+    cfg = AppConfig(risk=permissive_risk(), mode="paper")
     rc = startup_mod.boot_context(cfg)
     try:
         broker = rc.broker

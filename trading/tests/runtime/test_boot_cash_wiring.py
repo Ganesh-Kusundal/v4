@@ -13,8 +13,9 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from tradex_config.schema import AppConfig, RiskConfig
+from tradex_config.schema import AppConfig
 from tradex_runtime.startup import boot
+from trading.tests.risk_support import permissive_risk
 
 
 def test_paper_boot_binds_cash_provider_when_configured() -> None:
@@ -24,7 +25,7 @@ def test_paper_boot_binds_cash_provider_when_configured() -> None:
     def provider() -> Decimal:
         return cash["value"]
 
-    cfg = AppConfig(mode="paper", risk=RiskConfig(cash_provider=provider))
+    cfg = AppConfig(mode="paper", risk=permissive_risk(cash_provider=provider))
     session = boot(cfg)
     try:
         engine = session.engine
@@ -41,7 +42,7 @@ def test_paper_boot_without_configured_provider_uses_broker_funds() -> None:
     admit a BUY with no balance check at all. Paper now sources the balance
     from the broker like live does, and fails closed when it cannot be read.
     """
-    cfg = AppConfig(mode="paper")
+    cfg = AppConfig(risk=permissive_risk(), mode="paper")
     session = boot(cfg)
     try:
         risk = session.engine._risk  # type: ignore[attr-defined]

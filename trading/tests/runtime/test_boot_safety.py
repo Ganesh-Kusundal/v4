@@ -9,30 +9,31 @@ from tradex_brokers.common.capabilities import dhan_capabilities
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_runtime.startup import boot
+from trading.tests.risk_support import permissive_risk
 
 
 class TestBootModeValidation:
     """boot() validates the mode against an allowlist."""
 
     def test_paper_mode_boots(self) -> None:
-        cfg = AppConfig(mode="paper")
+        cfg = AppConfig(risk=permissive_risk(), mode="paper")
         session = boot(cfg)
         assert session.state.value == "READY"
         session.stop()
 
     def test_backtest_mode_boots(self) -> None:
-        cfg = AppConfig(mode="backtest")
+        cfg = AppConfig(risk=permissive_risk(), mode="backtest")
         session = boot(cfg)
         assert session.state.value == "READY"
         session.stop()
 
     def test_unknown_mode_raises(self) -> None:
-        cfg = AppConfig(mode="unknown_mode")
+        cfg = AppConfig(risk=permissive_risk(), mode="unknown_mode")
         with pytest.raises(ValueError, match="unknown mode"):
             boot(cfg)
 
     def test_empty_mode_raises(self) -> None:
-        cfg = AppConfig(mode="")
+        cfg = AppConfig(risk=permissive_risk(), mode="")
         with pytest.raises(ValueError, match="unknown mode"):
             boot(cfg)
 
@@ -58,12 +59,18 @@ class TestBootLiveGates:
     """boot() enforces live-mode safety gates."""
 
     def test_live_with_paper_broker_raises(self) -> None:
-        cfg = AppConfig(mode="live", broker_id=BrokerId.PAPER, live_enabled=True)
+        cfg = AppConfig(
+            risk=permissive_risk(), mode="live",
+            broker_id=BrokerId.PAPER, live_enabled=True,
+        )
         with pytest.raises(ValueError, match="live mode requires a non-paper broker"):
             boot(cfg)
 
     def test_live_without_live_enabled_raises(self) -> None:
-        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=False)
+        cfg = AppConfig(
+            risk=permissive_risk(), mode="live",
+            broker_id=BrokerId.DHAN, live_enabled=False,
+        )
         with pytest.raises(ValueError, match="live mode requires live_enabled"):
             boot(cfg)
 
@@ -72,13 +79,13 @@ class TestBootSessionMode:
     """boot() stores mode on the session."""
 
     def test_session_has_mode(self) -> None:
-        cfg = AppConfig(mode="paper")
+        cfg = AppConfig(risk=permissive_risk(), mode="paper")
         session = boot(cfg)
         assert session.mode == "paper"
         session.stop()
 
     def test_backtest_session_mode(self) -> None:
-        cfg = AppConfig(mode="backtest")
+        cfg = AppConfig(risk=permissive_risk(), mode="backtest")
         session = boot(cfg)
         assert session.mode == "backtest"
         session.stop()
@@ -102,8 +109,11 @@ class TestBootStreamBackendWiring:
         broker = self._fake_broker(backend)
         monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
 
-        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
-                        persistence=PersistenceConfig(path=str(tmp_path / "orders.db")))
+        cfg = AppConfig(
+            risk=permissive_risk(), mode="live",
+            broker_id=BrokerId.DHAN, live_enabled=True,
+            persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+        )
         session = boot(cfg)
         try:
             assert session._stream_backend is backend
@@ -118,8 +128,11 @@ class TestBootStreamBackendWiring:
         broker.stream_backend.side_effect = RuntimeError("no ws transport")
         monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
 
-        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
-                        persistence=PersistenceConfig(path=str(tmp_path / "orders.db")))
+        cfg = AppConfig(
+            risk=permissive_risk(), mode="live",
+            broker_id=BrokerId.DHAN, live_enabled=True,
+            persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+        )
         with pytest.raises(RuntimeError, match="order-stream backend"):
             boot(cfg)
 
@@ -130,13 +143,16 @@ class TestBootStreamBackendWiring:
         broker.stream_backend.return_value = None
         monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
 
-        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
-                        persistence=PersistenceConfig(path=str(tmp_path / "orders.db")))
+        cfg = AppConfig(
+            risk=permissive_risk(), mode="live",
+            broker_id=BrokerId.DHAN, live_enabled=True,
+            persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+        )
         with pytest.raises(ValueError, match="order-stream backend"):
             boot(cfg)
 
     def test_paper_boot_has_no_stream_backend(self) -> None:
-        cfg = AppConfig(mode="paper")
+        cfg = AppConfig(risk=permissive_risk(), mode="paper")
         session = boot(cfg)
         try:
             assert session._stream_backend is None
@@ -151,7 +167,7 @@ class TestBootPersistenceWiring:
         from tradex_config.schema import PersistenceConfig
         from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 
-        cfg = AppConfig(
+        cfg = AppConfig(risk=permissive_risk(),
             mode="paper",
             persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
         )
@@ -166,7 +182,7 @@ class TestBootPersistenceWiring:
         """Every order endpoint has a guard, even without SQLite durability."""
         from tradex_execution.idempotency import MemoryIdempotencyGuard
 
-        session = boot(AppConfig(mode="paper"))
+        session = boot(AppConfig(risk=permissive_risk(), mode="paper"))
         try:
             assert isinstance(session.engine._guard, MemoryIdempotencyGuard)  # noqa: SLF001
         finally:
@@ -181,6 +197,9 @@ class TestBootPersistenceWiring:
         broker.stream_backend.return_value = backend
         monkeypatch.setattr(live_mod, "build_broker_from_env", lambda _p, **_kw: broker)
 
-        cfg = AppConfig(mode="live", broker_id=BrokerId.DHAN, live_enabled=True)
+        cfg = AppConfig(
+            risk=permissive_risk(), mode="live",
+            broker_id=BrokerId.DHAN, live_enabled=True,
+        )
         with pytest.raises(ValueError, match="persistence"):
             boot(cfg)

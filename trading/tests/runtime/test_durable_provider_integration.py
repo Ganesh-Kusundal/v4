@@ -27,6 +27,7 @@ from tradex_execution.engine import (
 from tradex_execution.fill_sources import PaperFillSource
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.startup import boot
+from trading.tests.risk_support import app_config, permissive_risk
 
 
 def _equity() -> Equity:
@@ -86,13 +87,13 @@ class TestBootIntegration:
     """boot() produces a session with clean initial state."""
 
     def test_default_boot_has_no_positions(self) -> None:
-        session = boot(AppConfig())
+        session = boot(AppConfig(risk=permissive_risk()))
         positions = session.engine.cache.all_positions()
         assert positions == []
         session.stop()
 
     def test_default_boot_has_paper_broker(self) -> None:
-        session = boot()
+        session = boot(_CFG)
         assert session.broker_id == BrokerId.PAPER
         session.stop()
 
@@ -126,3 +127,10 @@ class TestExecutionWithIdempotency:
         )
         receipt1 = engine.submit(_request())
         assert receipt1.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
+
+
+#: AC-10: a paper/live boot needs a named risk policy. This suite is
+#: about wiring, not risk, so it takes the permissive policy: real,
+#: huge value caps, and an explicit UNBOUNDED on the two P&L guards it
+#: has no mark service to satisfy.
+_CFG = app_config()

@@ -25,6 +25,7 @@ from tradex_reactive.bus import ReactiveBus
 from tradex_replay.backtest import BacktestEngine
 from tradex_runtime.session_impl import SessionState, TradingSession
 from tradex_strategy.core.buy_and_hold import BuyAndHoldStrategy
+from trading.tests.risk_support import app_config
 
 
 def _now() -> datetime:
@@ -60,7 +61,7 @@ class TestSessionLifecycle:
 
     def test_paper_session_lifecycle(self):
         """Create paper session, verify lifecycle states, stop."""
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         # Factories return READY so properties are usable immediately.
         assert session.state == SessionState.READY
 
@@ -74,7 +75,7 @@ class TestSessionLifecycle:
 
     def test_context_manager(self):
         """Session works as context manager."""
-        with TradingSession.paper() as session:
+        with TradingSession.paper(config=_CFG) as session:
             session.start()
             assert session.state == SessionState.READY
         # After exit, session should be stopped (close() calls stop())
@@ -91,7 +92,7 @@ class TestMarketDataFlow:
 
     def test_quote_and_ltp(self):
         """Get quote and LTP from paper session."""
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         session.start()
         try:
             reliance = _eq()
@@ -110,7 +111,7 @@ class TestMarketDataFlow:
 
     def test_history(self):
         """Get historical data."""
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         session.start()
         try:
             reliance = _eq()
@@ -126,7 +127,7 @@ class TestMarketDataFlow:
 
     def test_search(self):
         """Search instruments."""
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         session.start()
         try:
             # Paper broker returns empty list for unknown query
@@ -146,7 +147,7 @@ class TestOrderLifecycle:
 
     def test_submit_and_check(self):
         """Submit an order and verify receipt."""
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         session.start()
         try:
             reliance = _eq()
@@ -164,7 +165,7 @@ class TestOrderLifecycle:
 
     def test_positions_after_order(self):
         """Check positions after submitting an order."""
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         session.start()
         try:
             reliance = _eq()
@@ -182,7 +183,7 @@ class TestOrderLifecycle:
 
     def test_account_info(self):
         """Get account info from paper session."""
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         session.start()
         try:
             account = session.broker.get_account()
@@ -311,7 +312,7 @@ class TestFullPipeline:
     def test_full_pipeline(self):
         """Complete flow from session to analytics."""
         # 1. Create session
-        session = TradingSession.paper()
+        session = TradingSession.paper(config=_CFG)
         session.start()
 
         try:
@@ -472,3 +473,9 @@ class TestExecutionEngineIntegration:
 
         engine.shutdown()
         bus.dispose()
+
+
+#: AC-10: the SDK session factories need a named risk policy like any
+#: other paper/live boot. Not a risk test: real, huge value caps and an
+#: explicit UNBOUNDED on the P&L guards.
+_CFG = app_config()

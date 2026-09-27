@@ -98,6 +98,7 @@ from tradex_runtime.tape_recorder import (
 )
 from tradex_strategy import ReactiveStrategyEngine
 from tradex_strategy.core.sizing import PositionSizer
+from trading.tests.risk_support import permissive_risk
 
 IST = ZoneInfo("Asia/Kolkata")
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
@@ -325,7 +326,7 @@ def _run_path(
     strategy_engine.register(_PlanStrategy())
     session = TradingSession.paper(
         bus=bus,
-        config=AppConfig(
+        config=AppConfig(risk=permissive_risk(),
             execution=ExecutionConfig(
                 fees_enabled=True,
                 fill_path=fill_path,

@@ -47,6 +47,7 @@ from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_runtime.startup import RuntimeContext
 from tradex_runtime.writer_lock import SingleWriterLock, WriterLockHeldError
+from trading.tests.risk_support import permissive_risk
 
 # --------------------------------------------------------------------------
 # Helpers shared by the stale-lock takeover race tests
@@ -556,7 +557,7 @@ def test_first_lock_leaks_after_second_close(named_tape, monkeypatch, tmp_path) 
             "tradex_runtime.live.build_broker_from_env",
             lambda _pid, **_kw: broker,
         )
-        cfg = AppConfig(mode="live", broker_id=broker_id, live_enabled=True,
+        cfg = AppConfig(risk=permissive_risk(), mode="live", broker_id=broker_id, live_enabled=True,
                         persistence=PersistenceConfig(path=f"{tmp_path}/test-orders-{broker_id.value}.db"))
         return startup_mod.boot_context(cfg)
 
@@ -628,7 +629,7 @@ def test_runtime_context_carries_its_own_writer_lock(
             "tradex_runtime.live.build_broker_from_env",
             lambda _pid, **_kw: broker,
         )
-        cfg = AppConfig(mode="live", broker_id=broker_id, live_enabled=True,
+        cfg = AppConfig(risk=permissive_risk(), mode="live", broker_id=broker_id, live_enabled=True,
                         persistence=PersistenceConfig(path=f"{tmp_path}/test-orders-{broker_id.value}.db"))
         return startup_mod.boot_context(cfg)
 
