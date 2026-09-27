@@ -77,6 +77,10 @@ class OrderRequest(Serializable):
     product_type: ProductType = ProductType.INTRADAY
     correlation_id: CorrelationId | None = None
     tag: str | None = None
+    #: The strategy that produced this order. ``None`` for an ad-hoc/manual
+    #: order, which is a real state (never back-filled with a guess) so a
+    #: legacy order is never silently attributed to a strategy.
+    strategy_id: str | None = None
     #: Market-data timestamp that drove this order (signal bar/quote), so fill
     #: sources can stamp deterministic fill timestamps instead of ``now()`` —
     #: reproducible event logs across runs (parity review #5/#8).
@@ -158,6 +162,12 @@ class Order(Serializable):
     stop_loss_price: Price | None = None
     trailing_jump: Price | None = None
     avg_price_traded: Price | None = None
+    #: The strategy that produced this order (``None`` if manual/ad-hoc).
+    #: Appended LAST on purpose: a historical positional ``Order(...)``
+    #: construction is a compatibility contract
+    #: (``test_order_historical_positional_constructor_preserves_filled_quantity``),
+    #: and inserting a field mid-list would shift every later index.
+    strategy_id: str | None = None
 
     def transition_to(
         self, new_status: OrderStatus, *, filled_quantity: Quantity | None = None,
@@ -188,6 +198,7 @@ class Order(Serializable):
             trigger_price=self.trigger_price,
             product_type=self.product_type,
             tag=self.tag,
+            strategy_id=self.strategy_id,
             target_price=self.target_price,
             stop_loss_price=self.stop_loss_price,
             trailing_jump=self.trailing_jump,
@@ -301,6 +312,10 @@ class Fill(Serializable):
     #: ``fills_missing_product_type_total``, so a mislabelled order is
     #: visible instead of silently priced as something it is not.
     product_type: ProductType | None = None
+    #: The strategy whose order produced this fill (``None`` if manual/
+    #: legacy). Copied from the order by the fill source, so per-strategy
+    #: PnL is computable without re-joining the order table.
+    strategy_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,6 +331,9 @@ class Position(Serializable):
     marked_at: datetime | None = None
     #: Domain mark policy name (for example ``BID`` or ``ASK``), never a broker name.
     mark_source: str | None = None
+    #: The strategy that opened this position (``None`` if manual/legacy).
+    #: Set from the opening fill by ``position_math.apply_fill``.
+    strategy_id: str | None = None
 
     @property
     def total_pnl(self) -> Money:

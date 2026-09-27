@@ -98,6 +98,7 @@ def _make_order(
         trigger_price=request.trigger_price,
         product_type=request.product_type,
         tag=request.tag,
+        strategy_id=request.strategy_id,
         # A bracket (super) order must retain its protective legs in the OMS
         # so later lifecycle mutations (cancel/modify) can be dispatched to
         # the venue's super-order endpoints instead of the plain ones.

@@ -59,6 +59,9 @@ def apply_split(position: Position, ratio: Decimal) -> Position:
         mark_price=adjusted_mark,
         marked_at=position.marked_at,
         mark_source=position.mark_source,
+        # A split re-bases the same position; the strategy that opened it
+        # did not change.
+        strategy_id=position.strategy_id,
     )
 
 
@@ -84,6 +87,8 @@ def apply_dividend(position: Position, per_share: Decimal) -> Position:
         mark_price=position.mark_price,
         marked_at=position.marked_at,
         mark_source=position.mark_source,
+        # Same position, credited; attribution is unchanged.
+        strategy_id=position.strategy_id,
     )
 
 
@@ -113,6 +118,9 @@ def apply_fill(position: Position | None, fill: Fill) -> Position:
             mark_price=None,
             marked_at=None,
             mark_source=None,
+            # The opening fill owns the attribution: it is the fill that
+            # decided which strategy this position belongs to.
+            strategy_id=fill.strategy_id,
         )
 
     old_qty = position.quantity.value
@@ -148,6 +156,11 @@ def apply_fill(position: Position | None, fill: Fill) -> Position:
         mark_price=None,
         marked_at=None,
         mark_source=None,
+        # Keep the OPENING strategy on the resulting position. A reducing
+        # or flipping fill is a different strategy's exit, and re-stamping
+        # here would silently move the position between strategy PnL
+        # books mid-flight.
+        strategy_id=position.strategy_id,
     )
 
 

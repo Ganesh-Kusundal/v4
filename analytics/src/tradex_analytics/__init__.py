@@ -20,8 +20,11 @@ from tradex_analytics.research_validity import (
 )
 from tradex_analytics.trade_metrics import (
     Statistics,
+    StrategyPnl,
     Trade,
     compute_statistics,
+    pnl_by_strategy,
+    positions_pnl_by_strategy,
     round_trip_trades,
 )
 from tradex_analytics.validation_report import (
@@ -88,6 +91,9 @@ __all__ = [
     "realized_vol",
     "require_min_oos_bars",
     "roc",
+    "StrategyPnl",
+    "pnl_by_strategy",
+    "positions_pnl_by_strategy",
     "round_trip_trades",
     "round_trips_from_fills",
     "rsi",

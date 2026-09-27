@@ -56,11 +56,28 @@ class StrategyRuntime:
     strategies.
     """
 
-    def __init__(self, artifact: StrategyArtifact, strategy: Any) -> None:
+    def __init__(
+        self,
+        artifact: StrategyArtifact,
+        strategy: Any,
+        *,
+        on_pause: Any | None = None,
+        on_stop: Any | None = None,
+        on_resume: Any | None = None,
+    ) -> None:
         self._artifact = artifact
         self._strategy = strategy
         self._lifecycle: StrategyLifecycle = StrategyLifecycle.CREATED
         self._state: dict[str, Any] = {}
+        #: Optional per-strategy control hooks, bound by the composition
+        #: root to the strategy engine's ``pause_strategy`` /
+        #: ``resume_strategy`` / ``stop_strategy`` for THIS strategy id.
+        #: Keeping them injected is what lets ``pause()``/``stop()`` take
+        #: effect synchronously (AC-8) without the runtime importing the
+        #: engine, and keeps the runtime testable in isolation.
+        self._on_pause = on_pause
+        self._on_stop = on_stop
+        self._on_resume = on_resume
 
     # ------------------------------------------------------------------
     # Properties
@@ -116,6 +133,11 @@ class StrategyRuntime:
         self._lifecycle = StrategyLifecycle.STOPPING
         try:
             self._lifecycle = StrategyLifecycle.STOPPED
+            if self._on_stop is not None:
+                # Synchronous, on the call — the strategy's order flow is
+                # halted and its subscriptions disposed by the time stop()
+                # returns, not on the next event (AC-8).
+                self._on_stop()
         except Exception:
             self._lifecycle = StrategyLifecycle.FAILED
             raise
@@ -131,6 +153,8 @@ class StrategyRuntime:
                 f"in {self._lifecycle} state (must be RUNNING)"
             )
         self._lifecycle = StrategyLifecycle.PAUSED
+        if self._on_pause is not None:
+            self._on_pause()
 
     def resume(self) -> None:
         """Transition PAUSED → RUNNING.
@@ -143,6 +167,8 @@ class StrategyRuntime:
                 f"in {self._lifecycle} state (must be PAUSED)"
             )
         self._lifecycle = StrategyLifecycle.RUNNING
+        if self._on_resume is not None:
+            self._on_resume()
 
     def fail(self, reason: str = "") -> None:
         """Force the runtime into FAILED from any non-terminal state.

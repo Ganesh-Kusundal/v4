@@ -110,6 +110,9 @@ class FillModel:
             # resolved to INTRADAY and counted, so the label has to be carried
             # here — the one place every fill source builds its Fill.
             product_type=order.product_type,
+            # Same reason: attribution is only knowable from the order, so it
+            # is stamped here rather than inferred downstream.
+            strategy_id=order.strategy_id,
         )
 
     @staticmethod
@@ -127,6 +130,9 @@ class FillModel:
             # Preserved, not re-derived: this fill was already priced once, and
             # dropping the label here would re-charge it at the intraday rate.
             product_type=fill.product_type,
+            # Preserved for the same reason — re-deriving attribution from a
+            # different order id would misattribute a replayed fill.
+            strategy_id=fill.strategy_id,
         )
 
 
