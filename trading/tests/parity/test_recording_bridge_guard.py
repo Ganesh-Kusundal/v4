@@ -72,7 +72,8 @@ class _RecordingOnly:
         if self._bar == 1:
             signal = Signal(
                 instrument=candle.instrument, direction=OrderSide.BUY,
-                strength=10.0, reason="bar1", timestamp=candle.timestamp,
+                strength=1.0, quantity=Quantity(value=Decimal("10")),
+                reason="bar1", timestamp=candle.timestamp,
             )
             self._signals.append(signal)
         # Always return None — recording-only mode
@@ -109,7 +110,8 @@ class _ReturningOnly:
         if self._bar == 1:
             signal = Signal(
                 instrument=candle.instrument, direction=OrderSide.BUY,
-                strength=10.0, reason="bar1", timestamp=candle.timestamp,
+                strength=1.0, quantity=Quantity(value=Decimal("10")),
+                reason="bar1", timestamp=candle.timestamp,
             )
             self._signals.append(signal)
             return signal  # Return the signal — next_open mode
@@ -148,7 +150,8 @@ class _MixedMode:
             # Record the signal
             signal = Signal(
                 instrument=candle.instrument, direction=OrderSide.BUY,
-                strength=10.0, reason="bar1", timestamp=candle.timestamp,
+                strength=1.0, quantity=Quantity(value=Decimal("10")),
+                reason="bar1", timestamp=candle.timestamp,
             )
             self._signals.append(signal)
             # AND return it — this claims it for the reactive engine
@@ -157,7 +160,8 @@ class _MixedMode:
             # Record another signal but don't return it
             signal2 = Signal(
                 instrument=candle.instrument, direction=OrderSide.SELL,
-                strength=10.0, reason="bar2", timestamp=candle.timestamp,
+                strength=1.0, quantity=Quantity(value=Decimal("10")),
+                reason="bar2", timestamp=candle.timestamp,
             )
             self._signals.append(signal2)
             # Don't return — the bridge should NOT publish this because

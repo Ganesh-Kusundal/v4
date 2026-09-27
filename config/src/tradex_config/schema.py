@@ -6,13 +6,83 @@ Frozen dataclass tree with strict shape validation.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import os
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
 from tradex_domain import BrokerId
+from tradex_domain.instruments import Equity, Instrument
 from tradex_domain.paths import default_runtime_dir
+
+#: The tape a live session streams, named by an operator. Never defaulted to an
+#: index or a universe: the platform is not asked to guess what to trade.
+FEED_INSTRUMENTS_ENV = "TRADEX_FEED_INSTRUMENTS"
+
+#: The one text form a tape entry may take. The exchange is part of the name
+#: because a trading symbol alone is not a security — ``RELIANCE`` is an NSE
+#: cash equity and a BSE one — and this repository has already paid for
+#: collapsing two securities onto one symbol.
+_INSTRUMENT_ENTRY_FORM = "EXCHANGE:SYMBOL (e.g. NSE:RELIANCE)"
+
+
+def parse_feed_instruments(raw: str | Iterable[object]) -> tuple[Instrument, ...]:
+    """Parse named tape entries into a de-duplicated, ordered instrument tuple.
+
+    Accepts the ``$TRADEX_FEED_INSTRUMENTS`` string (comma separated) or, for
+    the dict/JSON path, a sequence of the same entries. Surrounding whitespace
+    and empty slots are dropped — a trailing comma is a typo, not a request to
+    trade nothing — and duplicates are proven once, first occurrence winning, so
+    the order the operator wrote is the order the boot reconciles.
+
+    A malformed entry raises :class:`ValueError` naming both the environment
+    variable and the offending entry. Dropping it and starting with whatever
+    survived is the one behaviour this must never have: the session would come
+    up trading a tape the operator did not write, with the typo discarded in
+    silence.
+    """
+    entries = raw.split(",") if isinstance(raw, str) else raw
+    ordered: dict[Any, Instrument] = {}
+    for entry in entries:
+        if isinstance(entry, str) and not entry.strip():
+            # An unset variable, a trailing comma and a doubled separator all
+            # land here: nothing was named, which is legal and means no tape.
+            continue
+        if not isinstance(entry, str):
+            raise ValueError(
+                f"{FEED_INSTRUMENTS_ENV} entries must be strings of the form "
+                f"{_INSTRUMENT_ENTRY_FORM}; got {entry!r}"
+            )
+        parts = entry.split(":")
+        if len(parts) != 2 or not all(part.strip() for part in parts):
+            raise ValueError(
+                f"{FEED_INSTRUMENTS_ENV} entry {entry!r} is not "
+                f"{_INSTRUMENT_ENTRY_FORM}"
+            )
+        exchange, symbol = (part.strip() for part in parts)
+        try:
+            instrument = Equity.of(exchange, symbol)
+        except ValueError as exc:
+            raise ValueError(
+                f"{FEED_INSTRUMENTS_ENV} entry {entry!r} is not a tradable "
+                f"instrument: {exc}"
+            ) from exc
+        ordered.setdefault(instrument.instrument_id, instrument)
+    return tuple(ordered.values())
+
+
+def default_feed_instruments() -> tuple[Instrument, ...]:
+    """Return the tape named by ``$TRADEX_FEED_INSTRUMENTS``, empty if unset.
+
+    Resolved on every call, not captured at import time, for the same reason
+    ``default_runtime_dir_str`` is: a module constant would freeze the first
+    value this process ever saw and go stale for anything that sets the
+    variable later. Being the field's default factory is also what makes the
+    variable reach callers that build their own ``AppConfig`` — ``boot()`` reads
+    the config object, never the environment.
+    """
+    return parse_feed_instruments(os.environ.get(FEED_INSTRUMENTS_ENV, ""))
 
 
 def default_runtime_dir_str() -> str:
@@ -105,11 +175,11 @@ class ExecutionConfig:
     These settings make fees, slippage, and fill timing **consistent** between
     backtest and the reactive paper/live path (parity review HIGH-6b) — the
     same models are wired into the fill sources and the execution engine by
-    ``runtime.startup.boot``. Defaults reproduce the historical zero-cost,
+    ``runtime.startup.boot``. Costs are deducted by default; set False to reproduce the historical zero-cost,
     next-bar-open behavior.
     """
 
-    fees_enabled: bool = False
+    fees_enabled: bool = True
     slippage_bps: Decimal | None = None
     fill_reference: str = "next_open"
     #: Register the auto-discovered example strategies on boot.
@@ -163,6 +233,11 @@ class AppConfig:
         Broker connection configuration.
     persistence : PersistenceConfig
         Persistence configuration.
+    feed_instruments : tuple[Instrument, ...]
+        The tape a live session must be able to prove before it starts (AC-20).
+        Empty by default — paper, backtest and replay need no tape — and named
+        by ``$TRADEX_FEED_INSTRUMENTS`` (see :func:`parse_feed_instruments`).
+        ``boot()`` reads this field when it is given no ``feed_instruments``.
     """
 
     broker_id: BrokerId = BrokerId.PAPER
@@ -176,6 +251,30 @@ class AppConfig:
     broker: BrokerConfig = field(default_factory=BrokerConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    feed_instruments: tuple[Instrument, ...] = field(
+        default_factory=default_feed_instruments
+    )
+
+    def __post_init__(self) -> None:
+        # The tape is a set, not a list: one instrument is proven once however
+        # many times it was named. Held here rather than only in the parser so
+        # the invariant survives every way in — the env var, ``from_dict``, or a
+        # hand-built config.
+        tape = self.feed_instruments
+        # A bare string is iterable, and iterating it would report the letter
+        # ``N`` instead of the value the caller passed.
+        entries = [tape] if isinstance(tape, str) else tape
+        ordered: dict[Any, Instrument] = {}
+        for instrument in entries:
+            if not isinstance(instrument, Instrument):
+                raise ValueError(
+                    f"{FEED_INSTRUMENTS_ENV} names instruments, not text: pass "
+                    f"Equity.of(exchange, symbol) objects, or the "
+                    f"{_INSTRUMENT_ENTRY_FORM} string form through "
+                    f"parse_feed_instruments(); got {instrument!r}"
+                )
+            ordered.setdefault(instrument.instrument_id, instrument)
+        object.__setattr__(self, "feed_instruments", tuple(ordered.values()))
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AppConfig:
@@ -192,6 +291,7 @@ class AppConfig:
             "broker",
             "persistence",
             "execution",
+            "feed_instruments",
         }
         unknown = set(data) - allowed
         if unknown:
@@ -211,6 +311,14 @@ class AppConfig:
         risk = _build(RiskConfig, data.get("risk"))
         persistence = _build(PersistenceConfig, data.get("persistence"))
         execution = _build(ExecutionConfig, data.get("execution"))
+        # Absent from the dict means "unset", which is the environment's
+        # default — the same reading ``AppConfig()`` gets, so the two paths
+        # cannot disagree about what the operator named.
+        feed_instruments = (
+            parse_feed_instruments(data["feed_instruments"])
+            if "feed_instruments" in data
+            else default_feed_instruments()
+        )
 
         return cls(
             broker_id=broker_id,
@@ -224,6 +332,7 @@ class AppConfig:
             broker=broker,
             persistence=persistence,
             execution=execution,
+            feed_instruments=feed_instruments,
         )
 
 
@@ -241,11 +350,14 @@ def _build(cls: type, data: object) -> Any:
 
 
 __all__ = [
+    "FEED_INSTRUMENTS_ENV",
     "AppConfig",
     "BrokerConfig",
     "ExecutionConfig",
     "PersistenceConfig",
     "RiskConfig",
     "_build",
+    "default_feed_instruments",
     "default_runtime_dir_str",
+    "parse_feed_instruments",
 ]

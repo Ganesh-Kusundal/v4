@@ -64,10 +64,14 @@ def _corp_store() -> CorporateActionStore:
 
 
 class _FullCostLadder:
-    """BUY strength=100 on bar 1, SELL strength=200 on bar 5.
+    """BUY 100 shares on bar 1, SELL 200 on bar 5.
 
     SELL closes the 200-share post-split position completely, so realized
     P&L needs no MTM stub — the comparison is a single number.
+
+    The sizes are ``Signal.quantity``. They used to ride in on ``strength``,
+    which is signal quality and is ``1.0`` for every shipped strategy, and the
+    ladder is only balanced because a 2:1 split doubles the 100 to 200.
     """
 
     def __init__(self, instrument) -> None:
@@ -88,10 +92,10 @@ class _FullCostLadder:
         side = {1: OrderSide.BUY, 5: OrderSide.SELL}.get(self._bar)
         if side is None:
             return None
-        strength = 100.0 if side == OrderSide.BUY else 200.0
+        shares = Quantity(Decimal("100") if side == OrderSide.BUY else Decimal("200"))
         signal = Signal(
             instrument=candle.instrument, direction=side,
-            strength=strength, reason=f"bar{self._bar}",
+            strength=1.0, quantity=shares, reason=f"bar{self._bar}",
             timestamp=candle.timestamp,
         )
         self._signals.append(signal)

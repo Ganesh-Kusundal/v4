@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
@@ -180,6 +181,55 @@ def _backtest_candles(instrument: Any, tf: Timeframe, start: datetime, end: date
     return ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
         instrument, tf, start, end
     ).candles
+
+
+#: Slippage the chart's backtests assume, in basis points of fill price. Stated
+#: rather than defaulted to zero: a run that assumes free fills is not a
+#: backtest, and an unfilled-by-assumption cost is indistinguishable from a
+#: strategy that does not trade. 5 bps is the same knob ``--slippage-bps``
+#: exposes on the canonical script, so the two can be compared directly.
+_BACKTEST_SLIPPAGE_BPS = Decimal("5")
+
+
+def _backtest_engine(body: dict[str, Any]) -> Any:
+    """Build the ``BacktestEngine`` the chart backtest runs on.
+
+    The three things that make a run's numbers mean something, all of them
+    non-optional here (AC-2):
+
+    - a ``RiskManager``, which is what makes the engine open a cash ledger
+      anchored to ``initial_capital`` with its debit floor armed. Without one
+      the floor is off, an order the capital cannot pay for books anyway, and
+      the equity curve comes out flattering with no error anywhere.
+    - a ``FeeCalculator``. Not decoration: the risk gate compares a BUY's
+      *notional* against cash and the ledger floor compares *notional + fee*,
+      so the fee is the only thing that can make the last affordable order
+      unaffordable. A run with costs switched off cannot reach the floor at
+      all.
+    - a slippage model, for the reason above.
+
+    Costs are on unconditionally. A caller must not be able to switch them off
+    in a run whose output is read as evidence for promoting a strategy.
+    """
+    from tradex_execution.fees import FeeCalculator
+    from tradex_execution.risk import RiskManager
+    from tradex_execution.slippage import PercentageSlippageModel
+    from tradex_replay.backtest import BacktestEngine
+
+    risk = RiskManager()
+    # An unavailable balance is unknown, not zero: under the backtest the
+    # provider is the run's own ledger, so this only bites if that binding is
+    # ever lost, and losing it must stop BUYs rather than wave them through.
+    risk.fail_closed_cash = True
+    return BacktestEngine(
+        initial_capital=body.get("initial_capital", 100000),
+        risk_manager=risk,
+        fee_calculator=FeeCalculator(),
+        slippage_model=PercentageSlippageModel(
+            _BACKTEST_SLIPPAGE_BPS / Decimal("10000")
+        ),
+    )
+
 
 
 def _ist_to_utc_seconds(ts: datetime) -> int:
@@ -743,10 +793,16 @@ def create_chart_router(
         """Backtest one strategy over a datalake window via BacktestEngine.
 
         Body: {exchange, symbol, interval, from?, to?, strategy, params?,
-        initial_capital?, fees?}. The engine is the SAME spine live uses
+        initial_capital?}. The engine is the SAME spine live uses
         (ExecutionEngine + PositionManager + fees); this endpoint only wires
         datalake bars into it. Trades come back as chart markers; the equity
         curve as an overlayable line.
+
+        The engine is built by :func:`_backtest_engine`, so fees, slippage and
+        the cash gate are always on. A run whose capital cannot pay for a fill
+        raises out of the engine and is answered 422 with the typed error
+        envelope — the alternative, which is what this route used to do, is a
+        200 carrying a curve that flatters the strategy (AC-2).
 
         The engine grinds the window bar by bar, so ``run`` is handed to a
         worker thread: ``/ws/stream`` shares this event loop, and a backtest
@@ -754,9 +810,6 @@ def create_chart_router(
         """
         import asyncio
         from datetime import timedelta
-
-        from tradex_execution.fees import FeeCalculator
-        from tradex_replay.backtest import BacktestEngine
 
         symbol = str(body.get("symbol", ""))
         exchange = str(body.get("exchange", "NSE"))
@@ -785,14 +838,15 @@ def create_chart_router(
         if not candles:
             return {"metrics": None, "message": f"no datalake data for {symbol} in window"}
 
-        kwargs: dict[str, Any] = {}
-        if body.get("fees"):
-            kwargs["fee_calculator"] = FeeCalculator()
-        engine = BacktestEngine(
-            initial_capital=body.get("initial_capital", 100000),
-            **kwargs,
-        )
-        result = await asyncio.to_thread(engine.run, strategy, candles)
+        engine = _backtest_engine(body)
+        try:
+            result = await asyncio.to_thread(engine.run, strategy, candles)
+        except ValueError as exc:
+            # The run overran its capital. The engine raises rather than
+            # absorbing it (AC-2); a request whose premise cannot be funded is
+            # a bad request, not a server fault, so it is 422 with the same
+            # message the operator would see in the engine's log.
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         # Equity curve points ride bar timestamps where available; the curve
         # is per-event, so down-map by index onto the candle list.
@@ -839,6 +893,11 @@ def create_chart_router(
                 "max_drawdown": float(result.max_drawdown),
                 "num_trades": result.num_trades,
                 "num_rejected": result.num_rejected,
+                # Signals with no bar after the one they were decided on, so
+                # the run could not fill them (AC-1). Surfaced so a reviewer
+                # can see trades + unfilled + rejected accounts for the
+                # signals rather than quietly not.
+                "num_unfilled": result.num_unfilled,
                 "total_fees": float(result.total_fees),
             },
             "equity_curve": equity_points,
@@ -955,12 +1014,21 @@ def create_chart_router(
 
     workspace = WorkspaceStore(workspace_db_path)
 
-    @router.get("/workspace", dependencies=[Depends(require_auth)])
+    # The workspace surface is deliberately unauthenticated (no `require_auth`
+    # on any of its four routes, reads or writes). A layout blob is local
+    # per-workspace state, not user or account data, and the server is
+    # loopback-only by construction: `serve` defaults to 127.0.0.1 and live mode
+    # is refused on any other bind (`_require_live_bind_loopback`). `require_auth`
+    # is additionally fail-open in paper/dev (no API key configured -> allowed),
+    # so gating this surface would buy nothing in the only mode it runs in.
+    # Kept consistent on purpose: an earlier revision authed the reads and not
+    # the writes, which read as an oversight rather than a decision.
+    @router.get("/workspace")
     async def list_workspaces() -> list[dict[str, Any]]:
         """Workspace metadata (no blobs): layout ids with revision + updated_at."""
         return workspace.list()
 
-    @router.get("/workspace/{layout_id}", dependencies=[Depends(require_auth)])
+    @router.get("/workspace/{layout_id}")
     async def get_workspace(layout_id: str) -> dict[str, Any]:
         _validate_layout_id(layout_id)
         stored = workspace.get(layout_id)

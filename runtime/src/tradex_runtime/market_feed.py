@@ -15,7 +15,9 @@ Design
   instrument set; the handlers publish only ticks for wanted instruments.
   Instruments can be added (``subscribe``) or removed (``unsubscribe``) on the
   fly; depth can be toggled per ``subscribe`` call. ``start`` is a reset
-  (stop + subscribe).  * ``FeedRegistry`` refcounts instrument subscriptions across multiple
+  (stop + subscribe) **and the cold boot's readiness decision**: it drives the
+  fail-closed recovery coordinator and refuses when continuity is not proven.
+  * ``FeedRegistry`` refcounts instrument subscriptions across multiple
     WebSocket clients sharing the session feed, so one client unsubscribing
     never drops a stream another client still holds. ``acquire``/``release``
     track client connections; teardown is owned by the refcounts and
@@ -46,6 +48,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from tradex_domain.errors import SDKError
 from tradex_domain.events import FeedGapDetected, StaleFeed
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote, require_depth_supported
@@ -58,6 +61,19 @@ log = logging.getLogger(__name__)
 
 
 _DEPTH_MODES = {"off", "20", "30"}
+
+#: Reason recorded when a recovery attempt reported no cause of its own.
+_UNPROVEN_CONTINUITY = "feed recovery did not prove tape continuity"
+
+
+class FeedNotReadyError(SDKError):
+    """A cold start could not prove feed continuity, so the feed refused to start.
+
+    Raised by :meth:`MarketFeed.start` — and therefore by
+    ``TradingSession.start_market_feed`` — when the history reconciliation that
+    the cold boot path requires did not succeed. The feed is left not READY, so
+    the order gate stays shut, and the message carries the coordinator's reason.
+    """
 
 
 def _depth_wanted(depth: object) -> bool:
@@ -242,12 +258,38 @@ class MarketFeed:
         self.notify_reconnect()
         self._trigger_recovery()
 
-    def start(self, instruments: Sequence[Instrument], *, depth: object = "off") -> None:
-        """Reset the feed to exactly *instruments* (and optional depth)."""
+    def start(self, instruments: Sequence[Instrument], *, depth: object = "off") -> Any:
+        """Cold boot: reset the feed to *instruments*, then prove it may trade.
+
+        ``stop`` + ``subscribe`` alone leaves the supervisor in
+        ``RESYNCHRONIZING``, which is terminal — nothing on this path ever
+        reached ``READY``, so a session that started its feed this way rejected
+        every order with ``feed_not_ready`` for the rest of its life. The cold
+        start is the one moment the feed has to *become* ready, so it drives
+        the same fail-closed coordinator a reconnect drives, and gates on the
+        outcome rather than on the socket: a connected socket says nothing about
+        the tape between the last bar this process saw and now, and the history
+        reconciliation is what says it.
+
+        Runs the recovery on this thread, so a caller can treat the return as
+        the boot's verdict (it blocks on history I/O).
+
+        Returns
+        -------
+        The coordinator's outcome when a coordinator is wired and recovery
+        succeeded, else ``None``.
+
+        Raises
+        ------
+        FeedNotReadyError
+            If the recovery attempt failed. The feed is left not READY and the
+            error names the reason, so the session refuses to start trading.
+        """
         self.stop()
         self._supervisor.connected()
         self._supervisor.recovery_started()
         self.subscribe(instruments, depth=depth)
+        return self._prove_cold_start()
 
     def subscribe(
         self,
@@ -454,32 +496,98 @@ class MarketFeed:
         ``RESYNCHRONIZING``, because reconnect already demotes to that state
         before recovery is kicked.
         """
-        if self._recovery is None:
+        recovery = self._claim_recovery()
+        if recovery is None:
             return
-        # Bind the checked, non-None recovery to a local. The ``_run`` closure
-        # below runs later on another thread, so mypy does not carry the
-        # ``is None`` guard on ``self._recovery`` (typed optional) into it; a
-        # local captured at the top is narrowed once and stays narrowed.
-        recovery = self._recovery
-        with self._recovery_lock:
-            if self._recovery_in_flight:
-                return
-            self._recovery_in_flight = True
-            if self._supervisor.state is not FeedState.RESYNCHRONIZING:
-                self._supervisor.recovery_started()
 
         def _run() -> None:
             try:
                 recovery.recover()
             finally:
-                with self._recovery_lock:
-                    self._recovery_in_flight = False
+                self._release_recovery()
 
         threading.Thread(
             target=_run,
             daemon=True,
             name="feed-auto-recovery",
         ).start()
+
+    # -- readiness -----------------------------------------------------------
+
+    def _prove_cold_start(self) -> Any | None:
+        """Drive the fail-closed coordinator for a cold start and gate on it.
+
+        The socket is already up by the time this runs (recovery needs the
+        instrument snapshot to fetch anything), so readiness is decided purely
+        on the reconciliation. Returns the outcome, or ``None`` when no
+        coordinator is wired — nothing can prove continuity then, so the feed
+        stays ``RESYNCHRONIZING`` and the order gate stays shut.
+
+        Raises ``FeedNotReadyError`` when the attempt did not succeed, so a
+        cold boot refuses to start rather than reporting itself ready.
+        """
+        if self._recovery is None:
+            log.warning(
+                "market feed cold start without a recovery coordinator: "
+                "continuity cannot be proven, feed stays %s",
+                FeedState.RESYNCHRONIZING.value,
+            )
+            return None
+        coordinator = self._claim_recovery()
+        if coordinator is None:
+            raise FeedNotReadyError(
+                "cold start refused: a feed recovery is already in flight"
+            )
+        try:
+            outcome = coordinator.recover()
+        except Exception as exc:  # noqa: BLE001 — a refusal, not a crash
+            log.exception("feed recovery raised on cold start")
+            outcome = None
+            reason = str(exc) or type(exc).__name__
+            # A coordinator that raised recorded no decision of its own, so the
+            # refusal is recorded here — HALTED, not parked in RESYNCHRONIZING.
+            self._supervisor.recovery_failed(reason)
+        else:
+            reason = str(getattr(outcome, "error", "") or "")
+        finally:
+            self._release_recovery()
+        if outcome is not None and bool(getattr(outcome, "ok", False)):
+            return outcome
+        reason = reason or _UNPROVEN_CONTINUITY
+        # A coordinator that reported failure but left the supervisor READY must
+        # not be able to admit orders: the decision this path makes is the one
+        # that stands.
+        if self._supervisor.ready:
+            self._supervisor.recovery_failed(reason)
+        raise FeedNotReadyError(f"cold start refused: {reason}")
+
+    def _claim_recovery(self) -> Any | None:
+        """Claim the single recovery slot; ``None`` when unwired or busy.
+
+        One reconciliation at a time. The in-flight flag is what stops a socket
+        reopen or an integrity violation from starting a second one while a
+        decision for the same generation is still being made — and it is read
+        as a lock rather than inferred from ``RESYNCHRONIZING``, because
+        reconnect demotes to that state before recovery is kicked.
+        """
+        # Bind the checked, non-None recovery to a local: callers use it on
+        # another thread (``_trigger_recovery``), where mypy would not carry
+        # the ``is None`` guard on the optional attribute into the closure.
+        recovery = self._recovery
+        if recovery is None:
+            return None
+        with self._recovery_lock:
+            if self._recovery_in_flight:
+                return None
+            self._recovery_in_flight = True
+            if self._supervisor.state is not FeedState.RESYNCHRONIZING:
+                self._supervisor.recovery_started()
+        return recovery
+
+    def _release_recovery(self) -> None:
+        """Release the recovery slot claimed by :meth:`_claim_recovery`."""
+        with self._recovery_lock:
+            self._recovery_in_flight = False
 
     def check_stale(self) -> list[StaleFeed]:
         """Emit StaleFeed for instruments with no tick for longer than stale_after.
@@ -618,4 +726,10 @@ class FeedRegistry:
             self._feed.stop_depth()
 
 
-__all__ = ["FeedRegistry", "MarketFeed", "StaleFeed", "normalize_depth"]
+__all__ = [
+    "FeedNotReadyError",
+    "FeedRegistry",
+    "MarketFeed",
+    "StaleFeed",
+    "normalize_depth",
+]

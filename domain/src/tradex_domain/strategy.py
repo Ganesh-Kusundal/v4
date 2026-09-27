@@ -11,15 +11,29 @@ from tradex_domain.execution import Position
 from tradex_domain.instruments import Instrument
 from tradex_domain.protocols import SessionFacade
 from tradex_domain.serialization import Serializable
-from tradex_domain.value_objects import Money
+from tradex_domain.value_objects import Money, Quantity
 
 
 @dataclass(frozen=True, slots=True)
 class Signal(Serializable):
     instrument: Instrument
     direction: OrderSide
+    #: Signal *quality* — how convincing the setup is, for logging, ranking and
+    #: selection. **It is not a size and must never be read as one.** It used to
+    #: be the order quantity (``abs(signal.strength)`` in the strategy engine
+    #: and the backtest bridge), which made every strategy in the repository
+    #: trade one share, because every strategy emits ``strength=1.0``. Size is
+    #: the sizer's decision; a strategy states intent with ``quantity`` and lets
+    #: ``PositionSizer`` turn that into a clamped order size.
     strength: float
     reason: str
+    #: Explicit order size in units, or ``None`` to ask the sizer for the
+    #: risk-derived size. Nullable because ``None`` is a meaningful instruction
+    #: ("size this"), not an error — but a signal must either set it or knowingly
+    #: leave it null; nothing downstream may fall back to a default quantity.
+    #: Whatever a strategy does set is still clamped by the sizer to whole lots
+    #: and to the configured per-order notional.
+    quantity: Quantity | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     #: UTC timestamp of the event that produced this signal. ``None`` keeps
     #: hand-built signals backward-compatible; time-aware engines (backtest,

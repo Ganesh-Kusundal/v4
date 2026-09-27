@@ -53,6 +53,7 @@ from tradex_reactive.bus import ReactiveBus
 from tradex_replay.backtest import BacktestEngine
 from tradex_runtime.session_impl import TradingSession
 from tradex_strategy import ReactiveStrategyEngine
+from tradex_strategy.core.sizing import PositionSizer
 from tradex_strategy.extensions.strategies.sma_cross import SmaCrossStrategy
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
@@ -72,6 +73,22 @@ def _candle(close: float, day: int) -> Candle:
 
 def _candles() -> list[Candle]:
     return [_candle(close, day) for day, close in enumerate(CLOSES, start=1)]
+
+
+def _one_share_sizer() -> PositionSizer:
+    """A sizer that says what the assertions below mean by their size.
+
+    These tests read a position of one share off a *shipped* strategy, which
+    cannot state its own size — sizing is the sizer's decision, enforced over
+    the strategy package by AST. So the size is configured here instead of
+    inherited from the engine's placeholder, where it used to arrive by way of
+    ``strength=1.0`` being read as a quantity.
+    """
+    return PositionSizer(
+        max_order_value=Decimal("1000000"),
+        fallback_notional=Decimal("12"),
+        label="golden-one-share",
+    )
 
 
 class TestGoldenBacktestAccounting:
@@ -113,7 +130,7 @@ class TestGoldenReactiveParity:
     def test_paper_path_fills_at_reference_price_not_nominal(self) -> None:
         session = TradingSession.paper()
         strategy = SmaCrossStrategy("golden-paper", INSTRUMENT)
-        strategy_engine = ReactiveStrategyEngine(session.bus)
+        strategy_engine = ReactiveStrategyEngine(session.bus, sizer=_one_share_sizer())
         strategy_engine.register(strategy)
         fills = []
         sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
@@ -188,8 +205,13 @@ class TestGoldenReactiveParity:
 
 
 class _TimedBuySell:
-    """Emits BUY on bar 1 and SELL on bar 2, both timestamped — used to prove
-    accounting convergence (CRITICAL-1)."""
+    """Emits BUY 1 on bar 1 and SELL 1 on bar 2, both timestamped — used to
+    prove accounting convergence (CRITICAL-1).
+
+    The size is ``Signal.quantity``. It used to be read out of ``strength``,
+    which is signal quality and is ``1.0`` for every shipped strategy; a test
+    that means one share now says one share.
+    """
 
     def __init__(self, instrument) -> None:
         self._instrument = instrument
@@ -209,12 +231,14 @@ class _TimedBuySell:
         if self._bar == 1:
             signal = Signal(
                 instrument=candle.instrument, direction=OrderSide.BUY,
-                strength=1.0, reason="buy", timestamp=candle.timestamp,
+                strength=1.0, quantity=Quantity(Decimal("1")), reason="buy",
+                timestamp=candle.timestamp,
             )
         elif self._bar == 2:
             signal = Signal(
                 instrument=candle.instrument, direction=OrderSide.SELL,
-                strength=1.0, reason="sell", timestamp=candle.timestamp,
+                strength=1.0, quantity=Quantity(Decimal("1")), reason="sell",
+                timestamp=candle.timestamp,
             )
         else:
             return None
@@ -233,7 +257,11 @@ class _TimedBuySell:
 
 class _TimedPartial:
     """Multi-fill buy/sell ladder: BUY 2, BUY 1, SELL 1, SELL 2 — partial
-    closes that exercise the weighted-average + realized-PnL math."""
+    closes that exercise the weighted-average + realized-PnL math.
+
+    Sizes are ``Signal.quantity``: the ladder is 2, 1, 1, 2 *shares*, which the
+    old ``strength=2.0`` encoding only expressed because strength was read as
+    the order quantity."""
 
     def __init__(self, instrument) -> None:
         self._instrument = instrument
@@ -251,18 +279,18 @@ class _TimedPartial:
     def on_bar(self, context, candle) -> object:
         self._bar += 1
         plan = {
-            1: (OrderSide.BUY, 2.0),
-            2: (OrderSide.BUY, 1.0),
-            3: (OrderSide.SELL, 1.0),
-            4: (OrderSide.SELL, 2.0),
+            1: (OrderSide.BUY, "2"),
+            2: (OrderSide.BUY, "1"),
+            3: (OrderSide.SELL, "1"),
+            4: (OrderSide.SELL, "2"),
         }.get(self._bar)
         if plan is None:
             return None
-        side, strength = plan
+        side, shares = plan
         signal = Signal(
             instrument=candle.instrument, direction=side,
-            strength=strength, reason=f"bar{self._bar}",
-            timestamp=candle.timestamp,
+            strength=1.0, quantity=Quantity(Decimal(shares)),
+            reason=f"bar{self._bar}", timestamp=candle.timestamp,
         )
         self._signals.append(signal)
         return signal

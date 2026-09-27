@@ -99,7 +99,8 @@ class _MultiInstrumentStrategy:
         signal = Signal(
             instrument=candle.instrument,
             direction=side,
-            strength=10.0,
+            strength=1.0,
+            quantity=Quantity(value=Decimal("10")),
             reason=f"bar{self._bar}",
             timestamp=candle.timestamp,
         )

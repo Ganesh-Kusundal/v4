@@ -74,13 +74,13 @@ class TestBacktestRealPnL:
         buy_signal = Signal(
             instrument=eq,
             direction=OrderSide.BUY,
-            strength=100.0,
+            strength=1.0, quantity=Quantity(value=Decimal("100")),
             reason="test",
         )
         sell_signal = Signal(
             instrument=eq,
             direction=OrderSide.SELL,
-            strength=100.0,
+            strength=1.0, quantity=Quantity(value=Decimal("100")),
             reason="test",
         )
         strategy = _ManualStrategy([buy_signal, sell_signal])
@@ -117,8 +117,10 @@ class TestBacktestRealPnL:
         now = _now()
         eq = _eq()
         signals = [
-            Signal(instrument=eq, direction=OrderSide.BUY, strength=10.0, reason="t"),
-            Signal(instrument=eq, direction=OrderSide.BUY, strength=10.0, reason="t"),
+            Signal(instrument=eq, direction=OrderSide.BUY, strength=1.0,
+                    quantity=Quantity(value=Decimal("10")), reason="t"),
+            Signal(instrument=eq, direction=OrderSide.BUY, strength=1.0,
+                    quantity=Quantity(value=Decimal("10")), reason="t"),
         ]
         strategy = _ManualStrategy(signals)
         data = [

@@ -78,12 +78,19 @@ def _request(price: str = "105", qty: str = "100") -> OrderRequest:
 
 
 class _SignalEmitter:
-    """Emit BUY signals on the first *buys* bars, strength *strength* each."""
+    """Emit BUY signals on the first *buys* bars, *quantity* shares each.
 
-    def __init__(self, instrument, buys: int, strength: float = 100.0) -> None:
+    The size is stated as ``Signal.quantity``, not as ``strength``. ``strength``
+    is signal quality — every shipped strategy emits ``strength=1.0`` — and it
+    used to be read as the order quantity, which is why these tests could say
+    "BUY 10" at all. The sizer now owns the size, so a test that means ten
+    shares has to say ten shares.
+    """
+
+    def __init__(self, instrument, buys: int, quantity: str = "100") -> None:
         self._instrument = instrument
         self._buys = buys
-        self._strength = strength
+        self._quantity = Quantity(Decimal(quantity))
         self._signals: list = []
         self._bar = 0
 
@@ -101,7 +108,7 @@ class _SignalEmitter:
             return None
         signal = Signal(
             instrument=candle.instrument, direction=OrderSide.BUY,
-            strength=self._strength, reason=f"bar{self._bar}",
+            strength=1.0, quantity=self._quantity, reason=f"bar{self._bar}",
             timestamp=candle.timestamp,
         )
         self._signals.append(signal)
@@ -136,7 +143,7 @@ class TestBacktestRiskGate:
         """BUY 10 @ next-open 105 = 1,050 ≤ max_order_value 5,000 → fills."""
         risk = RiskManager(max_order_value=Decimal("5000"))
         bt = BacktestEngine(risk_manager=risk).run(
-            _SignalEmitter(INSTRUMENT, buys=1, strength=10.0),
+            _SignalEmitter(INSTRUMENT, buys=1, quantity="10"),
             _candles([100.0, 105.0]),
         )
         assert bt.num_rejected == 0
@@ -161,7 +168,7 @@ class TestBacktestRiskGate:
             risk_manager=risk,
             initial_capital=Decimal("100"),
         ).run(
-            _SignalEmitter(INSTRUMENT, buys=1, strength=2.0),
+            _SignalEmitter(INSTRUMENT, buys=1, quantity="2"),
             _candles([10.0, 100.0]),
         )
 

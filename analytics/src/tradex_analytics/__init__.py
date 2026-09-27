@@ -7,6 +7,16 @@ from tradex_analytics.indicators import ema, macd, roc, rsi, sma
 from tradex_analytics.orderflow import classify_aggressor, cvd_from_quotes, imbalance
 from tradex_analytics.probability import win_rate
 from tradex_analytics.reports import max_drawdown, sharpe_ratio, sortino_ratio, total_return
+from tradex_analytics.research_validity import (
+    MIN_OOS_BARS_PER_FOLD,
+    PARAM_STABILITY_TOLERANCE,
+    DeflatedSharpe,
+    InsufficientSampleError,
+    deflated_sharpe,
+    expected_max_sharpe,
+    param_stability_share_of_grid,
+    require_min_oos_bars,
+)
 from tradex_analytics.trade_metrics import (
     Statistics,
     Trade,
@@ -17,21 +27,29 @@ from tradex_analytics.volatility.volatility import realized_vol
 from tradex_analytics.volume.volume_profile import lvn, poc, vah, val, value_area
 
 __all__ = [
+    "MIN_OOS_BARS_PER_FOLD",
+    "PARAM_STABILITY_TOLERANCE",
     "AnalyticsEngine",
+    "DeflatedSharpe",
     "Footprint",
+    "InsufficientSampleError",
     "Statistics",
     "Trade",
     "advance_decline",
     "classify_aggressor",
     "compute_statistics",
     "cvd_from_quotes",
+    "deflated_sharpe",
     "ema",
+    "expected_max_sharpe",
     "imbalance",
     "lvn",
     "macd",
     "max_drawdown",
+    "param_stability_share_of_grid",
     "poc",
     "realized_vol",
+    "require_min_oos_bars",
     "roc",
     "round_trip_trades",
     "rsi",

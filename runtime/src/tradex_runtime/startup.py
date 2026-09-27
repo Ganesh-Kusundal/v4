@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import atexit
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
@@ -20,13 +21,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
 from tradex_domain import BrokerId
+from tradex_domain.instruments import Instrument
 from tradex_domain.protocols import BrokerAdapter
 
 if TYPE_CHECKING:
     from tradex_runtime.session_impl import TradingSession
     from tradex_runtime.writer_lock import SingleWriterLock
 
-from tradex_config.schema import AppConfig
+from tradex_config.schema import FEED_INSTRUMENTS_ENV, AppConfig
 from tradex_execution.engine import (
     ExecutionEngine,
     MemoryIdempotencyGuard,
@@ -157,6 +159,7 @@ def boot(
     bus: ReactiveBus | ThreadSafeReactiveBus | None = None,
     broker: Any | None = None,
     wire_strategies: bool = True,
+    feed_instruments: Sequence[Instrument] | None = None,
 ) -> TradingSession:
     """Fail-closed boot: compose all components into a ready TradingSession.
 
@@ -168,6 +171,16 @@ def boot(
     ----------
     config : AppConfig | None
         Application configuration. If None, uses defaults (paper mode).
+    feed_instruments : Sequence[Instrument] | None
+        The tape a live session must be able to prove before it starts (AC-20).
+        The composition root cold starts ``MarketFeed`` for this set, so the feed
+        reaches ``READY`` because a history reconciliation ran, and the boot is
+        refused when it does not. ``None`` (the default) falls back to
+        ``config.feed_instruments``, which is where ``$TRADEX_FEED_INSTRUMENTS``
+        lands — an operator names the tape, the platform does not guess one. An
+        empty tape in live mode refuses the boot rather than serving a session
+        that rejects every order. Offline modes ignore it entirely: they
+        construct no feed.
 
     Returns
     -------
@@ -286,7 +299,7 @@ def boot(
                 cfg, bus, broker, wire_strategies, writer_lock,
                 fill_source=fill_source, metrics=metrics, guard=guard,
                 fee_calculator=fee_calculator, order_store=order_store,
-                event_store=event_store,
+                event_store=event_store, feed_instruments=feed_instruments,
             )
         except BaseException:
             # C3: best-effort rollback so a failed live boot never
@@ -304,7 +317,7 @@ def boot(
             cfg, bus, broker, wire_strategies, None,
             fill_source=fill_source, metrics=metrics, guard=guard,
             fee_calculator=fee_calculator, order_store=order_store,
-            event_store=event_store,
+            event_store=event_store, feed_instruments=feed_instruments,
         )
     except BaseException:
         _safe_teardown(session=None, broker=broker, bus=bus, writer_lock=None)
@@ -365,6 +378,7 @@ def _boot_tail(
     fee_calculator: FeeCalculator | None,
     order_store: Any,
     event_store: Any = None,
+    feed_instruments: Sequence[Instrument] | None = None,
 ) -> TradingSession:
     """Steps 5→end of :func:`boot`, extracted so the live path can be
     rollback-wrapped. The body is the original ``boot()`` logic unchanged.
@@ -587,6 +601,11 @@ def _boot_tail(
                     bus, engine, stream_backend.subscribe_orders,
                     trade_id_resolver=resolver,
                     unsubscribe=getattr(stream_backend, "unsubscribe", None),
+                    # Same registry as /metrics. Without it the bridge counts
+                    # its average-price fallbacks (AC-7) on an object nothing
+                    # ever reads, so the share of live fills booked without
+                    # per-trade detail is invisible to an operator.
+                    metrics=metrics,
                 )
             except Exception as exc:
                 raise RuntimeError("live fill bridge unavailable at boot") from exc
@@ -756,9 +775,35 @@ def _boot_tail(
         # and the error suppressed at this one line with that reasoning.
         session.stop = _stop_with_registry_teardown  # type: ignore[method-assign]  # ponytail: closure on instance; upgrade to session ctor param if registry grows a public API
 
-    # 10. Start session, then the refresh daemon (started last so nothing
-    # after it can strand it).
     if not reconcile_tripped:
+        # 9b. Cold start the market feed (Flow D step 5, AC-20): start the
+        # feed, reach READY, or refuse to start. The feed is constructed and
+        # wired to the fail-closed recovery coordinator in step 8, but nothing
+        # called ``MarketFeed.start()`` — the coordinator only ever ran on a
+        # socket reconnect — so the supervisor sat at RESYNCHRONIZING for the
+        # life of the session and every live order was refused with
+        # ``feed_not_ready``. The cold start is the one moment the feed proves
+        # itself, and this is the one place that can demand it: it runs BEFORE
+        # ``session.start()`` so the session is never READY over a feed that
+        # has not proven itself, and it raises rather than warns, so a failed
+        # proof is a boot that did not happen. It is skipped when there is no
+        # feed (paper/backtest/replay construct none) and when reconciliation
+        # above already refused, because there is nothing left to trade.
+        #
+        # The tape is the operator's to name and ``AppConfig`` resolves it from
+        # ``$TRADEX_FEED_INSTRUMENTS`` on every construction, so the
+        # unattended paths (``TradingSession.live()``, ``quick_start_live.py``,
+        # the CLI) trade as soon as the variable is set. The keyword is the
+        # override, and an explicit empty sequence stays empty rather than
+        # falling back to the environment — a caller that means "no tape" gets
+        # the refusal below, not a surprise.
+        named_tape = (
+            cfg.feed_instruments if feed_instruments is None else feed_instruments
+        )
+        _cold_start_feed(session, market_feed, named_tape)
+
+        # 10. Start session, then the refresh daemon (started last so nothing
+        # after it can strand it).
         session.start()
         # C4: transitions all CREATED runtimes → RUNNING after session is READY.
         if strategy_registry is not None:
@@ -773,6 +818,103 @@ def _boot_tail(
 
     log.info("Runtime context ready")
     return session
+
+
+def _cold_start_instruments(
+    market_feed: Any, requested: Sequence[Instrument] | None
+) -> tuple[Instrument, ...]:
+    """The instruments a cold start must prove continuity for, de-duplicated.
+
+    The caller's watchlist first, then whatever the feed is already subscribed
+    to: ``MarketFeed.start`` stops before it subscribes, so an instrument some
+    other component subscribed before the boot would otherwise be dropped from
+    the very set the boot is trying to prove.
+    """
+    ordered: dict[Any, Instrument] = {}
+    existing = market_feed.snapshot_instruments()
+    for instrument in (*(requested or ()), *existing):
+        ordered.setdefault(instrument.instrument_id, instrument)
+    return tuple(ordered.values())
+
+
+def _cold_start_feed(
+    session: Any,
+    market_feed: Any,
+    requested: Sequence[Instrument] | None,
+) -> None:
+    """Start the live market feed and let its recovery verdict gate the boot.
+
+    Fail-closed (AC-20, Flow D step 5). ``MarketFeed.start`` drives the same
+    recovery coordinator a reconnect drives and refuses with
+    ``FeedNotReadyError`` when the tape between the last bar this process saw
+    and now cannot be proven; a connected socket proves nothing, so a session
+    that could not reconcile must not start. A feed that returns *without* a
+    verdict — no coordinator wired, so nothing was proven at all — is refused
+    here too rather than read as a pass.
+
+    No feed (paper/backtest/replay) is a no-op. An **empty tape in live mode is
+    a refusal**: nothing named this process to stream anything, so there is
+    nothing to reconcile and nothing to claim, and a session that comes up
+    ``READY`` over a feed that was never started rejects every order with
+    ``feed_not_ready`` for the life of the process while looking healthy to
+    ``/health/ready``. The tape is the operator's to name — never a default
+    index, a scanner universe or the account's own exposure — so the refusal
+    says which setting to set instead of guessing on their behalf.
+    """
+    if market_feed is None:
+        return
+    instruments = _cold_start_instruments(market_feed, requested)
+    if not instruments:
+        # Nothing named this process to stream anything, so there is nothing to
+        # reconcile and nothing to claim. Handing back a session would come up
+        # ``READY`` over a feed that was never started and refuse every order
+        # with ``feed_not_ready`` for the life of the process while looking
+        # healthy to ``/health/ready`` — an operator who reads a log line is an
+        # operator who trades on it. The tape is the operator's to name, so the
+        # refusal says which setting to set rather than guessing on their
+        # behalf: never a default index, a scanner universe, or the account's own
+        # exposure (all three were priced and rejected — see lane c1's report).
+        raise ValueError(
+            "live boot refused: no tape named, so tape continuity is unproven and "
+            f"every order would be refused with feed_not_ready. Set "
+            f"${FEED_INSTRUMENTS_ENV}=EXCHANGE:SYMBOL[,EXCHANGE:SYMBOL...] to name "
+            "the instruments this session trades (e.g. "
+            f"${FEED_INSTRUMENTS_ENV}=NSE:RELIANCE), or pass "
+            "boot(feed_instruments=[...]). Paper, backtest and replay need no tape "
+            "and are unaffected."
+        )
+    try:
+        session.start_market_feed(instruments)
+    except BaseException:
+        # The feed subscribed before it could prove itself; stop it so a
+        # refused boot leaves no live stream behind a session that never
+        # started, then let the refusal out (boot's C3 rollback then closes the
+        # broker and releases the writer lock).
+        try:
+            market_feed.stop()
+        except Exception:  # pragma: no cover – defensive teardown
+            log.warning("market feed stop after a refused cold start failed",
+                        exc_info=True)
+        log.critical(
+            "Refusing to start session: the market feed could not prove tape "
+            "continuity for %d instrument(s) — %s",
+            len(instruments), market_feed.supervisor.state.value,
+        )
+        raise
+    if not market_feed.supervisor.ready:
+        market_feed.stop()
+        log.critical(
+            "Refusing to start session: the market feed cold start returned "
+            "without reaching READY (state=%s)", market_feed.supervisor.state.value,
+        )
+        raise RuntimeError(
+            "live boot refused: the market feed did not reach READY "
+            f"(state={market_feed.supervisor.state.value})"
+        )
+    log.info(
+        "Market feed cold start reached READY for %d instrument(s)",
+        len(instruments),
+    )
 
 
 def _reconcile_cash(broker: Any, engine: Any) -> list[Any]:

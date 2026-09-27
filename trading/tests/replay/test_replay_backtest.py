@@ -130,8 +130,10 @@ class TestBacktestEngine:
         engine = BacktestEngine()
         eq = _eq()
         signals = [
-            Signal(instrument=eq, direction=OrderSide.BUY, strength=1.0, reason="t"),
-            Signal(instrument=eq, direction=OrderSide.SELL, strength=1.0, reason="t"),
+            Signal(instrument=eq, direction=OrderSide.BUY, strength=1.0,
+                    quantity=Quantity(value=Decimal("1")), reason="t"),
+            Signal(instrument=eq, direction=OrderSide.SELL, strength=1.0,
+                    quantity=Quantity(value=Decimal("1")), reason="t"),
         ]
         now = _now()
         result = engine.run(

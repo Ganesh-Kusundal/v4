@@ -15,6 +15,7 @@ from tradex_domain.strategy import Signal, StrategyContext
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
 from tradex_strategy.core.brackets import protective_request
+from tradex_strategy.core.sizing import PositionSizer, unconfigured_sizer
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +35,14 @@ class ReactiveStrategyEngine:
     - ``"signal_close"``: orders are submitted immediately, priced at the
       triggering event (candle close / quote LTP / depth mid) — for live
       quote-driven strategies that must act without waiting for a candle.
+
+    ``sizer`` is the ``PositionSizer`` that turns each signal into an order
+    quantity. ``Signal.strength`` is signal quality and is never read as a
+    quantity here — that one-liner, ``abs(signal.strength)``, is what made
+    every strategy in this repository buy exactly one share, because every
+    strategy emits ``strength=1.0``. Omitting ``sizer`` falls back to
+    :func:`~tradex_strategy.core.sizing.unconfigured_sizer`, which logs a
+    WARNING and sizes to a fixed notional.
     """
 
     def __init__(
@@ -42,6 +51,7 @@ class ReactiveStrategyEngine:
         *,
         fill_reference: str = "next_open",
         pending_max_age_bars: int = 0,
+        sizer: PositionSizer | None = None,
     ) -> None:
         """Initialize with a ReactiveBus.
 
@@ -56,6 +66,8 @@ class ReactiveStrategyEngine:
                 number of bars processed since the order was deferred, so a
                 value of ``N`` cancels the order on the ``N+1``-th bar that
                 does not match its instrument.
+            sizer: the ``PositionSizer`` for this engine. ``None`` means
+                :func:`~tradex_strategy.core.sizing.unconfigured_sizer`.
         """
         if fill_reference not in _FILL_REFERENCES:
             raise ValueError(f"unknown fill_reference: {fill_reference!r}")
@@ -65,6 +77,7 @@ class ReactiveStrategyEngine:
             )
         self._fill_reference = fill_reference
         self._bus = bus
+        self._sizer = sizer if sizer is not None else unconfigured_sizer()
         self._strategies: dict[str, Any] = {}
         self._disposables: list = []
         self._bar_count = 0
@@ -176,13 +189,24 @@ class ReactiveStrategyEngine:
             open_price = Price(value=Decimal(str(candle.ohlc.open.value)))
             for pending in pending_for_inst:
                 version = pending.get("strategy_version", "1.0.0")
+                # Re-size against the open this order actually fills at. The
+                # provisional quantity on the pending entry was taken against
+                # the signal's own price, and a size is a function of price:
+                # sizing a next_open order at the signal bar's close sets both
+                # the notional ceiling and the risk budget against a price the
+                # order never got.
+                quantity = self._size(
+                    pending["signal"], open_price, pending["strategy_id"],
+                )
+                if quantity is None:
+                    continue
                 # Declared protective levels ride the deferred signal onto the
                 # order, validated against the open this order actually fills
                 # at — not the close the strategy saw when it declared them.
                 request = protective_request(
                     signal=pending["signal"],
                     entry=open_price,
-                    quantity=pending["quantity"],
+                    quantity=quantity,
                     correlation_id=pending["correlation_id"],
                     tag=f"{pending['strategy_id']}@{version}",
                     reference_timestamp=getattr(candle, "timestamp", None),
@@ -308,7 +332,6 @@ class ReactiveStrategyEngine:
         strategy_id = strategy.strategy_id
         version = str(getattr(strategy, "version", "1.0.0"))
         result.metadata.setdefault("strategy_version", version)
-        qty_value = abs(result.strength) if result.strength else 1.0
         correlation_id = self._correlation_id(strategy_id, event)
         tag = f"{strategy_id}@{version}"
         if self._fill_reference == "next_open":
@@ -319,13 +342,23 @@ class ReactiveStrategyEngine:
             # flushes and max-age sweeps stay O(k) per instrument. The
             # ``deferred_at_bar`` field is the engine ``_bar_count`` at the
             # moment of deferral, used by the max-age sweep.
+            #
+            # The quantity here is PROVISIONAL, taken against the price the
+            # signal was seen at. ``_flush_pending`` re-sizes authoritatively
+            # against the open this order actually fills at, because both the
+            # notional ceiling and the risk budget are prices: sized against
+            # the signal bar's close, a ``next_open`` order is sized against a
+            # price it never got.
             inst_id = result.instrument.instrument_id
+            provisional = self._size(result, self._reference_price(event), strategy_id)
+            if provisional is None:
+                return
             self._pending.setdefault(inst_id, []).append({
                 "strategy_id": strategy_id,
                 "strategy_version": version,
                 "instrument_id": inst_id,
                 "signal": result,
-                "quantity": Quantity(Decimal(str(qty_value))),
+                "quantity": provisional,
                 "correlation_id": correlation_id,
                 "deferred_at_bar": self._bar_count,
             })
@@ -336,15 +369,47 @@ class ReactiveStrategyEngine:
                 f"strategy {strategy_id} emitted {result.reason!r} without a "
                 "priced event (candle/quote/depth) to reference"
             )
+        quantity = self._size(result, price, strategy_id)
+        if quantity is None:
+            return
         request = protective_request(
             signal=result,
             entry=price,
-            quantity=Quantity(Decimal(str(qty_value))),
+            quantity=quantity,
             correlation_id=correlation_id,
             tag=tag,
             reference_timestamp=getattr(event, "timestamp", None),
         )
         self._bus.publish(PlaceOrderCommand(request=request))
+
+    def _size(
+        self, signal: Signal, price: Price | None, strategy_id: str,
+    ) -> Quantity | None:
+        """Ask the sizer for this signal's size, loudly if it cannot decide.
+
+        ``None`` means **refused**: the sizer had no knowable denominator and
+        the engine drops the signal rather than publishing an order it cannot
+        justify. The reason is logged at ERROR with the strategy named, so a
+        dropped signal is never a quiet one.
+        """
+        if price is None:
+            log.error(
+                "%s: dropped %s — the signal has no priced event to size against",
+                strategy_id, getattr(signal, "reason", ""),
+            )
+            return None
+        decision = self._sizer.size(signal, reference_price=price)
+        if decision.quantity is None:
+            log.error(
+                "%s: refused to size %s — %s",
+                strategy_id, getattr(signal, "reason", ""), decision.reason,
+            )
+            return None
+        log.info(
+            "%s: sized %s to %s (%s)", strategy_id,
+            getattr(signal, "reason", ""), decision.quantity, decision.reason,
+        )
+        return decision.quantity
 
     def register(self, strategy) -> None:
         """Register a strategy and subscribe it to market events.

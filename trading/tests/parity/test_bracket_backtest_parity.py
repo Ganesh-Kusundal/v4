@@ -69,7 +69,7 @@ class _EntryWithBracketOnly:
                 Signal(
                     instrument=candle.instrument,
                     direction=OrderSide.BUY,
-                    strength=1.0,
+                    strength=1.0, quantity=Quantity(value=Decimal("1")),
                     reason="entry",
                     metadata={
                         "stop_loss_price": self._stop,
@@ -119,7 +119,7 @@ def test_incomplete_pair_does_not_auto_exit() -> None:
                     Signal(
                         instrument=candle.instrument,
                         direction=OrderSide.BUY,
-                        strength=1.0,
+                        strength=1.0, quantity=Quantity(value=Decimal("1")),
                         reason="entry",
                         metadata={"stop_loss_price": 95.0},
                         timestamp=candle.timestamp,

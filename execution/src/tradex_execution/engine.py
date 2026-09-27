@@ -233,6 +233,12 @@ class ExecutionEngine:
         self._require_durable_events = require_durable_events
         self._guard_lock = threading.Lock()
         self._fee_calculator = fee_calculator
+        #: The cash floor policy, retained because a ledger can also be created
+        #: long after construction by ``restore_cash`` (the live/paper seed).
+        #: That ledger has to be born under the same policy the constructor
+        #: applies, or the engine's cash gate is armed in the backtest and
+        #: disarmed in production — see ``restore_cash``.
+        self._allow_negative_cash = allow_negative_cash
         self._cash_ledger = (
             CashLedger(initial=cash, allow_negative=allow_negative_cash)
             if cash is not None
@@ -742,11 +748,40 @@ class ExecutionEngine:
         *,
         re_anchor: bool = False,
     ) -> None:
-        """Seed the cash ledger from an opening balance or a recovery fold.
+        """Set the cash ledger's balance to an absolute figure.
 
         A restarted process starts with an empty ledger, so without this it
         reports ``0`` and the fail-closed cash gate denies every BUY against a
         balance the process actually holds.
+
+        **This is a setter, and it is a setter because of who calls it.** Every
+        production caller passes a balance it is authoritative about, and
+        adopts it whole:
+
+        - ``startup.py`` cold boot, ``re_anchor=True`` — the opening balance
+          read from broker funds. A **seed**.
+        - ``startup.py`` recovery — the balance and fee total folded out of the
+          event log. A **fold**, adopted whole, re-deriving nothing.
+        - ``BacktestEngine``'s corporate-action path, which reads
+          ``cash_snapshot``, adds the basis delta, and writes the sum back. A
+          **setter used as a delta by its caller** — the delta is the caller's
+          arithmetic, not this method's argument.
+        - this constructor, re-anchoring a ledger it already holds.
+
+        So it is neither cleanly a seed nor cleanly a delta, and the difference
+        decides the fix. It must **not** be a debit: an opening balance is not
+        something an account has to be able to afford, and implementing the
+        seed as one lands the balance at ``-cash`` and refuses every legitimate
+        boot. The floor belongs to the ledger's *policy*, and the only thing to
+        decide is which policy a ledger born here is given.
+
+        It is the engine's configured ``allow_negative_cash``, the same value
+        the constructor applies — which is what makes the live and paper paths
+        enforce the same floor the backtest enforces (AC-2). Creating that
+        ledger with ``allow_negative=True`` instead made ``require_debit`` and
+        ``_debit`` no-ops, so in live and paper every pre-check passed and a
+        fill the account could not pay for booked its position and drove cash
+        below zero with nothing raised, refused or published.
 
         *re_anchor* appends a fresh ``CashAccountInitialized``. That is only
         correct for a genuinely NEW opening balance (a cold boot reading broker
@@ -756,7 +791,9 @@ class ExecutionEngine:
         balance that already includes them.
         """
         if self._cash_ledger is None:
-            self._cash_ledger = CashLedger(initial=cash, allow_negative=True)
+            self._cash_ledger = CashLedger(
+                initial=cash, allow_negative=self._allow_negative_cash,
+            )
         else:
             self._cash_ledger.restore(cash, total_fees)
         if re_anchor:
@@ -817,18 +854,8 @@ class ExecutionEngine:
             return
 
         if not getattr(self._fill, "position_projection_owned", False):
-            # Prove affordability BEFORE booking anything (M-3). The debits
-            # below are notional and then fee, each of which can trip the
-            # ledger's buying-power floor; the position is already booked by
-            # then, so a failure there leaves a position with no cash movement
-            # and an OMS still reading FILLED/filled=0. Checking the combined
-            # requirement up front makes the two debits non-failing.
-            if self._cash_ledger is not None:
-                notional = fill.quantity.value * fill.price.value
-                debit = notional if fill.side is OrderSide.BUY else Decimal(0)
-                self._cash_ledger.require_debit(
-                    debit + charged_fee, f"fill {fill.order_id}",
-                )
+            # Prove affordability BEFORE booking anything (M-3 / AC-2).
+            self._require_cash_for_fill(fill, charged_fee)
             self._position_manager.on_fill(fill)
             self._apply_cash_fill(fill)
             self._apply_fee(fill, charged_fee)
@@ -845,6 +872,40 @@ class ExecutionEngine:
         # order, making the divergence permanent (M-3).
         if self._guard is not None and cid is not None:
             self._guard.record_result(cid, order.order_id)
+
+    def _require_cash_for_fill(self, fill: Fill, charged_fee: Decimal) -> None:
+        """Prove the ledger can pay for *fill* before anything is booked.
+
+        The requirement is the notional for a BUY and the fee alone for a SELL,
+        checked as ONE amount and not two, so the debits that follow cannot
+        fail: the position is already booked by then, and a failure there
+        leaves a position with no cash movement behind it and an OMS reading
+        FILLED (M-3). Checking the sum up front is what makes booking, notional
+        and fee one operation that either all happens or does not (AC-2).
+
+        The fee is part of the requirement, not a rounding detail: the last
+        order an account can afford is the one its own fee makes unaffordable,
+        so a check on the notional alone would pass a fill that its own debit
+        then refuses.
+
+        Both fill doors call this — the synchronous pipeline
+        (``_apply_fill_to_book``) and the inbound bus bridge (``_apply_fill``).
+        They are one implementation on purpose: this bug existed on the second
+        door precisely because it had been fixed on the first and the two
+        copies drifted apart.
+
+        A SELL is held to its fee against the balance as it stands, before
+        this fill's own credit lands, so a sell out of an empty account is
+        refused on a fee its credit would have covered. That is the formula the
+        synchronous door has always used and it is reused verbatim rather than
+        re-decided per door; it fails closed, and it turns away only the case
+        where the account holds no cash at all.
+        """
+        if self._cash_ledger is None:
+            return
+        notional = fill.quantity.value * fill.price.value
+        debit = notional if fill.side is OrderSide.BUY else Decimal(0)
+        self._cash_ledger.require_debit(debit + charged_fee, f"fill {fill.order_id}")
 
     def _apply_cash_fill(self, fill: Fill) -> None:
         if self._cash_ledger is not None:
@@ -966,6 +1027,13 @@ class ExecutionEngine:
         fill id the fingerprint falls back to (order, side, quantity, price),
         so equal-lot partials without venue ids remain indistinguishable from
         a re-publish.
+
+        Affordability is proved before anything is booked, so an unaffordable
+        fill is refused whole rather than half applied: no position, no cash
+        movement, no durable record and no committed fingerprint, which is what
+        makes a re-delivery of a refused fill still raise rather than vanish
+        into the dedup. Booking, the notional debit and the fee debit are then
+        one operation that cannot fail (AC-2).
         """
         fill = event.fill
         # Membership is checked WITHOUT recording: the fingerprint is committed
@@ -996,6 +1064,35 @@ class ExecutionEngine:
                 else self._compute_fee(fill)
             )
         owns_projection = getattr(self._fill, "position_projection_owned", False)
+        if not owns_projection:
+            # Prove affordability BEFORE booking anything, and BEFORE the two
+            # records below that would make this fill un-refusable. The debits
+            # that follow are notional and then fee, each of which can trip the
+            # ledger's buying-power floor; the position is already booked by
+            # then, so a failure there leaves a position with no cash movement
+            # and the raise swallowed by the bus's subscriber isolation — the
+            # live book and the recovered book disagreeing for good (AC-2).
+            #
+            # This sits ahead of the durable write and the dedup fingerprint,
+            # which is where the synchronous door differs and why: a refused
+            # fill in the log is folded by recovery into a position this book
+            # never had, and a refused fill whose fingerprint is committed has
+            # its own re-delivery skipped as a duplicate, so the fill is lost
+            # with no error at all. Neither trace may exist for a fill that did
+            # not apply. ``require_debit`` only reads, so "persist before
+            # mutating" still holds for the first mutation, which is the
+            # booking below.
+            #
+            # The failure is republished as ``ErrorOccurred`` because
+            # ``ReactiveBus._isolate`` logs and drops a subscriber's exception:
+            # without this the raise stops at a log line and a run fed this
+            # door quietly loses a fill. ``BacktestEngine.run`` treats it as
+            # run-ending; the live boot logs and counts it.
+            try:
+                self._require_cash_for_fill(fill, charged_fee)
+            except ValueError as exc:
+                self._bus.publish(ErrorOccurred(error=exc))
+                raise
         # Persist BEFORE mutating — same invariant as the sync fill path.
         if not self._append(OrderFilled(fill=fill, fee_amount=charged_fee)):
             log.error(

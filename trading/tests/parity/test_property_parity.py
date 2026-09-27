@@ -37,10 +37,10 @@ INSTRUMENT = Equity.of("NSE", "RELIANCE")
 # Prices between 10 and 500 (keeps notional within 100k starting capital)
 _price_st = st.decimals(min_value="10", max_value="500", places=2)
 
-# Ladder plans: list of (side, strength) tuples, 2–8 entries
+# Ladder plans: list of (side, share count) tuples, 2–8 entries
 _side_st = st.sampled_from([OrderSide.BUY, OrderSide.SELL])
-# Strength capped at 100 so max notional per fill = 100 * 500 = 50,000
-_strength_st = st.decimals(min_value="1", max_value="100", places=1)
+# Share count per rung, capped at 100 so max notional per fill = 100 * 500 = 50,000
+_shares_st = st.decimals(min_value="1", max_value="100", places=1)
 
 # Number of bars: 3–30 (enough for at least one BUY+SELL round trip)
 _n_bars_st = st.integers(min_value=3, max_value=30)
@@ -72,7 +72,7 @@ def candle_series(draw):
 
 @st.composite
 def ladder_plan(draw):
-    """Generate a random ladder plan: list of (side, strength) tuples.
+    """Generate a random ladder plan: list of (side, share count) tuples.
 
     Ensures at least one BUY and one SELL so positions open and close.
     """
@@ -80,13 +80,13 @@ def ladder_plan(draw):
     plan = []
     for i in range(n):
         side = draw(_side_st)
-        strength = draw(_strength_st)
-        plan.append((side, float(strength)))
+        shares = draw(_shares_st)
+        plan.append((side, str(shares)))
     # Ensure at least one BUY and one SELL
     if all(s == OrderSide.BUY for s, _ in plan):
-        plan[-1] = (OrderSide.SELL, float(plan[-1][1]))
+        plan[-1] = (OrderSide.SELL, plan[-1][1])
     if all(s == OrderSide.SELL for s, _ in plan):
-        plan[0] = (OrderSide.BUY, float(plan[0][1]))
+        plan[0] = (OrderSide.BUY, plan[0][1])
     return plan
 
 
@@ -111,11 +111,12 @@ class _PropertyLadder:
         self._bar += 1
         if self._bar > len(self._plan):
             return None
-        side, strength = self._plan[self._bar - 1]
+        side, shares = self._plan[self._bar - 1]
         signal = Signal(
             instrument=candle.instrument,
             direction=side,
-            strength=strength,
+            strength=1.0,
+            quantity=Quantity(Decimal(shares)),
             reason=f"bar{self._bar}",
             timestamp=candle.timestamp,
         )

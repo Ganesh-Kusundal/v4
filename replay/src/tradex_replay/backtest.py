@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Any, cast
+from typing import Any, Final, cast
 
 from tradex_analytics.reports import max_drawdown, sharpe_ratio, total_return
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, Timeframe
-from tradex_domain.events import OrderFilled, OrderPlaced, OrderRejected, PlaceOrderCommand
+from tradex_domain.events import (
+    ErrorOccurred,
+    OrderFilled,
+    OrderPlaced,
+    OrderRejected,
+    PlaceOrderCommand,
+)
 from tradex_domain.execution import OrderRequest
 from tradex_domain.utils import q2
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
-from tradex_execution.cash_ledger import CashLedger
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fees import FeeCalculator
 from tradex_execution.fill_sources import FillSource, SimulatedFillSource
@@ -27,8 +33,36 @@ from tradex_reactive.bus import ReactiveBus
 from tradex_strategy.core.brackets import _brackets, protective_request
 from tradex_strategy.core.engine import ReactiveStrategyEngine
 from tradex_strategy.core.protocols import Strategy
+from tradex_strategy.core.sizing import DEFAULT_MAX_ORDER_VALUE, PositionSizer
 
 log = logging.getLogger(__name__)
+
+#: Adverse fill beyond a triggered stop, in basis points (AC-19). **This is a
+#: stated assumption, not a measurement.** 25 bps (0.25%) is the conservative
+#: end of what an intraday stop-market on a liquid NSE equity actually slips
+#: when a sharp move triggers it — several ticks, more on a thin name. It is
+#: deliberately not zero: a stop honoured at exactly its own price is an
+#: optimism no venue grants, and a strategy whose edge survives only because its
+#: stop is always filled precisely has been measured on a fiction.
+#:
+#: It is a *floor* on realism, not a replacement for the bar — see
+#: :func:`_stop_gap_price`, which bounds the gap by the bar's own adverse
+#: extreme so a modelled gap can never invent a loss the market did not print,
+#: and (just as important) can never beat a fill the market *did* print.
+DEFAULT_STOP_GAP_BPS: Final = Decimal("25")
+
+#: A fill price must stay positive: a zero- or negative-priced fill silently
+#: corrupts every downstream P&L number and is refused by the fill model.
+_MIN_FILL_PRICE: Final = Decimal("0.01")
+
+#: Fraction of the run's opening capital one trade may risk, used **only** when
+#: the caller wires no sizer of its own (AC-5). **A stated default, not a spec
+#: value** — the spec fixes the sizing formula and not the fraction, and the same
+#: 1% convention appears in the tradex-platform account wiring. It only ever
+#: applies where the risk denominator is knowable at all (a declared stop *and* a
+#: lot size); everywhere else the sizer takes the configured notional and says
+#: so in the log. Pass ``sizer=`` for anything load bearing.
+DEFAULT_BACKTEST_RISK_FRACTION: Final = Decimal("0.01")
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +76,60 @@ class _OpenBracket:
     target: float
 
 
+def _stop_gap_price(
+    kind: str,
+    entry_side: OrderSide,
+    level: float,
+    bar_low: float,
+    bar_high: float,
+    gap_bps: Decimal = DEFAULT_STOP_GAP_BPS,
+) -> float:
+    """Price a triggered protective leg actually fills at (AC-19).
+
+    *gap_bps* is in the same unit as :data:`DEFAULT_STOP_GAP_BPS` — basis
+    points — so the public knob and the arithmetic cannot drift apart.
+
+    **The stop is a stop-*market***: the instant a print is through the level the
+    order is live, and the fill is the next price actually available — which is
+    worse than the level whenever the bar moved through it. The old model
+    returned the level itself, so a long stopped at 1,000.00 filled at 1,000.00
+    on a bar that printed 980.00: a loss the market would not have allowed, and
+    invisible because the number has the same shape as the right one.
+
+    Two terms, and the **worse** one wins:
+
+    * the bar's own adverse extreme — the best price the venue could possibly
+      have given, so a bar that genuinely gapped through reports what it
+      printed rather than a modelled approximation of it. This is arithmetic,
+      not a modelling choice, so it always applies;
+    * the adverse gap, ``level * (1 -/+ gap)`` — the slippage past the trigger,
+      which ``gap`` controls. A zero gap is still sound (the bar bound alone
+      cannot beat the stop) and is what the negative controls switch off; a
+      *negative* gap would be a request to fill better than the stop, and
+      ``BacktestEngine`` refuses it at construction.
+
+    The second term is what the first is for. A gap model with no bar bound
+    manufactures losses on bars that merely traded through the level; a bar
+    bound with no gap model is the defect AC-19 removes.
+
+    **A take-profit is a limit order and does not gap** — the venue fills it at
+    the limit or better whenever the bar reaches the level — so ``kind ==
+    "target"`` returns the level untouched. When both legs pierce one bar the
+    caller's stop-first convention still decides which leg this prices.
+    """
+    if kind != "stop":
+        return level
+    gap = Decimal(str(gap_bps)) / Decimal("10000")
+    level_d = Decimal(str(level))
+    if entry_side is OrderSide.BUY:
+        # Long: the exit sells, so the adverse direction is down.
+        adverse = min(level_d * (Decimal(1) - gap), Decimal(str(bar_low)))
+    else:
+        # Short: the exit buys back, so the adverse direction is up.
+        adverse = max(level_d * (Decimal(1) + gap), Decimal(str(bar_high)))
+    return float(max(adverse, _MIN_FILL_PRICE))
+
+
 def _protective_trigger(
     side: OrderSide,
     high: float,
@@ -49,7 +137,11 @@ def _protective_trigger(
     stop: float,
     target: float,
 ) -> tuple[str | None, float | None]:
-    """Return (kind, exit_price) when *high*/*low* pierce a declared leg.
+    """Return ``(kind, level)`` when *high*/*low* pierce a declared leg.
+
+    ``level`` is the declared level the bar reached, **not** the price the leg
+    fills at — a triggered stop is a stop-market and fills past its own level
+    (AC-19). Price it with :func:`_stop_gap_price`.
 
     Stop is tested before target when both pierce on one bar — the same
     pessimistic convention as ``BracketBreakoutStrategy._exit_for_bar``.
@@ -133,12 +225,28 @@ class BacktestResult:
     #: Signals whose orders failed the configured risk manager and were
     #: skipped (no fill, no P&L) — the backtest mirror of OrderRejected.
     num_rejected: int = 0
-    #: Executed fills recorded by the pipeline (the same OrderFilled events
-    #: the cash ledger consumes). Unlike ``trades`` these carry real fill
-    #: prices/timestamps; chart markers should plot THESE. Rejections appear
+    #: Signals the run could not fill because the bar they must fill against
+    #: never arrived — a signal on the final bar, or on a quote after the last
+    #: candle. Reported rather than filled at a price that did not exist when
+    #: the strategy decided (AC-1). They stay in ``trades``: the signal was
+    #: emitted, it simply had no bar to trade on.
+    num_unfilled: int = 0
+    #: Executed fills recorded by the pipeline (the ``OrderFilled`` events the
+    #: execution engine applied to the position book and the cash ledger).
+    #: Unlike ``trades`` these carry real fill prices/timestamps; chart markers
+    #: should plot THESE. Rejections appear
     #: here with ``rejected=True`` and price 0 so a UI can render them as
     #: error markers without consulting ``num_rejected`` arithmetic.
     fills: list[dict[str, Any]] = field(default_factory=list)
+    #: The position book the run ended on, one dict per instrument that is
+    #: still open, carrying ``instrument_id``, ``symbol``, ``quantity``,
+    #: ``avg_price`` and ``realized_pnl``. Reported because a corporate action
+    #: is otherwise invisible in a run's output: the only evidence a 2:1 split
+    #: had been applied was the equity curve moving, which looks identical to a
+    #: gain (AC-19). A reader comparing two runs — a split run against the same
+    #: series already split by hand — needs the *position*, not just the money.
+    #: Flat positions are omitted; a run that closed out reports ``[]``.
+    end_positions: list[dict[str, Any]] = field(default_factory=list)
 
 
 class BacktestEngine:
@@ -154,6 +262,10 @@ class BacktestEngine:
         risk_manager: Any | None = None,
         initial_capital: Decimal | float | str = Decimal("100000"),
         sharpe_frequency: str = "1m",
+        stop_gap_bps: Decimal | float | str = DEFAULT_STOP_GAP_BPS,
+        sizer: PositionSizer | None = None,
+        max_order_value: Decimal | float | str = DEFAULT_MAX_ORDER_VALUE,
+        risk_fraction: Decimal | float | str | None = DEFAULT_BACKTEST_RISK_FRACTION,
     ) -> None:
         """Initialize backtest engine.
 
@@ -171,6 +283,32 @@ class BacktestEngine:
                 point — point-in-time, once each, through the same shared
                 accounting math as ``PositionManager`` (parity review area
                 #4: corporate actions modeled consistently across modes).
+            stop_gap_bps: Adverse fill beyond a triggered stop, in basis
+                points. See :data:`DEFAULT_STOP_GAP_BPS` for the default and why
+                it is not zero. ``0`` drops the slippage term and leaves the
+                bar bound — which is arithmetic, not a choice, and can never
+                beat the stop. A **negative** value would fill better than the
+                stop and raises ``ValueError``.
+
+        sizer:
+            The ``PositionSizer`` that turns every signal in this run into an
+            order size (AC-5). It is handed to **both** paths a strategy can
+            emit on — the ``next_open`` queue and the recording-only bridge
+            below — because two implementations of "signal -> quantity" is the
+            parity break AC-5 exists to prevent, and the bridge's used to be
+            ``abs(signal.strength)``. Leave it ``None`` and the run builds one
+            from the two sizing arguments below.
+        max_order_value, risk_fraction:
+            The sizing policy for the sizer this run builds when none was
+            handed in: a per-order notional ceiling (the same
+            ``DEFAULT_MAX_ORDER_VALUE`` every unwired engine falls back to) and
+            the fraction of *equity* one trade may lose. Equity is the run's
+            **opening** capital, deliberately: sizing a research run against the
+            balance its own P&L has produced is a feedback loop, so the same
+            series would give a different answer for the same signals depending
+            on how long the run was. Live sizing reads the account per signal
+            instead (``equity_source``), which is the right behaviour for a
+            session and the wrong one for a backtest.
 
         Note: fees are charged on the *applied* fill — a SELL larger than the
         open position is capped at the position, so the fee matches the
@@ -202,6 +340,42 @@ class BacktestEngine:
         self._risk_manager = risk_manager
         self._initial_capital = Decimal(str(initial_capital))
         self._sharpe_frequency = sharpe_frequency
+        gap_bps = Decimal(str(stop_gap_bps))
+        if gap_bps < 0:
+            # A negative gap is a request to fill a stop BETTER than its own
+            # level — the exact optimism AC-19 removes, and unlike
+            # ``fees=False`` it has no honest reading, so it is refused rather
+            # than clamped. Zero stays legal: the bar bound still applies, so
+            # the model can never beat the stop, which is what the negative
+            # controls rely on.
+            raise ValueError(
+                f"stop_gap_bps must not be negative (got {stop_gap_bps!r}); a stop "
+                "may not fill better than the price it was stopped at"
+            )
+        self._stop_gap_bps = gap_bps
+        self._sizer = sizer
+        self._max_order_value = Decimal(str(max_order_value))
+        self._risk_fraction = None if risk_fraction is None else Decimal(str(risk_fraction))
+
+    def _resolve_sizer(self) -> PositionSizer:
+        """The sizer this run sizes every signal with (AC-5).
+
+        The one it was given, or one built from the run's own policy. Built once
+        per ``run`` and handed to *both* emission paths, so a signal that
+        ``ReactiveStrategyEngine`` claims and a signal the recording-only bridge
+        carries are sized by the same object — which is the whole of the parity
+        claim. A signal the sizer cannot size is dropped with an ERROR and no
+        order is published, on either path.
+        """
+        if self._sizer is not None:
+            return self._sizer
+        return PositionSizer(
+            max_order_value=self._max_order_value,
+            risk_fraction=self._risk_fraction,
+            equity=self._initial_capital,
+            fallback_notional=self._max_order_value,
+            label="backtest",
+        )
 
     def submit(self, request: Any) -> Any:
         """Route a strategy order through the backtest engine.
@@ -227,14 +401,73 @@ class BacktestEngine:
         """Run a backtest.
 
         Feed data events to the strategy, then compute real P&L from the
-        emitted signals using each signal's matching Candle close as fill price.
+        emitted signals.
+
+        **The fill rule, and it is the only one (AC-1).** A signal decided on
+        bar N fills at bar N+1's *open* — whichever of the two paths carries
+        it: the ``next_open`` queue in ``ReactiveStrategyEngine`` (a strategy
+        that RETURNS its signal) or the recording-only bridge below (a
+        strategy that only appends to ``strategy.signals``). The two paths used
+        to disagree — the queue was flushed against the *last* candle of the
+        run and the bridge filled at the *signal bar's own close* — so which
+        path a signal took silently decided whether the strategy looked good.
+
+        A signal whose next bar never arrives (the final bar of the run, or a
+        quote after the last candle) has no price the strategy could have known
+        when it decided, so it is NOT filled: it is counted in
+        ``BacktestResult.num_unfilled`` and logged, and the run reports the
+        count. Nothing is flushed against the last candle.
+
+        **Cash is one ledger and one operation (AC-2).** The opening capital is
+        handed to the ``ExecutionEngine`` (``cash=``), so its ``require_debit``
+        proves affordability *before* a position is booked and then applies
+        booking, notional and fee as a single sequence that cannot half-apply.
+        Nothing on the bus moves money: the ``OrderFilled`` subscriber below
+        only records. An overdraft therefore propagates out of this method
+        instead of being absorbed by the bus's subscriber isolation, which is
+        what made a too-big order produce a flattering equity curve with no
+        error anywhere.
+
+        **A protective exit does not fill at its own level (AC-19).** A triggered
+        stop is a stop-*market*: it fills at the worse of the modelled gap past
+        the trigger (``stop_gap_bps``) and the worst price the triggering bar
+        printed — see :func:`_stop_gap_price`. A take-profit is a limit order
+        and does not gap. Filling a stop exactly at its price is an optimism no
+        venue grants, and it is invisible because the number it changes has the
+        same shape as the number that was already right.
+
+        **A corporate action is applied to the lot that held it (AC-19).** A
+        split or dividend with an ex-date inside the window is applied at the
+        first bar on or after it — so a split landing *between* two bars and one
+        landing *on* a bar boundary take the same path. An action is applied
+        only to lots that existed at its ex-date, and a split re-bases an open
+        protective bracket's levels and size along with the position. Both
+        halves matter: a re-based position next to an un-re-based stop exits at
+        roughly twice the traded price, and a re-based lot that never held a
+        pre-split share is a phantom gain. ``end_positions`` reports the
+        resulting position so a run's corporate-action handling is visible
+        rather than inferred from the equity curve.
+
+        **Every signal is sized by the run's sizer (AC-5).** One
+        ``PositionSizer`` — the one handed in, or one built from
+        ``max_order_value`` / ``risk_fraction`` / ``initial_capital`` — sizes both
+        the ``next_open`` queue and the recording-only bridge, so the two ways a
+        strategy emits a signal cannot be sized by two different rules. A signal
+        the sizer cannot size publishes nothing on either path and says why in
+        the log; nothing here reads ``Signal.strength``, which is signal quality
+        and was the order quantity.
 
         Args:
             strategy: Strategy instance
             data: List of events (Candle, Quote, Fill)
-
         Returns:
             BacktestResult with performance metrics
+
+        Raises:
+            ValueError: A fill the run's capital cannot pay for, or any other
+                failure the order pipeline raised — re-raised out of the bus
+                rather than swallowed, because every number this method returns
+                is one an operator is about to trust.
         """
         initial_capital = self._initial_capital
 
@@ -274,18 +507,33 @@ class BacktestEngine:
             risk_manager=self._risk_manager,
             cache=cache,
             fee_calculator=self._fee_calculator,
+            # THE cash ledger. Handing the engine the opening balance arms its
+            # `require_debit` floor, which runs BEFORE a position is booked and
+            # then applies booking + notional + fee as one non-failing
+            # sequence (AC-2). Without `cash=` the engine holds no ledger at
+            # all, the floor never runs, and an unaffordable order books a
+            # position the run cannot pay for.
+            #
+            # The floor follows the risk manager: with one, an overdraft is a
+            # run-ending error; without one, the historical no-gate mode keeps
+            # its unlimited buying power.
+            cash=initial_capital,
+            allow_negative_cash=self._risk_manager is None,
         )
-        # Preserve the historical no-risk-manager mode's unlimited buying
-        # power. When a RiskManager is supplied it is bound to this ledger
-        # below, so its cash gate rejects the same orders as reactive mode.
-        ledger = CashLedger(initial_capital, allow_negative=self._risk_manager is None)
 
-        # Brokerage is capped per ORDER, not per fill, so the accrual has to
-        # survive across an order's partial fills — the same state the
-        # execution engine keeps in `_brokerage_accrued`. Without it the cap is
-        # charged once per partial and the backtest overcharges a split order.
-        brokerage_accrued: dict[str, Decimal] = {}
+        # Brokerage is capped per ORDER, not per fill, and the engine already
+        # keeps that accrual (`_brokerage_accrued`) against the same calculator,
+        # so the backtest keeps no second copy of it.
         recorded_fills: list[dict[str, Any]] = []
+
+        # Corporate-action cash effects (split basis restatement, dividend
+        # credit) move the engine's ledger, which is both the affordability
+        # floor and what the equity curve reports — so the gate reads the same
+        # balance the run reports. `restore_cash` is the public setter; it
+        # takes the pair because `cash_snapshot` is the only reader.
+        def _apply_cash_delta(delta: Decimal) -> None:
+            snapshot = engine.cash_snapshot()
+            engine.restore_cash(snapshot.cash + Decimal(str(delta)), snapshot.total_fees)
 
         # Protective levels are a property of the ORDER, and a fill only carries
         # its order_id — so the legs are indexed as orders are placed and read
@@ -294,6 +542,9 @@ class BacktestEngine:
         order_legs: dict[str, tuple[float | None, float | None]] = {}
         active_brackets: dict[Any, _OpenBracket] = {}
         protective_seq = 0
+        #: Bar each instrument's current lot was opened on, so a corporate
+        #: action is applied only to the lots that existed at its ex-date.
+        lot_opened_at: dict[Any, datetime] = {}
 
         def _legs_of(order: Any) -> tuple[float | None, float | None]:
             stop = getattr(order, "stop_loss_price", None)
@@ -321,20 +572,52 @@ class BacktestEngine:
                 target=target,
             )
 
+        def _rebase_bracket(inst_id: Any, ratio: Decimal) -> None:
+            """Re-scale an open bracket's legs and size by a split/bonus ratio.
+
+            A split re-bases the *position* (qty x ratio, avg / ratio) and the
+            declared stop and target are prices in the same pre-split scale, so
+            they must be re-based with it. Leaving them alone is worse than not
+            applying the split at all: the position is 20 shares at 500.00 while
+            the bracket still says *stop 950.00, sell 10*, so the next bar — in
+            a market trading at 500.00 — "pierces" the stop and the run sells at
+            950.00, a fill 90% above the market, on half the position (AC-19).
+            """
+            bracket = active_brackets.get(inst_id)
+            if bracket is None or ratio <= 0:
+                return
+            active_brackets[inst_id] = _OpenBracket(
+                instrument=bracket.instrument,
+                side=bracket.side,
+                quantity=Quantity(
+                    value=bracket.quantity.value * ratio
+                ),
+                stop=bracket.stop / float(ratio),
+                target=bracket.target / float(ratio),
+            )
+
         def _on_fill(ev: OrderFilled) -> None:
             f = ev.fill
-            ledger.on_fill(f.side, f.quantity, f.price)
-            if self._fee_calculator is not None:
-                order_key = f.order_id.value
-                fee, brokerage_accrued[order_key] = (
-                    self._fee_calculator.calculate_capped(
-                        f, brokerage_accrued.get(order_key, Decimal("0")),
-                    )
-                )
-                ledger.on_fee(fee.amount)
+            # No money moves here. The engine has already debited this fill's
+            # notional and fee from the one ledger inside the same operation
+            # that booked the position, after proving the debit was affordable;
+            # a subscriber debit is what let an overdraft raise AFTER the
+            # booking and be swallowed by the bus (AC-2). This handler records
+            # the fill and maintains the bracket bookkeeping.
             stop, target = order_legs.get(f.order_id.value, (None, None))
             recorded_fills.append({
                 "time": f.timestamp,
+                # Which instrument this record is about, stated by the record
+                # rather than recovered later. `BacktestResult.fills` is the
+                # input the validation report's round trip counter reads, and
+                # positions are per instrument: a counter that has to guess
+                # which symbol a fill belonged to either merges two symbols into
+                # one ledger (inventing round trips — a buy in one and a sell in
+                # the other reads as a position closed) or refuses outright
+                # (which is what it did whenever two symbols shared a timestamp,
+                # i.e. most multi-symbol research runs). Stated here it is exact
+                # and unconditional. AC-13.
+                "instrument": str(f.instrument.instrument_id),
                 "side": str(getattr(f.side, "value", f.side)).upper(),
                 "price": float(f.price.value),
                 "qty": float(f.quantity.value),
@@ -354,6 +637,14 @@ class BacktestEngine:
             pos = cache.get_position(f.instrument)
             if pos is None or pos.quantity.value == Decimal("0"):
                 active_brackets.pop(inst_id, None)
+                lot_opened_at.pop(inst_id, None)
+            elif inst_id not in lot_opened_at:
+                # When the CURRENT lot opened. A corporate action is owed only
+                # by the lots that existed at its ex-date; a position opened
+                # afterwards never held a pre-split share, and re-basing it
+                # invented a gain (AC-19). Cleared above when the lot goes flat,
+                # so a later lot gets its own stamp.
+                lot_opened_at[inst_id] = f.timestamp
 
         bus.of_type(OrderFilled).subscribe(_on_fill)
 
@@ -362,6 +653,13 @@ class BacktestEngine:
             stop, target = _legs_of(ev.order)
             recorded_fills.append({
                 "time": ts or self._clock.now(),
+                # The same key the filled record carries, and for the same
+                # reason: a rejection is a record about one instrument, and a
+                # shape that names it only on the happy path is empty exactly
+                # when something needs explaining. A rejected record is not
+                # counted as a fill, so this is for the audit trail and for
+                # anything grouping records by symbol.
+                "instrument": str(ev.order.instrument.instrument_id),
                 "side": str(getattr(ev.order.side, "value", ev.order.side)).upper(),
                 "price": 0.0,
                 "qty": float(ev.order.quantity.value),
@@ -373,19 +671,43 @@ class BacktestEngine:
 
         bus.of_type(OrderRejected).subscribe(_on_rejected)
 
-        # Strategy engine (next_open) drives PlaceOrderCommand at next-open.
-        strategy_engine = ReactiveStrategyEngine(bus, fill_reference="next_open")
+        # A failure inside the order pipeline is republished as ErrorOccurred
+        # and then isolated by the bus like any other subscriber. Right for a
+        # live session — one bad order must not kill the process — wrong for a
+        # backtest, whose whole output is a number about to be trusted. Keep the
+        # first one and re-raise it out of `run()`.
+        pipeline_errors: list[BaseException] = []
+
+        def _on_pipeline_error(ev: ErrorOccurred) -> None:
+            if not pipeline_errors:
+                pipeline_errors.append(ev.error)
+
+        bus.of_type(ErrorOccurred).subscribe(_on_pipeline_error)
+
+        # Strategy engine (next_open) drives PlaceOrderCommand at next-open. The
+        # SAME sizer the recording-only bridge below asks, built once for this
+        # run — AC-5's parity half. Left to itself the engine falls back to
+        # `unconfigured_sizer()` and the bridge to its own `abs(strength)`, so
+        # the two ways a strategy emits would be sized by two different rules.
+        sizer = self._resolve_sizer()
+        strategy_engine = ReactiveStrategyEngine(
+            bus, fill_reference="next_open", sizer=sizer,
+        )
         strategy_engine.register(strategy)
 
         # Risk manager binds to the SAME positions the engine fills, and resets
-        # its rate window so each run is reproducible (parity area #8).
+        # its rate window so each run is reproducible (parity area #8). Its cash
+        # gate reads the engine's ledger — the same balance the equity curve
+        # below reports and the same one `require_debit` floors.
         if self._risk_manager is not None:
             if not getattr(self._risk_manager, "positions_provider_bound", False):
                 self._risk_manager.set_positions_provider(
                     lambda: list(cache.all_positions()),
                 )
             if not getattr(self._risk_manager, "cash_provider_bound", False):
-                self._risk_manager.bind_cash_provider(lambda: ledger.cash)
+                self._risk_manager.bind_cash_provider(
+                    lambda: engine.cash_snapshot().cash,
+                )
             self._risk_manager.reset_rate_window()
 
         # Corp actions: applied to the shared PositionManager (and the ledger's
@@ -396,8 +718,10 @@ class BacktestEngine:
                 return
             for pos in list(cache.all_positions()):
                 self._apply_actions_due(
-                    pos.instrument, position_manager, ledger, ts, applied_actions,
+                    pos.instrument, position_manager, _apply_cash_delta,
+                    ts, applied_actions, lot_opened_at, _rebase_bracket,
                 )
+
 
         # Collect candles per instrument_id for point-in-time MTM.
         candles_by_id: dict[Any, list] = {}
@@ -410,27 +734,56 @@ class BacktestEngine:
         # from the strategy object after the stream (parity area #5).
         version = str(getattr(strategy, "version", "1.0.0"))
 
-        # --- Recorded-signal bridge (parity with the next_open engine) --------
+        # --- Recorded-signal bridge (same fill rule as the next_open engine) --
         # A strategy that RECORDS signals (appends to ``strategy.signals``)
         # instead of returning them from its callbacks never reaches the
         # strategy engine — the engine only bridges signals that ``on_bar`` /
-        # ``on_quote`` RETURN. Track which signals the engine has claimed
-        # (returned + queued for next_open) so this bridge publishes orders
-        # ONLY for signals the engine has not already claimed: a strategy that
-        # returns signals keeps its orders flowing through the engine exactly
-        # as before (no double-counting), while a recording-only strategy's
-        # signals still reach the unified pipeline and produce fills.
-        # M3 — Fill timing: recording-only bridge fills at this bar's close
-        # (legacy sequential match); returning signals fill at the *next* bar's
-        # open via ReactiveStrategyEngine. Recording vs returning therefore
-        # determines fill timing — callers must not mix both for one signal.
+        # ``on_quote`` RETURN. This bridge carries those, and it obeys the SAME
+        # rule the engine does: a signal is deferred to the next Candle of its
+        # instrument and filled at that candle's OPEN. It used to fill at the
+        # signal bar's own close, which is a price the strategy could not have
+        # known when it decided (AC-1).
+        #
+        # Which signals the engine has claimed (returned, and queued for
+        # next_open) is tracked by identity, so a signal is bridged exactly once
+        # whichever path carries it: a strategy that returns its signal keeps
+        # its order flowing through the engine, a strategy that records it gets
+        # the same fill at the same price, and a strategy that does both gets
+        # one order, not two.
         claimed_signal_ids: set[int] = set()
+        # Signals this bridge has taken — queued for the next bar or already
+        # published. A signal recorded on bar N is queued *after* bar N is
+        # processed, so the earliest bar it can fill against is N+1.
         bridged_signal_ids: set[int] = set()
+        # Deferred bridge signals, keyed by instrument, in arrival order.
+        bridge_pending: dict[Any, list[Signal]] = {}
         bridge_seq = 0
 
         def _capture_claimed() -> None:
             for pending in strategy_engine.pending_snapshot():
                 claimed_signal_ids.add(id(pending["signal"]))
+
+        def _capture_recorded(inst_id: Any) -> None:
+            """Queue the signals this strategy recorded, for *inst_id*'s next
+            candle. Called after each event, so a signal recorded while bar or
+            quote N was processed can only fill from bar N+1 onwards.
+
+            Skipped entirely once the engine has claimed a signal: a strategy
+            that RETURNS its signals owns its own order flow, and its
+            ``strategy.signals`` list is the full history including signals it
+            has not returned yet. Bridging those would double-fill one on the
+            engine's next-open queue. Callers must pick one way to emit — this
+            bridge is for recording-only strategies.
+            """
+            if claimed_signal_ids:
+                return
+            for signal in getattr(strategy, "signals", []) or []:
+                if id(signal) in bridged_signal_ids or id(signal) in claimed_signal_ids:
+                    continue
+                if signal.instrument.instrument_id != inst_id:
+                    continue
+                bridged_signal_ids.add(id(signal))
+                bridge_pending.setdefault(inst_id, []).append(signal)
 
         def _maybe_protective_exit(candle: Candle) -> None:
             nonlocal protective_seq
@@ -444,11 +797,18 @@ class BacktestEngine:
                 return
             high = float(candle.ohlc.high.value)
             low = float(candle.ohlc.low.value)
-            _kind, exit_price = _protective_trigger(
+            kind, level = _protective_trigger(
                 bracket.side, high, low, bracket.stop, bracket.target,
             )
-            if exit_price is None:
+            if level is None or kind is None:
                 return
+            # A triggered stop does not fill at its own level: it fills at the
+            # worse of the modelled slippage past the trigger and the worst
+            # price the bar actually printed (AC-19). A take-profit is a limit
+            # order and is left alone — see `_stop_gap_price`.
+            exit_price = _stop_gap_price(
+                kind, bracket.side, level, low, high, self._stop_gap_bps,
+            )
             active_brackets.pop(inst_id, None)
             protective_seq += 1
             exit_side = (
@@ -468,63 +828,87 @@ class BacktestEngine:
             )
             bus.publish(PlaceOrderCommand(request=request))
 
-        def _bridge_signal(signal: Signal, price: Price, ts: datetime | None) -> None:
+        def _bridge_signal(signal: Signal, candle: Candle) -> None:
+            """Publish *signal*'s order against *candle* — the bar AFTER the one
+            it was decided on, priced at that bar's open."""
             nonlocal bridge_seq
             bridge_seq += 1
-            qty_value = abs(signal.strength) if signal.strength else 1.0
+            open_price = Price(value=Decimal(str(candle.ohlc.open.value)))
+            # The size is the sizer's, and the price it is sized against is the
+            # one the order will actually carry — the next bar's open, not the
+            # signal bar's close (AC-1). It used to be
+            # `abs(signal.strength) if signal.strength else 1.0`, which sized
+            # every shipped strategy (all of which emit strength=1.0) to one
+            # share and disagreed with the engine path on every signal that
+            # carried a number. A signal the sizer cannot size publishes
+            # nothing, exactly as on the engine path.
+            decision = sizer.size(signal, reference_price=open_price)
+            if decision.quantity is None:
+                log.error(
+                    "backtest: dropped %s signal %r for %s — %s",
+                    getattr(strategy, "strategy_id", "strategy"),
+                    getattr(signal, "reason", ""), signal.instrument.instrument_id,
+                    decision.reason,
+                )
+                return
             # Same declaration as the engine-driven paths: a recording-only
             # strategy's levels must reach the order too, or the two ways a
             # strategy can emit a signal would carry different protection.
             request = protective_request(
                 signal=signal,
-                entry=price,
-                quantity=Quantity(Decimal(str(qty_value))),
+                entry=open_price,
+                quantity=decision.quantity,
                 correlation_id=CorrelationId(value=f"backtest-bridge-{bridge_seq}"),
                 tag=f"{getattr(strategy, 'strategy_id', 'strategy')}@{version}",
-                reference_timestamp=ts,
+                reference_timestamp=candle.timestamp,
             )
-            bridged_signal_ids.add(id(signal))
             bus.publish(PlaceOrderCommand(request=request))
+
+        def _flush_bridge_pending(candle: Candle) -> None:
+            """Fill the next bridge-deferred signal for *candle*'s instrument at
+            its open, before the strategy sees the bar.
+
+            Runs at the same point in the bar as the engine's own
+            ``_flush_pending``, so a recorded signal and a returned one are
+            filled at the same price from the same information. ONE signal per
+            bar is the throttle this bridge has always applied ("signal N
+            consumes candle N"), kept so a strategy holding several unmatched
+            recorded signals still trades them as a ladder across bars instead
+            of collapsing onto one bar's open.
+            """
+            queued = bridge_pending.get(candle.instrument.instrument_id)
+            if not queued:
+                return
+            _bridge_signal(queued.pop(0), candle)
 
         # Stream historical events through the unified pipeline.
         equity_curve_dec: list[Decimal] = [initial_capital]
         for event in data:
+            if pipeline_errors:
+                # A pipeline failure has already ended this run. Grinding the
+                # rest of the window would only produce more numbers from a
+                # book that is provably wrong; the run is discarded below.
+                break
             if isinstance(event, Candle):
                 # Apply due corporate actions BEFORE the bar's open fill.
                 _apply_ca_for(event.timestamp)
+                _flush_bridge_pending(event)
                 bus.publish(event)
                 _capture_claimed()
-                # Recording-only strategies: bridge their next unmatched signal
-                # at this candle's close (legacy sequential signal→candle
-                # matching, "signal N consumes candle N"). Never bridge once the
-                # engine is driving orders from returned signals (next_open) —
-                # its fill at the next bar's open would then double-count.
-                if not claimed_signal_ids:
-                    for signal in getattr(strategy, "signals", []) or []:
-                        if (
-                            id(signal) in bridged_signal_ids
-                            or signal.instrument.instrument_id
-                            != event.instrument.instrument_id
-                        ):
-                            continue
-                        _bridge_signal(
-                            signal,
-                            Price(value=Decimal(str(event.ohlc.close.value))),
-                            event.timestamp,
-                        )
-                        break
+                _capture_recorded(event.instrument.instrument_id)
                 _maybe_protective_exit(event)
                 # Point-in-time MTM at this bar's close.
                 positions_now = {
                     p.instrument.instrument_id: p for p in cache.all_positions()
                 }
                 equity_curve_dec.append(
-                    ledger.cash
+                    engine.cash_snapshot().cash
                     + self._mark_to_market(positions_now, candles_by_id, event.timestamp)
                 )
             elif isinstance(event, Quote):
                 bus.publish(event)
                 _capture_claimed()
+                _capture_recorded(event.instrument.instrument_id)
             elif isinstance(event, Fill):
                 # A recorded fill is a bare `Fill`; the pipeline listens for the
                 # `OrderFilled` EVENT. Publishing the raw object meant a
@@ -533,33 +917,32 @@ class BacktestEngine:
                 bus.publish(OrderFilled(fill=event))
                 _capture_claimed()
 
-        # --- Flush orders deferred past the last bar (next_open) --------------
-        # next_open fills a signal at the FOLLOWING candle's open, so a signal
-        # emitted on the final event (e.g. a quote after the last candle) would
-        # otherwise be dropped by the engine's dispose. Flush deferred engine
-        # orders at the last known bar, then bridge any recorded signal that was
-        # never returned by the strategy and never matched during the stream.
-        last_candle_by_id = {
-            inst_id: candles[-1] for inst_id, candles in candles_by_id.items()
-        }
-        for inst_id in {p["instrument_id"] for p in strategy_engine.pending_snapshot()}:
-            candle = last_candle_by_id.get(inst_id)
-            if candle is not None:
-                strategy_engine.flush_pending(candle)
-        for signal in getattr(strategy, "signals", []) or []:
-            if id(signal) in bridged_signal_ids or id(signal) in claimed_signal_ids:
-                continue
-            candle = last_candle_by_id.get(signal.instrument.instrument_id)
-            if candle is None:
-                continue
-            _bridge_signal(
-                signal,
-                Price(value=Decimal(str(candle.ohlc.close.value))),
-                candle.timestamp,
+        # --- Signals with no bar left to fill against -----------------------
+        # Both paths defer to the next bar of their instrument, so anything
+        # still queued when the data runs out has no price the strategy could
+        # have known when it decided. It is reported, never filled against the
+        # last candle (AC-1) — that flush is exactly the look-ahead it replaced.
+        unfilled = len(strategy_engine.pending_snapshot()) + sum(
+            len(queued) for queued in bridge_pending.values()
+        )
+        if unfilled and not pipeline_errors:
+            log.warning(
+                "backtest left %d signal(s) unfilled: the run ended before the "
+                "bar they must fill against arrived. They are excluded from "
+                "num_trades and the equity curve.",
+                unfilled,
             )
 
         engine.shutdown()
         strategy_engine.dispose_all()
+
+        if pipeline_errors:
+            failure = pipeline_errors[0]
+            log.error(
+                "backtest pipeline failed and the run is discarded: %s: %s",
+                type(failure).__name__, failure,
+            )
+            raise failure
 
         # --- Derive BacktestResult from pipeline state (unchanged fields) -----
         _all_signals = getattr(strategy, "signals", []) or []
@@ -578,7 +961,24 @@ class BacktestEngine:
             self._risk_manager.rejected_count
             if self._risk_manager is not None else 0
         )
-        total_fees = ledger.total_fees
+        total_fees = engine.cash_snapshot().total_fees
+
+        # The position book the run ended on. A corporate action is otherwise
+        # invisible in a run's output: a split used to show up only as the
+        # equity curve moving, which is indistinguishable from a gain (AC-19).
+        end_positions = [
+            {
+                "instrument_id": str(p.instrument.instrument_id),
+                "symbol": p.instrument.symbol,
+                "quantity": float(p.quantity.value),
+                "avg_price": float(p.avg_price.value),
+                "realized_pnl": float(p.realized_pnl.amount),
+            }
+            for p in sorted(
+                cache.all_positions(), key=lambda p: str(p.instrument.instrument_id)
+            )
+            if p.quantity.value != Decimal("0")
+        ]
 
         # Build float equity curve and returns.
         equity_curve = [float(v) for v in equity_curve_dec]
@@ -624,16 +1024,20 @@ class BacktestEngine:
             total_fees=float(total_fees),
             equity_curve=equity_curve,
             num_rejected=rejected,
+            num_unfilled=unfilled,
             fills=sorted(recorded_fills, key=lambda f: f["time"]),
+            end_positions=end_positions,
         )
 
     def _apply_actions_due(
         self,
         instrument: Any,
         position_manager: Any,
-        ledger: Any,
+        apply_cash_delta: Callable[[Decimal], None],
         as_of: datetime | None,
         applied: dict[str, set[str]],
+        lot_opened_at: dict[Any, datetime] | None = None,
+        rebase_bracket: Callable[[Any, Decimal], None] | None = None,
     ) -> None:
         """Apply corporate actions with ex-date <= *as_of* to the shared
         PositionManager (and mirror their cash effects onto the ledger).
@@ -643,9 +1047,28 @@ class BacktestEngine:
         math is delegated to ``PositionManager.on_corporate_action`` — the same
         ``apply_split`` / ``apply_dividend`` model the reactive pipeline uses
         (parity review area #4), so backtest, replay, paper, and live book
-        corporate actions identically. The cash ledger receives the same basis
-        restatement (split) and per-share credit (dividend) the legacy private
-        loop applied, so realized P&L and equity stay equal to the rupee.
+        corporate actions identically. *apply_cash_delta* is called with the
+        same basis restatement (split) and per-share credit (dividend) the
+        legacy private loop applied, so realized P&L and equity stay equal to
+        the rupee. It writes to the engine's one ledger, which is also the
+        affordability floor — an action that only moved a reporting copy would
+        leave the gate reading a balance the run does not report.
+
+        **Point-in-time has a second clause: the lot must have existed at the
+        ex-date.** ``ex_date <= as_of`` says the action is *effective*; it does
+        not say this position *held* the shares it re-bases. A run that entered
+        after the ex-date and re-based anyway doubled a lot that never held a
+        pre-split share, and then sold half of it at the pre-split price — a
+        phantom gain, and the same class of look-ahead AC-19 exists to remove.
+        *lot_opened_at* carries the bar each instrument's current lot opened on;
+        an action whose ex-date predates it is skipped and burned (it can never
+        be owed on that lot, and a lot opened later is owed nothing either).
+
+        *rebase_bracket* re-scales an open protective pair by a split/bonus
+        ratio. Without it, applying the split leaves the stop and target in the
+        pre-split scale while the position is already re-based, so the next bar
+        "pierces" a stop that is now far above the market and the run exits at
+        roughly twice the traded price (AC-19).
         """
         if as_of is None or self._corporate_actions is None:
             return
@@ -658,6 +1081,8 @@ class BacktestEngine:
             return
         actions.sort(key=lambda a: a.ex_date)
         done = applied.setdefault(instrument.instrument_id, set())
+        inst_id = instrument.instrument_id
+        opened_on = (lot_opened_at or {}).get(inst_id)
         # Read the open position BEFORE applying (split re-bases qty; dividend
         # credit is per pre-action qty).
         existing = position_manager._cache.get_position(instrument)
@@ -668,6 +1093,8 @@ class BacktestEngine:
             done.add(identity)
             if existing is None:
                 continue  # no open position — nothing to adjust
+            if opened_on is not None and opened_on.date() > _parse_ex_date(action.ex_date):
+                continue  # this lot was opened after the ex-date — not owed
             kind = action.action_type.upper()
             if kind in ("SPLIT", "BONUS") and action.ratio > 0:
                 old_basis = existing.avg_price.value * existing.quantity.value
@@ -676,10 +1103,12 @@ class BacktestEngine:
                 )
                 existing = position_manager._cache.get_position(instrument)
                 new_basis = existing.avg_price.value * existing.quantity.value
-                ledger.restate(old_basis - new_basis)
+                apply_cash_delta(old_basis - new_basis)
+                if rebase_bracket is not None:
+                    rebase_bracket(inst_id, Decimal(str(action.ratio)))
             elif kind == "DIVIDEND":
                 per_share = Decimal(str(action.amount))
-                ledger.credit(q2(per_share * existing.quantity.value))
+                apply_cash_delta(q2(per_share * existing.quantity.value))
                 position_manager.on_corporate_action(
                     instrument, "DIVIDEND", per_share=action.amount,
                 )

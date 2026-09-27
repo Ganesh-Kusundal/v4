@@ -42,16 +42,17 @@ class _Ladder:
     def on_bar(self, context, candle):
         self.bar += 1
         plan = {
-            1: (OrderSide.BUY, 2),
-            2: (OrderSide.BUY, 1),
-            3: (OrderSide.SELL, 1),
-            4: (OrderSide.SELL, 2),
+            1: (OrderSide.BUY, "2"),
+            2: (OrderSide.BUY, "1"),
+            3: (OrderSide.SELL, "1"),
+            4: (OrderSide.SELL, "2"),
         }.get(self.bar)
         if plan is None:
             return None
-        side, strength = plan
+        side, shares = plan
         signal = Signal(
-            instrument=INSTRUMENT, direction=side, strength=strength,
+            instrument=INSTRUMENT, direction=side, strength=1.0,
+            quantity=Quantity(Decimal(shares)),
             reason="projection", timestamp=candle.timestamp,
         )
         self.signals.append(signal)

@@ -40,7 +40,12 @@ _FEES = FeeCalculator()
 
 
 class _Ladder:
-    """BUY 2, BUY 1, SELL 1, SELL 2 over 5 chained bars (next-open fills)."""
+    """BUY 2, BUY 1, SELL 1, SELL 2 over 5 chained bars (next-open fills).
+
+    The sizes are ``Signal.quantity``: ``strength`` is signal quality and was
+    the order quantity until the sizer took the size over, so a ladder that
+    means 2, 1, 1, 2 shares now says so.
+    """
 
     def __init__(self, instrument) -> None:
         self._instrument = instrument
@@ -58,18 +63,18 @@ class _Ladder:
     def on_bar(self, context, candle) -> object:
         self._bar += 1
         plan = {
-            1: (OrderSide.BUY, 2.0),
-            2: (OrderSide.BUY, 1.0),
-            3: (OrderSide.SELL, 1.0),
-            4: (OrderSide.SELL, 2.0),
+            1: (OrderSide.BUY, "2"),
+            2: (OrderSide.BUY, "1"),
+            3: (OrderSide.SELL, "1"),
+            4: (OrderSide.SELL, "2"),
         }.get(self._bar)
         if plan is None:
             return None
-        side, strength = plan
+        side, shares = plan
         signal = Signal(
             instrument=candle.instrument, direction=side,
-            strength=strength, reason=f"bar{self._bar}",
-            timestamp=candle.timestamp,
+            strength=1.0, quantity=Quantity(Decimal(shares)),
+            reason=f"bar{self._bar}", timestamp=candle.timestamp,
         )
         self._signals.append(signal)
         return signal

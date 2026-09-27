@@ -19,6 +19,7 @@ from tradex_config.schema import (
     BrokerConfig,
     ExecutionConfig,
     RiskConfig,
+    default_feed_instruments,
     default_runtime_dir_str,
 )
 
@@ -44,6 +45,14 @@ def from_env() -> AppConfig:
     - TRADEX_FEES_ENABLED: Deduct brokerage/STT/etc from fills (true/false)
     - TRADEX_SLIPPAGE_BPS: Basis-points slippage on fill prices
     - TRADEX_FILL_REFERENCE: Strategy order timing (next_open | signal_close)
+    - TRADEX_FEED_INSTRUMENTS: The tape a live session streams, as
+      ``EXCHANGE:SYMBOL`` entries separated by commas
+      (``NSE:RELIANCE,NSE:TCS``). **Unset means no tape**, which is what paper,
+      backtest and replay want and what a live session refuses to start
+      without — the platform is not asked to guess what to trade, so nothing
+      here is defaulted to an index or a universe. Parsing, trimming and
+      de-duplication live in ``schema.parse_feed_instruments``; a malformed
+      entry raises rather than being dropped.
     """
     broker_id_str = os.environ.get("TRADEX_BROKER", "PAPER")
     try:
@@ -86,7 +95,7 @@ def from_env() -> AppConfig:
     slippage_bps_str = os.environ.get("TRADEX_SLIPPAGE_BPS")
     slippage_bps = Decimal(slippage_bps_str) if slippage_bps_str else None
     execution = ExecutionConfig(
-        fees_enabled=_parse_bool(os.environ.get("TRADEX_FEES_ENABLED", "false")),
+        fees_enabled=_parse_bool(os.environ.get("TRADEX_FEES_ENABLED", "true")),
         slippage_bps=slippage_bps,
         fill_reference=os.environ.get("TRADEX_FILL_REFERENCE", "next_open"),
     )
@@ -102,6 +111,10 @@ def from_env() -> AppConfig:
             environment=os.environ.get("TRADEX_BROKER_ENVIRONMENT", "PAPER"),
         ),
         execution=execution,
+        # The same per-call resolution ``runtime_dir`` uses, passed explicitly
+        # for the same reason: this function is where an operator looks to see
+        # which variable a setting comes from.
+        feed_instruments=default_feed_instruments(),
     )
 
 

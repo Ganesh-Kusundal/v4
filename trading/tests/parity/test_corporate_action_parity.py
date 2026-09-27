@@ -49,16 +49,20 @@ def _split_ladder(post_split: float = 60.0) -> list[Candle]:
 
 
 class _SplitLadderStrategy:
-    """BUY strength=100 on bar 1, SELL strength=``sell_strength`` on bar 5.
+    """BUY *buy_quantity* on bar 1, SELL *sell_quantity* on bar 5.
 
-    ``sell_strength=100`` leaves a stub position after the split (unrealized
-    MTM at the final close); ``sell_strength=200`` fully closes the post-split
+    ``sell_quantity=100`` leaves a stub position after the split (unrealized
+    MTM at the final close); ``sell_quantity=200`` fully closes the post-split
     position so backtest realized P&L equals the equity gain exactly.
+
+    The sizes are ``Signal.quantity``. ``strength`` is signal quality and was
+    the order quantity until the sizer took the size over, so a test that means
+    a hundred shares now says a hundred shares.
     """
 
-    def __init__(self, instrument, sell_strength: float = 100.0) -> None:
+    def __init__(self, instrument, sell_quantity: str = "100") -> None:
         self._instrument = instrument
-        self._sell_strength = sell_strength
+        self._sell_quantity = Quantity(Decimal(sell_quantity))
         self._signals: list = []
         self._bar = 0
 
@@ -70,10 +74,11 @@ class _SplitLadderStrategy:
     def signals(self) -> list:
         return list(self._signals)
 
-    def _emit(self, direction: OrderSide, bar: int, candle, strength: float) -> object:
+    def _emit(self, direction: OrderSide, bar: int, candle, quantity: Quantity) -> object:
         signal = Signal(
             instrument=candle.instrument, direction=direction,
-            strength=strength, reason=f"bar{bar}", timestamp=candle.timestamp,
+            strength=1.0, quantity=quantity, reason=f"bar{bar}",
+            timestamp=candle.timestamp,
         )
         self._signals.append(signal)
         return signal
@@ -81,9 +86,9 @@ class _SplitLadderStrategy:
     def on_bar(self, context, candle) -> object:
         self._bar += 1
         if self._bar == 1:
-            return self._emit(OrderSide.BUY, 1, candle, 100.0)
+            return self._emit(OrderSide.BUY, 1, candle, Quantity(Decimal("100")))
         if self._bar == 5:
-            return self._emit(OrderSide.SELL, 5, candle, self._sell_strength)
+            return self._emit(OrderSide.SELL, 5, candle, self._sell_quantity)
         return None
 
     def on_quote(self, context, quote) -> None:
@@ -151,7 +156,7 @@ class TestSplitParity:
 
         result = BacktestEngine(
             corporate_actions=_store(_split_action(ex_day=4))
-        ).run(_SplitLadderStrategy(INSTRUMENT, sell_strength=200.0), _split_ladder())
+        ).run(_SplitLadderStrategy(INSTRUMENT, sell_quantity="200"), _split_ladder())
         # BUY 100@100 → 200@50 → SELL 200@60 → +2000, fully closed.
         assert result.equity_curve[-1] == 102000.0
         assert result.equity_curve[-1] - 100000.0 == float(pos.realized_pnl.amount)

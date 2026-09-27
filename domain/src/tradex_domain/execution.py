@@ -287,6 +287,20 @@ class Fill(Serializable):
     #: Dhan ``tradeId``). Lets the live-fill bridge distinguish two genuine
     #: equal-lot partial fills of the same order from a re-published fill.
     fill_id: str | None = None
+    #: The product the parent order was placed in, copied onto the fill by
+    #: whichever component built it (``FillModel.make_fill``, the live fill
+    #: bridge) — a fill cannot be priced without it, because intraday and
+    #: delivery carry different STT.
+    #:
+    #: **Nullable on purpose, and additive.** SQLite cannot add a NOT NULL
+    #: column to a table that has rows and the OMS store has no migration
+    #: path, so a NOT NULL would mean rewriting history. An event-log row
+    #: written before this field existed simply has no key, which
+    #: ``from_dict`` turns into ``None`` rather than an error. A null is
+    #: charged the INTRADAY schedule *and counted* in
+    #: ``fills_missing_product_type_total``, so a mislabelled order is
+    #: visible instead of silently priced as something it is not.
+    product_type: ProductType | None = None
 
 
 @dataclass(frozen=True, slots=True)

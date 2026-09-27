@@ -66,7 +66,7 @@ class _RecordingOnly:
                 Signal(
                     instrument=candle.instrument,
                     direction=OrderSide.BUY,
-                    strength=1.0,
+                    strength=1.0, quantity=Quantity(value=Decimal("1")),
                     reason="bar1",
                     metadata=metadata,
                     timestamp=candle.timestamp,

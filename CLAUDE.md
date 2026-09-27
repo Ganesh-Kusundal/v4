@@ -263,7 +263,7 @@ self-consistent and tests nothing about the new ones, because the gate takes its
 parameters from each golden's own recorded settings — so a green parity run is not
 evidence that the fixtures reflect the pin.
 
-The chart is render-only: every computation lives in `tradex_trading`. Bars come from `/api/charts/history/{exchange}:{symbol}` (datalake-first, broker fallback), indicators from the backend registry surfaced through the chart's Tier-2 contract (`frontend/src/backend-indicators.ts`), backtests/scanners run `BacktestEngine`/`ScannerEngine` server-side (`POST /api/charts/backtest`, `POST /api/charts/scanner/run`), and forming bars/replay stream over `/ws/stream` (`subscribe_bars`, `replay_start/pause/resume/speed/stop`). Replay drives the SAME BarAggregator path as live quotes via `SyntheticTickGenerator`. Chart timestamps are UTC seconds of IST wall clock; the chart renders in Asia/Kolkata.
+The chart is render-only: every computation lives in `tradex_trading`. Bars come from `/api/charts/history/{exchange}:{symbol}` (datalake-first, broker fallback), indicators from the backend registry surfaced through the chart's Tier-2 contract (`frontend/src/tier2.ts`), backtests/scanners run `BacktestEngine`/`ScannerEngine` server-side (`POST /api/charts/backtest`, `POST /api/charts/scanner/run`), and forming bars/replay stream over `/ws/stream` (`subscribe_bars`, `replay_start/pause/resume/speed/stop`). Replay drives the SAME BarAggregator path as live quotes via `SyntheticTickGenerator`. Chart timestamps are UTC seconds of IST wall clock; the chart renders in Asia/Kolkata.
 
 Chart state lives in **one store**: the server workspace blob
 (`frontend/src/workspace.ts`), written as `{v, series, state}` where `series` is
@@ -311,10 +311,21 @@ loudly), the geometry is checked against the price the order **actually fills
 at** (an invalid pair degrades to unprotected rather than raising mid-run), and
 nothing is ever inferred from a missing level.
 
-The backtest does **not** simulate a protective exit — a drawn bracket is true
-when the strategy also exits at its declared levels (see
-`extensions/strategies/bracket_breakout.py`, the reference producer). See
-`docs/design/2026-09-13-backtest-results-surface.md`.
+The backtest **does** simulate the protective exit, and deliberately not at the
+declared level. A triggered stop is a stop-*market*: it fills at the worse of the
+modelled gap past the trigger (`DEFAULT_STOP_GAP_BPS` in
+`replay/src/tradex_replay/backtest.py`, 25 bps) and the worst price the triggering
+bar actually printed — so a bar that gapped through the stop reports what the
+market did, and a bar that merely traded through it cannot manufacture a loss. A
+take-profit is a limit order and gets none of that: it fills at its level whenever
+the bar reaches it, which is the one optimism left in the model and a stated
+simplification rather than a claim. Stop wins when both legs pierce one bar. A
+split also re-bases an open bracket's levels **and** its size, and is applied only
+to a lot that already existed at the ex-date — so a pre-split stop is never
+compared against a post-split market, and a lot opened after the ex-date is not
+re-based at all. A drawn bracket is therefore evidence of what the model did, not
+only of what the strategy declared; the reference producer is
+`extensions/strategies/bracket_breakout.py`.
 
 ---
 
