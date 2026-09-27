@@ -650,6 +650,7 @@ def _boot_tail(
     master_scheduler: Any = None
     feed_monitor: Any = None
     feed_recovery: Any = None
+    tape_recorder: Any = None
     if cfg.mode == "live":
         from tradex_runtime.feed_integrity import FeedIntegrityTracker
         from tradex_runtime.feed_monitor import FeedStaleMonitor
@@ -671,11 +672,22 @@ def _boot_tail(
                 "live boot missing FeedSupervisor before MarketFeed wiring",
             )
         integrity = FeedIntegrityTracker(metrics=metrics)
+        # Tick tape: a JSONL record of every quote the feed accepts, for the
+        # backtest/live parity suite and the two-paper-fill-path comparison to
+        # consume. ``open_tape_recorder`` returns None when TRADEX_RECORD_TAPE
+        # is not "1", which is the "no recorder exists" signal: the feed then
+        # has nothing to record to. Named ``tape_recorder``, not ``recorder``:
+        # "tape" already means the feed-instruments set here
+        # (TRADEX_FEED_INSTRUMENTS), and this is a different tape entirely.
+        from tradex_runtime.tape_recorder import open_tape_recorder
+
+        tape_recorder = open_tape_recorder(broker=str(cfg.broker_id))
         market_feed = MarketFeed(
             broker=broker,
             bus=bus,
             supervisor=feed_supervisor,
             integrity=integrity,
+            recorder=tape_recorder,
         )
         # The session owns the monitor's lifecycle; nothing else has to
         # remember to poll check_stale().
@@ -759,21 +771,36 @@ def _boot_tail(
     # [REF-5].  Wire stop_all into session.stop() via a closure so every
     # teardown path (context manager, explicit stop(), RuntimeContext.close())
     # transitions runtimes to STOPPED before bus subscriptions are disposed.
-    if strategy_registry is not None:
+    # C4 (extended): the tick tape is closed on the same funnel, AFTER the
+    # session stop has torn the feed down so no broker thread can be mid-record.
+    # The recorder writes line-buffered, so every record already reached the OS
+    # even if this never ran; closing is what ends the session with a finished
+    # segment rather than one left open. ``close()`` is idempotent, and the
+    # recorder is None unless the TRADEX_RECORD_TAPE gate was open, so
+    # non-live and un-gated boots take the untouched path.
+    if strategy_registry is not None or tape_recorder is not None:
         _reg = strategy_registry
+        _recorder = tape_recorder
         _orig_stop = session.stop
-        def _stop_with_registry_teardown():
-            _reg.stop_all()
-            _orig_stop()
-        # Intentional per-instance method substitution: stop_all must run before
-        # the normal teardown on every stop path. Rewriting an attribute that is
-        # a method on the class is a method-assign, which mypy flags because
-        # assigning over a bound method is unsafe in general. It is safe here —
-        # ``session`` is a freshly booted instance, and the closure captures the
-        # original bound ``stop``. Converting this to a constructor parameter is
-        # a session-API change (a product decision), so the substitution is kept
-        # and the error suppressed at this one line with that reasoning.
-        session.stop = _stop_with_registry_teardown  # type: ignore[method-assign]  # ponytail: closure on instance; upgrade to session ctor param if registry grows a public API
+        def _stop_with_teardown():
+            if _reg is not None:
+                _reg.stop_all()
+            _orig_stop()  # stops the feed, so no tick can race the close below
+            if _recorder is not None:
+                try:
+                    _recorder.close()
+                except Exception:  # pragma: no cover - defensive teardown
+                    log.warning("tape recorder close failed", exc_info=True)
+        # Intentional per-instance method substitution: the registry teardown and
+        # the tape close must run before the normal teardown on every stop path.
+        # Rewriting an attribute that is a method on the class is a
+        # method-assign, which mypy flags because assigning over a bound method
+        # is unsafe in general. It is safe here — ``session`` is a freshly
+        # booted instance, and the closure captures the original bound ``stop``.
+        # Converting this to a constructor parameter is a session-API change (a
+        # product decision), so the substitution is kept and the error suppressed
+        # at this one line with that reasoning.
+        session.stop = _stop_with_teardown  # type: ignore[method-assign]  # ponytail: closure on instance; upgrade to session ctor param if registry grows a public API
 
     if not reconcile_tripped:
         # 9b. Cold start the market feed (Flow D step 5, AC-20): start the

@@ -38,6 +38,10 @@ Notes
 * ``stop()`` unsubscribes the broker handlers; the underlying WebSocket
   sockets are owned by the broker and torn down by ``broker.close()``
   (e.g. ``RuntimeContext.close``), not by the feed or session.
+* An optional ``recorder`` (a :class:`~tradex_runtime.tape_recorder.TapeRecorder`)
+  writes every accepted quote to a JSONL tape, so a recorded session exists
+  for the parity suite to compare against. It is ``None`` unless the
+  ``TRADEX_RECORD_TAPE`` gate is on, and the recorder's owner closes it.
 """
 
 from __future__ import annotations
@@ -56,6 +60,7 @@ from tradex_domain.value_objects import InstrumentId
 
 from tradex_runtime.feed_integrity import FeedIntegrityTracker
 from tradex_runtime.feed_supervisor import FeedState, FeedSupervisor
+from tradex_runtime.tape_recorder import TapeRecorder
 
 log = logging.getLogger(__name__)
 
@@ -112,11 +117,13 @@ class MarketFeed:
         supervisor: FeedSupervisor | None = None,
         integrity: FeedIntegrityTracker | None = None,
         recovery: Any | None = None,
+        recorder: TapeRecorder | None = None,
     ) -> None:
         self._broker = broker
         self._bus = bus
         self._supervisor = supervisor or FeedSupervisor()
         self._integrity = integrity
+        self._recorder = recorder
         self._recovery = recovery
         self._recovery_lock = threading.Lock()
         self._recovery_in_flight = False
@@ -437,6 +444,9 @@ class MarketFeed:
             with self._last_tick_lock:
                 self._last_tick[quote.instrument.instrument_id] = received_at
             self._supervisor.record_event(received_at)
+            recorder = self._recorder
+            if recorder is not None:
+                recorder.record(quote)
             tracker = self._integrity
             if tracker is not None:
                 self._publish_violations(quote.instrument, tracker.on_quote(quote))
