@@ -247,6 +247,13 @@ class BacktestResult:
     #: series already split by hand — needs the *position*, not just the money.
     #: Flat positions are omitted; a run that closed out reports ``[]``.
     end_positions: list[dict[str, Any]] = field(default_factory=list)
+    #: The same executed fills as :attr:`fills`, but as the ``Fill`` objects
+    #: the execution engine actually booked, with ``Decimal`` price and
+    #: quantity intact. :attr:`fills` is a chart and report surface: its
+    #: ``price`` and ``qty`` are ``float``, so a parity assertion built on it
+    #: compares a rounded copy rather than what the book was debited. This is
+    #: what ``round_trip_trades`` consumes.
+    fill_records: list[Fill] = field(default_factory=list)
 
 
 class BacktestEngine:
@@ -525,6 +532,7 @@ class BacktestEngine:
         # keeps that accrual (`_brokerage_accrued`) against the same calculator,
         # so the backtest keeps no second copy of it.
         recorded_fills: list[dict[str, Any]] = []
+        recorded_fill_objects: list[Fill] = []
 
         # Corporate-action cash effects (split basis restatement, dividend
         # credit) move the engine's ledger, which is both the affordability
@@ -598,6 +606,7 @@ class BacktestEngine:
 
         def _on_fill(ev: OrderFilled) -> None:
             f = ev.fill
+            recorded_fill_objects.append(f)
             # No money moves here. The engine has already debited this fill's
             # notional and fee from the one ledger inside the same operation
             # that booked the position, after proving the debit was affordable;
@@ -1026,6 +1035,8 @@ class BacktestEngine:
             num_rejected=rejected,
             num_unfilled=unfilled,
             fills=sorted(recorded_fills, key=lambda f: f["time"]),
+            # Same order as `fills`, same objects, no float round trip.
+            fill_records=sorted(recorded_fill_objects, key=lambda f: f.timestamp),
             end_positions=end_positions,
         )
 
