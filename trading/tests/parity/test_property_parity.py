@@ -137,16 +137,40 @@ class _PropertyLadder:
 # Property: backtest equity gain ≈ reactive realized P&L
 # ---------------------------------------------------------------------------
 
+#: ``Position.avg_price`` is quantized to 2dp, so realized P&L accumulated
+#: from the *stored* average can differ from the true cash-and-mark P&L by up
+#: to half a paisa for every share that changed hands. The two numbers a
+#: cross-mode P&L check compares are exactly those two: the backtest's equity
+#: curve is cash + mark (the true figure, with no rounding in it at all), while
+#: the reactive path reports the position book's realized P&L, which is the
+#: quantized one.
+#:
+#: A flat 1-paisa tolerance passed only because the generated ladders were
+#: small, and it was luck rather than arithmetic: 36 shares opened at a
+#: weighted average of 10.0058… store as 10.01, and the resulting 0.15
+#: divergence is 36 x 0.005 exactly. The bound is stated per share instead, so
+#: it grows with the size of the trade it is measuring — and the exact
+#: properties in this module (fill count, fill prices) carry the parity claim
+#: that does not have a rounding term at all.
+_AVG_PRICE_QUANTUM = Decimal("0.01")
+_PNL_TOLERANCE_PER_SHARE = _AVG_PRICE_QUANTUM / 2
+
+
+def _pnl_tolerance(plan) -> Decimal:
+    """The quantization bound on a cross-mode P&L comparison for *plan*."""
+    traded = sum(Decimal(shares) for _side, shares in plan)
+    return traded * _PNL_TOLERANCE_PER_SHARE
+
 
 class TestPropertyBasedParity:
     """For any random candle series and ladder strategy, BacktestEngine
-    and the reactive pipeline produce fills within 1 paisa tolerance."""
+    and the reactive pipeline produce the same fills, at the same prices."""
 
     @given(data=st.data())
     @settings(max_examples=50, deadline=None)
     def test_backtest_reactive_pnl_parity(self, data):
-        """Backtest equity gain and reactive realized P&L agree within
-        quantization tolerance for any random input."""
+        """Backtest equity gain and reactive realized P&L agree to the
+        average-price rounding bound for any random input."""
         candles = data.draw(candle_series())
         plan = data.draw(ladder_plan())
 
@@ -183,12 +207,14 @@ class TestPropertyBasedParity:
             strategy_engine.dispose_all()
             engine.shutdown()
 
-        # Convergence: backtest equity gain ≈ reactive realized P&L
+        # Convergence: backtest equity gain ≈ reactive realized P&L, to the
+        # bound the 2dp average-price quantization puts on the second number.
         bt_pnl = Decimal(str(bt.equity_curve[-1])) - Decimal("100000")
-        # Allow 1 paisa tolerance for quantized avg rounding
-        assert abs(bt_pnl - reactive_pnl) <= Decimal("0.01"), (
+        tolerance = _pnl_tolerance(plan)
+        assert abs(bt_pnl - reactive_pnl) <= tolerance, (
             f"backtest P&L {bt_pnl} != reactive P&L {reactive_pnl} "
-            f"(diff={abs(bt_pnl - reactive_pnl)})"
+            f"(diff={abs(bt_pnl - reactive_pnl)}, "
+            f"rounding bound={tolerance})"
         )
 
     @given(data=st.data())
@@ -315,7 +341,14 @@ class TestPropertyFeeParity:
     @given(data=st.data())
     @settings(max_examples=30, deadline=None)
     def test_fee_parity(self, data):
-        """For any random input with fees, net P&L matches within tolerance."""
+        """For any random input with fees, net P&L matches to the same
+        rounding bound.
+
+        Fees are charged identically on both paths — the same ``FeeCalculator``
+        is handed to the backtest and to the reactive engine — so the only term
+        left between the two P&L numbers is the average-price quantization, and
+        the bound is the same per-share one.
+        """
         candles = data.draw(candle_series())
         plan = data.draw(ladder_plan())
 
@@ -351,7 +384,8 @@ class TestPropertyFeeParity:
             engine.shutdown()
 
         bt_pnl = Decimal(str(bt.equity_curve[-1])) - Decimal("100000")
-        # Fees are deducted from both paths; allow 1 paisa tolerance
-        assert abs(bt_pnl - reactive_pnl) <= Decimal("0.01"), (
-            f"fee-adjusted backtest P&L {bt_pnl} != reactive {reactive_pnl}"
+        tolerance = _pnl_tolerance(plan)
+        assert abs(bt_pnl - reactive_pnl) <= tolerance, (
+            f"fee-adjusted backtest P&L {bt_pnl} != reactive {reactive_pnl} "
+            f"(diff={abs(bt_pnl - reactive_pnl)}, rounding bound={tolerance})"
         )

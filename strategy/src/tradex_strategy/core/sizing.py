@@ -129,12 +129,27 @@ CLAMP_LOT_ROUND: Final = "lot_round"  # a stated quantity rounded down to a whol
 
 #: The notional ceiling an engine uses when nothing has been wired into it: a
 #: fixed Rs 100,000 order, lot-floored and tick-clamped, with no equity behind it
-#: because there is no account to read one from. It exists so the interim engine
-#: places a *real* size instead of one share or nothing, and it is a placeholder
-#: — the wiring is expected to replace it with the configured policy. Every
-#: decision taken under it says so in ``reason``, and a configured sizer is
-#: always available to callers that care.
+#: because there is no account to read one to size against. It exists so the
+#: interim engine places a *real* size instead of one share or nothing, and it is
+#: a placeholder — the wiring is expected to replace it with the configured
+#: policy. Every decision taken under it says so in ``reason``, and a configured
+#: sizer is always available to callers that care.
 DEFAULT_MAX_ORDER_VALUE: Final = Decimal("100000")
+
+#: What share of the ceiling :func:`unconfigured_sizer` actually places, and why
+#: it is not all of it. Fees (STT, stamp duty, brokerage, GST) are charged on
+#: top of an order's *notional*, and the engine's affordability floor is
+#: notional + fee. So a fallback notional **equal** to the ceiling is
+#: unaffordable for any BUY in an account holding exactly the ceiling — which is
+#: the default paper account, whose opening cash is the same Rs 100,000. That is
+#: not a rounding detail: it made the placeholder's one promise false. It
+#: promised "a real size instead of one share or nothing" and produced *nothing*
+#: — every BUY it sized was rejected by the cash gate with an error, and a
+#: SELL-only strategy was the only kind that ever filled. 5% of headroom is
+#: wider than the fee load on a delivery order by two orders of magnitude, so the
+#: order it does place is comfortably fundable, and it is still a real order
+#: rather than a token one.
+UNCONFIGURED_FALLBACK_FRACTION: Final = Decimal("0.95")
 
 
 def unconfigured_sizer() -> PositionSizer:
@@ -147,17 +162,23 @@ def unconfigured_sizer() -> PositionSizer:
 
     This is a **placeholder**, and it says so at construction: a notional-only
     size is a real order, and an operator who has not wired the account policy
-    should learn that from the log rather than from a fill.
+    should learn that from the log rather than from a fill. It places
+    :data:`DEFAULT_MAX_ORDER_VALUE` x :data:`UNCONFIGURED_FALLBACK_FRACTION`,
+    not the whole ceiling — see that constant for why the difference is the whole
+    difference between an order and no order.
     """
+    fallback = (DEFAULT_MAX_ORDER_VALUE * UNCONFIGURED_FALLBACK_FRACTION).quantize(
+        Decimal("1"),
+    )
     log.warning(
         "no PositionSizer was configured for this engine; sizing to a fixed "
         "%s notional per order instead of a risk budget. Wire the account's "
         "policy (max_order_value, risk_fraction, equity) at the composition root.",
-        DEFAULT_MAX_ORDER_VALUE,
+        fallback,
     )
     return PositionSizer(
         max_order_value=DEFAULT_MAX_ORDER_VALUE,
-        fallback_notional=DEFAULT_MAX_ORDER_VALUE,
+        fallback_notional=fallback,
         label="unconfigured",
     )
 
@@ -575,6 +596,7 @@ __all__ = [
     "SOURCE_REFUSED",
     "SOURCE_SIGNAL",
     "SOURCE_STOP_DISTANCE",
+    "UNCONFIGURED_FALLBACK_FRACTION",
     "ContractSpec",
     "PositionSizer",
     "SizingDecision",

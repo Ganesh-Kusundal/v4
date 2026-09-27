@@ -44,6 +44,7 @@ from tradex_domain.events import OrderFilled
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
 from tradex_execution.engine import ExecutionEngine
+from tradex_execution.fees import FeeCalculator
 from tradex_execution.fill_sources import (
     PaperFillSource,
     SimulatedFillSource,
@@ -99,7 +100,7 @@ class TestGoldenBacktestAccounting:
         OPEN of bar 22 (12.0) — the earliest tradeable price — not bar 21's
         close (11.0) and never the final close (13.0)."""
         strategy = SmaCrossStrategy("golden-bt", INSTRUMENT)
-        result = BacktestEngine().run(strategy, _candles())
+        result = BacktestEngine(sizer=_one_share_sizer()).run(strategy, _candles())
 
         assert result.num_trades == 1
         assert result.trades[0].direction == OrderSide.BUY
@@ -117,7 +118,7 @@ class TestGoldenBacktestAccounting:
         close were used at the fill, it would read 100001 instead of 100000.
         """
         strategy = SmaCrossStrategy("golden-mtm", INSTRUMENT)
-        result = BacktestEngine().run(strategy, _candles())
+        result = BacktestEngine(sizer=_one_share_sizer()).run(strategy, _candles())
         assert result.equity_curve[-2] == 100000.0
         # The final point legitimately marks the open position at 13.0.
         assert result.equity_curve[-1] == 100001.0
@@ -378,7 +379,7 @@ class TestAccountingConvergence:
         at bar 22's OPEN (12.0) — identical prices, not just identical P&L."""
         session = TradingSession.paper()
         strategy = SmaCrossStrategy("golden-exact", INSTRUMENT)
-        strategy_engine = ReactiveStrategyEngine(session.bus)
+        strategy_engine = ReactiveStrategyEngine(session.bus, sizer=_one_share_sizer())
         strategy_engine.register(strategy)
         fills = []
         sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
@@ -394,7 +395,7 @@ class TestAccountingConvergence:
             session.stop()
 
         bt_strategy = SmaCrossStrategy("golden-exact-bt", INSTRUMENT)
-        bt = BacktestEngine().run(bt_strategy, _candles())
+        bt = BacktestEngine(sizer=_one_share_sizer()).run(bt_strategy, _candles())
         assert bt.num_trades == 1
         # Backtest: buy 1 @ 12.0 → cash 99988 + PIT MTM 12 = 100000; final 100001.
         assert bt.equity_curve[-2] == 100000.0
@@ -409,22 +410,32 @@ class TestAccountingConvergence:
 
     def test_partial_sell_realized_pnl_matches_across_modes(self) -> None:
         """A BUY 2 / BUY 1 / SELL 1 / SELL 2 ladder books identical realized
-        P&L in BacktestEngine (fills 110/120/130/140) and the reactive paper
-        session (fills 100/110/120/130): both close fully at +70.
+        P&L in BacktestEngine and in the reactive paper session (fills
+        110/120/130/140 on both): both close fully.
 
-        H4 fix: avg_price is now quantized to 2dp, so the weighted average
+        **Both paths charge the same fees**, because ``TradingSession.paper()``
+        wires a ``FeeCalculator`` and the backtest is now handed the same one.
+        It used to be handed none, so this compared a fee-charging path against
+        a fee-free one and read the 0.42 of delivery brokerage as a 0.42
+        accounting divergence — a parity failure that was really a missing
+        argument, and one that pointed at the shared position math rather than
+        at anything that had actually drifted.
+
+        H4 fix: avg_price is quantized to 2dp, so the weighted average
         340/3 = 113.333… becomes 113.33. The realized P&L accumulates from
         the quantized base: (130-113.33)*1 + (140-113.33)*2 = 16.67 + 53.34
-        = 70.01 (1 paisa above the unquantized 70)."""
+        = 70.01 gross, less the 0.42 of fees both paths charge = 69.59."""
         from tradex_strategy import ReactiveStrategyEngine
 
         candles = self._ladder_candles()
+        fees = FeeCalculator()
 
         # --- Path A: BacktestEngine ---
-        bt = BacktestEngine().run(_TimedPartial(INSTRUMENT), list(candles))
+        bt = BacktestEngine(fee_calculator=fees).run(_TimedPartial(INSTRUMENT), list(candles))
         assert bt.num_trades == 4
-        # BUY 2@110 + 1@120 = 340 spent; SELL 1@130 + 2@140 = 410 received.
-        assert bt.equity_curve[-1] == 100070.0
+        # BUY 2@110 + 1@120 = 340 spent; SELL 1@130 + 2@140 = 410 received;
+        # 0.42 of fees on both sides of the ladder.
+        assert bt.equity_curve[-1] == 100069.58
 
         # --- Path B: reactive paper session (end-to-end boot composition) ---
         session = TradingSession.paper()
@@ -440,11 +451,14 @@ class TestAccountingConvergence:
             assert [f.fill.price.value for f in fills] == [
                 Decimal("110"), Decimal("120"), Decimal("130"), Decimal("140"),
             ]
+            # The same calculator charged the same 0.42 on this path.
+            snapshot = session.engine.cash_snapshot()
+            assert snapshot.total_fees == Decimal(str(bt.total_fees))
             closed = next(
                 p for p in session.engine.cache.all_positions() if p.quantity.value == 0
             )
-            # Quantized avg: 340/3 → 113.33; realized = 16.67 + 53.34 = 70.01
-            assert closed.realized_pnl.amount == Decimal("70.01")
+            # Quantized avg: 340/3 → 113.33; gross 70.01 less 0.42 of fees.
+            assert closed.realized_pnl.amount == Decimal("69.59")
         finally:
             strategy_engine.dispose_all()
             sub.dispose()
