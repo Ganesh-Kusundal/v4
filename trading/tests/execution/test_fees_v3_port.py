@@ -9,11 +9,18 @@ from decimal import Decimal
 
 import pytest
 from tradex_domain.enums import OrderSide
+from tradex_domain.utils import q2
 from tradex_execution.fees import (
     FeeBreakdown,
     FeeCalculator,
     PricingService,
 )
+
+#: Statutory delivery STT, written out here rather than imported from
+#: ``tradex_execution.fees``: an expectation built from the constant under test
+#: cannot fail when that constant is wrong, which is the whole point of pinning
+#: a rate. 0.1% of turnover, charged on the buy AND the sell since 1 Oct 2024.
+_STT_DELIVERY_RATE = Decimal("0.001")
 
 # ---------------------------------------------------------------------------
 # FeeBreakdown
@@ -51,18 +58,55 @@ class TestFeeBreakdown:
 class TestFeeCalculatorEquity:
     """Static fee helpers return itemized FeeBreakdown."""
 
-    def test_equity_delivery_buy_has_no_stt(self) -> None:
-        fb = FeeCalculator.equity_delivery(
+    def test_equity_delivery_buy_is_charged_stt(self) -> None:
+        """A delivery BUY pays 0.1% STT, the same as a delivery SELL.
+
+        **Why a buy pays STT at all.** Until 1 October 2024 Indian delivery STT
+        was sell-side only, so the buy leg of a delivery round trip was free of
+        it — and this repository assumed exactly that for its entire life, which
+        is why the module constant used to be named ``_STT_DELIVERY_SELL``. From
+        1 October 2024 delivery STT is 0.1% on *both* sides, so the buy leg is
+        no longer free, and the constant is just ``_STT_DELIVERY``.
+
+        **The consequence worth remembering**, because it inverts an assumption
+        this codebase was built on: a delivery round trip now costs *more* in
+        STT than an intraday one, not less. At 1,00,000 of turnover, delivery is
+        0.1% + 0.1% = 200.00 while intraday is 0.025% on the sell only = 25.00 —
+        delivery pays 8x the intraday STT it used to pay a twentieth of. An
+        intraday buy still pays no STT at all, so the buy side is what
+        separates the two schedules.
+
+        The expected figure is computed from the rate above rather than copied
+        out of a run, so it still fails if the model drifts:
+
+            turnover 1,000 x 10 = 10,000; 10,000 x 0.001 = 10.00
+        """
+        buy = FeeCalculator.equity_delivery(
             side=OrderSide.BUY,
             price=Decimal("1000"),
             quantity=Decimal("10"),
         )
-        assert fb.stt == Decimal("0")
-        assert fb.broker_fee >= 0
-        assert fb.exchange_fee >= 0
-        assert fb.gst >= 0
-        assert fb.total == (
-            fb.stt + fb.broker_fee + fb.exchange_fee + fb.gst + fb.sebi_fee + fb.stamp_duty
+        sell = FeeCalculator.equity_delivery(
+            side=OrderSide.SELL,
+            price=Decimal("1000"),
+            quantity=Decimal("10"),
+        )
+        expected_stt = q2(Decimal("1000") * Decimal("10") * _STT_DELIVERY_RATE)
+
+        assert expected_stt == Decimal("10.00")  # the arithmetic above, checked
+        assert buy.stt == expected_stt
+        # Both sides, the same rate: that is the post-1-Oct-2024 rule, and it is
+        # what makes the buy leg of a round trip cost more than an intraday one.
+        assert sell.stt == expected_stt
+        assert buy.stt == sell.stt
+
+        # The rest of the breakdown is still itemized and still adds up.
+        assert buy.broker_fee >= 0
+        assert buy.exchange_fee >= 0
+        assert buy.gst >= 0
+        assert buy.total == (
+            buy.stt + buy.broker_fee + buy.exchange_fee + buy.gst
+            + buy.sebi_fee + buy.stamp_duty
         )
 
     def test_equity_delivery_sell_has_stt(self) -> None:
