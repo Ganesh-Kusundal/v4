@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from tradex_domain import (
     OHLC,
     Candle,
@@ -69,6 +70,20 @@ class TestBacktestRealPnL:
     """BacktestEngine computes real P&L from strategy signals."""
 
     def test_buy_then_higher_sell_produces_positive_return(self) -> None:
+        """A round trip that can actually fill.
+
+        The fill reference is ``next_open``, so a signal emitted on bar *i* fills
+        at bar *i+1*'s open — and a signal on the **last** bar never fills at
+        all, because the run ends before the bar it must fill against arrives.
+        This test used to hand the engine two signals and two bars and expect two
+        trades; it got the sell filled at the signal bar's own close, which is
+        the lookahead the reference exists to remove.
+
+        Three bars, so both signals have a bar to fill against. The candles are
+        built ``open = close - 1``, so the fills are at 109.0 and 119.0:
+        ``(119.0 - 109.0) * 100 = 1,000`` on 100,000, i.e. ``total_return``
+        0.01 exactly.
+        """
         now = _now()
         eq = _eq()
         buy_signal = Signal(
@@ -86,18 +101,24 @@ class TestBacktestRealPnL:
         strategy = _ManualStrategy([buy_signal, sell_signal])
 
         data = [
-            _candle(100.0, now - timedelta(days=1)),
-            _candle(110.0, now),
+            _candle(100.0, now - timedelta(days=2)),
+            _candle(110.0, now - timedelta(days=1)),
+            _candle(120.0, now),
         ]
 
         result = BacktestEngine().run(strategy, data)
 
         assert isinstance(result, BacktestResult)
         assert result.num_trades == 2
-        # Buy at 100, sell at 110 → profitable
-        assert result.total_return > 0.0
-        # Equity curve: [initial, after_buy, after_sell]
-        assert len(result.equity_curve) == 3 if hasattr(result, "equity_curve") else True
+        assert result.num_unfilled == 0
+        # Buy at the next bar's open (109.0), sell at the next bar's open (119.0)
+        assert [f["price"] for f in result.fills] == [109.0, 119.0]
+        assert [f["side"] for f in result.fills] == ["BUY", "SELL"]
+        # 1,000 on 100,000
+        assert result.total_return == pytest.approx(0.01)
+        # Equity curve: [initial, one point per bar marked]
+        assert result.equity_curve[0] == 100_000.0
+        assert result.equity_curve[-1] > result.equity_curve[0]
         # Sharpe should be defined (not NaN)
         assert isinstance(result.sharpe, float)
         # Max drawdown ≤ 0
@@ -113,7 +134,12 @@ class TestBacktestRealPnL:
         assert result.max_drawdown == 0.0
 
     def test_equity_curve_has_multiple_points(self) -> None:
-        """Equity curve should grow with each executed trade."""
+        """Equity curve should grow with each executed trade.
+
+        Three bars for two signals, for the same reason as
+        ``test_buy_then_higher_sell_produces_positive_return``: under the
+        ``next_open`` reference the second signal needs a bar after it.
+        """
         now = _now()
         eq = _eq()
         signals = [
@@ -124,9 +150,16 @@ class TestBacktestRealPnL:
         ]
         strategy = _ManualStrategy(signals)
         data = [
-            _candle(100.0, now - timedelta(days=1)),
-            _candle(105.0, now),
+            _candle(100.0, now - timedelta(days=2)),
+            _candle(105.0, now - timedelta(days=1)),
+            _candle(110.0, now),
         ]
         result = BacktestEngine().run(strategy, data)
         # initial + one point per signal that found a candle
         assert result.num_trades == 2
+        assert result.num_unfilled == 0
+        # Fills at the next bar's open: 104.0 then 109.0, 10 shares each.
+        assert [f["price"] for f in result.fills] == [104.0, 109.0]
+        # A point per bar marked, so the curve grows as the position does.
+        assert len(result.equity_curve) == len(data) + 1
+        assert result.equity_curve[-1] > result.equity_curve[0]

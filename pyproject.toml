@@ -74,7 +74,44 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP"]
+# C901 (cyclomatic complexity), PLR0912 (branch count) and PLR0915 (statement
+# count) are the three rules that stop a god function forming. They are enabled
+# at deliberately loose thresholds below, and that is worth stating plainly
+# rather than hiding: a threshold tight enough to bite today fails on 1,322
+# functions across 204 src/ files, which is a cleanup project rather than a
+# safety property.
+#
+# The real gate is the COUNT, held by scripts/ruff_ratchet.py against
+# .ruff_baseline. A loose threshold plus a ratchet means no new complex function
+# can be added without failing the build, while the existing wall can only
+# shrink. That is the same discipline remediation-and-hardening.md ratified for
+# lint, applied to complexity. tests/test_complexity_gate.py holds the
+# THRESHOLDS themselves, so a count-only ratchet cannot be satisfied by
+# raising one of these.
+select = ["E", "F", "W", "I", "UP", "C90", "PLR0912", "PLR0915"]
+
+[tool.ruff.lint.mccabe]
+# Current worst in src/ is ws_stream at 282 complexity
+# (interfaces/src/tradex_interfaces/routes/stream.py:49); the next is 71.
+max-complexity = 300
+
+[tool.ruff.lint.pylint]
+# Current worst in src/ is startup.boot at 39 branches
+# (runtime/src/tradex_runtime/startup.py:368) — measured, and recorded here
+# rather than left as a bare 300, because the number is what rots: a reader who
+# assumes it is tight is wrong by 7x. The ceiling is the one spec 0002 lane 0d
+# set and tests/test_complexity_gate.py holds; lowering it is always welcome.
+max-branches = 300
+# Current worst in src/ is ws_stream at 832 statements
+# (interfaces/src/tradex_interfaces/routes/stream.py:49); the next is 250.
+max-statements = 850
+
+[tool.ruff.lint.per-file-ignores]
+# Long tests are long scenarios. These three rules exist to stop a god function
+# forming in production code; a 200-line websocket scenario is not that, and
+# including tests would make the baseline about test style instead.
+"**/tests/**" = ["C901", "PLR0912", "PLR0915"]
+"**/test_*.py" = ["C901", "PLR0912", "PLR0915"]
 
 [tool.mypy]
 # Root mypy config. Its absence is why this gate was inert: mypy resolves

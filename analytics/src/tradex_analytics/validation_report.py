@@ -70,9 +70,10 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
+from tradex_domain.utils import q2
+
 from tradex_analytics.reports import sharpe_ratio
 from tradex_analytics.trade_metrics import Trade, compute_statistics
-from tradex_domain.utils import q2
 
 # --------------------------------------------------------------------------- the bar
 
@@ -271,13 +272,18 @@ GATING_FIELDS: tuple[str, ...] = tuple(c.field for c in PROMOTION_CRITERIA)
 #: raises. A ``None`` here is the single most likely way a report could be
 #: built with a criterion unevaluated, and it is a ``>= 0.0`` on two of them.
 _METRIC_PRODUCERS: Mapping[str, str] = {
-    "oos_sharpe": "the concatenated out of sample equity curve (WalkForwardReport.oos_equity_curve)",
+    "oos_sharpe": (
+        "the concatenated out of sample equity curve (WalkForwardReport.oos_equity_curve)"
+    ),
     "oos_round_trips": "round_trips_from_fills over the out of sample fill records",
     "oos_fills": "oos_fills_in over the out of sample fill records",
     "oos_span_days": "WalkForwardReport.oos_span_days",
     "deflated_sharpe": "GridSearchResult.deflated_sharpe (lane 1e)",
     "param_stability_share_of_grid": "GridSearchResult.param_stability_share_of_grid (lane 1e)",
-    "net_pnl_at_2x_costs": f"a rerun of the out of sample segments at {COST_STRESS_MULTIPLIER:g}x the modelled costs",
+    "net_pnl_at_2x_costs": (
+        f"a rerun of the out of sample segments at {COST_STRESS_MULTIPLIER:g}x "
+        "the modelled costs"
+    ),
 }
 
 
@@ -366,6 +372,23 @@ def _time_of(record: Any) -> datetime | None:
     return _field(record, "time") or _field(record, "timestamp")
 
 
+def _quantity_of(record: Any) -> Any:
+    """A record's size, under either name it is written.
+
+    The second half of :func:`_time_of`'s bargain, and it was missing: the
+    engine's records carry ``qty`` and a domain ``Fill`` carries ``quantity``,
+    so reading only the first raised "a fill record is missing its quantity" on
+    exactly the ``Fill`` objects this function's docstring promises to accept.
+    One of the two callers was being made to convert after all, and the failure
+    was a ``ValidationReportError`` about a field that was present.
+
+    ``Price`` and ``Quantity`` need no help: both render as their decimal value,
+    so ``_decimal`` reads a wrapped number and a bare one the same way.
+    """
+    qty = _field(record, "qty")
+    return _field(record, "quantity") if qty is None else qty
+
+
 def _is_buy(side: Any) -> bool:
     text = str(getattr(side, "value", side)).strip().upper()
     if text in {"BUY", "B", "LONG"}:
@@ -395,7 +418,7 @@ def _executed(records: Sequence[Any]) -> list[tuple[datetime, bool, Decimal, Dec
     for record in records:
         if _field(record, "rejected"):
             continue
-        qty = _decimal(_field(record, "qty"), "quantity")
+        qty = _decimal(_quantity_of(record), "quantity")
         price = _decimal(_field(record, "price"), "price")
         if qty == 0 or price <= 0:
             continue
@@ -519,7 +542,7 @@ def round_trips_from_fills(
     for record in sorted(records, key=_time_of):
         if _field(record, "rejected"):
             continue
-        qty = _decimal(_field(record, "qty"), "quantity")
+        qty = _decimal(_quantity_of(record), "quantity")
         price = _decimal(_field(record, "price"), "price")
         if qty == 0 or price <= 0:
             continue

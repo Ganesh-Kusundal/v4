@@ -30,13 +30,15 @@ def _make_equity() -> Equity:
     return Equity.of("NSE", "RELIANCE")
 
 
-def _make_request(instrument: Any | None = None) -> OrderRequest:
+def _make_request(
+    instrument: Any | None = None, quantity: str = "10"
+) -> OrderRequest:
     inst = instrument or _make_equity()
     return OrderRequest(
         instrument=inst,
         side=OrderSide.BUY,
         order_type=OrderType.LIMIT,
-        quantity=Quantity(value=Decimal("10")),
+        quantity=Quantity(value=Decimal(quantity)),
         price=Price(value=Decimal("2500.00")),
         time_in_force=TimeInForce.DAY,
         product_type=ProductType.INTRADAY,
@@ -127,11 +129,22 @@ class TestOrderSubmissionSmoke:
         session.stop()
 
     def test_submit_multiple_orders(self) -> None:
+        """Five orders, all of which the account can actually pay for.
+
+        At 10 shares of 2,500 this asked for 125,000 of notional against the
+        paper broker's 100,000 of starting cash, so the fourth and fifth could
+        only ever be unfunded. That went unnoticed while an unfunded order was
+        rejected quietly; now the cash ledger raises on it, which is the correct
+        behaviour and not something a smoke test should be relying on either way.
+        One share per order is 12,500 of notional for the five, fees included,
+        well inside the balance — so the test measures that five orders are
+        accepted rather than that five orders were attempted.
+        """
         from tradex_runtime.startup import boot
 
         session = boot()
         for i in range(5):
-            receipt = session.engine.submit(_make_request())
+            receipt = session.engine.submit(_make_request(quantity="1"))
             assert receipt.status in (OrderStatus.FILLED, OrderStatus.SUBMITTED)
         session.stop()
 

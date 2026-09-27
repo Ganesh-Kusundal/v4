@@ -11,13 +11,15 @@ The red state of each test is recorded in ``.superpowers/sdd/task-A4-report.md``
 from __future__ import annotations
 
 import ast
+import io
+import tokenize
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
-from tradex_analytics.validation_report import TradeValidationReport
+from tradex_analytics.validation_report import TradeValidationReport, ValidationReportError
 from tradex_domain import OHLC, Candle, Price, Quantity, Timeframe
 from tradex_domain.instruments import Equity
 from tradex_execution.validation_report_store import ValidationReportStore
@@ -648,15 +650,34 @@ def test_fills_are_attributed_to_the_bar_they_filled_against():
 # ------------------------------------------------------------------- persistence
 
 
+def _rehydrate(kwargs: dict[str, Any]) -> TradeValidationReport:
+    """The composition root's wiring, verbatim from the store's docstring.
+
+    ``rehydrate`` is required rather than optional because this package may not
+    import ``tradex_analytics``, where the promotion thresholds live: without it
+    a store could answer a promotion question only by trusting the verdict column
+    it was handed, which is the laundering the recompute on the read path exists
+    to prevent.
+    """
+    return TradeValidationReport(**kwargs)
+
+
 def test_the_report_is_persisted_under_its_strategy_and_parameter_set(tmp_path):
     from tradex_analytics.validation_report import parameter_set_hash
 
-    store = ValidationReportStore(tmp_path / "state.db")
+    store = ValidationReportStore(tmp_path / "state.db", rehydrate=_rehydrate)
     try:
         report = _report(store=store)
-        row = store.get("sma_cross", report.parameter_set_hash)
+        # ``get`` rehydrates, so this is a report whose verdict was recomputed
+        # from its metrics on the way out. The raw row is a separate call.
+        read_back = store.get("sma_cross", report.parameter_set_hash)
+        assert read_back is not None
+        assert read_back.parameter_set_hash == parameter_set_hash(
+            {"fast": 10, "slow": 30}
+        )
+        assert read_back.passed is True
+        row = store.stored_row("sma_cross", report.parameter_set_hash)
         assert row is not None
-        assert row.parameter_set_hash == parameter_set_hash({"fast": 10, "slow": 30})
         assert row.stored_passed is True
         assert store.promotion_status("sma_cross") == "passed"
         assert store.promotion_status("bollinger_breakout") == "not_evaluated"
@@ -666,17 +687,18 @@ def test_the_report_is_persisted_under_its_strategy_and_parameter_set(tmp_path):
 
 
 def test_a_failing_report_is_persisted_with_its_failures(tmp_path):
-    store = ValidationReportStore(tmp_path / "state.db")
+    store = ValidationReportStore(tmp_path / "state.db", rehydrate=_rehydrate)
     try:
         report = _report(store=store, param_stability_share_of_grid=0.1)
-        row = store.get("sma_cross", report.parameter_set_hash)
+        row = store.stored_row("sma_cross", report.parameter_set_hash)
         assert row is not None
         assert row.stored_passed is False
         # The stored failures are the reasons, not bare field names: this is what
         # the safety surface shows (AC-13).
         assert len(row.stored_failures) == 1
         assert "param_stability_share_of_grid" in row.stored_failures[0]
-        # And the row rebuilds into a report that agrees with the verdict.
+        # And the row rebuilds into a report that agrees with the verdict, from
+        # metrics alone — ``as_report_kwargs`` carries no verdict field.
         rebuilt = TradeValidationReport(**row.as_report_kwargs())
         assert rebuilt.passed is False
         assert rebuilt.failed_fields == ("param_stability_share_of_grid",)
@@ -689,22 +711,26 @@ def test_a_tampered_row_cannot_launder_a_promotion(tmp_path):
 
     The verdict is recomputed from the metrics on the read path, so the only way
     to change a verdict is to change a number — which is the audit trail this
-    whole programme is for.
+    whole programme is for. The stored verdict column is deliberately still
+    ``1`` afterwards: nothing overwrote it, it is simply not what a read returns.
     """
 
-    store = ValidationReportStore(tmp_path / "state.db")
+    store = ValidationReportStore(tmp_path / "state.db", rehydrate=_rehydrate)
     try:
         report = _report(store=store)
         store.connection().execute(
             "UPDATE tradex_validation_report SET passed = 1, oos_sharpe = 0.1"
         )
         store.connection().commit()
-        row = store.get("sma_cross", report.parameter_set_hash)
-        assert row is not None
-        rebuilt = TradeValidationReport(**row.as_report_kwargs())
+        rebuilt = store.get("sma_cross", report.parameter_set_hash)
+        assert rebuilt is not None
         assert rebuilt.oos_sharpe == pytest.approx(0.1)
         assert rebuilt.passed is False
         assert rebuilt.failed_fields == ("oos_sharpe",)
+        # The file still says passed=1, and the store never lies to itself about
+        # it: the laundering is prevented by not reading that column, not by
+        # policing it.
+        assert store.stored_row("sma_cross", report.parameter_set_hash).stored_passed is True
     finally:
         store.close()
 
@@ -804,6 +830,36 @@ def test_the_route_guards_are_not_vacuous():
     )
 
 
+def _constructs_a_report(source: str) -> bool:
+    """Whether *source* calls ``TradeValidationReport(``, rather than naming it.
+
+    An AST call, plus a text scan with the string and comment tokens removed. The
+    tokenizing is the point: ``ValidationReportStore``'s ``rehydrate`` docstring
+    carries the composition-root wiring verbatim, and a substring search calls
+    that a second writer. It is not — the constructor there is the caller's, and
+    it is a docstring. Stripping strings and comments rather than trusting the
+    AST alone keeps the gate strong: a writer hidden behind an alias or a
+    ``getattr`` is caught by the text half, which the AST half would miss.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if (getattr(func, "id", None) or getattr(func, "attr", None)) == (
+            "TradeValidationReport"
+        ):
+            return True
+    try:
+        kept = [
+            token.string
+            for token in tokenize.generate_tokens(io.StringIO(source).readline)
+            if token.type not in (tokenize.STRING, tokenize.COMMENT)
+        ]
+    except tokenize.TokenError:  # pragma: no cover - ast.parse already succeeded
+        return False
+    return "TradeValidationReport(" in "".join(kept)
+
+
 def test_the_only_writer_of_a_report_is_this_entry_point():
     """One writer, by construction of the search: no other module names
     ``TradeValidationReport(`` as a call.
@@ -816,17 +872,26 @@ def test_the_only_writer_of_a_report_is_this_entry_point():
         parts = path.parts
         if any(p in {"node_modules", "__pycache__", ".git", "openalgo-charts"} for p in parts):
             continue
-        if path.name == "test_validation_report.py" and "analytics" in parts:
-            continue
         if "tests" in parts or path.name.startswith("test_"):
             continue
         try:
             source = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):  # pragma: no cover - binary files
             continue
-        if "TradeValidationReport(" in source and "deflated_sharpe" in source:
+        if _constructs_a_report(source):
             writers.append(str(path.relative_to(_ROOT)))
     assert writers == ["replay/src/tradex_replay/validation.py"], writers
+    # Negative control: the search still finds a writer when there is one, so the
+    # single-writer result above is the search working rather than the search
+    # finding nothing anywhere.
+    assert _constructs_a_report(
+        "def build(kwargs):\n    return TradeValidationReport(**kwargs)\n"
+    )
+    # ...and does not fire on prose that merely shows the wiring.
+    assert not _constructs_a_report(
+        '"""Usage::\n\n    ValidationReportStore(p, rehydrate=lambda k:'
+        " TradeValidationReport(**k))\n\"\"\"\n"
+    )
 
 
 # ------------------------------------------------------------------ bar windows
@@ -855,31 +920,44 @@ def test_the_index_window_entry_point_produces_the_same_report_shape():
 
 
 def test_bars_with_no_timestamp_cannot_manufacture_a_span():
-    """A span of ``0.0`` fails criterion three; it is not a number that skips it.
+    """A report over bars that cannot be placed refuses; it does not score them.
 
-    Index mode over a plain sequence has no bar timestamps, so the report says
-    the span cannot be placed and the verdict is a failure. Inventing a span
-    from bar indices would be a criterion satisfied by nothing.
+    Index mode over a plain sequence has no bar timestamps and no instruments,
+    so there is nothing a criterion could be evaluated on. A span invented from
+    bar indices is a criterion satisfied by nothing, and a round trip ledger over
+    fills that cannot name their instrument invents positions — a buy in one
+    symbol and a sell in another reads as a position taken to zero when no
+    position was ever opened. So the entry point refuses.
+
+    This test asserted the same property when the refusal was softer: a span of
+    0.0 and a failed criterion three — a report that existed, grading a series
+    that did not. Both are "not a manufactured number"; the current contract just
+    stops earlier. The span rule itself is graded where it is owned, in
+    ``test_walk_forward_validity.test_span_is_zero_when_the_bars_carry_no_timestamp``.
+
+    Note the exception type: ``_build`` translates ``ValidationReportError`` into
+    its own ``ValidationRunError`` where it constructs the report, but the round
+    trip pairing raises before that, so the analytics type escapes this public
+    entry point unchanged. Asserted as it is rather than wished into shape.
     """
-    report = generate_validation_report(
-        list(range(300)),
-        strategy_id="sma_cross",
-        parameters={"fast": 10},
-        run_fn=lambda params, bars: BacktestResult(
-            total_return=0.0,
-            sharpe=1.5,
-            max_drawdown=-0.01,
-            num_trades=0,
-            equity_curve=_curve(len(bars)),
-        ),
-        optimize_fn=lambda bars: {},
-        stress_run_fn=lambda params, bars: _stress_run(bars),
-        train_window=60,
-        test_window=40,
-        step_size=40,
-        warmup_bars=21,
-        **_GENEROUS,
-    )
-    assert report.oos_span_days == 0.0
-    assert report.failed_fields == ("oos_round_trips", "oos_span_days")
-    assert report.passed is False
+    with pytest.raises(ValidationReportError) as excinfo:
+        generate_validation_report(
+            list(range(300)),
+            strategy_id="sma_cross",
+            parameters={"fast": 10},
+            run_fn=lambda params, bars: BacktestResult(
+                total_return=0.0,
+                sharpe=1.5,
+                max_drawdown=-0.01,
+                num_trades=0,
+                equity_curve=_curve(len(bars)),
+            ),
+            optimize_fn=lambda bars: {},
+            stress_run_fn=lambda params, bars: _stress_run(bars),
+            train_window=60,
+            test_window=40,
+            step_size=40,
+            warmup_bars=21,
+            **_GENEROUS,
+        )
+    assert "no timestamp or no instrument" in str(excinfo.value)

@@ -2,12 +2,18 @@
 
 A strategy can emit a signal two ways, and the backtest handles them on
 different paths: returning it from ``on_bar`` goes through
-``ReactiveStrategyEngine`` (filled at the next bar's open), while only appending
-it to ``strategy.signals`` goes through ``BacktestEngine``'s legacy bridge
-(filled at the signal bar's close). Both now build their order with
+``ReactiveStrategyEngine``, while only appending it to ``strategy.signals`` goes
+through ``BacktestEngine``'s legacy bridge. Both now build their order with
 ``protective_request``, and this test exists because that is exactly the kind of
 duplication that rots: a level added at one site and forgotten at the other would
 leave half the strategies on a chart with no bracket, and nothing else would fail.
+
+The two paths also used to fill at different prices — the engine path at the
+next bar's open, the bridge at the signal bar's close. They do not any more: the
+bridge fills at the next bar's open like everything else, so with the candles
+below (100, 105, 108) and the signal emitted on the first bar the entry is
+**105.0**, and a pair declared around 100 would no longer bracket it. That is the
+number these expectations carry.
 """
 
 from __future__ import annotations
@@ -92,9 +98,9 @@ _CANDLES = [_candle(100, 1), _candle(105, 2), _candle(108, 3)]
 def test_the_bridge_carries_a_declared_pair_onto_the_fill() -> None:
     result = BacktestEngine().run(_RecordingOnly(stop=95.0, target=110.0), _CANDLES)
 
-    # The bridge fills at the signal bar's close, which is the entry the pair
-    # must bracket (95 < 100 < 110).
-    assert [f["price"] for f in result.fills] == [100.0]
+    # The bridge fills at the next bar's open, which is the entry the pair must
+    # bracket (95 < 105 < 110).
+    assert [f["price"] for f in result.fills] == [105.0]
     assert result.fills[0]["stop"] == 95.0
     assert result.fills[0]["target"] == 110.0
 
@@ -109,14 +115,14 @@ def test_the_bridge_ships_no_levels_when_none_are_declared() -> None:
 def test_the_bridge_drops_a_pair_that_does_not_bracket_the_fill() -> None:
     """A pair that protects the wrong side of the entry is not a protection.
 
-    The bridge's fill price is the signal bar's close, so the declaration is
-    checked against it the same way the engine's paths are — here the stop sits
-    *above* a long's entry, which would have raised from the domain constructor
-    had the check not happened first.
+    The bridge fills at the next bar's open (105.0), so the declaration is
+    checked against that the same way the engine's paths are — here the stop
+    sits *above* a long's entry, which would have raised from the domain
+    constructor had the check not happened first.
     """
-    result = BacktestEngine().run(_RecordingOnly(stop=105.0, target=110.0), _CANDLES)
+    result = BacktestEngine().run(_RecordingOnly(stop=107.0, target=110.0), _CANDLES)
 
-    assert result.fills[0]["price"] == 100.0
+    assert result.fills[0]["price"] == 105.0
     assert result.fills[0]["stop"] is None
     assert result.fills[0]["target"] is None
 

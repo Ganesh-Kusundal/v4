@@ -108,16 +108,25 @@ class TestBacktestEngine:
         assert isinstance(result.num_trades, int)
 
     def test_backtest_with_quotes_counts_trades(self) -> None:
+        """A signal raised on a quote still has to fill against a later bar.
+
+        The fill reference is ``next_open``, so a quote arriving last raises a
+        signal the run ends before it can fill: the candle comes after it here
+        for that reason. The test used to put the quote last and expect a trade,
+        which is the lookahead the reference removes.
+        """
         engine = BacktestEngine()
         strategy = BuyAndHoldStrategy("bh-1", _eq())
         now = _now()
         data = [
             _candle(100.0, now),
             Quote(instrument=_eq(), ltp=QuotePrice(value=Decimal("100")), timestamp=now),
+            _candle(110.0, now + timedelta(days=1)),
         ]
         result = engine.run(strategy, data)
-        # BuyAndHoldStrategy emits 1 signal per quote
+        # BuyAndHoldStrategy emits 1 signal per quote, and there is 1 quote
         assert result.num_trades == 1
+        assert result.num_unfilled == 0
 
     def test_backtest_empty_data(self) -> None:
         engine = BacktestEngine()
@@ -126,7 +135,12 @@ class TestBacktestEngine:
         assert result.num_trades == 0
 
     def test_manual_strategy_signals_become_trades(self) -> None:
-        """A strategy that records signals must still generate fills."""
+        """A strategy that records signals must still generate fills.
+
+        Three bars for two signals: under the ``next_open`` reference a signal
+        needs a bar after it, so two signals over two bars leaves the second one
+        unfilled and excluded from ``num_trades``.
+        """
         engine = BacktestEngine()
         eq = _eq()
         signals = [
@@ -138,6 +152,10 @@ class TestBacktestEngine:
         now = _now()
         result = engine.run(
             _RecordingStrategy(signals),
-            [_candle(100.0, now), _candle(110.0, now)],
+            [_candle(100.0, now), _candle(110.0, now),
+             _candle(120.0, now + timedelta(days=1))],
         )
         assert result.num_trades == 2
+        assert result.num_unfilled == 0
+        # Fills at the next bar's open: 109.0 then 119.0.
+        assert [f["price"] for f in result.fills] == [109.0, 119.0]

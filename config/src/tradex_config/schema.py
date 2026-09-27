@@ -175,8 +175,8 @@ class ExecutionConfig:
     These settings make fees, slippage, and fill timing **consistent** between
     backtest and the reactive paper/live path (parity review HIGH-6b) — the
     same models are wired into the fill sources and the execution engine by
-    ``runtime.startup.boot``. Costs are deducted by default; set False to reproduce the historical zero-cost,
-    next-bar-open behavior.
+    ``runtime.startup.boot``. Costs are deducted by default; set False to
+    reproduce the historical zero-cost, next-bar-open behavior.
     """
 
     fees_enabled: bool = True

@@ -43,8 +43,23 @@ def _frame(instrument="NSE:RELIANCE", timeframe="1m", time=1784087100, closed=Fa
     )
 
 
-def test_bar_close_pushes_only_on_closed_bars():
-    """bar-close mode: forming frame pushes nothing; closed frame pushes."""
+def test_bar_close_pushes_only_on_closed_bars(monkeypatch, tmp_path):
+    """bar-close mode: forming frame pushes nothing; closed frame pushes.
+
+    The datalake tail is pointed at an empty directory, because the pushed
+    points are the tail *plus* the live bar. This asserted two points, which is
+    a developer's lake leaking into the expectation: ``data/`` is gitignored, so
+    on a fresh clone and in CI the tail is empty and the single live bar is the
+    only point. With the tail pinned there is exactly one, and its value is
+    ``None`` — an SMA over one close has not emitted yet, which is the
+    finite-or-null rule this file exists to hold.
+    """
+    import tradex_market_data.paths as lake_paths
+
+    empty_lake = tmp_path / "empty-lake"
+    empty_lake.mkdir()
+    monkeypatch.setattr(lake_paths, "DATALAKE_ROOT", str(empty_lake))
+
     reg = IndicatorStreamRegistry(push=lambda m: _pushed.append(m))
     _pushed = []
     reg.add("NSE:RELIANCE", "1m", ["sma"], "bar-close")
@@ -56,10 +71,12 @@ def test_bar_close_pushes_only_on_closed_bars():
     assert msg["type"] == "indicator"
     assert msg["instrument"] == "NSE:RELIANCE"
     assert msg["id"] == "sma"
-    assert len(msg["points"]) == 2
+    assert len(msg["points"]) == 1
     for point in msg["points"]:
         assert "time" in point
         assert point["value"] is None or isinstance(point["value"], float)
+    assert msg["points"][0]["time"] == 1784087100
+    assert msg["points"][0]["value"] is None
 
 
 def test_tick_mode_throttles_and_skips_closed():

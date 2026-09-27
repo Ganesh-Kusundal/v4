@@ -71,7 +71,22 @@ _ALLOWED: dict[str, set[str]] = {
         "tradex_market_data",
     },
     "application": {"tradex_domain", "tradex_execution"},
-    "market_data": {"tradex_domain", "tradex_brokers", "tradex_replay", "tradex_runtime"},
+    "market_data": {
+        "tradex_domain",
+        "tradex_brokers",
+        "tradex_replay",
+        "tradex_runtime",
+        # ``backtest_loader`` calls the AC-4 point-in-time guards
+        # (``assert_historical_universe``) and reads the universe manifest, so the
+        # edge points at a package that exists to be called. It is acyclic and it
+        # inverts nothing: ``tradex_research`` imports no other workspace package
+        # at all, and this list already admits two layers above market_data
+        # (``tradex_replay``, ``tradex_runtime``), so there is no ordering being
+        # honoured here that research breaks. The alternative — reimplementing
+        # the guard inside market_data — would be a second spelling of the
+        # survivorship check, which is the thing the guard exists to prevent.
+        "tradex_research",
+    },
     "interfaces": {
         "tradex_domain",
         "tradex_brokers",

@@ -10,7 +10,7 @@ from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
 from tradex_execution.fees import (
-    _STT_DELIVERY_SELL,
+    _STT_DELIVERY,
     _STT_INTRADAY_SELL,
     FeeCalculator,
     PricingService,
@@ -57,10 +57,30 @@ def test_equity_delivery_stt_delivery_vs_intraday_rates() -> None:
     # Delivery STT (0.1%) should be greater than intraday STT (0.025%)
     assert delivery.stt > intraday.stt
     # Verify exact rates: delivery = 0.1%, intraday = 0.025%
-    expected_delivery_stt = (turnover * _STT_DELIVERY_SELL).quantize(Decimal("0.01"))
+    expected_delivery_stt = (turnover * _STT_DELIVERY).quantize(Decimal("0.01"))
     expected_intraday_stt = (turnover * _STT_INTRADAY_SELL).quantize(Decimal("0.01"))
     assert delivery.stt == expected_delivery_stt
     assert intraday.stt == expected_intraday_stt
+
+
+def test_equity_delivery_stt_is_charged_on_the_buy_side_too() -> None:
+    """Since 1 Oct 2024 delivery STT is 0.1% on BOTH sides, not sell only.
+
+    This is why the rate constant is ``_STT_DELIVERY`` and no longer
+    ``_STT_DELIVERY_SELL``: the old name encoded the pre-2024 regime, and
+    charging delivery STT on sells alone understated a delivery round trip by
+    three times the total fee. Intraday is still sell-side only, so the buy
+    side is what actually separates the two schedules.
+    """
+    turnover = Decimal("100000")  # 1L turnover
+    delivery_buy = FeeCalculator.equity_delivery(
+        side=OrderSide.BUY, price=Decimal("1000"), quantity=Decimal("100")
+    )
+    intraday_buy = FeeCalculator.equity_intraday(
+        side=OrderSide.BUY, price=Decimal("1000"), quantity=Decimal("100")
+    )
+    assert delivery_buy.stt == (turnover * _STT_DELIVERY).quantize(Decimal("0.01"))
+    assert intraday_buy.stt == Decimal("0.00")
 
 
 def test_brokerage_cap_per_order_not_per_fill() -> None:
