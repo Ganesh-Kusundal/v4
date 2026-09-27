@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
@@ -19,6 +20,14 @@ from tradex_execution.engine import ExecutionEngine, RiskManager
 from tradex_execution.fill_sources import SimulatedFillSource
 from tradex_execution.idempotency import MemoryIdempotencyGuard
 from tradex_reactive.bus import ReactiveBus
+
+#: A single fixed mark timestamp for the positions these guard tests build.
+#: Captured once at import: a helper that stamps ``datetime.now(UTC)`` on every
+#: call would produce a mark NEWER than the RiskManager evaluation instant
+#: captured microseconds earlier, which the stale-mark guard correctly reads as
+#: a clock skew and refuses. The daily-loss/drawdown arithmetic is what these
+#: tests are about, so the mark is pinned rather than moving.
+_MARK_STAMP = datetime.now(UTC)
 
 
 def _make_request(
@@ -126,7 +135,15 @@ def test_risk_manager_market_order_unknown_mark_flag() -> None:
 
 
 def _make_pnl_position(symbol: str, qty: str, unrealized: str) -> Position:
-    """Position with a given unrealized PnL (for daily-loss / drawdown guards)."""
+    """Marked position with a given unrealized PnL (daily-loss / drawdown guards).
+
+    Carries a *fresh* mark deliberately. Since AC-9 the daily-loss and
+    drawdown guards refuse an open position whose mark is missing or stale —
+    an unmarked book fails closed rather than reading the fill-time reset
+    ``unrealized_pnl`` zero. These tests are about the loss and drawdown
+    arithmetic, so they supply the mark the guards require; the refusal itself
+    is covered in ``test_risk_stale_mark.py``.
+    """
     pos = _make_position(symbol, qty)
     return Position(
         instrument=pos.instrument,
@@ -134,6 +151,9 @@ def _make_pnl_position(symbol: str, qty: str, unrealized: str) -> Position:
         avg_price=pos.avg_price,
         realized_pnl=pos.realized_pnl,
         unrealized_pnl=Money(amount=Decimal(unrealized)),
+        mark_price=Price(value=Decimal("100")),
+        marked_at=_MARK_STAMP,
+        mark_source="TEST",
     )
 
 
@@ -145,7 +165,13 @@ def test_risk_manager_daily_loss_denies_open_allows_reduce() -> None:
     def positions():
         return [_make_pnl_position("TEST", str(holder[1]), str(holder[0]))]
 
-    rm = RiskManager(max_daily_loss_amt=Decimal("500"), positions_provider=positions)
+    rm = RiskManager(
+        max_daily_loss_amt=Decimal("500"),
+        positions_provider=positions,
+        # The pinned mark is stamped at import; widen the window so the test is
+        # about the loss arithmetic, not how fast the suite reached this line.
+        max_mark_age_seconds=86400,
+    )
     buy = _make_request(price="100", quantity="10")  # increases long
     sell = OrderRequest(
         instrument=Equity.of("NSE", "TEST"),
@@ -172,7 +198,11 @@ def test_risk_manager_drawdown_denies_open_allows_reduce() -> None:
     def positions():
         return [_make_pnl_position("TEST", holder[1], holder[0])]
 
-    rm = RiskManager(max_drawdown_pct=Decimal("0.5"), positions_provider=positions)
+    rm = RiskManager(
+        max_drawdown_pct=Decimal("0.5"),
+        positions_provider=positions,
+        max_mark_age_seconds=86400,
+    )
     buy = _make_request(price="100", quantity="10")
     sell = OrderRequest(
         instrument=Equity.of("NSE", "TEST"),

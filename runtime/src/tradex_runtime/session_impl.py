@@ -113,6 +113,13 @@ class TradingSession:
         self._stream_backend = stream_backend
         self._backtest_loader = backtest_loader
         self._live_orders_enabled = live_orders_enabled
+        #: AC-10 / lane 2f: the live-order gate closure, built once from
+        #: ``live_orders_enabled``. It used to be built by ``_make_order_gate``
+        #: and never called, so the documented "one config flip stops all order
+        #: flow" control did not exist. Built here and exposed as
+        #: ``order_gate`` so a caller can assert the control fires without any
+        #: foreign private write.
+        self._order_gate = self._make_order_gate()
         #: LiveFillBridge translating broker order-stream updates into bus
         #: OrderFilled events (live fills reaching the OMS — HIGH-4).
         self._fill_bridge = fill_bridge
@@ -250,6 +257,15 @@ class TradingSession:
     # --- Properties ---
 
     @property
+    def order_gate(self) -> Callable[[], None]:
+        """The live-order gate: raises while order flow is closed.
+
+        Returns a zero-arg callable that raises ``OrderRejectedError`` when
+        ``live_orders_enabled`` is false and returns normally when it is true.
+        """
+        return self._order_gate
+
+    @property
     def state(self) -> SessionState:
         """Current session state."""
         return self._state
@@ -324,6 +340,11 @@ class TradingSession:
                 raise OrderRejectedError("live order gate disabled")
 
         return gate
+
+    def assert_order_gate_open(self) -> None:
+        """Raise if order flow is closed. The boot-time proof that the control
+        is wired: an open gate must not raise, a closed one must."""
+        self._order_gate()
 
     # --- instrument factories (D-1: pure value constructors, any state) -------
 

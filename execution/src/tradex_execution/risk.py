@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from tradex_domain.enums import OrderSide
 from tradex_domain.execution import OrderRequest
 from tradex_domain.protocols import Clock
+from tradex_domain.risk_budget import RiskBudget, resolve_strategy_id
 
 if TYPE_CHECKING:
     from tradex_domain.execution import Position
@@ -27,6 +28,12 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+__all__ = [
+    "RiskBudget",
+    "RiskCheckResult",
+    "RiskManager",
+]
+
 
 @dataclass(frozen=True, slots=True)
 class RiskCheckResult:
@@ -34,23 +41,6 @@ class RiskCheckResult:
 
     approved: bool
     reason: str = ""
-
-
-@dataclass(frozen=True, slots=True)
-class RiskBudget:
-    """Per-strategy slice of the broker-level risk envelope (G2).
-
-    Each strategy on the same account draws from its own budget so a
-    buggy strategy on instrument A can never exhaust the limit for
-    strategy B on instrument C. Strategies with no budget (legacy /
-    ad-hoc orders) fall back to the global caps on ``RiskManager``.
-    """
-
-    strategy_id: str
-    max_order_value: Decimal | None = None
-    max_position_value: Decimal | None = None
-    max_daily_loss_amt: Decimal | None = None
-    max_drawdown_pct: Decimal | None = None
 
 
 class RiskManager:
@@ -73,6 +63,7 @@ class RiskManager:
         budgets: dict[str, RiskBudget] | None = None,
         clock: Clock | None = None,
         metrics: MetricsRegistry | None = None,
+        baseline_store: object | None = None,
     ) -> None:
         self._max_order_value = max_order_value
         self._max_position_value = max_position_value
@@ -94,12 +85,19 @@ class RiskManager:
         #: progresses; they always allow reductions/flattening.
         self._max_daily_loss_amt = max_daily_loss_amt
         self._max_drawdown_pct = max_drawdown_pct
-        # M5: real type (was ``Any``, defeating mypy). The field stores
-        # the calendar date of the day the position baselines were taken,
-        # used to roll the day-start P&L forward on a date change.
+        #: M5: real type (was ``Any``, defeating mypy). The fields store
+        #: the calendar date the account-level baseline was taken, used to roll
+        #: the day-start P&L forward on a date change.
         self._session_date: date | None = None
         self._base_pnl = Decimal(0)
         self._peak_pnl = Decimal(0)
+        #: AC-9: per-strategy day-start baseline and running peak, keyed by the
+        #: resolved strategy id. These are what the daily-loss/drawdown guards
+        #: evaluate, so one strategy's loss cannot be attributed to another and
+        #: a restart can read them back. ``_session_date``/``_base_pnl``/
+        #: ``_peak_pnl`` above remain the account-level aggregate used for the
+        #: gauges.
+        self._strategy_baselines: dict[str, tuple[date, Decimal, Decimal]] = {}
         #: Callable returning current positions (e.g. an OMS cache) so
         #: ``max_position_value`` can be enforced against live exposure. When
         #: None (backtest boot, unit tests), the position check is skipped.
@@ -108,12 +106,23 @@ class RiskManager:
         #: or Decimal). When None (or when it yields no usable price),
         #: exposure falls back to the position's avg_price.
         self._price_provider = price_provider
-        #: G2: per-strategy risk budgets. ``check()`` resolves the active
-        #: budget from ``request.tag`` (the strategy_id; the strategy engine
-        #: already stamps ``strategy_id@version`` into tag). A request with
-        #: no matching budget falls back to the global caps above.
+        #: AC-9: per-strategy risk budgets. ``check()`` resolves the active
+        #: budget from the request's strategy identifier (the real
+        #: ``strategy_id`` field, else the ``strategy_id@version`` text in
+        #: ``tag``). A request with no matching budget falls back to the
+        #: global caps above.
         self._budgets: dict[str, RiskBudget] = dict(budgets or {})
         self._clock = clock
+        #: Optional durable store for the per-strategy baselines (a
+        #: ``SQLiteRiskBaselineStore``). When bound, baselines are loaded at
+        #: construction and saved as they move, so a crash-restart does not
+        #: reset the breaker. Typed as ``object`` to keep this module free of
+        #: an import cycle with the store; the duck-typed calls below are the
+        #: store's small public surface. Loaded here, after ``_clock`` is set,
+        #: because reading a stored baseline needs the clock seam for today's date.
+        self._baseline_store = baseline_store
+        if self._baseline_store is not None:
+            self._load_baselines()
         #: Callable returning the current cash balance (Decimal). Bound
         #: lazily via ``bind_cash_provider()`` so the engine can boot
         #: without a cash ledger (backtest, unit tests). Initialized to
@@ -141,9 +150,18 @@ class RiskManager:
 
         Returns ``(max_order_value, max_position_value,
         max_daily_loss_amt, max_drawdown_pct)`` for the strategy, or
-        the global caps if the strategy has no budget. G2.
+        the global caps if the strategy has no budget. AC-9.
+
+        The strategy is identified by :func:`resolve_strategy_id`, which
+        prefers the real ``request.strategy_id`` field and falls back to
+        parsing the text before ``@`` out of ``request.tag``. The old code
+        compared the *whole* tag (``"sma_cross@1.0.0"``) against a budget key
+        (``"sma_cross"``), so the lookup could never match and every request
+        silently fell through to the global caps — the documented per-strategy
+        control was dead. A request with no attributable strategy still falls
+        back to the global caps.
         """
-        sid = (request.tag or "").strip() if request is not None else ""
+        sid = resolve_strategy_id(request) if request is not None else None
         budget = self._budgets.get(sid) if sid else None
         if budget is not None:
             return (
@@ -456,19 +474,36 @@ class RiskManager:
 
             # Daily-loss / drawdown guards (per-strategy or global).
             # Only deny new exposure, never a reduction.
+            #
+            # Both guards read the position book's ``unrealized_pnl``, and a
+            # fill resets that to a flat zero (position_math.apply_fill), so a
+            # position with no current mark would read as break-even. That is
+            # the one reading this block must never act on: fail closed on a
+            # stale mark rather than evaluate the guard against a reset zero.
             if (
                 max_daily_loss_amt is not None
                 or max_drawdown_pct is not None
             ) and self._positions_provider is not None:
-                net = self._session_net(now)
+                increases = self._increases_exposure(request)
+                if self._stale_marks(now) and increases:
+                    return self._deny("marks_not_fresh", now=now)
+                # AC-9: measured against THIS strategy's own baseline and peak
+                # (durable across a restart when a store is bound). Falls back to
+                # the account aggregate while the book carries no strategy_id,
+                # so the guard is never dead on an unattributed book.
+                bucket = (
+                    resolve_strategy_id(request)
+                    if self._book_is_attributed()
+                    else None
+                )
+                net, peak = self._session_net_for(bucket, now)
                 if max_daily_loss_amt is not None and (
                     net <= -max_daily_loss_amt
-                ) and self._increases_exposure(request):
+                ) and increases:
                     return self._deny("daily_loss_exceeded", now=now)
                 if max_drawdown_pct is not None:
-                    dd = self._drawdown(net)
-                    if dd is not None and dd >= max_drawdown_pct \
-                            and self._increases_exposure(request):
+                    dd = self._drawdown_of(peak, net)
+                    if dd is not None and dd >= max_drawdown_pct and increases:
                         return self._deny("drawdown_exceeded", now=now)
 
             # Rate limit check
@@ -521,6 +556,51 @@ class RiskManager:
 
     # -- session PnL for daily-loss / drawdown guards ---------------------
 
+    def _stale_marks(self, now: datetime | None) -> bool:
+        """True when any open position lacks a *usable* mark right now.
+
+        The daily-loss and drawdown guards read ``unrealized_pnl``, and
+        ``tradex_domain.position_math.apply_fill`` deliberately resets that to
+        ``0`` on every fill (and clears ``mark_price``/``marked_at``), because
+        a mark taken before a fill no longer describes the resulting position.
+        That reset is correct accounting — but it means a position that is
+        fully under water reads as *flat* until the next quote-driven mark
+        arrives. In a halted or circuit-limited name no further tick comes, so
+        precisely when the market is most dangerous the drawdown gauge reports
+        zero.
+
+        So staleness has to be explicit rather than inferred from the number.
+        A position is *usable* only when it is flat, or carries a positive mark
+        that is no older than ``max_mark_age_seconds``. A position with an open
+        quantity and no such mark is stale, and the guards fail closed on it
+        (AC-9): an unknown mark is not a zero mark.
+
+        When ``require_fresh_marks`` is off this still applies, because the
+        daily-loss/drawdown gates are themselves an explicit operator decision
+        and reading them off a reset zero is the defect being fixed. Backtest
+        mode is unaffected in practice: the backtest path passes no positions
+        provider, so the block is skipped entirely.
+        """
+        if self._positions_provider is None:
+            return False
+        instant = self._now(now)
+        if instant.tzinfo is None:
+            instant = instant.replace(tzinfo=UTC)
+        for pos in self._positions_provider():
+            if pos.quantity.value == 0:
+                continue
+            if pos.mark_price is None or pos.mark_price.value <= 0:
+                return True
+            marked_at = pos.marked_at
+            if marked_at is None:
+                return True
+            if marked_at.tzinfo is None:
+                marked_at = marked_at.replace(tzinfo=UTC)
+            age = (instant - marked_at).total_seconds()
+            if age < 0 or age > self._max_mark_age_seconds:
+                return True
+        return False
+
     def _equity_pnl(self) -> Decimal:
         """Portfolio realized + unrealized PnL from the position book.
 
@@ -533,10 +613,147 @@ class RiskManager:
             total += pos.realized_pnl.amount + pos.unrealized_pnl.amount
         return total
 
+    # -- per-strategy baselines (AC-9) -----------------------------------
+
+    @staticmethod
+    def _position_strategy(pos: object) -> str | None:
+        """The strategy that owns *pos*, or ``None`` when unattributed.
+
+        ``Position.strategy_id`` is the AC-9 data-model field and is read with
+        ``getattr`` so this is correct before and after it lands: a book whose
+        positions carry no strategy id is *unattributed*, and every such
+        position is measured against the account-level baseline instead. That
+        is the honest reading — attributing the whole account to whichever
+        strategy happened to ask would be the exact bug AC-9 exists to remove.
+        """
+        sid = getattr(pos, "strategy_id", None)
+        if isinstance(sid, str) and sid.strip():
+            return sid.strip()
+        return None
+
+    def _book_is_attributed(self) -> bool:
+        """True when the position book actually names its owning strategies.
+
+        AC-9 makes ``Position.strategy_id`` part of the data model, and until
+        that field exists no position can be attributed. A per-strategy bucket
+        over an unattributed book is not a stricter guard, it is a *dead* one:
+        the strategy owns nothing, its P&L is zero, and the daily-loss and
+        drawdown guards can never fire. So the per-strategy split is used only
+        once there is something to split, and the account aggregate is measured
+        until then. This is never weaker than the pre-AC-9 behaviour, and it
+        becomes per-strategy the moment the field lands — with no change here.
+        """
+        if self._positions_provider is None:
+            return False
+        return any(
+            self._position_strategy(pos) is not None
+            for pos in self._positions_provider()
+        )
+
+    def _equity_pnl_for(self, strategy_id: str | None) -> Decimal:
+        """PnL of the positions owned by *strategy_id* (or the whole account
+        when *strategy_id* is ``None``)."""
+        if self._positions_provider is None:
+            return Decimal(0)
+        total = Decimal(0)
+        for pos in self._positions_provider():
+            if self._position_strategy(pos) != strategy_id:
+                continue
+            total += pos.realized_pnl.amount + pos.unrealized_pnl.amount
+        return total
+
+    def _load_baselines(self) -> None:
+        """Seed the per-strategy baselines from the durable store.
+
+        A stored row for a *previous* date is deliberately dropped rather than
+        reused: the day rolls forward exactly as the in-memory path does, so
+        yesterday's loss never leaks into today's limit. Only today's rows
+        survive a restart, which is the whole point — the breaker that was
+        already tripped this morning is still tripped after a crash-restart.
+        """
+        store = self._baseline_store
+        if store is None:
+            return
+        today = self._now(None).date().isoformat()
+        try:
+            rows = store.load_all()  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover - defensive: never block a check
+            log.warning("risk baseline load failed; starting from zero",
+                        exc_info=True)
+            return
+        for sid, baseline in rows.items():
+            if baseline.session_date == today:
+                self._strategy_baselines[sid] = (
+                    date.fromisoformat(today),
+                    baseline.base_pnl,
+                    baseline.peak_pnl,
+                )
+
+    def _persist_baseline(self, sid: str, entry: tuple[date, Decimal, Decimal]) -> None:
+        """Advance one strategy's baseline in memory, and to the store if bound.
+
+        The in-memory advance is unconditional — it is what the guards read on
+        this session, with or without durability. Only the durable write needs
+        a store; without one the peak still advances in RAM exactly as it did
+        before this lane, and simply does not survive a restart.
+        """
+        if self._strategy_baselines.get(sid) == entry:
+            return
+        self._strategy_baselines[sid] = entry
+        store = self._baseline_store
+        if store is None:
+            return
+        try:
+            from tradex_execution.risk_baseline_store import StrategyBaseline
+
+            store.save(  # type: ignore[attr-defined]
+                StrategyBaseline(
+                    strategy_id=sid,
+                    session_date=entry[0].isoformat(),
+                    base_pnl=entry[1],
+                    peak_pnl=entry[2],
+                )
+            )
+        except Exception:  # pragma: no cover - defensive teardown/IO
+            log.warning("risk baseline save failed for %s", sid, exc_info=True)
+
+    def _session_net_for(
+        self, strategy_id: str | None, now: datetime | None,
+    ) -> tuple[Decimal, Decimal]:
+        """Return ``(net, peak)`` for one strategy, rolling the day forward.
+
+        A strategy with no stored baseline takes its day-start P&L from the
+        current book on first sight, then holds it. When a durable store is
+        bound the entry is written out on every change, so a restart resumes
+        the same baseline and peak rather than a flattering zero.
+        """
+        today = self._now(now).date()
+        key = strategy_id or ""
+        entry = self._strategy_baselines.get(key)
+        if entry is None or entry[0] != today:
+            entry = (today, self._equity_pnl_for(strategy_id), Decimal(0))
+        net = self._equity_pnl_for(strategy_id) - entry[1]
+        peak = max(entry[2], net)
+        # The unattributed bucket is the account aggregate; it is held in memory
+        # (there is no strategy id to key a durable row by) so its day-start
+        # baseline is stable for the session. A real strategy id is also written
+        # through to the durable store so a restart resumes the same baseline.
+        if strategy_id is None:
+            self._strategy_baselines[key] = (entry[0], entry[1], peak)
+        else:
+            self._persist_baseline(strategy_id, (entry[0], entry[1], peak))
+        return net, peak
+
+    def _drawdown_of(self, peak: Decimal, net: Decimal) -> Decimal | None:
+        """Fractional drawdown from *peak*, or ``None`` at/below zero peak."""
+        if peak <= 0:
+            return None
+        return (peak - net) / peak
+
     def _session_net(self, now: datetime | None) -> Decimal:
-        """Today's PnL relative to the day-start baseline, maintaining the
-        day's running peak. Rolls the baseline forward on a date change so
-        yesterday's losses never leak into today's limit.
+        """Account-level today's PnL relative to the day-start baseline,
+        maintaining the day's running peak. Rolls the baseline forward on a
+        date change so yesterday's losses never leak into today's limit.
         """
         today = self._now(now).date()
 
@@ -555,7 +772,24 @@ class RiskManager:
         return (self._peak_pnl - net) / self._peak_pnl
 
     def _increases_exposure(self, request: OrderRequest) -> bool:
-        """True when the order grows the existing position or opens one."""
+        """True when the order adds gross exposure on *either* side.
+
+        Per-side gross, not net (AC-9 / lane 2f). The net test
+        ``new*new > existing*existing`` classified a SELL of 150 against a
+        long 100 as a *reduction* (net 100 → 50), which is how the fresh-mark,
+        daily-loss and drawdown gates got bypassed by exactly the order that
+        flips the book: it opens a brand-new short that no gate had evaluated.
+
+        The result is compared side by side instead. Gross long and gross short
+        are the two exposures the account actually carries, and this order
+        increases exposure iff it grows *either* of them:
+
+        - long 100, SELL 150 → short 50: gross long 100 → 0, gross short
+          0 → 50. The short side grew, so this increases.
+        - long 100, SELL 40 → long 60: both sides shrank, so a reduction.
+        - long 100, SELL 100 → flat: both sides shrank, so a reduction.
+        - short 100, BUY 150 → long 50: gross long 0 → 50, so this increases.
+        """
         signed = (
             request.quantity.value
             if request.side is OrderSide.BUY
@@ -569,8 +803,14 @@ class RiskManager:
         for pos in self._positions_provider():
             if pos.instrument == request.instrument:
                 existing = pos.quantity.value
-                new_signed = existing + signed
-                return new_signed * new_signed > existing * existing
+                resulting = existing + signed
+                long_before = max(existing, Decimal(0))
+                short_before = max(-existing, Decimal(0))
+                long_after = max(resulting, Decimal(0))
+                short_after = max(-resulting, Decimal(0))
+                return (
+                    long_after > long_before or short_after > short_before
+                )
         return True
 
     @property

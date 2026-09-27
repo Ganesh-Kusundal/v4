@@ -15,6 +15,12 @@ from typing import Any
 from tradex_domain import BrokerId
 from tradex_domain.instruments import Equity, Instrument
 from tradex_domain.paths import default_runtime_dir
+from tradex_domain.risk_budget import (
+    REQUIRED_RISK_LIMITS,
+    UNBOUNDED,
+    RiskBudget,
+    is_unbounded,
+)
 
 #: The tape a live session streams, named by an operator. Never defaulted to an
 #: index or a universe: the platform is not asked to guess what to trade.
@@ -119,6 +125,11 @@ class RiskConfig:
     #: notional exceeds the returned cash. When None, the cash gate is
     #: skipped (backward-compat with risk configs that do not track cash).
     cash_provider: Callable[[], Decimal | None] | None = None
+    #: AC-9: per-strategy risk budgets, keyed by strategy id. ``boot()`` passes
+    #: this to ``RiskManager``, which resolves a request's budget by the
+    #: strategy identifier rather than by the ``name@version`` text in ``tag``.
+    #: A strategy with no entry here falls back to the global caps above.
+    budgets: dict[str, RiskBudget] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.max_order_value is not None and not isinstance(self.max_order_value, Decimal):
@@ -147,6 +158,92 @@ class RiskConfig:
             )
         if self.max_mark_age_seconds < 0:
             raise ValueError("max_mark_age_seconds must be non-negative")
+        # Strict parsing of budgets: the dict/JSON path may hand us plain dicts
+        # (from ``from_dict``) rather than RiskBudget objects. Convert here so
+        # every entry is a real RiskBudget and Decimal-coerced, exactly like the
+        # scalar limits above. A caller who built the dataclass directly with
+        # RiskBudget objects passes through unchanged.
+        normalized: dict[str, RiskBudget] = {}
+        for sid, budget in (self.budgets or {}).items():
+            if isinstance(budget, RiskBudget):
+                normalized[sid] = budget
+            elif isinstance(budget, dict):
+                payload = dict(budget)
+                payload.setdefault("strategy_id", sid)
+                normalized[sid] = RiskBudget(**payload)
+            else:
+                raise ValueError(
+                    f"risk budget for {sid!r} must be a RiskBudget or an "
+                    f"object, got {type(budget).__name__}"
+                )
+        object.__setattr__(self, "budgets", normalized)
+
+    def missing_limits(self) -> tuple[str, ...]:
+        """The required limits that are *unset* — not opted out, just absent.
+
+        AC-10: no risk limit is optional in paper or live, so a limit left at
+        ``None`` is a missing limit and boot refuses. The explicit
+        ``UNBOUNDED`` sentinel is the documented way to say "run this one
+        unlimited on purpose" and is deliberately NOT reported here — that is
+        the whole difference between a choice and an omission.
+        """
+        return tuple(
+            name
+            for name in REQUIRED_RISK_LIMITS
+            if getattr(self, name) is None
+        )
+
+    def effective_limits(self) -> dict[str, object]:
+        """The required limits as ``RiskManager`` wants them.
+
+        ``UNBOUNDED`` is an *operator-facing* marker meaning "no limit". It is
+        not a number the risk gate can use: handed to ``RiskManager`` as-is,
+        ``max_order_value = -1`` would deny every order (every notional exceeds
+        -1) and ``max_daily_loss_amt = -1`` would trip the loss guard on any
+        gain. The opt-out has to become the gate's own "no limit" sentinel
+        (``None``) here, at the one boundary where the two vocabularies meet.
+
+        ``None`` never reaches here — ``require_limits()`` has already refused
+        the boot by then — so this cannot be the path that turns a missing
+        limit into an unbounded one.
+        """
+        caps: dict[str, object] = {}
+        for name in REQUIRED_RISK_LIMITS:
+            value = getattr(self, name)
+            caps[name] = None if is_unbounded(value) else value
+        return caps
+
+    def require_limits(self) -> None:
+        """Raise unless every required limit is set (or explicitly UNBOUNDED).
+
+        Called by ``boot()`` for paper and live. Backtest and replay do not
+        call it: they trade recorded data with no venue to be stopped at, and
+        the promotion bar is a separate concern (see the spec's AC-10 scope).
+        """
+        missing = self.missing_limits()
+        if not missing:
+            return
+        raise MissingRiskLimitError(missing)
+
+
+class MissingRiskLimitError(ValueError):
+    """A required risk limit was left unset at boot (AC-10).
+
+    Carries the missing names so an operator sees every gap at once, not one
+    per restart. The remedy is either to name a value for each, or to set the
+    limit to ``UNBOUNDED`` — the documented, explicit opt-out that keeps
+    "unlimited" a decision rather than an accident of a default.
+    """
+
+    def __init__(self, missing: Iterable[str]) -> None:
+        self.missing = tuple(missing)
+        named = ", ".join(self.missing)
+        super().__init__(
+            f"refusing to boot: risk limit(s) unset: {named}. "
+            f"No risk limit is optional in paper or live. Name a value for "
+            f"each, or set it to the explicit unbounded opt-out "
+            f"tradex_domain.UNBOUNDED ({UNBOUNDED}) to say so deliberately."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -354,6 +451,7 @@ __all__ = [
     "AppConfig",
     "BrokerConfig",
     "ExecutionConfig",
+    "MissingRiskLimitError",
     "PersistenceConfig",
     "RiskConfig",
     "_build",

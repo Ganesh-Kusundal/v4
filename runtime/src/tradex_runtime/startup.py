@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
-from tradex_domain import BrokerId
+from tradex_domain import BrokerId, OrderRejectedError
 from tradex_domain.instruments import Instrument
 from tradex_domain.protocols import BrokerAdapter
 
@@ -201,6 +201,17 @@ def boot(
         raise ValueError(
             f"unknown mode: {cfg.mode!r}, must be one of {sorted(valid_modes)}"
         )
+    # AC-10 / lane 2f: in paper as well as live, no risk limit is optional. A
+    # limit left at None refuses the boot; an operator who genuinely wants one
+    # unlimited says so with the explicit UNBOUNDED sentinel. Backtest and
+    # replay are offline (no venue to stop) and are not gated here.
+    #
+    # Checked FIRST, ahead of the other live preconditions, so a missing risk
+    # limit is named as the missing risk limit rather than surfacing as some
+    # later, more incidental gate while the operator is still filling in the
+    # rest of a fresh config.
+    if cfg.mode in ("paper", "live"):
+        cfg.risk.require_limits()
     if cfg.mode == "live" and cfg.broker_id == BrokerId.PAPER:
         raise ValueError("live mode requires a non-paper broker")
     if cfg.mode == "live" and not cfg.live_enabled:
@@ -392,18 +403,50 @@ def _boot_tail(
     feed_supervisor = FeedSupervisor() if cfg.mode == "live" else None
 
     # 5. Create risk manager
+    # AC-9: the per-strategy budgets are resolved by the strategy identifier,
+    # not the ``name@version`` text, and are persisted so a restart does not
+    # reset a tripped daily-loss/drawdown breaker. The baseline store shares
+    # the same SQLite file as the order store (persistence.path) — one DB, one
+    # subsystem. In-memory (no persistence path) it stays None and the in-RAM
+    # baseline is used, exactly as before.
+    baseline_store = None
+    if cfg.persistence.path:
+        from tradex_execution.risk_baseline_store import SQLiteRiskBaselineStore
+
+        baseline_store = SQLiteRiskBaselineStore(cfg.persistence.path)
+    # AC-10: ``UNBOUNDED`` becomes the RiskManager's own "no limit"
+    # sentinel here, so the documented opt-out actually means unbounded instead
+    # of -1, which would deny everything. See ``RiskConfig.effective_limits``.
+    limits = cfg.risk.effective_limits()
     risk_manager = RiskManager(
-        max_order_value=cfg.risk.max_order_value,
-        max_position_value=cfg.risk.max_position_value,
-        max_orders_per_minute=cfg.risk.max_orders_per_minute,
+        max_order_value=limits["max_order_value"],
+        max_position_value=limits["max_position_value"],
+        max_orders_per_minute=limits["max_orders_per_minute"],
         reject_unknown_market_value=cfg.risk.reject_unknown_market_value,
-        max_daily_loss_amt=cfg.risk.max_daily_loss_amt,
-        max_drawdown_pct=cfg.risk.max_drawdown_pct,
+        max_daily_loss_amt=limits["max_daily_loss_amt"],
+        max_drawdown_pct=limits["max_drawdown_pct"],
+        # AC-10 / lane 2f: the master gate. When False, ``check()`` refuses
+        # EVERY submit before any other gate runs. Bound to the same
+        # ``AppConfig.live_orders_enabled`` the session gate reads, so the
+        # documented "one config flip stops all order flow" is one flag.
+        #
+        # This gate is about order flow that leaves the machine, so it is bound
+        # in live only. Paper trading IS order flow against a simulated venue
+        # and is the whole point of the mode; closing its gate because the
+        # operator never set a LIVE flag would make paper unrunnable by default
+        # and would be a different control wearing this one name. The live
+        # default is False, so a live session comes up refusing every submit
+        # until the operator deliberately opens it.
+        live_orders_enabled=(cfg.live_orders_enabled or cfg.mode != "live"),
         # Live risk is never allowed to silently operate on an unmarked book.
         require_fresh_marks=(cfg.mode == "live" or cfg.risk.require_fresh_marks),
         max_mark_age_seconds=cfg.risk.max_mark_age_seconds,
+        # AC-9: per-strategy risk budgets, resolved by strategy id.
+        budgets=cfg.risk.budgets,
         # C3: same registry as /metrics — rejection reasons + exposure gauges.
         metrics=metrics,
+        # AC-9: durable per-strategy capital/drawdown baselines.
+        baseline_store=baseline_store,
     )
 
     # 6. Create execution engine
@@ -738,7 +781,33 @@ def _boot_tail(
         writer_lock=writer_lock,
         feed_monitor=feed_monitor,
         feed_recovery=feed_recovery,
+        # AC-10 / lane 2f: bind the documented "one config flip stops all
+        # order flow" control. ``AppConfig.live_orders_enabled`` is read by
+        # ``from_dict`` and was read by nothing else, so the gate that
+        # ``_make_order_gate()`` builds was dead. With the flag wired to the
+        # session and its RiskManager master gate, flipping it refuses every
+        # submit. As with the RiskManager gate, this closes order flow that
+        # leaves the machine, so it is bound in live only; paper keeps it open.
+        live_orders_enabled=(cfg.live_orders_enabled or cfg.mode != "live"),
     )
+
+    # AC-10 / lane 2f: prove at boot that the order gate actually fires, so
+    # "one config flip stops all order flow" is a fact and not a runbook claim.
+    # The session builds the gate from the flag it was constructed with; boot
+    # only exercises it. Flipping the flag false is a legitimate "stop trading
+    # but keep the process" state, so the boot is not refused — the gate is
+    # simply already closed, which is exactly what the operator asked for.
+    gate_open = cfg.live_orders_enabled or cfg.mode != "live"
+    if gate_open:
+        session.assert_order_gate_open()  # open gate: must not raise
+    else:
+        try:
+            session.assert_order_gate_open()  # closed gate: must raise
+        except OrderRejectedError:
+            log.warning(
+                "live_orders_enabled=false: the order gate is closed; every "
+                "submit on this session is refused by design"
+            )
 
     # 9. Live restart reconciliation (R1) — run BEFORE session.start() so
     # a *new* critical drift never leaves the session in READY (C2).
