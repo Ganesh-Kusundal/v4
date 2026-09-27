@@ -429,6 +429,11 @@ class LiveFillBridge:
                     price=price,
                     timestamp=timestamp,
                     fill_id=fill_id,
+                    # The venue echoes the order, so its product is the fill's
+                    # product. A live fill with no label is charged the intraday
+                    # schedule, which is how a delivery trade booked live came
+                    # to be priced as an intraday one.
+                    product_type=order.product_type,
                 )
             )
         )

@@ -53,7 +53,11 @@ from tradex_reactive.bus import ReactiveBus
 from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 
 from tradex_execution.cash_ledger import CashLedger, CashSnapshot
-from tradex_execution.fees import FeeCalculator
+from tradex_execution.fees import (
+    FeeCalculator,
+    UnsupportedProductTypeError,
+    require_fee_schedule,
+)
 from tradex_execution.fill_sources import FillSource
 from tradex_execution.idempotency import (
     FillDedup,
@@ -361,12 +365,23 @@ class ExecutionEngine:
         *,
         sync: bool,
         metric_suffix: str | None = None,
+        reserved_cid: CorrelationId | None = None,
     ) -> OrderReceipt | None:
-        """Publish a terminal intake rejection (feed/risk/kill-switch gates)."""
+        """Publish a terminal intake rejection (feed/risk/kill-switch gates).
+
+        ``reserved_cid`` is the idempotency key this request already reserved.
+        Gates that run *before* ``check_and_reserve`` have nothing to release and
+        leave it ``None``; a gate that runs after must hand the key back, or the
+        refusal leaks the correlation id for the life of the process and every
+        retry of it answers ``idempotency_in_flight`` as a duplicate (M2).
+        """
         if metric_suffix is not None and self._metrics is not None:
             self._metrics.counter(
                 f"orders.rejection_reason.{metric_suffix}",
             ).inc()
+        if reserved_cid is not None and self._guard is not None:
+            with self._guard_lock:
+                self._guard.release(reserved_cid)
         order = self._make_order(request, OrderStatus.REJECTED)
         self._order_manager.on_order_created(order)
         rejected_event = OrderRejected(order=order, reason=reason)
@@ -561,6 +576,35 @@ class ExecutionEngine:
                 )
                 if sync
                 else None
+            )
+
+        # 2b. Fee schedule gate (AC-6). The product must be *priceable* before
+        # anything leaves this process: `fees.require_fee_schedule` refuses
+        # MARGIN/MTF/COVER_ORDER because no rate table exists for them, and the
+        # alternatives were a silent zero or the intraday table, both of which
+        # book a real order against a cost nobody computed.
+        #
+        # Placed after the risk block and BEFORE the dispatch-intent write and
+        # the venue call, because the cost of refusing late is the thing the
+        # kill switch exists for: an order the venue has accepted, that this
+        # process can neither price nor account for, filed as a plain
+        # REJECTED receipt with no UNKNOWN anywhere in it.
+        #
+        # It is a rejection and not a raise, for the same reason the risk gate
+        # is: the idempotency reservation is already made at this point, and a
+        # bare raise would strand the correlation id so the venue's retry is
+        # then skipped as a duplicate. The key is handed back with the receipt.
+        try:
+            require_fee_schedule(request.product_type)
+        except UnsupportedProductTypeError as exc:
+            log.warning("Fee schedule gate refused %s: %s",
+                        request.instrument, exc)
+            return self._reject_intake(
+                request,
+                str(exc),
+                sync=sync,
+                metric_suffix="fee_schedule_unsupported",
+                reserved_cid=reserved_cid,
             )
 
         # 3. Fill — Wave C1: persist broker dispatch intent before the call.

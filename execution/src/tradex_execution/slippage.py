@@ -85,6 +85,10 @@ class SlippageAwareFillSource:
                 quantity=fill.quantity,
                 price=adjusted_price,
                 timestamp=fill.timestamp,
+                # This wrapper rebuilds the fill to re-price it, so the
+                # product has to travel with it — a re-priced DELIVERY fill
+                # that lost its label would be charged the intraday schedule.
+                product_type=fill.product_type,
             )
         return order, fill
 

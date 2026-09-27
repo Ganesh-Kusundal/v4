@@ -106,12 +106,16 @@ class FillModel:
             quantity=order.quantity,
             price=price,
             timestamp=timestamp,
+            # A fill is priced from its own product's schedule, and a null is
+            # resolved to INTRADAY and counted, so the label has to be carried
+            # here — the one place every fill source builds its Fill.
+            product_type=order.product_type,
         )
 
     @staticmethod
     def restamp_fill(fill: Fill, order_id: OrderId) -> Fill:
         """Rebuild a fill with a new order id, preserving its recorded identity
-        (instrument/side/quantity/price/timestamp). Used by ReplayFillSource to
+        (instrument/side/quantity/price/timestamp/product). Used by ReplayFillSource to
         match a historical fill to the freshly minted order."""
         return Fill(
             order_id=order_id,
@@ -120,6 +124,9 @@ class FillModel:
             quantity=fill.quantity,
             price=fill.price,
             timestamp=fill.timestamp,
+            # Preserved, not re-derived: this fill was already priced once, and
+            # dropping the label here would re-charge it at the intraday rate.
+            product_type=fill.product_type,
         )
 
 
