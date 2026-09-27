@@ -93,7 +93,9 @@ class TestBootStreamBackendWiring:
         broker.stream_backend.return_value = backend or MagicMock()
         return broker
 
-    def test_live_boot_wires_stream_backend(self, monkeypatch, tmp_path) -> None:
+    def test_live_boot_wires_stream_backend(
+        self, named_tape, monkeypatch, tmp_path,
+    ) -> None:
         import tradex_runtime.live as live_mod
 
         backend = MagicMock()

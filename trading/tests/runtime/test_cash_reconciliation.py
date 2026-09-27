@@ -43,7 +43,7 @@ def _cfg(tmp_path) -> AppConfig:
 
 
 def test_boot_refuses_ready_when_local_cash_drifts_from_the_broker(
-    monkeypatch, tmp_path,
+    named_tape, monkeypatch, tmp_path,
 ) -> None:
     """A balance the venue does not agree with is not a tradable balance."""
     from tradex_runtime import startup as sm

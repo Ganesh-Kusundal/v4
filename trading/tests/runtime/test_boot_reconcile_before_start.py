@@ -88,7 +88,7 @@ def test_critical_drift_prevents_session_from_reaching_ready(monkeypatch, tmp_pa
             pass
 
 
-def test_no_drift_lets_session_reach_ready(monkeypatch, tmp_path) -> None:
+def test_no_drift_lets_session_reach_ready(named_tape, monkeypatch, tmp_path) -> None:
     """With no drift, the session still reaches READY (regression guard)."""
     cfg, _broker = _patched_boot_with_drift(monkeypatch, [], tmp_path)
 
@@ -100,7 +100,7 @@ def test_no_drift_lets_session_reach_ready(monkeypatch, tmp_path) -> None:
         session.stop()
 
 
-def test_low_drift_does_not_block_ready(monkeypatch, tmp_path) -> None:
+def test_low_drift_does_not_block_ready(named_tape, monkeypatch, tmp_path) -> None:
     """Only HIGH/CRITICAL drift must block; LOW/MEDIUM may proceed with a log."""
     drift = DriftItem(
         kind="position",

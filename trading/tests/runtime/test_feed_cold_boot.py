@@ -91,10 +91,15 @@ def _boot_live(tmp_path, monkeypatch) -> Any:
 
 
 class _RecordingHistory:
-    """Patchable ``fetch_bars`` that records every call it is asked to serve."""
+    """Patchable ``fetch_bars`` that records every call it is asked to serve.
+
+    ``bars`` is public and reassignable, because a boot now cold starts the feed
+    for the tape it is given: a test that wants to watch a *later* cold start
+    fail lets the boot's own succeed, then swaps the answer out from under it.
+    """
 
     def __init__(self, bars: Any = ()) -> None:
-        self._bars = bars
+        self.bars = bars
         self.calls: list[tuple[str, str, datetime, datetime]] = []
 
     def __call__(
@@ -103,9 +108,9 @@ class _RecordingHistory:
         self.calls.append(
             (str(instrument.instrument_id), timeframe, start, end)
         )
-        if isinstance(self._bars, Exception):
-            raise self._bars
-        return self._bars
+        if isinstance(self.bars, Exception):
+            raise self.bars
+        return self.bars
 
 
 def _bar(offset: int = 0, symbol: str = "RELIANCE") -> BarFrame:
@@ -139,13 +144,20 @@ def _order(cid: str) -> OrderRequest:
 
 
 def test_cold_boot_reaches_ready_because_history_reconciled(
-    tmp_path, monkeypatch
+    named_tape, tmp_path, monkeypatch,
 ) -> None:
     """A cold boot reaches READY because recovery ran and succeeded.
 
     Before the fix this assertion was impossible: the state machine ended at
     RESYNCHRONIZING and the order gate rejected everything with
     ``feed_not_ready``.
+
+    ``boot()`` cold starts the feed itself now that an operator can name the
+    tape, so this drives a *second* cold start through the session: the boot's
+    proves the composition root (``test_boot_cold_start_wiring``), this one
+    proves ``start_market_feed``. ``stop()`` is what ``start()`` does first, so
+    calling it is the honest way back to the pre-start state — there is no
+    longer a live session to be had with a feed nobody started.
     """
     history = _RecordingHistory([_bar(), _bar(60)])
     monkeypatch.setattr(ParquetHistoryProvider, "fetch_bars", history)
@@ -153,6 +165,11 @@ def test_cold_boot_reaches_ready_because_history_reconciled(
     try:
         feed = session.market_feed
         assert feed is not None
+        assert feed.supervisor.ready is True, (
+            "the boot's own cold start must have proved the tape it was given"
+        )
+
+        feed.stop()
         assert feed.supervisor.ready is False, "precondition: not ready before start"
 
         session.start_market_feed([_INST])
@@ -164,20 +181,29 @@ def test_cold_boot_reaches_ready_because_history_reconciled(
         assert session.engine.feed_supervisor is feed.supervisor
         receipt = session.engine.submit(_order("cold-boot-ready"))
         assert receipt.message != "feed_not_ready"
-        # The socket is not the evidence; the reconciled history is.
-        assert [c[0] for c in history.calls] == ["NSE:RELIANCE"]
-        assert history.calls[0][1] == "1m"
+        # The socket is not the evidence; the reconciled history is. Twice:
+        # once for the boot's cold start and once for this one.
+        assert len(history.calls) == 2
+        assert (history.calls[-1][0], history.calls[-1][1]) == ("NSE:RELIANCE", "1m")
     finally:
         session.stop()
 
 
 def test_cold_boot_recovery_failure_refuses_and_says_why(
-    tmp_path, monkeypatch
+    named_tape, tmp_path, monkeypatch,
 ) -> None:
-    """A cold start whose recovery fails refuses to start, and says why."""
-    history = _RecordingHistory(RuntimeError("datalake read failed"))
+    """A cold start whose recovery fails refuses to start, and says why.
+
+    The boot's own cold start is allowed to succeed first, so the lake answers
+    with bars and then stops answering: that is the only way to reach a session
+    whose feed is halted, which is the state this asserts against. A boot whose
+    *first* cold start fails is refused outright, and is covered in
+    ``test_boot_cold_start_wiring``.
+    """
+    history = _RecordingHistory([_bar(), _bar(60)])
     monkeypatch.setattr(ParquetHistoryProvider, "fetch_bars", history)
     session = _boot_live(tmp_path, monkeypatch)
+    history.bars = RuntimeError("datalake read failed")
     try:
         feed = session.market_feed
         with pytest.raises(FeedNotReadyError, match="datalake read failed"):
@@ -194,10 +220,19 @@ def test_cold_boot_recovery_failure_refuses_and_says_why(
         session.stop()
 
 
-def test_cold_boot_refuses_when_history_returns_no_bars(tmp_path, monkeypatch) -> None:
-    """A cold boot with nothing to reconcile has proven nothing, so it refuses."""
-    monkeypatch.setattr(ParquetHistoryProvider, "fetch_bars", _RecordingHistory([]))
+def test_cold_boot_refuses_when_history_returns_no_bars(
+    named_tape, tmp_path, monkeypatch,
+) -> None:
+    """A cold boot with nothing to reconcile has proven nothing, so it refuses.
+
+    Same two-phase shape as the failure case above, for the same reason: the
+    boot's own cold start has to succeed to hand back a session at all.
+    """
+
+    history = _RecordingHistory([_bar(), _bar(60)])
+    monkeypatch.setattr(ParquetHistoryProvider, "fetch_bars", history)
     session = _boot_live(tmp_path, monkeypatch)
+    history.bars = []
     try:
         feed = session.market_feed
         with pytest.raises(FeedNotReadyError, match="no bars"):

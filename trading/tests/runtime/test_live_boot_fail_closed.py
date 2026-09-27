@@ -30,7 +30,9 @@ def _live_cfg(tmp_path) -> AppConfig:
     )
 
 
-def test_live_boot_wires_fail_closed_engine_flags(monkeypatch, tmp_path) -> None:
+def test_live_boot_wires_fail_closed_engine_flags(
+    named_tape, monkeypatch, tmp_path,
+) -> None:
     """Live ExecutionEngine must require risk, feed, and durable events."""
     broker = _fake_live_broker()
     monkeypatch.setattr(

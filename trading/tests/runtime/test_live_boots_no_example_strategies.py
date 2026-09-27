@@ -53,7 +53,9 @@ def _live_cfg(tmp_path) -> AppConfig:
     )
 
 
-def test_a_live_boot_wires_no_strategies_by_default(monkeypatch, tmp_path) -> None:
+def test_a_live_boot_wires_no_strategies_by_default(
+    named_tape, monkeypatch, tmp_path,
+) -> None:
     """A live account must not be trading an example nobody deployed."""
     from tradex_runtime import startup as sm
 
@@ -88,7 +90,7 @@ def test_examples_still_remain_discoverable() -> None:
 
 
 def test_a_deliberately_enabled_strategy_is_still_registered(
-    monkeypatch, tmp_path,
+    named_tape, monkeypatch, tmp_path,
 ) -> None:
     """The gate is on auto-registration, not on strategy wiring itself."""
     from tradex_runtime import startup as sm

@@ -713,24 +713,32 @@ class TestNotifyReconnect:
 
     def test_notify_reconnect_does_not_auto_recover(self) -> None:
         """notify_reconnect must never call the recovery coordinator automatically."""
-        import threading
+        from tradex_runtime.feed_recovery import RecoveryOutcome
 
-        recovery_called = threading.Event()
+        calls: list[int] = []
 
         class _FakeRecovery:
             def recover(self) -> object:
-                recovery_called.set()
-                return None
+                calls.append(1)
+                return RecoveryOutcome(ok=True, generation=1)
 
         fake = _FakeBroker()
         feed = MarketFeed(broker=fake, bus=ReactiveBus())
         feed.set_recovery(_FakeRecovery())
+        # start() is the cold boot and drives recovery itself — it is the one
+        # moment the feed has to become ready — so by the time this test's
+        # subject is reached recovery has already run once. What it must never
+        # do is run again.
         feed.start([_reliance()])
+        assert len(calls) == 1, "the cold start should have run recovery once"
 
         feed.notify_reconnect()
 
         # Recovery must NOT have been called implicitly.
-        assert not recovery_called.wait(timeout=0.1)
+        assert len(calls) == 1, (
+            "notify_reconnect ran the recovery coordinator again "
+            f"({len(calls)} calls); a demotion is not a reconciliation"
+        )
 
 
 class TestAutoRecoveryTriggers:

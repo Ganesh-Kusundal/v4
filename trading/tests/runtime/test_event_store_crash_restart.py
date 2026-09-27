@@ -123,7 +123,7 @@ def _fake_live_broker() -> MagicMock:
 
 
 def test_live_boot_ready_after_recover_when_broker_matches(
-    monkeypatch, tmp_path: Path,
+    named_tape, monkeypatch, tmp_path: Path,
 ) -> None:
     """Recover event store then reach READY when broker book matches local."""
     import tradex_runtime.startup as startup_mod

@@ -13,9 +13,10 @@ These tests cover the missing half, which is a ``startup.py`` change:
    *through the history fetch*, with no caller reaching into the session;
 2. a live boot whose recovery fails **refuses to start** — an exception out of
    ``boot()``, not a warning, and not a session left in ``READY``;
-3. a live boot with nothing named to stream claims nothing: the feed is not
-   ``READY`` and orders stay refused, which is the control against a "fix" that
-   is really just a no-op;
+3. a live boot with nothing named to stream **refuses**, names the setting that
+   would fix it, and opens no stream — the control against a "fix" that is
+   really just a no-op, and against a boot that skips the cold start quietly
+   and hands back a session which looks ready over a feed nobody started;
 4. paper, backtest and replay construct no feed and start no recovery at all;
 5. the live fill bridge counts its average-price fallbacks on the registry the
    ``/metrics`` endpoint serves (the second gap in the same closure lane).
@@ -31,24 +32,25 @@ Two decisions these tests pin, both of which a later change could quietly undo:
   unstarted session so ``/health/ready`` can report why; the feed proof does
   not, because nothing downstream can be trusted once the tape is in question,
   and an operator who reads a warning is an operator who trades on it.
-* **An empty watchlist skips the cold start and says so at ERROR.** Nothing was
-  named, so nothing was expected to be ready, and refusing would take down a
-  server whose only job right now is to serve a chart. What it must never do is
-  claim readiness: the feed stays not ``READY`` and every order stays refused
-  with ``feed_not_ready``. That residual is the honest state of the platform
-  until a caller names the tape this session trades.
+* **The tape is the operator's to name, and a live boot without one is
+  refused.** Nothing in the repository names a watchlist, so an empty tape is
+  the *default* live configuration and it is not a live configuration at all:
+  there is nothing to reconcile, nothing to claim, and every order would be
+  refused with ``feed_not_ready`` while the session reported itself ready. The
+  tape is taken from ``$TRADEX_FEED_INSTRUMENTS`` or ``boot(feed_instruments=)``
+  — never a default index, a scanner universe, or the account's own exposure.
+  The other two ways to name one are covered in ``test_feed_instruments_boot``.
 """
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from tradex_config.schema import AppConfig, PersistenceConfig
+from tradex_config.schema import FEED_INSTRUMENTS_ENV, AppConfig, PersistenceConfig
 from tradex_domain import (
     BrokerId,
     CorrelationId,
@@ -339,30 +341,28 @@ def test_a_cold_start_with_no_verdict_is_still_a_refusal(
 
 
 def test_live_boot_with_no_named_instruments_claims_no_ready_feed(
-    tmp_path, monkeypatch, caplog
+    no_tape, tmp_path, monkeypatch,
 ) -> None:
-    """No tape named, no tape proven — and the operator is told so.
+    """No tape named: no stream opened, and the boot refuses rather than lies.
 
     A boot that started the feed with an empty watchlist would fail closed for
-    the wrong reason ("no instruments subscribed") and refuse a server that was
-    only ever going to serve a chart. A boot that *skipped* the cold start
-    quietly is the version of this that looks fine: this test pins both halves —
-    no ``start()`` call, no READY, and the reason on the record.
+    the wrong reason ("no instruments subscribed"). A boot that *skipped* the
+    cold start quietly was the version of this that looked fine, and it was the
+    bad one: the session came up ``READY`` over a feed nobody had started and
+    every order was refused with ``feed_not_ready`` for the life of the process
+    while ``/health/ready`` agreed with it. So the shipped answer is the third
+    one — refuse, say which setting to set, and open nothing.
+
+    ``started == []`` is the half a future "let it boot and warn" edit would
+    break, and the raised ``ValueError`` is the half a future "let it boot and
+    warn" edit would break first.
     """
     calls = _spy_on_feed(monkeypatch)
-    with caplog.at_level(logging.ERROR, logger="tradex_runtime.startup"):
-        session, _broker = _boot_live(tmp_path, monkeypatch)
 
-    try:
-        assert calls["started"] == []
-        feed = session.market_feed
-        assert feed is not None
-        assert feed.supervisor.ready is False
-        assert session.engine.submit(_order("no-tape")).message == "feed_not_ready"
-        assert any("feed_instruments" in record.message
-                   for record in caplog.records)
-    finally:
-        session.stop()
+    with pytest.raises(ValueError, match=FEED_INSTRUMENTS_ENV):
+        _boot_live(tmp_path, monkeypatch)
+
+    assert calls["started"] == [], "a boot with nothing named must not open a stream"
 
 
 # ---------------------------------------------------------------------------
@@ -452,7 +452,7 @@ def _stream_update() -> Order:
 
 
 def test_live_bridge_counts_avg_price_fallbacks_on_the_served_registry(
-    tmp_path, monkeypatch
+    named_tape, tmp_path, monkeypatch,
 ) -> None:
     """The fallback counter reaches the session's registry, not just the bridge.
 

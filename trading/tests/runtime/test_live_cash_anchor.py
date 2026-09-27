@@ -39,7 +39,7 @@ def _live_cfg(tmp_path) -> AppConfig:
     )
 
 
-def test_live_boot_binds_cash_provider_from_broker(monkeypatch, tmp_path) -> None:
+def test_live_boot_binds_cash_provider_from_broker(named_tape, monkeypatch, tmp_path) -> None:
     """The gate must read broker funds, not sit unbound."""
     from tradex_runtime import startup as sm
 
@@ -58,7 +58,7 @@ def test_live_boot_binds_cash_provider_from_broker(monkeypatch, tmp_path) -> Non
 
 
 def test_live_boot_anchors_cash_so_a_restart_can_fold_it(
-    monkeypatch, tmp_path,
+    named_tape, monkeypatch, tmp_path,
 ) -> None:
     """The engine must hold and record the balance, not merely read it.
 
@@ -99,7 +99,7 @@ def test_live_boot_anchors_cash_so_a_restart_can_fold_it(
         store.close()
 
 
-def test_live_boot_reports_unknown_when_funds_unreadable(monkeypatch, tmp_path) -> None:
+def test_live_boot_reports_unknown_when_funds_unreadable(named_tape, monkeypatch, tmp_path) -> None:
     """An unreadable balance is unknown, and unknown denies rather than admits."""
     from tradex_runtime import startup as sm
 
@@ -116,7 +116,9 @@ def test_live_boot_reports_unknown_when_funds_unreadable(monkeypatch, tmp_path) 
         session.stop()
 
 
-def test_live_boot_reports_unknown_when_funds_call_raises(monkeypatch, tmp_path) -> None:
+def test_live_boot_reports_unknown_when_funds_call_raises(
+    named_tape, monkeypatch, tmp_path,
+) -> None:
     """A funds call that blows up must not be read as a zero balance."""
     from tradex_runtime import startup as sm
 

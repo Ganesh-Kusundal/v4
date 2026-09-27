@@ -207,7 +207,12 @@ def test_a_tick_buckets_on_its_own_recorded_minute(tape: Path) -> None:
         str(INSTRUMENT.instrument_id),
         Timeframe.M1,
         on_frame=frames.append,
-        wall_now=lambda: datetime(2026, 9, 24, 10, 15, 30),
+        # The aggregator's only clock is ``now``, a monotonic throttle clock for
+        # forming frames, so pin it rather than leaving the test at the mercy of
+        # the machine's. ``source="sim"`` emits every tick regardless, and the
+        # session close is ``flush()`` below — there is no wall clock here to
+        # reach 15:30 with, so nothing about this test may depend on one.
+        now=lambda: 0.0,
     )
 
     for tick in read_tape(tape):

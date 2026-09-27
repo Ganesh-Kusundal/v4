@@ -191,7 +191,7 @@ def test_boot_refuses_ready_when_recovered_book_drifts_from_the_broker(
 
 
 def test_boot_reaches_ready_when_broker_agrees_with_the_recovered_book(
-    monkeypatch, tmp_path,
+    named_tape, monkeypatch, tmp_path,
 ) -> None:
     """The gate must not be stuck shut: agreement still reaches READY."""
     from tradex_runtime import startup as sm

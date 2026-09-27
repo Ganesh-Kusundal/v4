@@ -505,7 +505,7 @@ def test_lock_file_removed_on_release(tmp_path) -> None:
     lock.release()
 
 
-def test_first_lock_leaks_after_second_close(monkeypatch, tmp_path) -> None:
+def test_first_lock_leaks_after_second_close(named_tape, monkeypatch, tmp_path) -> None:
     """RED: each RuntimeContext owns its writer_lock. Closing the
     second context does NOT release the first's lock (no shared
     global). The pre-fix code's _ACTIVE_WRITER_LOCK clobber meant
@@ -584,7 +584,9 @@ def test_first_lock_leaks_after_second_close(monkeypatch, tmp_path) -> None:
     )
 
 
-def test_runtime_context_carries_its_own_writer_lock(monkeypatch, tmp_path) -> None:
+def test_runtime_context_carries_its_own_writer_lock(
+    named_tape, monkeypatch, tmp_path,
+) -> None:
     """M7: each RuntimeContext holds a local writer_lock reference, not the
     module global. After the second boot, the first RuntimeContext's
     ``self.writer_lock`` still points to the first lock (not the second).

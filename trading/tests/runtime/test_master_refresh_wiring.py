@@ -43,6 +43,12 @@ class _BrokerWithMasterLoader:
     def get_positions(self) -> list:
         return []
 
+    def subscribe_quotes(self, instruments: list, handler) -> str:
+        return "sub-quotes"
+
+    def unsubscribe(self, sub: object) -> None:
+        pass
+
     def ensure_master_fresh(self, *, force_refresh: bool = False) -> None:
         self.master_loader.load(force_refresh=force_refresh)
         self.refreshes += 1
@@ -72,8 +78,14 @@ class _PlainBroker:
     def get_positions(self) -> list:
         return []
 
+    def subscribe_quotes(self, instruments: list, handler) -> str:
+        return "sub-quotes"
 
-def test_live_starts_master_refresh_scheduler(monkeypatch, tmp_path) -> None:
+    def unsubscribe(self, sub: object) -> None:
+        pass
+
+
+def test_live_starts_master_refresh_scheduler(named_tape, monkeypatch, tmp_path) -> None:
     import tradex_runtime.live as runtime_live
     import tradex_runtime.session_impl as session_mod
 
@@ -100,7 +112,9 @@ def test_live_starts_master_refresh_scheduler(monkeypatch, tmp_path) -> None:
     assert session._master_scheduler is None
 
 
-def test_live_without_loader_starts_no_scheduler(monkeypatch, tmp_path) -> None:
+def test_live_without_loader_starts_no_scheduler(
+    named_tape, monkeypatch, tmp_path,
+) -> None:
     import tradex_runtime.live as runtime_live
     import tradex_runtime.session_impl as session_mod
 

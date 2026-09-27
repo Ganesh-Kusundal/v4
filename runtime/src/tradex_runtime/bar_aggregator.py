@@ -5,9 +5,11 @@ and synthetic generator quotes (replay) both feed the same buckets, so a
 forming bar means the same thing regardless of where the ticks came from.
 
 The IST session grid rules here mirror the datalake's (09:15-15:30, calendar
-day boundary): a bucket closes when the first quote past its end arrives, and
-the day flat-closes at 15:30 so the last bar of a session is never left
-hanging open until the next morning's tick.
+day boundary): a bucket closes when the first quote past its end arrives. The
+session close is not the aggregator's to decide — :meth:`BarAggregator.flush`
+closes whatever is open and it is the caller's to call at 15:30 (or on teardown
+or replay stop), so nothing here reads a wall clock and no test has to inject
+one to reach the close deterministically.
 """
 
 from __future__ import annotations
