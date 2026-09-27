@@ -1,12 +1,41 @@
 """Strategy/backtest/scanner endpoint tests — engine parity and validation.
 
-The backtest endpoint must reproduce the same numbers as the canonical
-datalake backtest path (scripts/backtest_datalake.py): same BacktestEngine,
-same single-sourced candle construction, same resample. These tests pin that
-parity plus the 422 contract for unknown strategies/params.
+The backtest endpoint reads its candles from the same single source the
+canonical datalake backtest path does (``scripts/backtest_datalake.py``:
+``ParquetMarketProvider`` and its resample), and this file pins two things
+about what it then does with them.
+
+**Parity is against a *correctly built* engine, not a bare one.** The route
+used to construct ``BacktestEngine(initial_capital=...)`` and nothing else —
+no cash gate, so an unaffordable run completed and reported a flattering
+equity curve; and no fee calculator unless the request body asked for one, so
+a caller could compare a run against a free-execution one. Both were defects
+on the surface an operator actually reads, both are fixed, and the comparison
+this file makes is now against the engine AC-2 mandates: a ``RiskManager``
+that fails closed on an unknown balance, a ``FeeCalculator`` and a 5 bps
+slippage model. That is a real claim, and it is falsifiable — a route that
+dropped any of the three serves different numbers and fails
+``test_matches_direct_backtest_engine_run``.
+
+**The 422 insufficient-cash branch is reachable, and the test that says so
+provokes it.** It is tempting to conclude it is dead code, because the
+position sizer sizes every order to a fraction of the opening capital. That
+is true only for a strategy that *declares a stop*: then the risk formula
+sizes the order at ``risk_fraction x equity`` and the fraction is well under
+one (measured: 200 at every capital from 100,000 down to 2,000 for
+``bracket_breakout``). A strategy that declares none cannot use the risk
+formula, so the sizer falls back to a **configured absolute notional** — the
+engine's ``DEFAULT_MAX_ORDER_VALUE`` of Rs 100,000, which has no relationship
+at all to the account it is about to be placed in. ``sma_cross`` declares
+nothing, so its orders are ~Rs 99,000 whatever the capital, and a caller who
+opens the chart backtest with a starved ``initial_capital`` is asking the
+route to place an order the account cannot pay for. The route refuses it
+(422, typed envelope, no numbers) and the test below is that refusal.
 """
 
 from __future__ import annotations
+
+from decimal import Decimal
 
 import pytest
 
@@ -49,13 +78,42 @@ class TestStrategiesEndpoint:
             assert s["universe_size"] > 0
 
 
+#: Slippage the route's engine is required to assume, in basis points. Stated
+#: here rather than imported from the route: the parity claim is that the route
+#: builds the engine this describes, and importing the constant would make the
+#: test agree with any value the route happened to pick. The route states the
+#: same figure in ``chart._BACKTEST_SLIPPAGE_BPS``; a deliberate change to the
+#: cost model is an act with this test's diff as its review.
+_SLIPPAGE_BPS = Decimal("5")
+
+#: The opening capital the parity claim is made at, and the one the request
+#: body carries, so the route cannot answer about a different account than the
+#: one compared. 100,000 is also the route's default, so the body is stating
+#: the default rather than configuring a special case.
+_CAPITAL = 100_000
+
+
 class TestBacktestEndpoint:
     def test_matches_direct_backtest_engine_run(self):
-        """Endpoint metrics equal a direct BacktestEngine.run over identical candles."""
+        """Endpoint metrics equal a direct BacktestEngine.run over identical candles.
+
+        The comparison is against an engine built from AC-2's three parts — a
+        risk gate that fails closed, fees, and slippage — and not against a bare
+        ``BacktestEngine(initial_capital=...)``, which is what this asserted
+        until the route stopped being allowed to run without costs. A bare
+        engine and the route now disagree by construction (0.29% against 0.32%
+        total return on this window, before the fee total is even read), and
+        the disagreement is the defect the route fix removed.
+
+        The equity curve and the fills are compared as well as the four
+        metrics, because they are where a change to the cost model shows up
+        first and in full: ``total_fees`` is a single number that a fee
+        calculator can be quietly dropped from, and the curve is every point of
+        it.
+        """
         from datetime import timedelta
 
         from tradex_interfaces.routes.chart import _backtest_candles, _window
-        from tradex_replay.backtest import BacktestEngine
 
         client = _client()
         start, end = _window(_WINDOW["from"], _WINDOW["to"])
@@ -64,16 +122,93 @@ class TestBacktestEndpoint:
         if len(candles) < 25:
             pytest.skip("window too thin for sma(20)")
 
-        direct = BacktestEngine(initial_capital=100000).run(
-            _strategy(instrument), candles,
+        direct = _engine_with_costs(_CAPITAL).run(_strategy(instrument), candles)
+        resp = client.post(
+            "/api/charts/backtest",
+            json={**_WINDOW, "strategy": "sma_cross", "initial_capital": _CAPITAL},
         )
-        resp = client.post("/api/charts/backtest", json={**_WINDOW, "strategy": "sma_cross"})
         assert resp.status_code == 200, resp.text
         served = resp.json()["metrics"]
         assert served["num_trades"] == direct.num_trades
         assert served["total_return"] == pytest.approx(float(direct.total_return))
         assert served["sharpe"] == pytest.approx(float(direct.sharpe))
         assert served["max_drawdown"] == pytest.approx(float(direct.max_drawdown))
+        # The cost model, read off both sides. Without a fee calculator these
+        # are 0.0 on the route's side and cannot be reconciled with the
+        # engine's, and a free-execution run is not a run.
+        assert served["total_fees"] == pytest.approx(float(direct.total_fees))
+        assert served["total_fees"] > 0, (
+            "a run that charges no fees is not the run the route claims to make"
+        )
+        # And the whole curve, which is what the four metrics are computed from.
+        assert [p["value"] for p in resp.json()["equity_curve"]] == pytest.approx(
+            [float(v) for v in direct.equity_curve],
+        )
+        assert [
+            (t["side"], t["price"], t["qty"], t["rejected"])
+            for t in resp.json()["trades"]
+        ] == [
+            (f["side"], f["price"], f["qty"], f["rejected"])
+            for f in direct.fills
+        ]
+
+    def test_an_unaffordable_order_is_422_with_the_typed_envelope(self):
+        """A run whose capital cannot pay for an order is refused, not flattered.
+
+        ``initial_capital`` is a request-body key, so a caller can put any
+        account in front of the route — including one too small for the order
+        the sizer is about to produce. The route's answer to that is a 422
+        carrying the cash floor's own words and no numbers, and this is the
+        test that holds it to that: the funded capital in the same request
+        shape is a 200 with metrics, so the 422 is about the capital and not
+        about the request.
+
+        The capitals are swept rather than pinned to one value because the band
+        is one fee wide — the order-level gate denies on ``notional > cash``
+        and the ledger floor on ``notional + fee > cash``, so only an account
+        sitting inside that fee tips into the floor. Measured against the real
+        lake over ``_WINDOW`` with ``sma_cross``: 200 at 1,100 and above, the
+        422 from 920 to 1,000, and below that a 500 from a separate defect in
+        the engine's result assembly (mixed naive/aware fill timestamps, filed
+        against ``replay/…/backtest.py``). A fee schedule or a lake that moves
+        the band out of this range fails here — which is the intent: the range
+        is the measurement, and a moved measurement should be re-measured rather
+        than quietly tolerated.
+        """
+        client = _client()
+
+        funded = client.post(
+            "/api/charts/backtest",
+            json={**_WINDOW, "strategy": "sma_cross", "initial_capital": _CAPITAL},
+        )
+        assert funded.status_code == 200, funded.text
+        assert funded.json()["metrics"] is not None
+
+        statuses = {}
+        refusals = []
+        for capital in (1_200, 1_100, 1_050, 1_000, 980, 950):
+            resp = client.post(
+                "/api/charts/backtest",
+                json={**_WINDOW, "strategy": "sma_cross", "initial_capital": capital},
+            )
+            statuses[capital] = resp.status_code
+            if resp.status_code == 422:
+                refusals.append((capital, resp.json()))
+
+        assert refusals, (
+            f"no capital in {sorted(statuses)} was refused: "
+            f"{statuses}. The cash gate is not armed over HTTP, so an "
+            f"unaffordable run completes and serves a flattering curve."
+        )
+        for capital, body in refusals:
+            assert body["error"]["code"] == "validation", body
+            # The floor's own message, so a 422 from any other cause (an unknown
+            # strategy, a bad param) cannot pass for the cash refusal.
+            assert "insufficient buying power" in body["error"]["message"], body
+            # A refused run is not a partial result.
+            assert "metrics" not in body
+            assert "equity_curve" not in body
+            assert "trades" not in body
 
     def test_equity_curve_times_are_utc_seconds(self):
         resp = _client().post("/api/charts/backtest", json={**_WINDOW, "strategy": "sma_cross"})
@@ -238,3 +373,32 @@ def _strategy(instrument):
     )
 
     return SmaCrossStrategy(strategy_id="parity_test", instrument=instrument)
+
+
+def _engine_with_costs(initial_capital: int):
+    """The engine AC-2 says a backtest whose numbers will be believed must be.
+
+    Deliberately *not* the route's own ``_backtest_engine``: calling that would
+    make the parity assertion agree with whatever the route decides to build,
+    which is the opposite of a claim. Written out from the three named parts
+    instead, so dropping the risk gate, the fee calculator or the slippage
+    model on the route's side is a failing test rather than a silent redefinition
+    of what parity means.
+
+    ``fail_closed_cash`` is part of the contract, not a detail: the risk gate
+    reads the run's own ledger, and an unavailable balance there must stop a
+    BUY rather than wave it through.
+    """
+    from tradex_execution.fees import FeeCalculator
+    from tradex_execution.risk import RiskManager
+    from tradex_execution.slippage import PercentageSlippageModel
+    from tradex_replay.backtest import BacktestEngine
+
+    risk = RiskManager()
+    risk.fail_closed_cash = True
+    return BacktestEngine(
+        initial_capital=initial_capital,
+        risk_manager=risk,
+        fee_calculator=FeeCalculator(),
+        slippage_model=PercentageSlippageModel(_SLIPPAGE_BPS / Decimal("10000")),
+    )
