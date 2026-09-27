@@ -22,6 +22,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from tradex_domain.enums import Timeframe
+from tradex_domain.market_calendar import MARKET_OPEN
 from tradex_domain.timeframe import bucket_seconds
 
 #: Minimum spacing between two forming-bar frames for one (bucket) — a burst
@@ -32,6 +33,10 @@ FORMING_FRAME_MIN_INTERVAL = 1.0
 #: re-stated as a magic number (day detection in :func:`bucket_start`).
 _DAY_SECONDS = bucket_seconds(Timeframe.D1)
 _WEEK_SECONDS = bucket_seconds(Timeframe.W1)
+
+#: Intraday buckets are anchored at the session open, read from the one copy of
+#: 09:15 in the domain calendar rather than restated here.
+_SESSION_OPEN = MARKET_OPEN
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,9 +67,22 @@ def bucket_start(ts: datetime, seconds: int) -> datetime:
     ``timestamp()`` follows the process timezone and shifts daily (and any
     multi-hour) buckets off the history series on a non-IST host.
 
-    Weekly buckets are floored to IST **Monday 00:00**, not to a 604800s
-    epoch multiple: 604800 is divisible by 7 days but the IST epoch origin is
-    a Thursday, so an epoch floor lands mid-week and every weekly bar is off.
+    Three anchors, one per grid shape, because a fixed-length epoch floor is
+    wrong for each of them:
+
+    * **Daily** — IST midnight.
+    * **Weekly** — IST **Monday** 00:00, not a 604800s epoch multiple: 604800 is
+      divisible by 7 days but the IST epoch origin is a Thursday, so an epoch
+      floor lands mid-week and every weekly bar is off.
+    * **Intraday** (every remaining width the canonical registry serves) — the
+      09:15 session open, so the bucket holding *ts* is 09:15 plus the largest
+      whole multiple of *seconds* that does not pass *ts*. The epoch floor is
+      skewed twice over: by the 19,800s IST offset, and by 33,300s because the
+      open is not a whole number of every bar width from midnight. 33,300 is a
+      multiple of 60, 300 and 900 and not of 1800 or 3600, so 30m and hourly
+      came out shifted — an hourly bar stamped 08:30 holding only the session's
+      first fifteen minutes — while 1m/5m/15m were unaffected. That is why the
+      defect is invisible on a 1m chart and obvious on an hourly one.
     """
     from zoneinfo import ZoneInfo
 
@@ -77,9 +95,15 @@ def bucket_start(ts: datetime, seconds: int) -> datetime:
         midnight = aware.replace(hour=0, minute=0, second=0, microsecond=0)
         start = midnight - timedelta(days=midnight.weekday())
         return start.replace(tzinfo=None)
-    epoch = int(aware.timestamp())
-    floored = epoch - (epoch % seconds)
-    return datetime.fromtimestamp(floored, tz=ist).replace(tzinfo=None)
+    naive = aware.replace(tzinfo=None)
+    opening = naive.replace(
+        hour=_SESSION_OPEN.hour, minute=_SESSION_OPEN.minute, second=0, microsecond=0
+    )
+    # Floor, not truncate: a sub-second tick 0.4s before a seam belongs to the
+    # bar before it. Both operands are IST wall clock and IST has no DST, so
+    # the naive delta is the elapsed time.
+    offset = math.floor((naive - opening).total_seconds())
+    return opening + timedelta(seconds=(offset // seconds) * seconds)
 
 
 def _tf_seconds(timeframe: Timeframe) -> int:

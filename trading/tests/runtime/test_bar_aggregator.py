@@ -7,6 +7,7 @@ from decimal import Decimal
 
 import pytest
 from tradex_domain.enums import Timeframe
+from tradex_domain.market_calendar import IST
 from tradex_runtime.bar_aggregator import (
     BarAggregator,
     BarFrame,
@@ -330,3 +331,131 @@ class TestBucketStart:
     def test_unsupported_timeframe_raises(self):
         with pytest.raises(ValueError, match="unsupported"):
             _tf_seconds("not-a-timeframe")
+
+
+def _epoch_floor(ts: datetime, seconds: int) -> datetime:
+    """The grid :func:`bucket_start` replaced: a pure epoch floor, read as IST.
+
+    Kept here as the control rather than trusted to a comment. The two grids
+    agree only when *both* the 19,800s IST offset and the open's 33,300s from
+    IST midnight are whole multiples of the width. 19,800 divides by 60, 300,
+    900 and 1800 but not 3600, and 33,300 by 60, 300 and 900 but not 1800 or
+    3600 — which is why 30m was moved by the open alone and hourly by both.
+    """
+    epoch = int(ts.replace(tzinfo=IST).timestamp())
+    return datetime.fromtimestamp(epoch - (epoch % seconds), tz=IST).replace(tzinfo=None)
+
+
+def _chart_time(ts: datetime) -> int:
+    """Chart convention: UTC epoch seconds of an IST wall clock."""
+    from zoneinfo import ZoneInfo
+
+    return int(ts.replace(tzinfo=ZoneInfo("Asia/Kolkata")).timestamp())
+
+
+class TestSessionOpenAnchor:
+    """Intraday buckets anchor at the 09:15 session open, not at the epoch.
+
+    33,300s from IST midnight is a whole number of 60, 300 and 900 second bars
+    and not of 1800 or 3600, so 30m and hourly were mis-bucketed while
+    1m/5m/15m came out right either way — which is why this was invisible on a
+    1m chart and obvious on an hourly one.
+    """
+
+    #: A plain weekday session, 09:15 to 15:30, as `datetime` stamps.
+    OPENING = _ist(2026, 7, 15, 9, 15)
+    CLOSE = _ist(2026, 7, 15, 15, 30)
+
+    def test_the_hourly_boundary_falls_where_the_session_grid_says(self):
+        """10:14:59 and 10:15:00 are different hourly bars, and the seam is 10:15.
+
+        Under the epoch floor those two ticks were not merely mislabelled, they
+        landed in the *same* bar — one stamped 09:30 spanning 09:30-10:30, so
+        fifteen minutes of the session's first hour and fifteen of its second.
+        Asserting the old grid's collapse too is what makes this a control on
+        the fix rather than a restatement of the new answer: an implementation
+        that merely picked a different skew would separate the ticks at 10:30
+        and pass a boundary test that only looked at 10:15.
+        """
+        boundary = self.OPENING + timedelta(hours=1)
+        assert bucket_start(boundary - timedelta(seconds=1), 3600) == self.OPENING
+        assert bucket_start(boundary, 3600) == boundary
+        # The old grid: one bar for both, and its own seam half an hour later.
+        assert _epoch_floor(boundary - timedelta(seconds=1), 3600) == _ist(
+            2026, 7, 15, 9, 30
+        )
+        assert _epoch_floor(boundary, 3600) == _ist(2026, 7, 15, 9, 30)
+        assert _epoch_floor(boundary + timedelta(minutes=14, seconds=59), 3600) == _ist(
+            2026, 7, 15, 9, 30
+        )
+        assert _epoch_floor(boundary + timedelta(minutes=15), 3600) == _ist(
+            2026, 7, 15, 10, 30
+        )
+
+    def test_one_five_and_fifteen_minutes_are_unmoved(self):
+        """The widths the epoch floor already got right stay exactly as they were.
+
+        Bar for bar across a whole session, not at a hand-picked stamp: 19,800
+        and 33,300 are both whole multiples of 60, 300 and 900, so the anchored
+        grid has to reproduce the epoch floor at every one of those 376 stamps.
+        """
+        stamps = [self.OPENING + timedelta(minutes=m) for m in range(376)]
+        for seconds in (60, 300, 900):
+            assert [bucket_start(t, seconds) for t in stamps] == [
+                _epoch_floor(t, seconds) for t in stamps
+            ], f"the {seconds}s grid must not have moved"
+
+    def test_thirty_minute_and_hourly_bars_cover_the_session_and_no_more(self):
+        """The point of anchoring: bars tile the session, ending in a partial.
+
+        6h15m of session is 13 half-hour bars and 7 hourly bars, and at both
+        widths the last is a fifteen-minute stub ending at the close. Under the
+        epoch floor the 30m grid started at 09:00 — a bar holding only the last
+        fifteen minutes before the open — and the hourly grid's first bar was
+        08:30 holding the first fifteen, so both series a strategy subscribes to
+        were shifted by a quarter of an hour.
+        """
+        for seconds, count in ((1800, 13), (3600, 7)):
+            starts: list[datetime] = []
+            t = self.OPENING
+            while t < self.CLOSE:
+                starts.append(t)
+                t += timedelta(seconds=seconds)
+            assert starts == [bucket_start(s, seconds) for s in starts]
+            assert len(starts) == count
+            assert starts[-1] == _ist(2026, 7, 15, 15, 15)
+            # The close itself lands in that final stub, never past it.
+            assert bucket_start(self.CLOSE, seconds) == starts[-1]
+            # And the first bar is the open itself, not a bar reaching back to it.
+            assert _epoch_floor(self.OPENING, seconds) != self.OPENING
+
+    def test_a_pre_open_tick_is_not_bucketed_under_an_hour_that_straddles_it(self):
+        """The grid runs backwards from the open, monotonically, without relabelling.
+
+        `BarAggregator` decides "close the bar / open a new one" by comparing
+        bucket starts, so the floor has to be non-decreasing in the timestamp.
+        Floor division gives that for free; a clamp to the open would pass
+        monotonicity while filing every pre-open tick into one bar stamped 09:15.
+        """
+        stamps = [self.OPENING - timedelta(minutes=m) for m in range(120, -1, -1)]
+        starts = [bucket_start(t, 3600) for t in stamps]
+        assert starts == sorted(starts)
+        an_hour_early = self.OPENING - timedelta(hours=1)
+        assert bucket_start(an_hour_early, 3600) == an_hour_early
+        # The epoch floor put that hour inside a 07:30 bucket that straddles it.
+        assert _epoch_floor(an_hour_early, 3600) == _ist(2026, 7, 15, 7, 30)
+
+    def test_the_aggregator_stamps_emitted_hourly_bars_from_the_session_open(self):
+        """End to end through the money path, not just the helper.
+
+        A bar that only ever reaches a backtest through ``BarFrame.time`` is
+        where the shifted label was observable, so the emitted chart time is
+        what this pins.
+        """
+        c = _Collector()
+        agg = _agg(Timeframe.H1, c)
+        last_of_first = self.OPENING + timedelta(minutes=59, seconds=59)
+        agg.on_quote(self.OPENING, Decimal("100"), Decimal("1"))
+        agg.on_quote(last_of_first, Decimal("110"), Decimal("1"))
+        agg.on_quote(self.OPENING + timedelta(hours=1), Decimal("120"), Decimal("1"))
+        assert [f.time for f in c.closed_frames] == [_chart_time(self.OPENING)]

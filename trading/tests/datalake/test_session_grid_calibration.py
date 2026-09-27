@@ -141,6 +141,20 @@ class TestOneMinuteGridIsAnchorInvariant:
         assert _epoch_floor(opening, 1800) == opening - timedelta(minutes=15)
         assert _epoch_floor(opening, 3600) == opening - timedelta(minutes=45)
 
+    def test_every_intraday_width_anchors_at_the_session_open(self):
+        """The grid as a list of numbers, so a fix that moves one width is caught.
+
+        The test above loops the two widths the epoch floor got wrong, which
+        passes just as happily if a third width regresses. Pinning all five
+        positionally says it once: the bucket start of a 09:15 bar is 09:15, and
+        the offset from the open is zero at every width the registry serves.
+        """
+        opening = datetime.combine(_SESSION_DAY, MARKET_OPEN)
+        assert [
+            (seconds, int((bucket_start(opening, seconds) - opening).total_seconds()))
+            for seconds in _INTRADAY_SECONDS
+        ] == [(60, 0), (300, 0), (900, 0), (1800, 0), (3600, 0)]
+
     def test_the_divergence_set_is_exactly_30m_and_hourly(self):
         """Which widths the lane moved, derived rather than remembered."""
         moved = [
