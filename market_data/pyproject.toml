@@ -11,6 +11,13 @@ requires-python = ">=3.12"
 dependencies = [
     "tradex-domain>=0.1.0,<0.2",
     "tradex-brokers>=0.1.0,<0.2",
+    # The datalake is a real runtime dependency, not an optional extra: the
+    # Parquet store, sync, gap and provider paths import these at module level.
+    # They used to arrive only through the removed tradex-trading[datalake]
+    # extra, so this package was un-installable on its own.
+    "duckdb>=0.10,<2",
+    "pandas>=2,<3",
+    "pyarrow>=14,<20",
 ]
 
 [tool.hatch.build.targets.wheel]

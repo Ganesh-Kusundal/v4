@@ -33,7 +33,6 @@ pythonpath = [
     "config/src",
     "domain/src",
     "brokers/src",
-    "trading/src",
     "research/src",
     "operations/src",
     "observability/src",
@@ -103,7 +102,9 @@ members = [
     "domain",
     "brokers",
     "config",
-    "trading",
+    # "trading" was removed with the tradex_trading package: trading/ now holds
+    # only tests/ and scripts/ (no installable src/), and its third-party runtime
+    # deps moved onto the packages that actually import them (market_data).
     "research",
     "operations",
     "observability",
@@ -128,7 +129,7 @@ members = [
 tradex-domain = { workspace = true }
 tradex-brokers = { workspace = true }
 tradex-config = { workspace = true }
-tradex-trading = { workspace = true }
+# tradex-trading removed (package deleted; see the members comment above).
 tradex-research = { workspace = true }
 tradex-operations = { workspace = true }
 tradex-observability = { workspace = true }
@@ -155,7 +156,9 @@ dev = [
     "tradex-domain",
     "tradex-brokers[upstox]",
     "tradex-config",
-    "tradex-trading[datalake,api,full]",
+    # tradex-trading[datalake,api,full] removed with the package; the deps its
+    # extras carried (duckdb/pandas/pyarrow) now live on tradex-market-data, and
+    # the API deps (fastapi/uvicorn/httpx/websockets) on tradex-interfaces.
     "tradex-research",
     "tradex-operations",
     "tradex-observability",

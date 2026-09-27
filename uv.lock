@@ -32,7 +32,6 @@ members = [
     "tradex-research",
     "tradex-runtime",
     "tradex-strategy",
-    "tradex-trading",
 ]
 
 [manifest.dependency-groups]
@@ -60,7 +59,6 @@ dev = [
     { name = "tradex-research", editable = "research" },
     { name = "tradex-runtime", editable = "runtime" },
     { name = "tradex-strategy", editable = "strategy" },
-    { name = "tradex-trading", extras = ["datalake", "api", "full"], editable = "trading" },
 ]
 
 [[package]]
@@ -1796,12 +1794,18 @@ name = "tradex-market-data"
 version = "0.1.0"
 source = { editable = "market_data" }
 dependencies = [
+    { name = "duckdb" },
+    { name = "pandas" },
+    { name = "pyarrow" },
     { name = "tradex-brokers" },
     { name = "tradex-domain" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "duckdb", specifier = ">=0.10,<2" },
+    { name = "pandas", specifier = ">=2,<3" },
+    { name = "pyarrow", specifier = ">=14,<20" },
     { name = "tradex-brokers", editable = "brokers" },
     { name = "tradex-domain", editable = "domain" },
 ]
@@ -1913,88 +1917,6 @@ requires-dist = [
     { name = "tradex-domain", editable = "domain" },
     { name = "tradex-market-data", editable = "market_data" },
 ]
-
-[[package]]
-name = "tradex-trading"
-version = "0.1.0"
-source = { editable = "trading" }
-dependencies = [
-    { name = "rx" },
-    { name = "tradex-analytics" },
-    { name = "tradex-application" },
-    { name = "tradex-brokers" },
-    { name = "tradex-config" },
-    { name = "tradex-domain" },
-    { name = "tradex-execution" },
-    { name = "tradex-interfaces" },
-    { name = "tradex-market-data" },
-    { name = "tradex-observability" },
-    { name = "tradex-persistence" },
-    { name = "tradex-reactive" },
-    { name = "tradex-replay" },
-    { name = "tradex-research" },
-    { name = "tradex-runtime" },
-    { name = "tradex-strategy" },
-]
-
-[package.optional-dependencies]
-analytics = [
-    { name = "numpy" },
-]
-api = [
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "uvicorn" },
-    { name = "websockets" },
-]
-datalake = [
-    { name = "duckdb" },
-    { name = "pandas" },
-    { name = "pyarrow" },
-]
-full = [
-    { name = "duckdb" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "numpy" },
-    { name = "uvicorn" },
-    { name = "websockets" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "duckdb", marker = "extra == 'datalake'", specifier = ">=0.10,<2" },
-    { name = "duckdb", marker = "extra == 'full'", specifier = ">=0.10,<2" },
-    { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.110,<1" },
-    { name = "fastapi", marker = "extra == 'full'", specifier = ">=0.110,<1" },
-    { name = "httpx", marker = "extra == 'api'", specifier = ">=0.27,<1" },
-    { name = "httpx", marker = "extra == 'full'", specifier = ">=0.27,<1" },
-    { name = "numpy", marker = "extra == 'analytics'", specifier = ">=1.26,<3" },
-    { name = "numpy", marker = "extra == 'full'", specifier = ">=1.26,<3" },
-    { name = "pandas", marker = "extra == 'datalake'", specifier = ">=2,<3" },
-    { name = "pyarrow", marker = "extra == 'datalake'", specifier = ">=14,<20" },
-    { name = "rx", specifier = ">=3.2,<4" },
-    { name = "tradex-analytics", editable = "analytics" },
-    { name = "tradex-application", editable = "application" },
-    { name = "tradex-brokers", editable = "brokers" },
-    { name = "tradex-config", editable = "config" },
-    { name = "tradex-domain", editable = "domain" },
-    { name = "tradex-execution", editable = "execution" },
-    { name = "tradex-interfaces", editable = "interfaces" },
-    { name = "tradex-market-data", editable = "market_data" },
-    { name = "tradex-observability", editable = "observability" },
-    { name = "tradex-persistence", editable = "persistence" },
-    { name = "tradex-reactive", editable = "reactive" },
-    { name = "tradex-replay", editable = "replay" },
-    { name = "tradex-research", editable = "research" },
-    { name = "tradex-runtime", editable = "runtime" },
-    { name = "tradex-strategy", editable = "strategy" },
-    { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.29,<1" },
-    { name = "uvicorn", marker = "extra == 'full'", specifier = ">=0.29,<1" },
-    { name = "websockets", marker = "extra == 'api'", specifier = ">=12,<18" },
-    { name = "websockets", marker = "extra == 'full'", specifier = ">=12,<18" },
-]
-provides-extras = ["analytics", "datalake", "api", "full"]
 
 [[package]]
 name = "typing-extensions"
