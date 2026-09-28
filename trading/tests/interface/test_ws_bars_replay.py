@@ -363,7 +363,7 @@ class TestReplayControl:
             empty = False
 
         class _FakeStore:
-            def __init__(self, _base_path) -> None:
+            def __init__(self, _base_path, **_kwargs) -> None:
                 pass
 
             def read(self, *_args, **_kwargs):
@@ -449,7 +449,7 @@ class TestReplayControl:
         from unittest.mock import patch
 
         class _BadStore:
-            def __init__(self, _base_path) -> None: pass
+            def __init__(self, _base_path, **_kwargs) -> None: pass
             def read(self, *_args, **_kwargs):
                 class _Df:
                     empty = True
@@ -505,7 +505,7 @@ class TestReplayControl:
             empty = False
 
         class _FakeStore:
-            def __init__(self, _base_path) -> None: pass
+            def __init__(self, _base_path, **_kwargs) -> None: pass
             def read(self, *_args, **_kwargs): return _DataFrame()
             def date_range(self, _symbol): return None
 
@@ -590,7 +590,7 @@ class TestReplayControl:
             empty = False
 
         class _FakeStore:
-            def __init__(self, _base_path) -> None: pass
+            def __init__(self, _base_path, **_kwargs) -> None: pass
             def read(self, *_args, **_kwargs): return _DataFrame()
             def date_range(self, _symbol): return None
 
@@ -715,7 +715,7 @@ class TestReplayCursorContract:
             empty = False
 
         class _FakeStore:
-            def __init__(self, _base_path) -> None:
+            def __init__(self, _base_path, **_kwargs) -> None:
                 pass
 
             def read(self, *_args, **_kwargs):
@@ -937,7 +937,7 @@ class _ReplayFixture:
             empty = not candles
 
         class _Store:
-            def __init__(self, _base_path):
+            def __init__(self, _base_path, **_kwargs):
                 pass
 
             def read(self, *_args, **_kwargs):
@@ -1185,7 +1185,7 @@ def _patch_store(monkeypatch, candles):
         empty = not candles
 
     class _Store:
-        def __init__(self, _): pass
+        def __init__(self, _, **kw): pass
         def read(self, *a, **kw): return _Frame()
         def date_range(self, _):
             return (candles[0].timestamp, candles[-1].timestamp) if candles else None
@@ -1572,7 +1572,7 @@ class TestReplayContractFixes:
             empty = not candles
 
         class _Store:
-            def __init__(self, _base_path):
+            def __init__(self, _base_path, **_kwargs):
                 pass
 
             def read(self, *_args, **_kwargs):

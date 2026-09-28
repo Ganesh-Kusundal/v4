@@ -828,14 +828,17 @@ class TestComposesWithFeedStaleMonitor:
         )
         feed.start([live, dead])
         # TCS is ticking right now; RELIANCE's last tick is long enough ago to
-        # be a full session grid behind. ``check_stale`` reads wall-clock
-        # ``now`` itself, so the live stamp must be relative to real now.
-        feed._last_tick[live.instrument_id] = datetime.now(UTC)
-        feed._last_tick[dead.instrument_id] = (
-            datetime.now(UTC) - timedelta(hours=1)
-        )
+        # be a full session grid behind.
+        # Pinned to one IN-SESSION instant (10:30 IST = 05:00 UTC), not the
+        # real wall clock: ``SymbolCadenceMonitor.check()`` skips its entire
+        # sweep outside 09:15-15:30 IST, so a live ``now`` makes this
+        # assertion pass by day and fail by night. Every stamp below is
+        # relative to this instant for the same reason.
+        now = datetime(2026, 9, 28, 5, 0, tzinfo=UTC)
+        feed._last_tick[live.instrument_id] = now
+        feed._last_tick[dead.instrument_id] = now - timedelta(hours=1)
         feed.supervisor.recovery_succeeded(
-            last_event_at=datetime.now(UTC), recovered_through=datetime.now(UTC)
+            last_event_at=now, recovered_through=now
         )
 
         # The tape check, on its own, reports nothing for the dead symbol: it
@@ -846,7 +849,8 @@ class TestComposesWithFeedStaleMonitor:
 
         assert "NSE:RELIANCE" not in flagged_by_tape
 
-        now = datetime.now(UTC)
+        # Same pinned instant as the stamps above, so the monitor judges the
+        # tape it was just handed rather than a different moment.
         cadence = SymbolCadenceMonitor(
             instruments=feed.wanted_instruments,
             ticks=feed.last_tick,
