@@ -806,6 +806,17 @@ _UNREADABLE_INSTRUMENT = "<unreadable:instrument>"
 #: gap reading as "flat" is the corruption lane 5e is written against.
 SKIP_VENUE_OMITTED = "venue_omitted"
 
+#: Refusal reasons that are about *this* session's own guard rather than the
+#: venue's read. The venue read's reasons live on :class:`VenueRead`; these
+#: name a refusal that happens before or instead of it, and they are counted in
+#: ``venue_adoption_refused_total{reason=...}`` like every other refusal.
+#:
+#: ``unsettled_guard_unavailable`` is the fail-closed answer to an order book
+#: that cannot be read (P0-F2). "I could not tell what is in flight" is not
+#: "nothing is in flight": adopting the venue's figures with the protection
+#: silently off is the corruption lane 5e is written against.
+REFUSAL_UNSETTLED_GUARD_UNAVAILABLE = "unsettled_guard_unavailable"
+
 #: Order statuses whose fills the venue's snapshot cannot yet have seen.
 _UNSETTLED_ORDER_STATUSES: frozenset[str] = frozenset(
     {
@@ -964,7 +975,19 @@ def derive_venue_adoption(
             continue
         if venue_quantity == Decimal("0"):
             # Flat both sides: nothing to write, and an entry here would only churn
-            # the skip counter on every poll.
+            # the skip counter on every poll. Checked before the unsettled guard for
+            # the same reason: there is no figure here to protect a live fill with.
+            continue
+        if iid in unsettled:
+            # The same guard the both-sides branch applies, for the same reason
+            # (P0-F2): a venue-only row on an instrument the book believes is
+            # mid-flight is a snapshot the venue has not yet reflected, so
+            # adopting it writes a stale figure over a live order. This branch
+            # previously consulted no guard at all, which made the module's
+            # promise — "an unsettled fill is never adopted over" — false for
+            # the very case that needs it most: a first fill, or a name cleared
+            # and refilled, where the book holds no row to compare against.
+            skipped[iid] = SKIP_UNSETTLED_FILL
             continue
         adopted = _adopted_position(None, venue)
         if adopted is None:
@@ -1436,7 +1459,16 @@ def build_reconciliation_monitor_seams(
     """
     last_read_at: datetime | None = None
 
-    def _unsettled() -> frozenset[str]:
+    def _unsettled() -> frozenset[str] | None:
+        """The instruments the book believes are mid-flight.
+
+        ``None`` means *unknown* — the order book could not be read — which is
+        deliberately not the same answer as an empty set. The caller refuses the
+        adoption on ``None`` (fail closed, P0-F2); an engine that cannot
+        *offer* an order listing at all (no engine, or a book with no such
+        method) is not a broken guard and yields an empty set, because a
+        session with no engine has nothing in flight.
+        """
         if engine is None:
             return frozenset()
         orders = getattr(engine, "all_orders", None)
@@ -1446,9 +1478,9 @@ def build_reconciliation_monitor_seams(
             return frozenset()
         try:
             return unsettled_local_instruments(list(orders()))
-        except Exception:  # noqa: BLE001 - a monitor that dies stops reconciling
+        except Exception:  # noqa: BLE001 - unknown is not "nothing in flight"
             log.warning("could not read orders for unsettled adoption guard")
-            return frozenset()
+            return None
 
     def _local() -> list[Any]:
         positions = getattr(cache, "all_positions", None)
@@ -1462,15 +1494,34 @@ def build_reconciliation_monitor_seams(
 
     def _adopt() -> AdoptionOutcome:
         nonlocal last_read_at
+        unsettled = _unsettled()
+        if unsettled is None:
+            # Fail closed (P0-F2): the guard is unknown, so no adoption is
+            # derived. Refused before the venue is read at all, which also means
+            # no read is consumed and the freshness baseline cannot advance on
+            # this poll.
+            log.warning(
+                "venue position adoption refused: %s (the local order book "
+                "could not be read, so what is in flight is unknown)",
+                REFUSAL_UNSETTLED_GUARD_UNAVAILABLE,
+            )
+            return AdoptionOutcome(
+                adoption=VenueAdoption(),
+                applied=False,
+                refusal=REFUSAL_UNSETTLED_GUARD_UNAVAILABLE,
+            )
         local_positions = _local()
         outcome = adopt_venue_positions(
             broker=broker,
             local_positions=local_positions,
             cache=cache,
-            unsettled_instruments=_unsettled(),
+            unsettled_instruments=unsettled,
             known_instruments=[
-                _position_instrument_id(p) for p in local_positions
-                if _position_instrument_id(p) is not None
+                iid
+                for iid in (
+                    _position_instrument_id(p) for p in local_positions
+                )
+                if iid is not None
             ],
             last_read_at=last_read_at,
             now=clock() if clock is not None else None,
@@ -1515,6 +1566,7 @@ __all__ = [
     "DriftFact",
     "DriftKind",
     "PromotionStatus",
+    "REFUSAL_UNSETTLED_GUARD_UNAVAILABLE",
     "ReconciliationMonitorSeams",
     "ReconciliationSafety",
     "SafetyReport",

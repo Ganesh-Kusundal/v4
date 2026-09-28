@@ -38,6 +38,7 @@ from tradex_interfaces.safety import (
     METRIC_READ_FAILED,
     METRIC_REFUSED,
     METRIC_SKIPPED,
+    REFUSAL_UNSETTLED_GUARD_UNAVAILABLE,
     SKIP_UNREADABLE_INSTRUMENT,
     SKIP_UNREADABLE_QUANTITY,
     SKIP_UNSETTLED_FILL,
@@ -1090,3 +1091,95 @@ def test_apply_falls_back_to_per_row_with_a_visible_warning(
         "a per-row fallback must be visible: a partial apply that logs a "
         "correction it did not complete is the corruption this prevents"
     )
+
+
+# -- the unsettled guard holds on every branch (P0-F2) ------------------------
+
+
+def test_venue_only_row_on_an_unsettled_instrument_is_skipped_not_adopted() -> None:
+    """The guard the module promises on *both* branches.
+
+    The book holds no row for X (a first fill, or a cleared-then-refilled
+    name), an order on X is in flight, and the venue snapshot predates it.
+    The both-sides branch skips this; before the fix the venue-only branch
+    adopted it and wrote a stale position over a live fill.
+    """
+    plan = derive_venue_adoption(
+        local_positions=[],
+        venue_positions=[_position(_RELIANCE, Decimal("5"))],
+        unsettled_instruments={"NSE:RELIANCE"},
+    )
+    assert plan.skipped == {"NSE:RELIANCE": SKIP_UNSETTLED_FILL}
+    assert plan.positions == {}
+
+
+def test_venue_only_row_on_a_settled_instrument_is_still_adopted() -> None:
+    """The guard must not over-block: a settled venue-only row still lands."""
+    plan = derive_venue_adoption(
+        local_positions=[],
+        venue_positions=[_position(_RELIANCE, Decimal("5"))],
+        unsettled_instruments={"NSE:TCS"},
+    )
+    assert set(plan.positions) == {"NSE:RELIANCE"}
+    assert plan.skipped == {}
+
+
+def test_venue_only_row_and_flat_both_sides_needs_no_guard() -> None:
+    """Flat on both sides writes nothing whatever the guard says.
+
+    The venue-only branch's flat check runs *before* the guard, so a flat row
+    on an unsettled instrument is simply not written — and is not reported as a
+    skip either, because there is no figure there to protect a live fill with
+    and the skip counter should not churn on every poll.
+    """
+    plan = derive_venue_adoption(
+        local_positions=[],
+        venue_positions=[_position(_RELIANCE, Decimal("0"))],
+        unsettled_instruments={"NSE:RELIANCE"},
+    )
+    assert plan.positions == {}
+    assert plan.cleared == {}
+    assert plan.skipped == {}
+
+
+def test_seams_refuse_the_adoption_when_the_unsettled_guard_is_unreadable() -> None:
+    """Fail CLOSED: an order book we cannot read is an unknown guard, not an
+    empty one. Applying the venue's figures with the protection silently off is
+    the corruption lane 5e exists to prevent, so the adoption is refused with
+    its own reason an operator can clear.
+    """
+
+    class _Engine:
+        def reconcile(self) -> list[object]:
+            return []
+
+        def all_orders(self) -> list[object]:
+            raise RuntimeError("order book down")
+
+    cache = _Cache([_position(_RELIANCE, Decimal("3"))])
+    seams = build_reconciliation_monitor_seams(
+        broker=_Broker([_position(_RELIANCE, Decimal("7"))]),
+        cache=cache,
+        engine=_Engine(),
+    )
+    outcome = seams.adopt()
+    assert not outcome.applied
+    assert outcome.refusal == REFUSAL_UNSETTLED_GUARD_UNAVAILABLE
+    assert cache.writes == [], "a refused adoption writes nothing"
+
+
+def test_seams_still_adopt_when_the_engine_has_no_order_listing_at_all() -> None:
+    """An engine that cannot *offer* orders is not a broken guard.
+
+    A session with no engine at all (the dry-run shape, or a paper book) has
+    nothing in flight, so the guard is satisfied rather than unknown and the
+    adoption proceeds. Only a *failure to read* the guard is a refusal.
+    """
+    cache = _Cache([_position(_RELIANCE, Decimal("3"))])
+    seams = build_reconciliation_monitor_seams(
+        broker=_Broker([_position(_RELIANCE, Decimal("7"))]),
+        cache=cache,
+    )
+    outcome = seams.adopt()
+    assert outcome.applied
+    assert cache.written_ids() == ["NSE:RELIANCE"]
