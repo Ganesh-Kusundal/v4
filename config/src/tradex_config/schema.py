@@ -11,6 +11,7 @@ import typing
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from tradex_domain import BrokerId
@@ -26,6 +27,11 @@ from tradex_domain.risk_budget import (
 #: The tape a live session streams, named by an operator. Never defaulted to an
 #: index or a universe: the platform is not asked to guess what to trade.
 FEED_INSTRUMENTS_ENV = "TRADEX_FEED_INSTRUMENTS"
+#: Names the credential file an operator explicitly loaded, so boot can check
+#: its permissions. Set by the entry points that call ``load_env_file``; there is
+#: no default, because a session that loads no credential file has nothing to
+#: check (AC-17, lane 5d).
+ENV_FILE_ENV_VAR = "TRADEX_ENV_FILE"
 
 #: The one text form a tape entry may take. The exchange is part of the name
 #: because a trading symbol alone is not a security — ``RELIANCE`` is an NSE
@@ -436,6 +442,28 @@ class AppConfig:
     feed_instruments: tuple[Instrument, ...] = field(
         default_factory=default_feed_instruments
     )
+
+    def secret_files(self) -> tuple[Path, ...]:
+        """Credential files this session's secrets live in, for a mode check.
+
+        Two sources: the env file named by ``TRADEX_ENV_FILE`` (the operator's
+        opt-in credential file, the one a human actually creates by hand), and
+        the runtime dir that holds the broker's durable token files. The token
+        layer creates its own files privately; an operator-created
+        ``.env.local`` does not arrive that way, so boot checks both (AC-17,
+        lane 5d).
+
+        Paths that do not exist are returned anyway: "no credentials on disk"
+        is a legitimate configuration, and the permission check treats absence
+        as a pass rather than guessing which files an operator meant.
+        """
+        candidates: list[Path] = []
+        env_file = os.environ.get(ENV_FILE_ENV_VAR)
+        if env_file:
+            candidates.append(Path(env_file))
+        # ``runtime_dir`` holds the token files minted by the broker auth layer.
+        candidates.append(Path(self.runtime_dir) / "tokens")
+        return tuple(candidates)
 
     def __post_init__(self) -> None:
         # The tape is a set, not a list: one instrument is proven once however

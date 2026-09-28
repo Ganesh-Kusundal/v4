@@ -4,6 +4,11 @@ Provides AppConfig schema and environment loading.
 """
 
 from tradex_config.env import _parse_bool, from_env
+from tradex_config.permissions import (
+    InsecureSecretFileError,
+    assert_secret_file_mode,
+    check_secret_files,
+)
 from tradex_config.schema import (
     AppConfig,
     BrokerConfig,
@@ -14,8 +19,11 @@ from tradex_config.schema import (
 __all__ = [
     "AppConfig",
     "BrokerConfig",
+    "InsecureSecretFileError",
     "PersistenceConfig",
     "RiskConfig",
     "_parse_bool",
+    "assert_secret_file_mode",
+    "check_secret_files",
     "from_env",
 ]

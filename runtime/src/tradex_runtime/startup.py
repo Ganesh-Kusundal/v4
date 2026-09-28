@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from tradex_runtime.session_impl import TradingSession
     from tradex_runtime.writer_lock import SingleWriterLock
 
+from tradex_config.permissions import assert_secret_file_mode
 from tradex_config.schema import FEED_INSTRUMENTS_ENV, AppConfig
 from tradex_execution.engine import (
     ExecutionEngine,
@@ -233,6 +234,15 @@ def boot(
         raise ValueError("live mode requires a non-paper broker")
     if cfg.mode == "live" and not cfg.live_enabled:
         raise ValueError("live mode requires live_enabled=true in config")
+    # AC-17 / lane 5d: a credential file readable beyond its owner is a
+    # defect, and the token layer only guarantees the mode of files IT created.
+    # An operator-created ``.env.local`` was never stat-ed, so a world-readable
+    # secret was entirely unguarded. Detect and refuse; never silently chmod,
+    # because quietly fixing it hides the misconfiguration the operator needs
+    # to know about. A MISSING file is legitimate (paper runs with no
+    # credentials), so absence never blocks a boot.
+    for _secret in cfg.secret_files():
+        assert_secret_file_mode(_secret)
     if cfg.mode == "live" and not cfg.persistence.path:
         raise ValueError("live mode requires persistence path")
 

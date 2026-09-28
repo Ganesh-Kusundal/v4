@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import replace
 from decimal import Decimal
@@ -287,6 +288,10 @@ def main(argv: list[str] | None = None) -> int:
         env_path = Path(args.env_file)
         if env_path.exists():
             names = load_env_file(env_path, override=True)
+            # AC-17 / lane 5d: record which credential file was loaded so boot
+            # can assert it is not readable beyond its owner. Set BEFORE boot
+            # runs, and only when the file actually exists.
+            os.environ["TRADEX_ENV_FILE"] = str(env_path)
             print(f"env_file={env_path} ({len(names)} entries)")
 
     from tradex_config.env import from_env
