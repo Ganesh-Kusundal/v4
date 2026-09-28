@@ -24,7 +24,6 @@ from tradex_domain import (
     OrderSide,
     OrderStatus,
     OrderType,
-    PlaceOrderCommand,
     TimeInForce,
 )
 from tradex_domain.execution import Order, OrderRequest
@@ -109,7 +108,7 @@ def test_engine_order_index_populated_from_order_placed() -> None:
     stream = _OrderStream()
     bridge = LiveFillBridge(bus, engine, stream.subscribe_orders)
     try:
-        bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-1")))
+        engine.submit(_request(correlation_id="cid-1"))
         engine_order_id = engine.cache.all_orders()[0].order_id.value
         # OrderPlaced fires synchronously inside publish; the bridge has
         # already wired the index.
@@ -134,7 +133,7 @@ def test_engine_order_id_lookup_is_O1_after_index_population() -> None:
     stream = _OrderStream()
     bridge = LiveFillBridge(bus, engine, stream.subscribe_orders)
     try:
-        bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-fast")))
+        engine.submit(_request(correlation_id="cid-fast"))
         # Build a stream order for the same correlation; the bridge must
         # resolve the engine order id purely from its index, no cache scan.
         stream.emit(_stream_order("cid-fast", filled=3))
@@ -191,7 +190,7 @@ def test_engine_order_index_updated_on_cancel() -> None:
     stream = _OrderStream()
     bridge = LiveFillBridge(bus, engine, stream.subscribe_orders)
     try:
-        bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-cancel")))
+        engine.submit(_request(correlation_id="cid-cancel"))
         engine_order_id = engine.cache.all_orders()[0].order_id.value
         assert bridge.order_index[CorrelationId(value="cid-cancel")] == engine_order_id
 
@@ -244,7 +243,7 @@ def test_order_index_is_a_read_only_mapping_view() -> None:
     stream = _OrderStream()
     bridge = LiveFillBridge(bus, engine, stream.subscribe_orders)
     try:
-        bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-ro")))
+        engine.submit(_request(correlation_id="cid-ro"))
         idx = bridge.order_index
         # MappingProxyType is a stdlib read-only mapping; we accept that
         # and any other read-only mapping that lacks __setitem__.

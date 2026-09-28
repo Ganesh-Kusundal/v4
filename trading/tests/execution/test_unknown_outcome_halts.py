@@ -104,15 +104,16 @@ def test_a_normal_rejection_does_not_halt_the_session() -> None:
         engine.shutdown()
 
 
-def test_the_unknown_error_still_surfaces_on_the_reactive_path() -> None:
+def test_the_unknown_error_still_surfaces_on_the_bus() -> None:
     """Halting must not swallow the signal operators need.
 
-    ``submit()`` is a direct door and propagates the raise by design; the
-    reactive path is the one that reports it on the bus, so that is where the
-    operator-facing event has to appear.
+    AC-22 collapsed the two doors into one, so this is no longer a "reactive
+    path" distinct from ``submit()``. What still has to hold is that the
+    operator-facing ``ErrorOccurred`` appears on the bus in addition to the
+    raise, so a subscriber sees the halt without catching anything.
     """
     errors: list = []
-    from tradex_domain.events import ErrorOccurred, PlaceOrderCommand
+    from tradex_domain.events import ErrorOccurred
 
     bus = _bus()
     bus.of_type(ErrorOccurred).subscribe(errors.append)
@@ -129,7 +130,8 @@ def test_the_unknown_error_still_surfaces_on_the_reactive_path() -> None:
         require_durable_events=True,
     )
     try:
-        bus.publish(PlaceOrderCommand(request=_request()))
+        with pytest.raises(OrderSubmissionUnknownError):
+            engine.submit(_request())
 
         surfaced = [
             e for e in errors if isinstance(e.error, OrderSubmissionUnknownError)

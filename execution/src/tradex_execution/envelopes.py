@@ -263,7 +263,14 @@ class EnvelopeTranslator:
     # -- inbound -----------------------------------------------------------
 
     def to_place_command(self, env: PlaceOrderEnvelope) -> PlaceOrderCommand:
-        """Translate a PlaceOrderEnvelope → PlaceOrderCommand for the bus.
+        """Translate a PlaceOrderEnvelope → PlaceOrderCommand.
+
+        The result is an inert transport wrapper as of AC-22: nothing on the
+        bus subscribes to it any more, so a caller that wants the order at the
+        venue must take ``cmd.request`` and hand it to
+        ``ExecutionEngine.submit()``. The translation is kept because it is a
+        supported inbound adapter (and because a durable log written before
+        AC-22 decodes these), not because the bus is a command surface.
 
         Injects correlation_id from the envelope header into the request when
         the request itself does not carry one, preserving the strategy's

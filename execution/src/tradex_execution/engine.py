@@ -35,7 +35,6 @@ from tradex_domain.events import (
     OrderModified,
     OrderPlaced,
     OrderRejected,
-    PlaceOrderCommand,
     ReconciliationResult,
     RiskDecision,
     UnknownSubmission,
@@ -183,20 +182,27 @@ class ExecutionEngine:
     """Single order spine as reactive pipeline.
 
     idempotency → risk → fill → OMS, all as Observable operators.
-    This is the core of v4 — the reactive execution pipeline.
 
-    **Dual entry points (R5 architecture decision):**
+    **One entry point (AC-22).** ``submit(request)`` is the ONLY way an order
+    reaches the venue. This used to be two doors: the imperative ``submit()``
+    and a CQRS door where a strategy published ``PlaceOrderCommand`` on the
+    public bus and the engine picked it up with a subscription. The CQRS door
+    is gone, and with it the ability to reach the venue by publishing on a bus
+    anyone holds a reference to. A strategy still turns a ``Signal`` into a
+    fully-formed ``OrderRequest`` — it just hands that request to the engine
+    rather than to the bus, so the sizing and protective-pair gates in
+    ``ReactiveStrategyEngine`` run on the way in (AC-22 closed the *engine's*
+    door, not the strategy's two gates: the old bus door converged on this
+    same pipeline, so engine risk/kill-switch/feed/idempotency always ran;
+    what a raw bus publisher could skip was ``PositionSizer`` and
+    ``protective_request``).
 
-    Orders can enter the pipeline through two doors:
-
-    1. **Imperative** — ``engine.submit(request)`` for direct submission.
-    2. **CQRS command** — publish ``PlaceOrderCommand`` on the bus for
-       strategy-driven submission.
-
-    Both paths share the same idempotency guard, so a duplicate request
-    is caught regardless of entry point. However, strategies should pick
-    **one** pattern and not mix them — mixing imperative and command
-    submission on the same guard can create subtle ordering races.
+    The engine still *subscribes* to the bus for the inbound fill bridge
+    (``OrderFilled``) and for the lifecycle events it mirrors to durable
+    storage. Those are reads of the venue's truth, not doors to it: a
+    published ``OrderFilled`` is applied idempotently to the book and never
+    dispatches anything. The bus is an observation surface, not a command
+    surface.
     """
 
     def __init__(
@@ -292,27 +298,20 @@ class ExecutionEngine:
     def _setup_pipeline(self) -> None:
         """Wire the reactive order pipeline using RxPY operators.
 
-        Subscribes to OrderRequest messages on the bus and processes them
-        through the pipeline: idempotency → risk → fill → OMS update → publish.
-        Also subscribes to PlaceOrderCommand for CQRS-style order submission.
+        Deliberately subscribes to NO order-intake event (AC-22). The engine
+        used to subscribe to both ``OrderRequest`` and ``PlaceOrderCommand``
+        here, which made the public bus a second door to the venue: anything
+        holding a bus reference could publish an order and have it processed
+        without going through :meth:`submit`. Neither subscription has a
+        legitimate publisher left — every order in this repository already
+        came from ``submit()`` or from a strategy handing its request to the
+        engine — so both are removed rather than merely discouraged. Removing
+        them is what makes ``submit()`` the only path *in fact* and not just
+        in documentation.
+
+        The remaining subscription is the inbound fill bridge, which is a read
+        of the venue's truth and not a door to it.
         """
-
-        # Kill-switch intake rejections emit OrderRejected inside _run_pipeline;
-        # do not filter here or the reactive path would drop silently.
-        self._pipeline_disposable = self._bus.of_type(OrderRequest).subscribe(
-            on_next=self._process_request,
-            # Unexpected pipeline failures surface as ErrorOccurred. Per-request
-            # failures already emit well-formed OrderRejected events inside
-            # _process_request, so we never fabricate an Order here.
-            on_error=lambda e: self._bus.publish(ErrorOccurred(error=e)),
-        )
-
-        # CQRS command subscription — strategies publish PlaceOrderCommand
-        # to the bus instead of calling broker adapters directly.
-        self._command_disposable = self._bus.of_type(PlaceOrderCommand).subscribe(
-            on_next=lambda cmd: self._process_request(cmd.request),
-            on_error=lambda e: self._bus.publish(ErrorOccurred(error=e)),
-        )
 
         # Inbound live-fill bridge — broker order streams (or any publisher)
         # publish OrderFilled on the bus; the engine applies the fill to the
@@ -407,16 +406,9 @@ class ExecutionEngine:
         """Gracefully shut down the execution engine."""
         log.info("ExecutionEngine shutting down...")
         self._kill_switch.set()
-        if hasattr(self, "_pipeline_disposable") and self._pipeline_disposable is not None:
-            try:
-                self._pipeline_disposable.dispose()
-            except Exception as exc:
-                log.error("Error disposing pipeline: %s", exc)
-        if hasattr(self, "_command_disposable") and self._command_disposable is not None:
-            try:
-                self._command_disposable.dispose()
-            except Exception as exc:
-                log.error("Error disposing command subscription: %s", exc)
+        # Only the inbound fill bridge remains subscribed (AC-22 removed the
+        # order-intake subscriptions), so this is the sole disposable to tear
+        # down. The kill switch above is what stops further submits.
         if hasattr(self, "_fill_disposable") and self._fill_disposable is not None:
             try:
                 self._fill_disposable.dispose()
@@ -439,7 +431,13 @@ class ExecutionEngine:
         self.shutdown()
 
     def _process_request(self, request: OrderRequest) -> None:
-        """Process a single order request through the pipeline."""
+        """Process a single order request through the pipeline, fire-and-forget.
+
+        Reachable only via :meth:`submit` with ``sync=False`` (the ordering
+        API used by code that must not block a caller, e.g. an HTTP handler
+        that returns a 202). Since AC-22 there is no bus subscription feeding
+        this: a published ``OrderRequest`` is inert.
+        """
         t0 = time.perf_counter()
         try:
             self._process_request_impl(request)
@@ -458,9 +456,10 @@ class ExecutionEngine:
         """Trace wrapper: pin the order's trace id for the whole pipeline.
 
         The idempotency→risk→fill→OMS sequence below is the one place every
-        order passes through, whatever door it came in by (the reactive
-        ``PlaceOrderCommand`` subscription or the synchronous ``submit``). Binding
-        the domain ``CorrelationId`` into the logging contextvar here means every
+        order passes through, whatever door it came in by (AC-22: there is now
+        only one — :meth:`submit`, but the plumbing stays door-agnostic so a
+        future door cannot accidentally bypass this body). Binding the domain
+        ``CorrelationId`` into the logging contextvar here means every
         log line the engine emits while this order is in flight — the risk gate,
         the fee-schedule refusal, the durable-append failures, the venue call —
         is stamped with the same id the order is persisted under, so one grep
@@ -1299,18 +1298,35 @@ class ExecutionEngine:
         )
 
     def submit(self, request: OrderRequest) -> OrderReceipt:
-        """Synchronous submit — bridges to reactive pipeline.
+        """Synchronous submit — the ONLY door to the venue (AC-22).
 
         Creates the order, runs the fill source, updates OMS, and
         publishes events. Returns an OrderReceipt immediately.
 
-        This imperative door and the reactive ``PlaceOrderCommand``
-        subscription share the identical pipeline; choose per call-site
-        (imperative for services/API, command for strategies).
+        There is no CQRS alternative: the bus is no longer an order-intake
+        surface, so a caller that wants an order at the venue calls this.
+        Any code path that reaches the venue without passing through here
+        does not exist in this repository.
+
+        A failure is BOTH raised to the caller and published as
+        ``ErrorOccurred``. That is not belt-and-braces: before AC-22 the bus
+        door published the event and ``submit()`` raised, and operators
+        watching the bus were told about a halt they would otherwise have seen
+        only as an exception in someone else's stack. With one door, one
+        channel would have quietly dropped that signal, so the event is
+        published here and the raise is kept — the two consumers are
+        different (a live bus subscriber vs the calling code) and neither is
+        served by the other.
         """
         submit_start = time.perf_counter()
         try:
             return self._submit_impl(request)
+        except Exception as exc:
+            # ``ReactiveBus._isolate`` logs and drops a subscriber's exception,
+            # so an unpublished failure stops at a log line. Republish it the
+            # way the reactive intake path always did before AC-22 removed it.
+            self._bus.publish(ErrorOccurred(error=exc))
+            raise
         finally:
             if self._metrics is not None:
                 self._metrics.histogram("orders.submit_latency_seconds").observe(

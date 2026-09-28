@@ -39,7 +39,6 @@ from tradex_domain import (
     OrderFilled,
     OrderPlaced,
     OrderSide,
-    PlaceOrderCommand,
     Timeframe,
 )
 from tradex_domain.instruments import Equity
@@ -98,16 +97,19 @@ def _events_of(
 
 
 def _cqrs_sequence(events: list[object], instrument) -> list[type]:
-    """The exact documented CQRS event spine for *instrument*:
+    """The order spine for *instrument*, as AC-22 leaves it.
 
-        PlaceOrderCommand → OrderPlaced → OrderFilled
+        OrderPlaced → OrderFilled
 
-    (Strategy Signal bridge → engine OMS update → fill publication.)
+    (engine OMS update → fill publication.) The ``PlaceOrderCommand`` that
+    used to head this sequence is gone: the strategy hands its request to
+    ``ExecutionEngine.submit()`` instead of publishing it, so the request is
+    not an event on the bus and the spine starts at the order it produced.
     Events for other instruments — e.g. collateral orders from boot()'s
     other registered singletons on the shared bus — are ignored, so the
     assertion is deterministic in isolation and in the full file.
     """
-    wanted = (PlaceOrderCommand, OrderPlaced, OrderFilled)
+    wanted = (OrderPlaced, OrderFilled)
     return [
         type(e) for e in events
         if isinstance(e, wanted)
@@ -119,14 +121,12 @@ class TestPaperSessionLiveParity:
     """The documented paper path, driven end-to-end through the session."""
 
     def test_discovered_strategy_order_lands_in_oms_and_positions(self) -> None:
-        # The bus message log records every publish in true causal order
-        # (the engine processes PlaceOrderCommand synchronously inside the
-        # command's delivery, so a stream recorder would see its effects
-        # first). The exact documented CQRS spine is asserted below.
+        # The bus message log records every publish in true causal order.
+        # The exact order spine is asserted below.
         events: list[object] = []
         bus = ReactiveBus(message_log=events)
         session = TradingSession.paper(config=_CFG, bus=bus)
-        strategy_engine = ReactiveStrategyEngine(session.bus)
+        strategy_engine = ReactiveStrategyEngine(session.bus, session.engine.submit)
         # NOTE: this registers the module-level discovered singleton, whose
         # close history accumulates across on_bar calls. The 1-order/1-fill
         # assertions below assume no other test drives the singleton with
@@ -151,9 +151,9 @@ class TestPaperSessionLiveParity:
             assert order.instrument.instrument_id == strategy.instrument.instrument_id
             assert len(fills) == 1
 
-            # The exact documented CQRS event spine, in true publish order.
+            # The exact order spine, in true publish order.
             assert _cqrs_sequence(events, strategy.instrument) == [
-                PlaceOrderCommand, OrderPlaced, OrderFilled,
+                OrderPlaced, OrderFilled,
             ]
 
             # The order is visible through the execution engine cache.
@@ -185,7 +185,7 @@ class TestPaperSessionLiveParity:
         events: list[object] = []
         bus = ReactiveBus(message_log=events)
         session = TradingSession.paper(config=_CFG, bus=bus)
-        strategy_engine = ReactiveStrategyEngine(session.bus)
+        strategy_engine = ReactiveStrategyEngine(session.bus, session.engine.submit)
         strategy = next(
             s for s in all_strategies if s.strategy_id == _MEAN_REVERSION_ID
         )
@@ -209,10 +209,10 @@ class TestPaperSessionLiveParity:
             assert len(fills) == 1
             assert fills[0].fill.side == OrderSide.SELL
 
-            # The exact CQRS event spine — a SELL flows through the same
+            # The exact order spine — a SELL flows through the same
             # contract as the BUY case above.
             assert _cqrs_sequence(events, strategy.instrument) == [
-                PlaceOrderCommand, OrderPlaced, OrderFilled,
+                OrderPlaced, OrderFilled,
             ]
 
             # The SELL fill opened a short: negative quantity in the manager.
@@ -246,7 +246,7 @@ class TestPaperSessionLiveParity:
 
         bus = ReactiveBus()
         session = TradingSession.paper(config=_CFG, bus=bus)
-        strategy_engine = ReactiveStrategyEngine(session.bus)
+        strategy_engine = ReactiveStrategyEngine(session.bus, session.engine.submit)
         strategy = SmaCrossStrategy("stream_fill_test", Equity.of("NSE", "RELIANCE"))
         strategy_engine.register(strategy)
         fills: list[OrderFilled] = []
@@ -347,23 +347,23 @@ class TestPaperSessionLiveParity:
             # collateral orders from its other registered singletons (same
             # instrument), so assertions stay scoped by tag/instrument rather
             # than asserting a whole-stream sequence.
-            pocs = _events_of(events, PlaceOrderCommand, strategy.instrument)
             placed = _events_of(events, OrderPlaced, strategy.instrument)
             filled = _events_of(events, OrderFilled, strategy.instrument)
-            assert len(pocs) == 1 and len(placed) == 1 and len(filled) == 1
+            assert len(placed) == 1 and len(filled) == 1
             # Causal chain, not just counts: the fill references the placed
-            # order, and the order matches the strategy's command.
+            # order. The request that produced it is no longer an event on
+            # the bus (AC-22), so its provenance is read off the order the
+            # engine built from it.
             assert placed[0].order.order_id == filled[0].fill.order_id
-            assert pocs[0].request.side == placed[0].order.side == OrderSide.BUY
+            assert placed[0].order.side == OrderSide.BUY
             # Tag is strategy_id@version (versioned audit trail, area #5).
-            assert pocs[0].request.tag == f"{_MEAN_REVERSION_ID}@1.0.0"
+            assert placed[0].order.tag == f"{_MEAN_REVERSION_ID}@1.0.0"
             # The bridge now stamps a reference price + deterministic
             # correlation id derived from the triggering event (parity fix:
             # no more price-less MARKET orders filling at zero).
-            assert pocs[0].request.price is not None
-            assert pocs[0].request.price.value > 0
-            assert pocs[0].request.correlation_id is not None
-            assert placed[0].order.correlation_id == pocs[0].request.correlation_id
+            assert placed[0].order.price is not None
+            assert placed[0].order.price.value > 0
+            assert placed[0].order.correlation_id is not None
 
             positions = session.engine.cache.all_positions()
             long = next(

@@ -395,7 +395,7 @@ class TestRoundTrip:
 
     def test_place_order_via_envelope_reaches_engine(self) -> None:
         bus = ReactiveBus()
-        ExecutionEngine(bus=bus, fill_source=SimulatedFillSource())
+        engine = ExecutionEngine(bus=bus, fill_source=SimulatedFillSource())
         translator = EnvelopeTranslator()
 
         received_placed: list[OrderPlaced] = []
@@ -414,8 +414,11 @@ class TestRoundTrip:
         )
         cmd = translator.to_place_command(env)
 
-        # Engine is the first handler — publish the domain command to the bus
-        bus.publish(cmd)
+        # The engine is the first handler. AC-22: the translated command is no
+        # longer a bus message the engine picks up — the request inside it is
+        # handed to submit(). The translator is still a supported inbound
+        # adapter; the bus is just no longer the intake surface.
+        engine.submit(cmd.request)
 
         assert len(received_placed) == 1, "engine must publish OrderPlaced"
         assert len(received_filled) == 1, "SimulatedFillSource fills synchronously"
@@ -445,12 +448,13 @@ class TestRoundTrip:
         engine1.submit(_request())
 
         bus2 = ReactiveBus()
-        ExecutionEngine(bus=bus2, fill_source=SimulatedFillSource())
+        engine2 = ExecutionEngine(bus=bus2, fill_source=SimulatedFillSource())
         filled2: list[OrderFilled] = []
         bus2.of_type(OrderFilled).subscribe(on_next=filled2.append)
         env = PlaceOrderEnvelope(request=_request())
         cmd = EnvelopeTranslator().to_place_command(env)
-        bus2.publish(cmd)
+        # Same sanctioned door as the direct path (AC-22).
+        engine2.submit(cmd.request)
 
         # Both paths produce a fill with equal quantity and price
         assert len(filled1) == 1

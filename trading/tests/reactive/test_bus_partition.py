@@ -73,7 +73,13 @@ class TestLaneClassification:
         assert _lane_for(OrderRejected(order=order)) == "order"
         assert _lane_for(OrderCancelled(order=order)) == "order"
         assert _lane_for(OrderModified(order=order)) == "order"
-        assert _lane_for(PlaceOrderCommand(request=Any)) == "order"  # type: ignore[arg-type]
+        # AC-22: PlaceOrderCommand is NOT an order-lane event. It used to be
+        # listed here, which is what put it on the order lane and made the
+        # public bus an order-intake door. It now falls to the default lane so
+        # it cannot be handed to an order-lane consumer as if it were an
+        # order. (The companion proof that nothing can submit through it is in
+        # trading/tests/contracts/test_ac22_single_path_to_venue.py.)
+        assert _lane_for(PlaceOrderCommand(request=Any)) == "default"  # type: ignore[arg-type]
 
     def test_market_data_events_route_to_market_lane(self) -> None:
         quote = Quote(

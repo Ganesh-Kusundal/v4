@@ -18,7 +18,7 @@ from decimal import Decimal
 
 import pytest
 from tradex_config.schema import AppConfig, ExecutionConfig
-from tradex_domain import OHLC, Candle, OrderSide, PlaceOrderCommand, Signal, Timeframe
+from tradex_domain import OHLC, Candle, OrderSide, Signal, Timeframe
 from tradex_domain.enums import OrderType
 from tradex_domain.events import OrderFilled
 from tradex_domain.execution import OrderRequest
@@ -123,7 +123,7 @@ class TestExecutionCostParity:
         # Reactive: fees deducted from the position's realized P&L.
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource(), fee_calculator=_FEES)
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         strategy_engine.register(_Ladder(INSTRUMENT))
         try:
             for c in candles:
@@ -156,7 +156,7 @@ class TestExecutionCostParity:
         engine = ExecutionEngine(
             bus, SimulatedFillSource(slippage_model=_SLIPPAGE),
         )
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_Ladder(INSTRUMENT))
@@ -205,13 +205,13 @@ class TestExecutionConfigWiring:
             execution=ExecutionConfig(fees_enabled=True, slippage_bps=10),
         ))
         try:
-            session.bus.publish(PlaceOrderCommand(request=OrderRequest(
+            session.engine.submit(OrderRequest(
                 instrument=INSTRUMENT,
                 side=OrderSide.BUY,
                 order_type=OrderType.MARKET,
                 quantity=Quantity(value=Decimal("10")),
                 price=Price(value=Decimal("100")),
-            )))
+            ))
             pos = session.engine.cache.all_positions()[0]
             # Slippage: BUY pays more (100 * 1.001 = 100.10).
             assert pos.avg_price.value == Decimal("100.10")
@@ -230,13 +230,13 @@ class TestExecutionConfigWiring:
             execution=ExecutionConfig(fees_enabled=True, slippage_bps=10),
         ))
         try:
-            session.bus.publish(PlaceOrderCommand(request=OrderRequest(
+            session.engine.submit(OrderRequest(
                 instrument=INSTRUMENT,
                 side=OrderSide.BUY,
                 order_type=OrderType.MARKET,
                 quantity=Quantity(value=Decimal("10")),
                 price=Price(value=Decimal("100")),
-            )))
+            ))
             pos = session.engine.cache.all_positions()[0]
             assert pos.avg_price.value == Decimal("100.10")  # slipped
             assert pos.realized_pnl.amount < 0  # fee deducted
@@ -251,7 +251,7 @@ class TestDeterministicFillTimestamps:
         candles = _ladder_candles()  # bar-1 signal → fill at bar-2 open
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_Ladder(INSTRUMENT))

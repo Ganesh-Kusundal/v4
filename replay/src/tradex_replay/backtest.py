@@ -17,7 +17,6 @@ from tradex_domain.events import (
     OrderFilled,
     OrderPlaced,
     OrderRejected,
-    PlaceOrderCommand,
 )
 from tradex_domain.execution import OrderRequest
 from tradex_domain.utils import q2
@@ -485,13 +484,16 @@ class BacktestEngine:
 
         # --- Unified reactive pipeline (same as live/replay/paper) -----------
         # Backtest is now a *bus driver*: it publishes historical events onto a
-        # ReactiveBus; the strategy (via ReactiveStrategyEngine, next_open) emits
-        # PlaceOrderCommand at the next bar's open; the SAME ExecutionEngine +
-        # PositionManager + FeeCalculator + RiskManager that live uses processes
-        # the order. Fills/risk/fees/positions are therefore computed by one code
-        # path in every mode (parity review CRITICAL-1). Backtest-specific
-        # reporting (cash ledger, point-in-time MTM, sharpe/drawdown) is derived
-        # from PositionManager + CashLedger state after the stream completes.
+        # ReactiveBus; the strategy (via ReactiveStrategyEngine, next_open) sizes
+        # its signal and hands the order to ExecutionEngine.submit() at the next
+        # bar's open; the SAME ExecutionEngine + PositionManager + FeeCalculator
+        # + RiskManager that live uses processes the order (AC-22: `submit()` is
+        # the only door to the venue — the bus carries market data in and
+        # observations out, never an order). Fills/risk/fees/positions are
+        # therefore computed by one code path in every mode (parity review
+        # CRITICAL-1). Backtest-specific reporting (cash ledger, point-in-time
+        # MTM, sharpe/drawdown) is derived from PositionManager + CashLedger
+        # state after the stream completes.
         bus = ReactiveBus()
         cache = TradingCache()
         position_manager = PositionManager(cache)
@@ -693,14 +695,20 @@ class BacktestEngine:
 
         bus.of_type(ErrorOccurred).subscribe(_on_pipeline_error)
 
-        # Strategy engine (next_open) drives PlaceOrderCommand at next-open. The
-        # SAME sizer the recording-only bridge below asks, built once for this
+        # Strategy engine (next_open) drives orders at next-open. The SAME
+        # sizer the recording-only bridge below asks, built once for this
         # run — AC-5's parity half. Left to itself the engine falls back to
         # `unconfigured_sizer()` and the bridge to its own `abs(strength)`, so
         # the two ways a strategy emits would be sized by two different rules.
+        #
+        # `submit` is the engine's own `submit` (AC-22): the strategy hands its
+        # sized, bracketed request straight to the pipeline instead of
+        # publishing a command onto the bus for someone to pick up. The bus
+        # stays a driver of market data into the run and a source of
+        # observations out of it.
         sizer = self._resolve_sizer()
         strategy_engine = ReactiveStrategyEngine(
-            bus, fill_reference="next_open", sizer=sizer,
+            bus, engine.submit, fill_reference="next_open", sizer=sizer,
         )
         strategy_engine.register(strategy)
 
@@ -835,7 +843,8 @@ class BacktestEngine:
                 tag="backtest-protective-exit",
                 reference_timestamp=candle.timestamp,
             )
-            bus.publish(PlaceOrderCommand(request=request))
+            # Straight to the engine (AC-22) — the bus is not an order door.
+            engine.submit(request)
 
         def _bridge_signal(signal: Signal, candle: Candle) -> None:
             """Publish *signal*'s order against *candle* — the bar AFTER the one
@@ -871,7 +880,7 @@ class BacktestEngine:
                 tag=f"{getattr(strategy, 'strategy_id', 'strategy')}@{version}",
                 reference_timestamp=candle.timestamp,
             )
-            bus.publish(PlaceOrderCommand(request=request))
+            engine.submit(request)
 
         def _flush_bridge_pending(candle: Candle) -> None:
             """Fill the next bridge-deferred signal for *candle*'s instrument at

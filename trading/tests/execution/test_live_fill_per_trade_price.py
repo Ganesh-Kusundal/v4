@@ -35,7 +35,6 @@ from tradex_domain import (
     OrderSide,
     OrderStatus,
     OrderType,
-    PlaceOrderCommand,
     TimeInForce,
 )
 from tradex_domain.execution import Order, OrderRequest
@@ -192,7 +191,7 @@ class TestPerTradeFillPrice:
         book = _TradeBook([_trade("T1", "100", "100", _TRADE_TIME_UTC)])
         bus, engine, stream, bridge, fills = _harness(book)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(CORRELATION_ID)))
+            engine.submit(_request(CORRELATION_ID))
 
             # Fill 1: 100 @ 100.
             stream.emit(
@@ -235,7 +234,7 @@ class TestPerTradeFillPrice:
         a restatement of the average."""
         bus, engine, stream, bridge, fills = _harness(None)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(CORRELATION_ID)))
+            engine.submit(_request(CORRELATION_ID))
             for filled, average, status in (
                 (100, "100", OrderStatus.PARTIALLY_FILLED),
                 (200, "105", OrderStatus.FILLED),
@@ -259,7 +258,7 @@ class TestPerTradeFillPrice:
         book = _TradeBook([_trade("T1", "100", "100", _TRADE_TIME_UTC)])
         bus, engine, stream, bridge, fills = _harness(book)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(CORRELATION_ID)))
+            engine.submit(_request(CORRELATION_ID))
             update = _stream_update(
                 CORRELATION_ID, filled=100, average="100",
                 status=OrderStatus.PARTIALLY_FILLED,
@@ -278,9 +277,9 @@ class TestPerTradeFillPrice:
         """The venue's trade timestamp is the record of when the fill happened;
         it is converted to IST, the platform's storage convention."""
         book = _TradeBook([_trade("T1", "100", "100", _TRADE_TIME_UTC)])
-        bus, _engine, stream, bridge, fills = _harness(book)
+        bus, engine, stream, bridge, fills = _harness(book)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(CORRELATION_ID)))
+            engine.submit(_request(CORRELATION_ID))
             stream.emit(
                 _stream_update(
                     CORRELATION_ID, filled=100, average="100",
@@ -310,7 +309,7 @@ class TestAveragePriceFallback:
         fills: list[OrderFilled] = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(CORRELATION_ID)))
+            engine.submit(_request(CORRELATION_ID))
             stream.emit(
                 _stream_update(
                     CORRELATION_ID, filled=100, average="100",
@@ -335,7 +334,7 @@ class TestAveragePriceFallback:
         ])
         bus, engine, stream, bridge, fills = _harness(book)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(CORRELATION_ID)))
+            engine.submit(_request(CORRELATION_ID))
             stream.emit(
                 _stream_update(
                     CORRELATION_ID, filled=100, average="100",
@@ -351,9 +350,9 @@ class TestAveragePriceFallback:
 
     def test_per_trade_fills_are_not_counted_as_fallbacks(self) -> None:
         book = _TradeBook([_trade("T1", "100", "100", _TRADE_TIME_UTC)])
-        bus, _engine, stream, bridge, _fills = _harness(book)
+        bus, engine, stream, bridge, _fills = _harness(book)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(CORRELATION_ID)))
+            engine.submit(_request(CORRELATION_ID))
             stream.emit(
                 _stream_update(
                     CORRELATION_ID, filled=100, average="100",
@@ -368,9 +367,9 @@ class TestAveragePriceFallback:
         """A re-published cumulative update books nothing, so it is not a
         fallback — the counter counts booked fills, not stream frames."""
         book = _TradeBook([_trade("T1", "100", "100", _TRADE_TIME_UTC)])
-        bus, _engine, stream, bridge, _fills = _harness(book)
+        bus, engine, stream, bridge, _fills = _harness(book)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(CORRELATION_ID)))
+            engine.submit(_request(CORRELATION_ID))
             update = _stream_update(
                 CORRELATION_ID, filled=100, average="100",
                 status=OrderStatus.PARTIALLY_FILLED,

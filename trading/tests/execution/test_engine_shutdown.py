@@ -34,15 +34,35 @@ def test_context_manager_calls_shutdown() -> None:
     assert engine.kill_switch is True
 
 
-def test_shutdown_disposes_pipeline_subscription() -> None:
+def test_shutdown_disposes_the_fill_subscription() -> None:
+    """The one subscription the engine still owns is torn down on shutdown.
+
+    AC-22 removed the two order-intake subscriptions (``_pipeline_disposable``
+    and ``_command_disposable``), so the inbound fill bridge is the only
+    disposable left. It stays: it is how a live fill reaches the book.
+    """
     engine = _make_engine()
-    # The pipeline disposable is created during _setup_pipeline().
-    disposable = engine._pipeline_disposable
+    # Created during _setup_pipeline().
+    disposable = engine._fill_disposable
     assert disposable is not None
     # Wrap dispose to verify it gets called.
     disposable.dispose = MagicMock()  # type: ignore[method-assign]
     engine.shutdown()
     disposable.dispose.assert_called_once()
+
+
+def test_shutdown_leaves_no_order_intake_subscription_behind() -> None:
+    """The removed doors must not come back under any name.
+
+    A renamed door is still a door, so this asserts the attributes are absent
+    rather than merely unused.
+    """
+    engine = _make_engine()
+    try:
+        assert not hasattr(engine, "_pipeline_disposable")
+        assert not hasattr(engine, "_command_disposable")
+    finally:
+        engine.shutdown()
 
 
 def test_shutdown_is_idempotent() -> None:

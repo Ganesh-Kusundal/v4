@@ -95,7 +95,7 @@ class TestReplayFillSourceParity:
         """Run a reactive pipeline and record the fills."""
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_Ladder(INSTRUMENT))

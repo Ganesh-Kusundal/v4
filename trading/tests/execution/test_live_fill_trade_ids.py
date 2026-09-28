@@ -42,7 +42,6 @@ from tradex_domain import (
     OrderSide,
     OrderStatus,
     OrderType,
-    PlaceOrderCommand,
     TimeInForce,
 )
 from tradex_domain.execution import Order, OrderRequest
@@ -270,7 +269,7 @@ class TestLiveBridgeTradeIdStamping:
         filled: list[OrderFilled] = []
         bus.of_type(OrderFilled).subscribe(filled.append)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-fill")))
+            engine.submit(_request(correlation_id="cid-fill"))
 
             # Equal-lot partial 1: cumulative 3.
             stream.emit(_stream_order("cid-fill", filled=3))
@@ -321,7 +320,7 @@ class TestLiveBridgeTradeIdStamping:
         filled: list[OrderFilled] = []
         bus.of_type(OrderFilled).subscribe(filled.append)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-nores")))
+            engine.submit(_request(correlation_id="cid-nores"))
             stream.emit(_stream_order("cid-nores", filled=3))
             stream.emit(_stream_order("cid-nores", filled=6))
 

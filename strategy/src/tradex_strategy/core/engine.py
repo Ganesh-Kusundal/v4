@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from decimal import Decimal
 from typing import Any
 
 from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
-from tradex_domain.events import OrderCancelled, PlaceOrderCommand
-from tradex_domain.execution import Order
+from tradex_domain.events import ErrorOccurred, OrderCancelled
+from tradex_domain.execution import Order, OrderReceipt, OrderRequest
 from tradex_domain.instruments import InstrumentId
 from tradex_domain.strategy import Signal, StrategyContext
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
@@ -54,11 +54,22 @@ class ReactiveStrategyEngine:
     strategy emits ``strength=1.0``. Omitting ``sizer`` falls back to
     :func:`~tradex_strategy.core.sizing.unconfigured_sizer`, which logs a
     WARNING and sizes to a fixed notional.
+
+    **Orders leave through ``submit``, never the bus (AC-22).** ``submit`` is the
+    engine's own ``ExecutionEngine.submit``, injected rather than imported so
+    this module keeps no dependency on the execution layer and a test can hand
+    in a recorder. It is a REQUIRED argument: there is deliberately no default,
+    because the previous default (publish onto whatever bus was passed) is the
+    door AC-22 closed. A strategy's signal is sized here, gets its protective
+    levels here, and is then handed to this callable — so the ``PositionSizer``
+    and ``protective_request`` gates sit in front of the only path to the
+    venue, rather than being bypassable by anyone holding a bus reference.
     """
 
     def __init__(
         self,
         bus,
+        submit: Callable[[OrderRequest], OrderReceipt] | None = None,
         *,
         fill_reference: str = "next_open",
         pending_max_age_bars: int = 0,
@@ -67,7 +78,15 @@ class ReactiveStrategyEngine:
         """Initialize with a ReactiveBus.
 
         Args:
-            bus: ReactiveBus instance for event streaming
+            bus: ReactiveBus instance for event streaming (observations in,
+                lifecycle events out — NOT an order-intake surface).
+            submit: callable that takes a fully-formed ``OrderRequest`` to the
+                venue, i.e. ``ExecutionEngine.submit``. REQUIRED in every real
+                wiring; it may only be ``None`` in a unit test that asserts on
+                the *requests* this engine builds and never lets one reach a
+                fill source. A ``None`` submit means orders are built and
+                dropped, which is logged at ERROR so it cannot masquerade as a
+                working strategy in a live session.
             fill_reference: ``"next_open"`` (default) or ``"signal_close"`` —
                 see the class docstring.
             pending_max_age_bars: maximum number of bars a deferred
@@ -86,6 +105,13 @@ class ReactiveStrategyEngine:
             raise ValueError(
                 f"pending_max_age_bars must be >= 0, got {pending_max_age_bars!r}"
             )
+        if submit is None:
+            log.error(
+                "ReactiveStrategyEngine constructed with submit=None: orders "
+                "will be built and dropped, never reaching a venue. This is only "
+                "valid in a unit test that inspects the requests.",
+            )
+        self._submit = submit
         self._fill_reference = fill_reference
         self._bus = bus
         self._sizer = sizer if sizer is not None else unconfigured_sizer()
@@ -193,6 +219,42 @@ class ReactiveStrategyEngine:
         """Public flush of deferred orders for *candle* (replay drivers) [REF-5]."""
         self._flush_pending(candle)
 
+    def _place(self, request: OrderRequest, strategy_id: str) -> None:
+        """Hand *request* to the venue through the injected ``submit`` (AC-22).
+
+        Every order this engine produces goes through here, so the sizer and
+        the protective-pair gate are unconditionally in front of the single
+        path to the venue. An engine built with ``submit=None`` logs and drops
+        the order rather than publishing it anywhere: a dropped order is
+        visible, whereas a stray one on a shared bus is invisible.
+
+        A ``submit()`` failure is republished as ``ErrorOccurred`` rather than
+        re-raised. That is not politeness, it is the exact contract this
+        engine had when the order travelled as a bus command: ``ReactiveBus``
+        isolates a subscriber's exception, so the engine published
+        ``ErrorOccurred`` on the caller's behalf and the raise was consumed at
+        the bus. Consumers that need to see the failure — the backtest's
+        ``run()`` re-raises the first one out of the run rather than reporting
+        a flattering equity curve — subscribe to that event. Swallowing the
+        error here instead would silently change every such contract, and an
+        unaffordable order in a backtest would look like a quiet one.
+        """
+        if self._submit is None:
+            log.error(
+                "%s: dropped order for %s — no submit() wired "
+                "(ReactiveStrategyEngine cannot reach a venue)",
+                strategy_id, request.instrument.instrument_id,
+            )
+            return
+        try:
+            self._submit(request)
+        except Exception as exc:  # noqa: BLE001 — surfaced as ErrorOccurred
+            log.error(
+                "%s: submit() raised for %s: %s",
+                strategy_id, request.instrument.instrument_id, exc,
+            )
+            self._bus.publish(ErrorOccurred(error=exc))
+
     def _flush_pending(self, candle: Any) -> None:
         """Fill deferred orders for *candle*'s instrument at the candle's OPEN.
 
@@ -233,7 +295,7 @@ class ReactiveStrategyEngine:
                     strategy_id=pending["strategy_id"],
                     reference_timestamp=getattr(candle, "timestamp", None),
                 )
-                self._bus.publish(PlaceOrderCommand(request=request))
+                self._place(request, pending["strategy_id"])
         # Sweep stale orders from every other instrument's queue (O(n_bars)
         # instruments × O(k) per-instrument pending).
         self._sweep_stale_pending()
@@ -343,7 +405,7 @@ class ReactiveStrategyEngine:
     def _maybe_publish_order(
         self, result: Any, strategy: Any, event: Any = None,
     ) -> None:
-        """If *result* is a Signal, publish a PlaceOrderCommand to the bus.
+        """If *result* is a Signal, build a sized order and submit it (AC-22).
 
         The order is stamped with a deterministic correlation_id (derived from
         the triggering event). In ``signal_close`` mode it is priced at the
@@ -443,7 +505,7 @@ class ReactiveStrategyEngine:
                 "correlation_id": str(correlation_id),
             },
         )
-        self._bus.publish(PlaceOrderCommand(request=request))
+        self._place(request, strategy_id)
 
     def _size(
         self, signal: Signal, price: Price | None, strategy_id: str,

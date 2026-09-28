@@ -13,7 +13,6 @@ from decimal import Decimal
 
 import pytest
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-from tradex_domain.events import PlaceOrderCommand
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
@@ -28,18 +27,18 @@ INSTRUMENT = Equity.of("NSE", "RELIANCE")
 def _engine_with_position() -> ExecutionEngine:
     bus = ReactiveBus()
     engine = ExecutionEngine(bus, SimulatedFillSource(), cash=Decimal("100000"))
-    bus.publish(
-        PlaceOrderCommand(
-            request=OrderRequest(
-                instrument=INSTRUMENT,
-                side=OrderSide.BUY,
-                order_type=OrderType.LIMIT,
-                # 100.10: canonical normalizes to "100.1", a float renders
-                # "100.10". A value float preserves could not tell the paths apart.
-                quantity=Quantity(value=Decimal("3")),
-                price=Price(value=Decimal("100.10")),
-                time_in_force=TimeInForce.DAY,
-            ),
+    # AC-22: submit() is the only path to the venue. This used to publish a
+    # PlaceOrderCommand onto the bus.
+    engine.submit(
+        OrderRequest(
+            instrument=INSTRUMENT,
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            # 100.10: canonical normalizes to "100.1", a float renders
+            # "100.10". A value float preserves could not tell the paths apart.
+            quantity=Quantity(value=Decimal("3")),
+            price=Price(value=Decimal("100.10")),
+            time_in_force=TimeInForce.DAY,
         ),
     )
     return engine

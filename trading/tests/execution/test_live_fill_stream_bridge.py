@@ -15,7 +15,6 @@ from tradex_domain import (
     OrderSide,
     OrderStatus,
     OrderType,
-    PlaceOrderCommand,
     TimeInForce,
 )
 from tradex_domain.execution import Order, OrderRequest
@@ -107,7 +106,7 @@ class TestLiveFillStreamBridge:
         filled: list[OrderFilled] = []
         bus.of_type(OrderFilled).subscribe(filled.append)
         try:
-            bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-1")))
+            engine.submit(_request(correlation_id="cid-1"))
             engine_order_id = engine.cache.all_orders()[0].order_id.value
             assert engine.cache.all_positions() == []
 

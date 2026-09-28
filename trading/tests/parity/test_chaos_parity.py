@@ -151,7 +151,7 @@ class TestChaosParity:
 
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
 
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
@@ -179,7 +179,7 @@ class TestChaosParity:
 
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         strategy = _MultiInstrumentStrategy(INSTRUMENTS, "chaos-positions")
         strategy_engine.register(strategy)
 
@@ -204,7 +204,7 @@ class TestChaosParity:
         events = []
         bus = ReactiveBus(message_log=events)
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         strategy = _MultiInstrumentStrategy(INSTRUMENTS, "chaos-log")
         strategy_engine.register(strategy)
 
@@ -249,7 +249,7 @@ class TestChaosParity:
         # does not do one.
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         rt_strategy = _MultiInstrumentStrategy(INSTRUMENTS, "chaos-rt")

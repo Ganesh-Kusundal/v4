@@ -12,7 +12,6 @@ from decimal import Decimal
 
 import pytest
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-from tradex_domain.events import PlaceOrderCommand
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
@@ -31,20 +30,21 @@ def _bus_with_fills(cash: str = "100000") -> tuple[ReactiveBus, ExecutionEngine,
 
     fills: list = []
     bus.of_type(OrderFilled).subscribe(lambda e: fills.append(e.fill))
-    bus.publish(
-        PlaceOrderCommand(
-            request=OrderRequest(
-                instrument=INSTRUMENT,
-                side=OrderSide.BUY,
-                order_type=OrderType.LIMIT,
-                quantity=Quantity(value=Decimal("3")),
-                # 100.10 is deliberate: the canonical projection normalizes it
-                # to "100.1", while a float round-trip renders "100.10". A price
-                # that survives float unchanged could not tell the two paths
-                # apart, and the test would pass for the wrong reason.
-                price=Price(value=Decimal("100.10")),
-                time_in_force=TimeInForce.DAY,
-            ),
+    # AC-22: the request goes straight to the engine's sanctioned door. This
+    # used to be a PlaceOrderCommand published on the bus, which is exactly
+    # the bypass AC-22 closed.
+    engine.submit(
+        OrderRequest(
+            instrument=INSTRUMENT,
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            quantity=Quantity(value=Decimal("3")),
+            # 100.10 is deliberate: the canonical projection normalizes it
+            # to "100.1", while a float round-trip renders "100.10". A price
+            # that survives float unchanged could not tell the two paths
+            # apart, and the test would pass for the wrong reason.
+            price=Price(value=Decimal("100.10")),
+            time_in_force=TimeInForce.DAY,
         ),
     )
     return bus, engine, fills

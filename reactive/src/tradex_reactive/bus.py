@@ -50,9 +50,16 @@ _LANE_DIAGNOSTICS = "diagnostics"
 _LANE_DEFAULT = "default"
 
 #: Event class names routed to each lane. Built from tradex_domain.events.
+#: ``PlaceOrderCommand`` is deliberately ABSENT (AC-22). It used to be listed
+#: here, which put it on the order lane and made the bus a public door to the
+#: venue. An order-intake message has no reason to be routable at all now that
+#: ``ExecutionEngine.submit()`` is the only path to the venue: a stray command
+#: is now inert by construction (nothing subscribes to it) *and* falls to the
+#: default lane, so it cannot masquerade as an order-lane event to a
+#: consumer watching that lane.
 _ORDER_EVENT_NAMES: frozenset[str] = frozenset({
     "OrderPlaced", "OrderFilled", "OrderRejected",
-    "OrderCancelled", "OrderModified", "PlaceOrderCommand",
+    "OrderCancelled", "OrderModified",
 })
 _MARKET_TYPE_NAMES: frozenset[str] = frozenset({
     "Quote", "Depth", "Candle", "Bar", "Tick", "StaleFeed",

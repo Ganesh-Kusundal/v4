@@ -625,7 +625,8 @@ def _boot_tail(
         from tradex_strategy.runtime import StrategyRuntime
 
         strategy_engine = ReactiveStrategyEngine(
-            bus, fill_reference=cfg.execution.fill_reference,
+            bus, engine.submit,
+            fill_reference=cfg.execution.fill_reference,
         )
         strategy_registry = StrategyRegistry()
         # The discovered examples are bound to a hardcoded instrument and place

@@ -40,6 +40,11 @@ Supported event types (SDD §2.2)
 OrderPlaced, OrderFilled, OrderRejected, OrderCancelled, OrderModified,
 PlaceOrderCommand — plus any future DomainEvent subclass (open/closed OCP).
 
+PlaceOrderCommand is retained for READ compatibility only. AC-22 removed it
+from the public bus, so no order can enter the pipeline through a published
+command any more; the name survives here so a log written before that change
+still decodes and files under the "orders" stream it was written to.
+
 Thread safety
 -------------
 A threading.Lock guards every write; SQLite WAL mode gives concurrent reads.
@@ -66,6 +71,16 @@ _log = logging.getLogger(__name__)
 # Event types we explicitly recognise and route to stream "orders".
 # Any unknown DomainEvent subclass still goes into stream "system" so it is
 # durable without crashing the append path.
+#
+# ``PlaceOrderCommand`` stays here even though AC-22 took it off the bus.
+# This list is a STREAM-ROUTING table, not a list of things that may be
+# published: it decides which durable log a decoded event belongs to, and the
+# store decodes with ``pickle``. A log written before this change contains
+# pickled PlaceOrderCommand rows, and dropping the name would silently
+# re-route them to "system" on restart — the same order history, filed
+# under a different stream than the run that wrote it. Keeping the name
+# changes nothing about reachability: nothing constructs or subscribes to a
+# command any more, so a new one can never be produced here.
 # ---------------------------------------------------------------------------
 _ORDER_EVENT_CLASSNAMES = frozenset({
     "OrderPlaced",

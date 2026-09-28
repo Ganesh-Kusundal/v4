@@ -35,7 +35,7 @@ through the reactive bus.
 - **`Decimal` for all money** — no floating-point drift in prices, quantities, or P&L.
 - **Capability-loud adapters** — `BrokerCapabilities` defaults to closed; unsupported features raise typed `SDKError`s instead of failing silently.
 - **`FillSource` execution seam** — swap Simulated / Paper / Broker / Replay without touching the engine.
-- **CQRS order flow** — strategies publish `PlaceOrderCommand`; the engine processes.
+- **One path to the venue** — `ExecutionEngine.submit()` is the only door (AC-22). A strategy sizes its signal, adds protective legs, and hands the request to the engine; the bus carries market data in and observations out, never an order.
 
 ---
 

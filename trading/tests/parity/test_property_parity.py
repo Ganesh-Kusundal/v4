@@ -186,7 +186,7 @@ class TestPropertyBasedParity:
         # --- Path B: reactive pipeline ---
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_PropertyLadder(INSTRUMENT, plan))
@@ -233,7 +233,7 @@ class TestPropertyBasedParity:
 
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_PropertyLadder(INSTRUMENT, plan))
@@ -265,7 +265,7 @@ class TestPropertyBasedParity:
 
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_PropertyLadder(INSTRUMENT, plan))
@@ -311,7 +311,7 @@ class TestPropertySlippageParity:
 
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource(slippage_model=slippage))
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_PropertyLadder(INSTRUMENT, plan))
@@ -363,7 +363,7 @@ class TestPropertyFeeParity:
 
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource(), fee_calculator=fees)
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_PropertyLadder(INSTRUMENT, plan))

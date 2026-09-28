@@ -320,10 +320,6 @@ def _run_path(
     size per level so the multi-level walk can be exercised deliberately.
     """
     bus = ReactiveBus()
-    strategy_engine = ReactiveStrategyEngine(
-        bus, fill_reference="next_open", sizer=sizer,
-    )
-    strategy_engine.register(_PlanStrategy())
     session = TradingSession.paper(
         bus=bus,
         config=AppConfig(risk=permissive_risk(),
@@ -335,6 +331,12 @@ def _run_path(
             )
         ),
     )
+    # AC-22: the strategy hands its sized request to the session's engine
+    # directly. Constructed after the session so the callable exists.
+    strategy_engine = ReactiveStrategyEngine(
+        bus, session.engine.submit, fill_reference="next_open", sizer=sizer,
+    )
+    strategy_engine.register(_PlanStrategy())
     fill_source = session.engine._fill
     if level_depth is not None and isinstance(fill_source, PaperBookFillSource):
         # Re-narrow the book AFTER construction: set_depth is re-seeded per
