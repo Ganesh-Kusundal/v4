@@ -1,0 +1,322 @@
+# TradeX v4 — Prometheus alerting rules (AC-17, lane 5b).
+#
+# Every rule below carries an EXPLICIT NUMBER. The metrics catalog
+# (docs/operations/metrics-catalog.md) describes its alert column in prose —
+# "p99 > SLO", "spike", "sustained rate" — which is a description, not a rule:
+# Prometheus cannot evaluate a threshold that is not a number, so a catalog row
+# copied straight into an expression either fails to parse or silently never
+# fires. The numbers here are the translation of those rows.
+#
+# Metric names are the ones ON THE WIRE. MetricsRegistry._sanitized() replaces
+# every character outside [a-zA-Z0-9_:] with "_", so the catalog's dotted
+# logical names (orders.submit_latency_seconds, kill_switch.tripped) are
+# exposed as underscored names (orders_submit_latency_seconds,
+# kill_switch_tripped). Alerting on the dotted spelling would match nothing.
+#
+# Some metrics are emitted with a dimension encoded in the NAME rather than as
+# a label (the pre-5a call sites in risk.py and engine.py):
+#   orders.rejection_reason.<code>
+#       -> orders_rejection_reason_<code>
+#   reconciliation_drift_total.<severity>.<kind>
+#       -> reconciliation_drift_total_<severity>_<kind>
+# Those are selected by regex, never by enumerating the possible suffixes.
+#
+# Latency thresholds are in seconds, converted from the milliseconds the
+# programme states: p50 50 ms = 0.05, p95 250 ms = 0.25, p99 750 ms = 0.75.
+# Lane 5a made these computable by giving _Histogram real Prometheus buckets;
+# the default bounds (0.025, 0.05, 0.1, 0.25, 0.5, 1, …) bracket all three, so
+# no re-bucketing is needed to resolve them.
+#
+# Validated by observability/tests/test_alert_rules.py, which parses this file,
+# refuses any expression without a numeric comparison, and refuses any
+# referenced metric name that the source tree does not actually emit.
+
+groups:
+  # ---------------------------------------------------------------------------
+  # Order latency. p50 catches a drift too small to move the tail but already
+  # visible at the venue; p95 is the working budget; p99 is the one that
+  # precedes an unknown-submission incident.
+  # ---------------------------------------------------------------------------
+  - name: tradex.order_latency
+    rules:
+      - alert: TradeXOrdersSubmitLatencyP50High
+        expr: histogram_quantile(0.5, sum by (le) (rate(orders_submit_latency_seconds_bucket[5m]))) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/unknown-submission.md
+        annotations:
+          summary: "Order submit p50 latency above 50 ms"
+          description: "Half of the order submits in a 5m window are taking longer than 0.05s. Budget is p50 <= 50 ms."
+
+      - alert: TradeXOrdersSubmitLatencyP95High
+        expr: histogram_quantile(0.95, sum by (le) (rate(orders_submit_latency_seconds_bucket[5m]))) > 0.25
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/unknown-submission.md
+        annotations:
+          summary: "Order submit p95 latency above 250 ms"
+          description: "p95 of the end-to-end sync submit is over 0.25s (250 ms) for 5m. Budget is p95 <= 250 ms."
+
+      - alert: TradeXOrdersSubmitLatencyP99High
+        expr: histogram_quantile(0.99, sum by (le) (rate(orders_submit_latency_seconds_bucket[5m]))) > 0.75
+        for: 5m
+        labels:
+          severity: critical
+          team: trading
+          runbook: docs/operations/runbooks/unknown-submission.md
+        annotations:
+          summary: "Order submit p99 latency above 750 ms"
+          description: "p99 of order submit is over 0.75s (750 ms). A submit that slow is how an order ends up UNKNOWN; follow the unknown-submission runbook."
+
+      - alert: TradeXOrdersProcessLatencyP50High
+        expr: histogram_quantile(0.5, sum by (le) (rate(orders_process_latency_seconds_bucket[5m]))) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/unknown-submission.md
+        annotations:
+          summary: "Order processing p50 latency above 50 ms"
+          description: "Half of the order pipeline processing segments in a 5m window are taking longer than 0.05s. Budget is p50 <= 50 ms."
+
+      - alert: TradeXOrdersProcessLatencyP95High
+        expr: histogram_quantile(0.95, sum by (le) (rate(orders_process_latency_seconds_bucket[5m]))) > 0.25
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/unknown-submission.md
+        annotations:
+          summary: "Order processing p95 latency above 250 ms"
+          description: "p95 of the order pipeline processing segment is over 0.25s (250 ms) for 5m. Budget is p95 <= 250 ms."
+
+      - alert: TradeXOrdersProcessLatencyP99High
+        expr: histogram_quantile(0.99, sum by (le) (rate(orders_process_latency_seconds_bucket[5m]))) > 0.75
+        for: 5m
+        labels:
+          severity: critical
+          team: trading
+          runbook: docs/operations/runbooks/unknown-submission.md
+        annotations:
+          summary: "Order processing p99 latency above 750 ms"
+          description: "p99 of order processing is over 0.75s (750 ms). This segment is what stands between a submit and a state change, so a slow tail is the UNKNOWN path."
+
+  # ---------------------------------------------------------------------------
+  # Feed health. feed_state is the encoded supervisor state published by
+  # runtime/src/tradex_runtime/feed_monitor.py:
+  #   0=new  1=connecting  2=resynchronizing  3=ready  4=degraded  5=halted
+  # An unrecognised state string publishes -1, which is worth a page of its own.
+  # ---------------------------------------------------------------------------
+  - name: tradex.feed
+    rules:
+      - alert: TradeXFeedDegraded
+        expr: feed_state == 4
+        for: 2m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/stale-feed.md
+        annotations:
+          summary: "Market feed is DEGRADED (feed_state == 4)"
+          description: "The feed supervisor has been degraded for 2m. Order submits are gated while the feed is not ready; follow the stale-feed runbook."
+
+      - alert: TradeXFeedHalted
+        expr: feed_state == 5
+        for: 1m
+        labels:
+          severity: critical
+          team: trading
+          runbook: docs/operations/runbooks/broker-disconnect.md
+        annotations:
+          summary: "Market feed is HALTED (feed_state == 5)"
+          description: "The feed supervisor is halted, so trading is not possible. Page on-call; follow the broker-disconnect runbook."
+
+      - alert: TradeXFeedStateUnrecognised
+        expr: feed_state == -1
+        for: 2m
+        labels:
+          severity: critical
+          team: trading
+          runbook: docs/operations/runbooks/broker-disconnect.md
+        annotations:
+          summary: "Feed state is unrecognised (feed_state == -1)"
+          description: "feed_monitor._STATE_CODES returned -1, meaning the supervisor reported a state string this build does not know. The feed is neither ready nor accounted for."
+
+      - alert: TradeXFeedStale
+        expr: feed_age_seconds > 60
+        for: 2m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/stale-feed.md
+        annotations:
+          summary: "Market feed stale (age above 60s)"
+          description: "No quote or event has arrived for over 60s (ORDER_FEED_STALE_AFTER) for two consecutive scrapes. The feed monitor itself calls the feed stale above this age."
+
+      - alert: TradeXFeedRecoveryFailures
+        expr: increase(feed_recovery_failures_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/stale-feed.md
+        annotations:
+          summary: "Feed recovery failed at least once in 10m"
+          description: "FeedRecoveryCoordinator.recover() returned not-ok or halted at least once in the last 10m, so the feed is not healing itself."
+
+      - alert: TradeXFeedGaps
+        expr: increase(feed_gaps_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/stale-feed.md
+        annotations:
+          summary: "Feed gap signals recorded in 15m"
+          description: "At least one integrity or recovery gap signal (duplicate, out-of-order, large jump, session boundary) was recorded in 15m."
+
+      - alert: TradeXFeedMissingBars
+        expr: increase(feed_missing_bars_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/stale-feed.md
+        annotations:
+          summary: "Missing closed bars on the live feed in 15m"
+          description: "At least one expected closed bar was missing. On a live feed a missing bar is a real gap, not a reporting artifact."
+
+      - alert: TradeXFeedQueueDrops
+        expr: increase(feed_queue_drops_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/broker-disconnect.md
+        annotations:
+          summary: "WebSocket outbound queue drops in 10m"
+          description: "The /ws/stream outbound queue dropped at least one message in 10m, which means a slow consumer is losing chart updates."
+
+      - alert: TradeXFeedResyncSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(feed_resync_duration_seconds_bucket[15m]))) > 60
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/stale-feed.md
+        annotations:
+          summary: "Feed resync p95 above 60s"
+          description: "p95 of a single FeedRecoveryCoordinator.recover() is over 60s, the resync budget, so recoveries are not finishing inside the session."
+
+  # ---------------------------------------------------------------------------
+  # Order safety. An UNKNOWN outcome and a tripped kill switch are the two
+  # conditions where the local book and the venue may disagree.
+  # ---------------------------------------------------------------------------
+  - name: tradex.order_safety
+    rules:
+      - alert: TradeXOrdersUnknownOutcome
+        expr: increase(orders_unknown_outcome_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: trading
+          runbook: docs/operations/runbooks/unknown-submission.md
+        annotations:
+          summary: "Orders sitting in UNKNOWN outcome"
+          description: "At least one submit returned an unknown outcome (a boundary-crossed fill error) in 15m. GET /api/safety lists them with their age and correlation id; resolve every one before the next session."
+
+      - alert: TradeXKillSwitchTripped
+        expr: increase(kill_switch_tripped[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: trading
+          runbook: docs/operations/runbooks/risk-halt.md
+        annotations:
+          summary: "Kill switch tripped"
+          description: "The kill switch was tripped at least once in 5m, so a risk or reconciliation gate halted trading. Follow the risk-halt runbook and find which gate fired."
+
+      - alert: TradeXOrdersRejectedSpike
+        expr: increase(orders_rejected[10m]) > 20
+        for: 0m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/risk-halt.md
+        annotations:
+          summary: "Order rejection spike (over 20 in 10m)"
+          description: "More than 20 orders were terminally rejected in 10m. This is a spike threshold, not an SLO: read it against orders_submitted for the ratio, and check the per-reason counters to see which gate is refusing."
+
+      - alert: TradeXRiskDeniedSpike
+        expr: increase(risk_rejected[10m]) > 20
+        for: 0m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/risk-halt.md
+        annotations:
+          summary: "Risk gate denial spike (over 20 in 10m)"
+          description: "The risk engine denied more than 20 order decisions in 10m. Limits are refusing the strategy rather than the venue, so compare with orders_submitted before suspecting a broker problem."
+
+  # ---------------------------------------------------------------------------
+  # Reconciliation drift. engine.py encodes BOTH severity and kind into the
+  # metric name (reconciliation_drift_total.high.order becomes
+  # reconciliation_drift_total_high_order), so these rules match the family by
+  # regex instead of listing every severity/kind pair — a list would silently
+  # miss any kind the engine adds later. The startup gate halts trading on HIGH
+  # and CRITICAL drift, so both page.
+  # ---------------------------------------------------------------------------
+  - name: tradex.reconciliation
+    rules:
+      - alert: TradeXReconciliationDriftHigh
+        expr: increase({__name__=~"reconciliation_drift_total_high_.+"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: trading
+          runbook: docs/operations/runbooks/reconciliation-drift.md
+        annotations:
+          summary: "HIGH reconciliation drift"
+          description: "At least one HIGH-severity drift item (local vs broker position, order or funds) was recorded in 15m. Trading halts on HIGH drift; follow the reconciliation-drift runbook before restarting."
+
+      - alert: TradeXReconciliationDriftCritical
+        expr: increase({__name__=~"reconciliation_drift_total_critical_.+"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: trading
+          runbook: docs/operations/runbooks/reconciliation-drift.md
+        annotations:
+          summary: "CRITICAL reconciliation drift"
+          description: "At least one CRITICAL-severity drift item was recorded in 15m. The local book and the venue disagree at the highest severity; halt and reconcile by hand."
+
+  # ---------------------------------------------------------------------------
+  # Datalake quarantine.
+  #
+  # AC-15 / programme lane 3f specifies datalake_quarantine_total{symbol,file}
+  # for corrupt parquet files. The name is already a legal Prometheus name, so
+  # it is used verbatim. That lane has not landed on this branch yet, so the
+  # metric is not emitted today — which is exactly why the rule carries
+  # `metric_pending: ac-15`: it is staged, correct, and inert-until-emitted
+  # rather than silently green against a metric that does not exist. The
+  # validation test allows exactly this one documented form (a named metric
+  # that the programme spec quotes and that the rule marks pending); any
+  # unmarked invented metric still fails.
+  # ---------------------------------------------------------------------------
+  - name: tradex.datalake
+    rules:
+      - alert: TradeXDatalakeQuarantine
+        expr: increase(datalake_quarantine_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          team: data
+          metric_pending: ac-15
+          runbook: docs/operations/metrics-catalog.md
+        annotations:
+          summary: "Corrupt datalake file quarantined"
+          description: "A corrupt parquet file was moved to data/quarantine and counted in 15m. The affected symbol returns an empty series rather than failing every caller. Pending AC-15 (lane 3f): this rule goes live the moment datalake_quarantine_total is emitted."

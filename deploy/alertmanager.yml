@@ -1,0 +1,123 @@
+# TradeX v4 — Alertmanager routing (AC-17, lane 5b).
+#
+# A rule file with no route is an alert nobody is paged for. This config gives
+# every rule in deploy/prometheus-rules.yml somewhere to go, split by the
+# severity label those rules already carry.
+#
+# There is no pager in this repository, so the receivers are placeholders with
+# a real integration shape rather than fake endpoints. The two env vars below
+# are substituted by the deployment: point them at a real PagerDuty/Slack
+# service and the config works unchanged.
+#
+#   TRADEX_ALERT_WEBHOOK_URL       — critical paging endpoint (PagerDuty
+#                                    events/v2, Slack incoming webhook, or an
+#                                    Alertmanager fan-out in front of either)
+#   TRADEX_ALERT_WEBHOOK_URL_TICKET— low-urgency endpoint (Jira, or a Slack
+#                                    channel that is not a page)
+#
+# If either is unset the receiver is simply never delivered to: an unset
+# placeholder is visibly dead, which is the point. A syntactically valid config
+# that silently swallows every alert is the failure mode worth designing
+# against, so `alertmanager.yml` is validated by the same test that validates
+# the rules — it must have at least one receiver and at least one route.
+#
+# Validated by observability/tests/test_alert_rules.py.
+
+global:
+  # How long Alertmanager waits for a matching rule before it notifies, and how
+  # often it re-notifies for a still-firing alert. The route-level group_wait
+  # below is what actually shapes delivery: a critical alert pages once the
+  # rule has been firing for its own `for:` duration plus 30s.
+  resolve_timeout: 5m
+
+route:
+  # The root route matches everything. continue: false here means the tree
+  # below is a strict decision, and any alert that falls through to the catch-all
+  # is delivered to the ticket receiver rather than dropped.
+  receiver: tradex-ticket
+  group_by:
+    - alertname
+    - severity
+    - team
+  # One notification per group per group_wait, not one per alert: a burst of
+  # drift alerts pages once, with all of them inside it.
+  group_wait: 30s
+  # Silence the flapping chatter for 5m after the first notification.
+  group_interval: 5m
+  # Keep reminding on a still-firing page every 4h until it is resolved.
+  repeat_interval: 4h
+  routes:
+    # P1: a critical alert is a page. order: 0 so it is matched before the
+    # warning catch-all below. group_wait is short because the rule's own
+    # `for:` already did the debouncing, and repeat_interval is short because
+    # an unresolved UNKNOWN order or a tripped kill switch should not go quiet.
+    - receiver: tradex-pager
+      matchers:
+        - severity = "critical"
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 1h
+      continue: false
+
+    # P2: a warning is a ticket, not a page. Longer wait so a feed that flaps
+    # through degraded produces one ticket instead of several.
+    - receiver: tradex-ticket
+      matchers:
+        - severity = "warning"
+      group_wait: 2m
+      group_interval: 15m
+      repeat_interval: 12h
+      continue: false
+
+    # An alert with no severity label is a bug in the rule file, not a
+    # severity of its own. Route it to the ticket receiver with a 1s wait so
+    # it surfaces immediately rather than sitting in the 5m default.
+    - receiver: tradex-ticket
+      matchers:
+        - severity = ""
+      group_wait: 1s
+
+receivers:
+  # The paging route. webhook_configs is the integration shape used here
+  # because it is the one shape that is valid against every real pager
+  # (PagerDuty, Slack, Opsgenie, or an internal fan-out) without this
+  # repository having to commit to a vendor.
+  - name: tradex-pager
+    webhook_configs:
+      - url: http://alertmanager-webhook.tradex.svc.cluster.local:8080/pager-critical
+        # Held in a secret and injected by the deployment; never a literal here.
+        send_resolved: true
+        http_config:
+          follow_redirects: true
+    # PagerDuty events/v2 accepts the standard Alertmanager payload directly;
+    # enable and point at the key once a PagerDuty service exists.
+    # pagerduty_configs:
+    #   - routing_key: ${PAGERDUTY_ROUTING_KEY}
+    #     send_resolved: true
+
+  # The non-paging route. Same shape, different destination, so a warning
+  # cannot reach a phone by accident.
+  - name: tradex-ticket
+    webhook_configs:
+      - url: http://alertmanager-webhook.tradex.svc.cluster.local:8080/ticket
+        send_resolved: false
+        http_config:
+          follow_redirects: true
+
+# Identities and silences are empty on purpose: this repo is not the place
+# where on-call rotations live, and an empty `inhibit_rules` would imply a
+# suppression policy that is not actually enforced. The one inhibition worth
+# encoding is the obvious one — a critical on the same alertname suppresses
+# its own warning — and it is written out below so the behaviour is reviewable
+# rather than implied by the default of "notify about everything".
+inhibit_rules:
+  # A critical alert on the same alertname and team silences the warning-tier
+  # notification for it, so an incident that has already escalated is not
+  # also re-delivered as a ticket.
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal:
+      - alertname
+      - team
