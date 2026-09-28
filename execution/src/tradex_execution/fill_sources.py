@@ -9,6 +9,7 @@ shared ``FillModel`` so identical input events fill identically in every mode
 
 from __future__ import annotations
 
+import logging
 import uuid
 from decimal import Decimal
 from typing import Any, Protocol, runtime_checkable
@@ -18,8 +19,11 @@ from tradex_domain.errors import OrderSubmissionUnknownError
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.protocols import TradingCacheProtocol
 from tradex_domain.value_objects import OrderId, Price
+from tradex_observability.tracing import trace_id_of
 
 from tradex_execution.fill_model import FillModel
+
+log = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -339,6 +343,21 @@ class BrokerFillSource(FillModel):
         kill switch on a plain local validation error.
         """
         self._submission_boundary_crossed = True
+        # AC-17 / lane 5c, last link in the chain. ``_dispatch`` is the one
+        # place a request actually leaves this process for the venue, so this is
+        # where the order's trace id is stamped on the outbound call — the
+        # record an operator greps for to see that the order reached the broker
+        # at all, and (paired with the engine's audit lines) to see whether the
+        # venue's answer ever came back.
+        log.info(
+            "trace venue.request instrument=%s",
+            request.instrument.instrument_id,
+            extra={
+                "stage": "venue.request",
+                "instrument": request.instrument.instrument_id,
+                "correlation_id": trace_id_of(request.correlation_id),
+            },
+        )
         try:
             return send(request)
         except OrderSubmissionUnknownError:

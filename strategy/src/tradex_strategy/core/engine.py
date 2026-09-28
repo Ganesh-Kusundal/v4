@@ -391,6 +391,20 @@ class ReactiveStrategyEngine:
                 "correlation_id": correlation_id,
                 "deferred_at_bar": self._bar_count,
             })
+            # The deferred leg mints its CorrelationId here too, so the chain
+            # point is emitted on this path as well — ``next_open`` is the
+            # DEFAULT fill reference, and a chain that only held for
+            # signal_close would be absent from nearly every real run.
+            log.info(
+                "trace signal.emit instrument=%s",
+                inst_id,
+                extra={
+                    "stage": "signal.emit",
+                    "instrument": inst_id,
+                    "strategy_id": strategy_id,
+                    "correlation_id": str(correlation_id),
+                },
+            )
             return
         price = self._reference_price(event)
         if price is None:
@@ -409,6 +423,25 @@ class ReactiveStrategyEngine:
             tag=tag,
             strategy_id=strategy_id,
             reference_timestamp=getattr(event, "timestamp", None),
+        )
+        # AC-17 / lane 5c, second link in the chain. This is where the id is
+        # born: the strategy derives it from the triggering event and stamps it
+        # on the order, so logging it here is what lets an operator find the
+        # order that a given tick produced. The id is attached as a structured
+        # field (extra) rather than interpolated into the message text.
+        #
+        # This is the same CorrelationId the order is persisted under — not a
+        # parallel trace_id — so one grep connects the signal to the rows in
+        # the orders and idempotency tables.
+        log.info(
+            "trace signal.emit instrument=%s",
+            result.instrument.instrument_id,
+            extra={
+                "stage": "signal.emit",
+                "instrument": result.instrument.instrument_id,
+                "strategy_id": strategy_id,
+                "correlation_id": str(correlation_id),
+            },
         )
         self._bus.publish(PlaceOrderCommand(request=request))
 
