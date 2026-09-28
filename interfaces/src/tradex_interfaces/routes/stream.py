@@ -976,7 +976,9 @@ async def ws_stream(
             instrument = params["instrument"]
             exchange, symbol = instrument.split(":", 1)
             equity = Equity.of(exchange, symbol)
-            store = ParquetStorage(DATALAKE_ROOT)
+            store = ParquetStorage(
+                DATALAKE_ROOT, metrics=getattr(session, "metrics", None)
+            )
             provider = ParquetMarketProvider(store=store)
             now = datetime.now(IST_ZONE).replace(tzinfo=None)
             start_time = params["start_time"]
@@ -1398,7 +1400,9 @@ async def ws_stream(
                         from tradex_market_data.parquet_storage import ParquetStorage
                         from tradex_market_data.paths import DATALAKE_ROOT
 
-                        store = ParquetStorage(DATALAKE_ROOT)
+                        store = ParquetStorage(
+                            DATALAKE_ROOT, metrics=getattr(session, "metrics", None)
+                        )
                         provider = ParquetMarketProvider(store=store)
                         sym = getattr(inst, "symbol", None) or str(iid).split(":")[-1]
                         rng = store.date_range(sym)

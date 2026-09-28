@@ -295,17 +295,23 @@ groups:
           description: "At least one CRITICAL-severity drift item was recorded in 15m. The local book and the venue disagree at the highest severity; halt and reconcile by hand."
 
   # ---------------------------------------------------------------------------
-  # Datalake quarantine.
+  # Datalake quarantine (AC-15, lane 3f).
   #
-  # AC-15 / programme lane 3f specifies datalake_quarantine_total{symbol,file}
-  # for corrupt parquet files. The name is already a legal Prometheus name, so
-  # it is used verbatim. That lane has not landed on this branch yet, so the
-  # metric is not emitted today — which is exactly why the rule carries
-  # `metric_pending: ac-15`: it is staged, correct, and inert-until-emitted
-  # rather than silently green against a metric that does not exist. The
-  # validation test allows exactly this one documented form (a named metric
-  # that the programme spec quotes and that the rule marks pending); any
-  # unmarked invented metric still fails.
+  # datalake_quarantine_total{symbol,file} is now EMITTED. Lane 3f landed the
+  # guard in ParquetStorage._read_partition: every parquet read in the store
+  # goes through it, a corrupt file is moved to data/quarantine/
+  # <mtime>-<symbol>.parquet, the counter is incremented, and the affected
+  # symbol reads as an empty series instead of raising ArrowInvalid. So this
+  # rule is no longer staged-inert: the `metric_pending: ac-15` marker is
+  # REMOVED, because keeping it would now be a false claim — the metric is
+  # present, and the anti-vacuity check in test_alert_rules.py now verifies it
+  # against the source instead of against the spec text.
+  #
+  # The name is a legal Prometheus name, so _sanitized() leaves it verbatim;
+  # the labels are symbol and file, exactly as the spec states. `increase()`
+  # over the counter is the right shape here: a quarantine is a discrete event,
+  # not a rate, and any occurrence in 15m is a data-integrity event worth a
+  # warning regardless of how many.
   # ---------------------------------------------------------------------------
   - name: tradex.datalake
     rules:
@@ -315,8 +321,7 @@ groups:
         labels:
           severity: warning
           team: data
-          metric_pending: ac-15
           runbook: docs/operations/metrics-catalog.md
         annotations:
           summary: "Corrupt datalake file quarantined"
-          description: "A corrupt parquet file was moved to data/quarantine and counted in 15m. The affected symbol returns an empty series rather than failing every caller. Pending AC-15 (lane 3f): this rule goes live the moment datalake_quarantine_total is emitted."
+          description: "A corrupt parquet file was moved to data/quarantine and counted in 15m. The affected symbol returns an empty series rather than failing every caller. Inspect data/quarantine/<mtime>-<symbol>.parquet and rebuild the partition with a backfill."
