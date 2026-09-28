@@ -94,6 +94,8 @@ class TradingSession:
         writer_lock: object | None = None,
         feed_monitor: object | None = None,
         feed_recovery: object | None = None,
+        event_store: object | None = None,
+        validation_report_store: object | None = None,
     ) -> None:
         self._broker = broker
         self._bus = bus
@@ -147,6 +149,27 @@ class TradingSession:
         #: teardown path (context manager, explicit stop(), RuntimeContext)
         #: clears the lockfile without monkey-patching.
         self._writer_lock = writer_lock
+        #: AC-17 / lane 2e: the durable event log, also injected into
+        #: ``ExecutionEngine``. The engine owns the *writes*; the safety
+        #: surface needs the *reads* (``replay("orders")``) to time the
+        #: UNKNOWN-order ages and to find the last ``ReconciliationResult``.
+        #: Without this the route answered both from an empty list and
+        #: reported every age as ``None``.
+        self._event_store = event_store
+        #: AC-17 / lane 2e: the ``tradex_validation_report`` table, read to
+        #: answer per-strategy promotion standing. Injected rather than built
+        #: here: the store's ``rehydrate`` seam needs ``TradeValidationReport``
+        #: from ``tradex_analytics``, and ``tradex_runtime`` must not depend on
+        #: ``tradex_analytics`` (see tests/test_import_boundaries.py). The
+        #: composition that can see both builds it and passes it in.
+        self._validation_report_store = validation_report_store
+        #: AC-17 / lane 2e: the drift items from the most recent reconcile.
+        #: ``engine.reconcile`` returns them and startup used to log them and
+        #: drop them, so the safety surface always fell through to re-deriving
+        #: from scratch. Retained so a *checked* reconciliation reports what it
+        #: actually found. ``None`` means "never reconciled", which the route
+        #: distinguishes from "reconciled and found nothing".
+        self._last_reconciliation: tuple[object, ...] | None = None
 
     def start(self) -> None:
         """Transition to READY state. Idempotent: no-op if already READY."""
@@ -282,6 +305,49 @@ class TradingSession:
         ``session._strategy_registry`` [REF-5].
         """
         return self._strategy_registry
+
+    @property
+    def event_store(self) -> object | None:
+        """The durable OMS event log, or ``None`` when persistence is off.
+
+        The same store ``ExecutionEngine`` appends every lifecycle event to.
+        Exposed for read-only inspection (AC-17's safety surface replays the
+        ``orders`` stream to date UNKNOWN orders and to find the last
+        reconciliation); the engine keeps sole ownership of the writes.
+        """
+        return self._event_store
+
+    @property
+    def validation_report_store(self) -> object | None:
+        """The validation-report store, or ``None`` when not wired.
+
+        Injected by the composition root that can reach
+        ``tradex_analytics`` (see ``__init__``); ``tradex_runtime`` may not
+        import it, so a session cannot build one itself.
+        """
+        return self._validation_report_store
+
+    @property
+    def last_reconciliation(self) -> tuple[object, ...] | None:
+        """Drift items from the last reconcile this session ran, if any.
+
+        ``None`` means *never reconciled* — which is not the same as
+        "reconciled and found nothing", and the safety surface keeps the two
+        apart via ``reconciliation_checked``.
+        """
+        return self._last_reconciliation
+
+    def record_reconciliation(self, drifts: Sequence[object]) -> None:
+        """Retain *drifts* from a completed reconcile run.
+
+        Called by the composition root after ``engine.reconcile(...)`` returns.
+        The engine returns the items and startup used to log them and drop
+        them, so nothing downstream could tell "we checked and found this
+        drift" from "we have never checked". Copying to a tuple also freezes
+        the result, so a caller mutating the list it passed cannot change what
+        the safety surface later reports.
+        """
+        self._last_reconciliation = tuple(drifts or ())
 
     @property
     def capabilities(self) -> BrokerCapabilities:

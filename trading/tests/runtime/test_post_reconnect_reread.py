@@ -81,9 +81,13 @@ class TestReconnectTriggersVenueReread:
         calls: list[tuple] = []
         real = startup_mod._run_startup_reconciliation
 
-        def _spy(b, e):
+        # The third parameter is the session the drift is retained on (AC-17 /
+        # lane 2e). It defaults to None, so this test can call the real
+        # function without one; the spy mirrors the signature so the assertion
+        # still sees the (broker, engine) pair the intent is about.
+        def _spy(b, e, s=None):
             calls.append((b, e))
-            return real(b, e)
+            return real(b, e, s)
 
         startup_mod._run_startup_reconciliation = _spy  # type: ignore[assignment]
         try:

@@ -162,6 +162,7 @@ def boot(
     broker: Any | None = None,
     wire_strategies: bool = True,
     feed_instruments: Sequence[Instrument] | None = None,
+    validation_report_store: Any = None,
 ) -> TradingSession:
     """Fail-closed boot: compose all components into a ready TradingSession.
 
@@ -183,6 +184,19 @@ def boot(
         empty tape in live mode refuses the boot rather than serving a session
         that rejects every order. Offline modes ignore it entirely: they
         construct no feed.
+    validation_report_store :
+        A :class:`~tradex_execution.validation_report_store.ValidationReportStore`
+        (or any object with the same read surface) to expose as
+        ``session.validation_report_store`` for the AC-17 safety route.
+
+        **Injected, never constructed here.** The store's ``rehydrate`` seam has
+        to produce a validation report, and the report class lives in
+        ``tradex_analytics`` — a package ``tradex_runtime`` may not import (see
+        ``tests/test_import_boundaries.py``). A composition root that can see
+        both builds one with
+        :func:`tradex_interfaces.safety_report_store.build_validation_report_store`
+        and passes it here. ``None`` leaves the accessor ``None``, which the
+        safety surface reports as *absent* rather than as "not promotable".
 
     Returns
     -------
@@ -353,6 +367,7 @@ def boot(
                 fill_source=fill_source, metrics=metrics, guard=guard,
                 fee_calculator=fee_calculator, order_store=order_store,
                 event_store=event_store, feed_instruments=feed_instruments,
+                validation_report_store=validation_report_store,
             )
         except BaseException:
             # C3: best-effort rollback so a failed live boot never
@@ -371,6 +386,7 @@ def boot(
             fill_source=fill_source, metrics=metrics, guard=guard,
             fee_calculator=fee_calculator, order_store=order_store,
             event_store=event_store, feed_instruments=feed_instruments,
+            validation_report_store=validation_report_store,
         )
     except BaseException:
         _safe_teardown(session=None, broker=broker, bus=bus, writer_lock=None)
@@ -432,6 +448,7 @@ def _boot_tail(
     order_store: Any,
     event_store: Any = None,
     feed_instruments: Sequence[Instrument] | None = None,
+    validation_report_store: Any = None,
 ) -> TradingSession:
     """Steps 5→end of :func:`boot`, extracted so the live path can be
     rollback-wrapped. The body is the original ``boot()`` logic unchanged.
@@ -859,6 +876,18 @@ def _boot_tail(
         writer_lock=writer_lock,
         feed_monitor=feed_monitor,
         feed_recovery=feed_recovery,
+        # AC-17 / lane 2e: the same store the engine appends to, handed to the
+        # session so the safety surface can read the log it needs to date
+        # UNKNOWN orders and find the last reconciliation. Before this the
+        # route's ``getattr(session, "event_store", None)`` was always None
+        # and every age it reported was ``None`` — an order of unknown age,
+        # which is precisely the state an operator must not be shown as fresh.
+        event_store=event_store,
+        # AC-17 / lane 2e: injected, not built. See ``boot``'s docstring — the
+        # store's rehydrator needs a report class from tradex_analytics, which
+        # this package may not import. The composition root builds it and
+        # passes it down.
+        validation_report_store=validation_report_store,
         # AC-10 / lane 2f: bind the documented "one config flip stops all
         # order flow" control. ``AppConfig.live_orders_enabled`` is read by
         # ``from_dict`` and was read by nothing else, so the gate that
@@ -905,7 +934,7 @@ def _boot_tail(
                 engine.trip_kill_switch(reason="DURABLE_EVENTS_UNAVAILABLE")
             reconcile_tripped = True
         else:
-            reconcile_tripped = _run_startup_reconciliation(broker, engine)
+            reconcile_tripped = _run_startup_reconciliation(broker, engine, session)
         if reconcile_tripped:
             log.critical(
                 "Refusing to start session: kill switch tripped during "
@@ -916,7 +945,7 @@ def _boot_tail(
         # same reconciliation path (never resume blind). Installed on the
         # order-stream backend, which mixes in AutoReconnectMixin and fires
         # set_reconnect_hook after each successful reopen.
-        _install_post_reconnect_reread(broker, engine, stream_backend)
+        _install_post_reconnect_reread(broker, engine, stream_backend, session)
 
     # C4: attach the strategy registry to the session so callers (and tests)
     # can inspect lifecycle state via session.strategy_registry().  The
@@ -1159,7 +1188,7 @@ def _reconcile_cash(broker: Any, engine: Any) -> list[Any]:
 
 
 def _install_post_reconnect_reread(
-    broker: Any, engine: Any, stream_backend: Any
+    broker: Any, engine: Any, stream_backend: Any, session: Any = None
 ) -> None:
     """Re-read the venue book after every order/portfolio stream reconnect.
 
@@ -1177,6 +1206,10 @@ def _install_post_reconnect_reread(
     The hook fires only on a real reconnect (never on the initial connect), so
     a session whose socket never dropped performs no extra re-read.
 
+    The re-read also refreshes the session's retained drift (AC-17 / lane 2e),
+    which is why the session is captured: after a reconnect the safety surface
+    must report the comparison that was *just* made, not the one from boot.
+
     Best-effort: backends without a reconnect hook (paper, fakes) are skipped
     and reconciliation failure is already contained by the callee.
     """
@@ -1189,14 +1222,14 @@ def _install_post_reconnect_reread(
     def _reread() -> None:
         log.info("order/portfolio stream reconnected; re-reading venue book")
         try:
-            _run_startup_reconciliation(broker, engine)
+            _run_startup_reconciliation(broker, engine, session)
         except Exception:  # noqa: BLE001 — hook must not abort the receive loop
             log.warning("post-reconnect venue re-read failed", exc_info=True)
 
     set_hook(_reread)
 
 
-def _run_startup_reconciliation(broker: Any, engine: Any) -> bool:
+def _run_startup_reconciliation(broker: Any, engine: Any, session: Any = None) -> bool:
     """Live-mode startup reconciliation. Extracted so tests can call it directly.
 
     - Pulls the broker orderbook + positions.
@@ -1204,6 +1237,9 @@ def _run_startup_reconciliation(broker: Any, engine: Any) -> bool:
     - Updates the OMS cache from the broker book (status refresh only).
     - Logs every drift; trips the kill switch on HIGH/CRITICAL drift so
       a diverged book never reaches the trading surface.
+    - Retains the drift items on *session* (AC-17 / lane 2e) when given, so
+      the safety surface reports what this run actually found rather than
+      re-deriving from scratch and answering "nothing".
 
     Returns True iff reconciliation tripped the kill switch that wasn't
     already set by config (i.e. a *new* critical-drift trip). The
@@ -1240,6 +1276,12 @@ def _run_startup_reconciliation(broker: Any, engine: Any) -> bool:
     drifts = engine.reconcile(
         broker_orders=book, broker_positions=broker_positions,
     )
+    # AC-17 / lane 2e: retain the outcome before the early return below, so a
+    # session that HALTED is not left claiming it has never checked. ``None``
+    # on the session is reserved for "never reconciled"; an empty tuple is
+    # "reconciled, found nothing", and the safety surface keeps them apart.
+    if session is not None and hasattr(session, "record_reconciliation"):
+        session.record_reconciliation(drifts)
 
     # Cash is part of the book: a deposit, withdrawal, or charge at the venue
     # changes what the account can afford, and nothing else in the log records

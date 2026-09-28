@@ -441,6 +441,30 @@ def _lifecycle_value(runtime: Any) -> str:
     return str(getattr(lifecycle, "value", lifecycle) or "")
 
 
+def _registry_runtimes(registry: Any) -> list[Any]:
+    """The runtimes a registry holds, whether it is the registry or a getter.
+
+    ``TradingSession`` exposes the registry as ``strategy_registry()`` — a
+    zero-arg *method* [REF-5], not a property — so ``getattr(session,
+    "strategy_registry")`` yields a bound method. Reading ``.list_all`` off
+    that method fails, the old ``getattr(..., list)`` fallback quietly
+    substituted the builtin ``list``, and ``list()`` is empty: a booted
+    session with three registered strategies reported **zero**, and reported it
+    as "no strategies exist" rather than as an error. That is the null-degrade
+    this surface must not have.
+
+    Both shapes are therefore resolved explicitly, and a registry that is
+    neither yields nothing rather than a fabricated list.
+    """
+    if registry is None:
+        return []
+    candidate = registry() if callable(registry) else registry
+    list_all = getattr(candidate, "list_all", None)
+    if not callable(list_all):
+        return []
+    return list(list_all())
+
+
 def _strategy_rows(session: Any) -> tuple[StrategySafety, ...]:
     """Each registered strategy's lifecycle and promotion standing.
 
@@ -450,7 +474,7 @@ def _strategy_rows(session: Any) -> tuple[StrategySafety, ...]:
     unvalidated strategy look promotable.
     """
     registry = getattr(session, "strategy_registry", None)
-    runtimes = list(getattr(registry, "list_all", list)()) if registry is not None else []
+    runtimes = list(_registry_runtimes(registry))
     if not runtimes:
         return ()
 
@@ -496,13 +520,20 @@ def build_safety_report(
     orders = list(getattr(cache, "all_orders", list)()) if cache is not None else []
 
     event_store = getattr(session, "event_store", None)
-    events = list(event_store.replay("orders")) if event_store is not None else []
+    order_events, system_events = _replay_for_safety(event_store)
 
     unknown = unresolved_unknown_orders(
-        orders, _unknown_transition_times(events), now,
+        orders, _unknown_transition_times(order_events), now,
     )
 
-    last_checked, facts = _reconciliation(session, events)
+    # The last-checked marker is a ReconciliationResult, which the event store
+    # routes to the "system" stream, not "orders" (see
+    # sqlite_event_store._ORDER_EVENT_CLASSNAMES, which deliberately excludes
+    # it). Reading only "orders" therefore made last_checked_at structurally
+    # unreachable: even with a fully wired store it was a permanent None, and
+    # the route reported "never checked" about a session that had just
+    # reconciled. Both streams are read, each for its own question.
+    last_checked, facts = _reconciliation(session, system_events)
     totals = severity_totals(facts)
     refusing = sum(count for sev, count in totals.items() if refuses_boot(sev))
 
@@ -519,6 +550,31 @@ def build_safety_report(
         reconciliation_checked=last_checked is not None,
         drift=facts,
     )
+
+
+def _replay_for_safety(event_store: Any) -> tuple[list[Any], list[Any]]:
+    """``(order_events, system_events)`` from the durable log.
+
+    Two streams, two questions. Order lifecycle carriers (``OrderPlaced`` and
+    friends) live in ``orders`` and date the UNKNOWN orders. The
+    ``ReconciliationResult`` marker lives in ``system`` — the event store
+    routes it there deliberately — and dates the last reconciliation. Reading
+    ``orders`` alone made the second question unanswerable, which is why
+    ``last_checked_at`` was a permanent ``None``.
+
+    A stream the store does not carry, or a store that cannot replay, yields an
+    empty list for that stream rather than taking the route down: the surface
+    reports "absent" for the part it could not read.
+    """
+    if event_store is None:
+        return [], []
+    streams: list[list[Any]] = []
+    for stream in ("orders", "system"):
+        try:
+            streams.append(list(event_store.replay(stream)))
+        except Exception:  # noqa: BLE001 — the safety surface must still answer
+            streams.append([])
+    return streams[0], streams[1]
 
 
 def _reconciliation(session: Any, events: Sequence[Any]) -> tuple[str | None, list[DriftFact]]:
