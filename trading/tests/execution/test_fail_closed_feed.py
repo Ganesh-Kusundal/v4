@@ -40,16 +40,21 @@ class _NotReadySupervisor:
     ready = False
 
 
-def test_feed_not_ready_publishes_order_rejected_on_reactive_path() -> None:
+def test_feed_not_ready_publishes_order_rejected() -> None:
+    # AC-22: the gate is unchanged, the door is not. This used to publish an
+    # OrderRequest onto the bus and assert the engine's *reactive* subscription
+    # rejected it. There is no intake subscription any more, so the request
+    # goes through submit() and the same gate fires — which is the point the
+    # AC-22 spec got wrong: the feed gate ran for bus publishers too.
     bus = ReactiveBus()
     rejected: list[OrderRejected] = []
     bus.of_type(OrderRejected).subscribe(rejected.append)
-    ExecutionEngine(
+    engine = ExecutionEngine(
         bus=bus,
         fill_source=SimulatedFillSource(),
         feed_supervisor=_NotReadySupervisor(),  # type: ignore[arg-type]
     )
-    bus.publish(_request("feed-not-ready-reactive"))
+    engine.submit(_request("feed-not-ready-reactive"))
     time.sleep(0.05)
     assert len(rejected) == 1
     assert rejected[0].reason == "feed_not_ready"
@@ -67,23 +72,23 @@ def test_unbound_feed_rejects_when_required_sync() -> None:
     assert receipt.message == "FEED_UNBOUND"
 
 
-def test_unbound_feed_publishes_order_rejected_on_reactive_path() -> None:
+def test_unbound_feed_publishes_order_rejected() -> None:
     bus = ReactiveBus()
     rejected: list[OrderRejected] = []
     bus.of_type(OrderRejected).subscribe(rejected.append)
-    ExecutionEngine(
+    engine = ExecutionEngine(
         bus=bus,
         fill_source=SimulatedFillSource(),
         feed_supervisor=None,
         require_feed=True,
     )
-    bus.publish(_request("feed-unbound-reactive"))
+    engine.submit(_request("feed-unbound-reactive"))
     time.sleep(0.05)
     assert len(rejected) == 1
     assert rejected[0].reason == "FEED_UNBOUND"
 
 
-def test_kill_switch_publishes_order_rejected_on_reactive_path() -> None:
+def test_kill_switch_publishes_order_rejected() -> None:
     bus = ReactiveBus()
     rejected: list[OrderRejected] = []
     bus.of_type(OrderRejected).subscribe(rejected.append)
@@ -92,7 +97,7 @@ def test_kill_switch_publishes_order_rejected_on_reactive_path() -> None:
         fill_source=SimulatedFillSource(),
     )
     engine.trip_kill_switch(reason="test halt")
-    bus.publish(_request("kill-switch-reactive"))
+    engine.submit(_request("kill-switch-reactive"))
     time.sleep(0.05)
     assert len(rejected) == 1
     assert rejected[0].reason == "kill_switch_active"

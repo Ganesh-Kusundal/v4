@@ -62,18 +62,21 @@ def test_unbound_risk_rejects_sync_when_required() -> None:
     assert reg.get("orders.rejection_reason.risk_unbound") >= 1
 
 
-def test_unbound_risk_publishes_order_rejected_on_reactive_path() -> None:
+def test_unbound_risk_publishes_order_rejected() -> None:
+    # AC-22: the risk gate is unchanged, the door is not. This used to publish
+    # an OrderRequest onto the bus; the engine no longer subscribes to intake,
+    # so the request goes through submit() and the same gate fires.
     _CountingFillSource.submit_calls = 0
     bus = ReactiveBus()
     rejected: list[OrderRejected] = []
     bus.of_type(OrderRejected).subscribe(rejected.append)
-    ExecutionEngine(
+    engine = ExecutionEngine(
         bus=bus,
         fill_source=_CountingFillSource(),
         risk_manager=None,
         require_risk=True,
     )
-    bus.publish(_request())
+    engine.submit(_request())
     time.sleep(0.05)
     assert len(rejected) == 1
     assert rejected[0].reason == "RISK_UNBOUND"

@@ -79,12 +79,10 @@ Exchange WS ──► AutoReconnectMixin (fresh token, replay subs, backoff)
             ──► StreamService subs · ReactiveStrategyEngine · FastAPI /ws/stream
 ```
 
-### F2 — Order submit (imperative edge)
+### F2 — Order submit (the only edge to the venue)
 ```
-strategy ─► session.trade.submit(req)
-             ├─ order gate (session policy)
-             ├─ require_capability(order_type)
-             └─► engine.submit ─► _run_pipeline(sync=True)
+strategy ─► ReactiveStrategyEngine (sizes the signal, protective legs)
+             └─► engine.submit(req) ─► _run_pipeline(sync=True)
                    ├─ idempotency guard (correlation reserve)
                    ├─ risk manager
                    ├─ fill_source.submit
@@ -93,9 +91,13 @@ strategy ─► session.trade.submit(req)
                    │    └─ Simulated(Backtest): next-bar-open reference fill
                    ├─ OMS cache update
                    └─ publish OrderPlaced (+OrderFilled if immediate)
-CQRS alternative: strategy publishes PlaceOrderCommand on the bus; the engine
-subscribes and runs the SAME pipeline.
 ```
+There is no CQRS alternative (AC-22). `PlaceOrderCommand` is no longer an
+order-intake message: the engine subscribes to no order type, so a request
+published on the bus is inert. That is deliberate — the bus door converged on
+this same pipeline, so it ran every engine gate, but it bypassed the two gates
+above the engine: `PositionSizer` and the protective pair. Those now sit in
+front of the single remaining edge.
 
 ### F3 — Modify / Cancel (imperative edge, event-complete)
 ```

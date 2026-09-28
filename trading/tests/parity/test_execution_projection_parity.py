@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from tradex_domain import OHLC, Candle, OrderSide, Signal, Timeframe
 from tradex_domain.enums import OrderType
-from tradex_domain.events import OrderFilled, PlaceOrderCommand
+from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Fill, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
@@ -75,7 +75,7 @@ def test_reactive_and_replay_projections_have_same_economics() -> None:
     ]
     bus = ReactiveBus()
     engine = ExecutionEngine(bus, SimulatedFillSource(), cash=Decimal("1000"))
-    strategy = ReactiveStrategyEngine(bus)
+    strategy = ReactiveStrategyEngine(bus, engine.submit)
     fills: list[Fill] = []
     bus.of_type(OrderFilled).subscribe(lambda event: fills.append(event.fill))
     strategy.register(_Ladder())
@@ -91,16 +91,14 @@ def test_reactive_and_replay_projections_have_same_economics() -> None:
     replay_engine = ExecutionEngine(replay_bus, ReplayFillSource(fills), cash=Decimal("1000"))
     replay_bus.of_type(OrderFilled).subscribe(lambda event: replayed_fills.append(event.fill))
     for index, fill in enumerate(fills):
-        replay_bus.publish(
-            PlaceOrderCommand(
-                request=OrderRequest(
-                    instrument=fill.instrument,
-                    side=fill.side,
-                    order_type=OrderType.MARKET,
-                    quantity=fill.quantity,
-                    price=fill.price,
-                    correlation_id=CorrelationId(value=f"projection-{index}"),
-                )
+        replay_engine.submit(
+            OrderRequest(
+                instrument=fill.instrument,
+                side=fill.side,
+                order_type=OrderType.MARKET,
+                quantity=fill.quantity,
+                price=fill.price,
+                correlation_id=CorrelationId(value=f"projection-{index}"),
             )
         )
     replay = execution_projection(

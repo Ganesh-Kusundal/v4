@@ -35,10 +35,12 @@ from tradex_domain import (
     Quantity,
 )
 from tradex_domain.enums import OrderSide
-from tradex_domain.events import OrderCancelled, PlaceOrderCommand
+from tradex_domain.events import OrderCancelled
 from tradex_domain.strategy import Signal
 from tradex_reactive.bus import ReactiveBus
 from tradex_strategy.core.engine import ReactiveStrategyEngine
+
+from strategy._ac22_recorder import RecordingSubmit
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -124,11 +126,11 @@ def _capture_bus(bus: ReactiveBus) -> list[Any]:
 def test_pending_is_indexed_by_instrument() -> None:
     """Flushing bar A only flushes A's deferred orders; B's stay queued."""
     bus = ReactiveBus()
-    engine = ReactiveStrategyEngine(bus, fill_reference="next_open")
+    orders = RecordingSubmit()
+    engine = ReactiveStrategyEngine(bus, orders, fill_reference="next_open")
     strat = _DeferringStrategy("idx")
     engine.register(strat)
 
-    captured = _capture_bus(bus)
     # Three bars of A and two bars of B interleaved. Each bar emits a signal
     # that is deferred to the next candle of the same instrument.
     a1 = _candle("AAA", 100.0, 101.0, _ts(0))
@@ -144,11 +146,11 @@ def test_pending_is_indexed_by_instrument() -> None:
     bus.publish(b2)   # flushes BBB queue (1 fill), defers new signal
     bus.publish(a3)   # flushes AAA queue (1 fill), defers new signal
 
-    commands = [m for m in captured if isinstance(m, PlaceOrderCommand)]
+    commands = list(orders)
     # A produced 2 fills (a2, a3), B produced 1 fill (b2). a1's signal was
     # deferred past a1 (no A bar exists at the start) and flushed at a2.
     assert len(commands) == 3, f"unexpected publish count: {len(commands)}"
-    instruments = [c.request.instrument.symbol for c in commands]
+    instruments = [c.instrument.symbol for c in commands]
     # First a fill is from the a1-deferred signal (filled at a2.open=101);
     # then b1-deferred signal (filled at b2.open=51); then a2-deferred
     # signal (filled at a3.open=102). The two a-fills are clearly at AAA.
@@ -172,16 +174,16 @@ def test_last_bar_flushes_pending_orders() -> None:
     backtest) can drive the last-bar flush itself.
     """
     bus = ReactiveBus()
-    engine = ReactiveStrategyEngine(bus, fill_reference="next_open")
+    orders = RecordingSubmit()
+    engine = ReactiveStrategyEngine(bus, orders, fill_reference="next_open")
     strat = _DeferringStrategy("last")
     engine.register(strat)
 
-    captured = _capture_bus(bus)
     only = _candle("ONLY", 100.0, 101.0, _ts(0))
     bus.publish(only)
 
-    # Engine deferred the signal (no PlaceOrderCommand yet on the bus).
-    commands_before = [m for m in captured if isinstance(m, PlaceOrderCommand)]
+    # Engine deferred the signal (nothing handed to the venue yet).
+    commands_before = list(orders)
     assert len(commands_before) == 0
     # But pending_snapshot exposes the deferred order — the backtest driver
     # uses this to drive the last-bar flush (see replay/backtest.py).
@@ -191,12 +193,12 @@ def test_last_bar_flushes_pending_orders() -> None:
 
     # The driver flushes at the last bar — the engine must publish.
     engine.flush_pending(only)
-    commands_after = [m for m in captured if isinstance(m, PlaceOrderCommand)]
+    commands_after = list(orders)
     assert len(commands_after) == 1
-    assert commands_after[0].request.instrument.symbol == "ONLY"
+    assert commands_after[0].instrument.symbol == "ONLY"
     # Open is 100.0 — fill reference is "next_open" so the fill is at
     # the same bar's open (the only bar) at 100.
-    assert commands_after[0].request.price.value == Decimal("100")
+    assert commands_after[0].price.value == Decimal("100")
 
     engine.dispose_all()
 
@@ -214,8 +216,9 @@ def test_pending_max_age_cancels_stale_orders() -> None:
     be cancelled and ``OrderCancelled`` published.
     """
     bus = ReactiveBus()
+    orders = RecordingSubmit()
     engine = ReactiveStrategyEngine(
-        bus, fill_reference="next_open", pending_max_age_bars=2,
+        bus, orders, fill_reference="next_open", pending_max_age_bars=2,
     )
     strat = _DeferringStrategy("stale")
     engine.register(strat)
@@ -250,8 +253,9 @@ def test_pending_max_age_cancels_stale_orders() -> None:
 def test_pending_max_age_warns(caplog: Any) -> None:
     """The engine logs a warning when it cancels a stale pending order."""
     bus = ReactiveBus()
+    orders = RecordingSubmit()
     engine = ReactiveStrategyEngine(
-        bus, fill_reference="next_open", pending_max_age_bars=1,
+        bus, orders, fill_reference="next_open", pending_max_age_bars=1,
     )
     strat = _DeferringStrategy("warn")
     engine.register(strat)
@@ -282,7 +286,8 @@ def test_pending_max_age_warns(caplog: Any) -> None:
 def test_dispose_all_does_not_leave_pending() -> None:
     """dispose_all() empties the pending queue (dict, not just list)."""
     bus = ReactiveBus()
-    engine = ReactiveStrategyEngine(bus, fill_reference="next_open")
+    orders = RecordingSubmit()
+    engine = ReactiveStrategyEngine(bus, orders, fill_reference="next_open")
     strat = _DeferringStrategy("disc")
     engine.register(strat)
 
@@ -305,7 +310,8 @@ def test_dispose_all_does_not_leave_pending() -> None:
 def test_default_pending_max_age_keeps_orders_forever() -> None:
     """With pending_max_age_bars=0 (default), no order is ever cancelled."""
     bus = ReactiveBus()
-    engine = ReactiveStrategyEngine(bus, fill_reference="next_open")
+    orders = RecordingSubmit()
+    engine = ReactiveStrategyEngine(bus, orders, fill_reference="next_open")
     strat = _DeferringStrategy("keep")
     engine.register(strat)
 

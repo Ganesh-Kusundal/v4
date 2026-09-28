@@ -23,7 +23,6 @@ from tradex_domain import (
     Fill,
     OrderFilled,
     OrderPlaced,
-    PlaceOrderCommand,
     Signal,
 )
 from tradex_domain.enums import ExchangeId, OrderSide, OrderType, Timeframe
@@ -99,7 +98,7 @@ class TestStrategyIdPropagatesEndToEnd:
     def test_signal_to_order_to_fill_to_position(self) -> None:
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
 
         placed: list[OrderPlaced] = []
         filled: list[OrderFilled] = []
@@ -154,7 +153,7 @@ class TestStrategyIdPropagatesEndToEnd:
             price=Price(value=Decimal("2500")),
             # strategy_id omitted (default None)
         )
-        bus.publish(PlaceOrderCommand(request=request))
+        engine.submit(request)
 
         assert len(placed) == 1 and len(filled) == 1
         assert placed[0].order.strategy_id is None

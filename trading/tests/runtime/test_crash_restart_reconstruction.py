@@ -83,22 +83,22 @@ def _run_trades(session) -> None:
     mocked live venue cannot produce real fills. The recovery code under test
     (``recover_trading_cache``) is identical for every mode.
     """
-    from tradex_domain.events import PlaceOrderCommand
+    from tradex_domain.events import PlaceOrderCommand  # noqa: F401  (read-compat type)
 
     for side, qty, price in [
         (OrderSide.BUY, "10", "100"),
         (OrderSide.SELL, "4", "110"),
     ]:
-        session.bus.publish(
-            PlaceOrderCommand(
-                request=OrderRequest(
-                    instrument=INSTRUMENT,
-                    side=side,
-                    order_type=OrderType.LIMIT,
-                    quantity=Quantity(value=Decimal(qty)),
-                    price=Price(value=Decimal(price)),
-                    time_in_force=TimeInForce.DAY,
-                ),
+        # AC-22: submit() is the only path to the venue. This used to publish
+        # a PlaceOrderCommand onto the session bus.
+        session.engine.submit(
+            OrderRequest(
+                instrument=INSTRUMENT,
+                side=side,
+                order_type=OrderType.LIMIT,
+                quantity=Quantity(value=Decimal(qty)),
+                price=Price(value=Decimal(price)),
+                time_in_force=TimeInForce.DAY,
             ),
         )
 

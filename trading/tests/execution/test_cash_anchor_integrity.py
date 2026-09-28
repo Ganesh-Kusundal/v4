@@ -93,7 +93,6 @@ def test_a_fill_bearing_log_without_an_anchor_is_not_anchored_from_broker_funds(
     from tradex_config.schema import AppConfig, PersistenceConfig
     from tradex_domain import BrokerId
     from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-    from tradex_domain.events import PlaceOrderCommand
     from tradex_domain.execution import OrderRequest
     from tradex_domain.instruments import Equity
     from tradex_domain.value_objects import Price, Quantity
@@ -111,16 +110,16 @@ def test_a_fill_bearing_log_without_an_anchor_is_not_anchored_from_broker_funds(
     # A session that produced fills but whose anchor never persisted.
     session = sm.boot(cfg)
     try:
-        session.bus.publish(
-            PlaceOrderCommand(
-                request=OrderRequest(
-                    instrument=Equity.of("NSE", "RELIANCE"),
-                    side=OrderSide.BUY,
-                    order_type=OrderType.LIMIT,
-                    quantity=Quantity(value=Decimal("10")),
-                    price=Price(value=Decimal("100")),
-                    time_in_force=TimeInForce.DAY,
-                ),
+        # AC-22: the order goes through submit(), the only path to the venue.
+        # It used to be a PlaceOrderCommand published on the session bus.
+        session.engine.submit(
+            OrderRequest(
+                instrument=Equity.of("NSE", "RELIANCE"),
+                side=OrderSide.BUY,
+                order_type=OrderType.LIMIT,
+                quantity=Quantity(value=Decimal("10")),
+                price=Price(value=Decimal("100")),
+                time_in_force=TimeInForce.DAY,
             ),
         )
     finally:

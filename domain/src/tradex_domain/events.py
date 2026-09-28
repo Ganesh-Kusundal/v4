@@ -78,7 +78,24 @@ class OrderModified(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class PlaceOrderCommand(DomainEvent):
-    """CQRS command — strategies publish this instead of calling broker directly."""
+    """A fully-formed order request, wrapped for transport.
+
+    **Not an order-intake surface any more (AC-22).** This type used to be the
+    CQRS door: a strategy published one on the public bus and
+    ``ExecutionEngine`` picked it up with a subscription, which meant anyone
+    holding a bus reference could reach the venue while skipping the
+    strategy-layer sizing (``PositionSizer``) and protective-pair gates. The
+    subscription is gone and nothing publishes this, so it is inert.
+
+    The type itself is deliberately RETAINED rather than deleted. The durable
+    event store decodes its log with ``pickle``, so a log written before this
+    change holds pickled commands that must still resolve to a class on
+    restart; and ``EnvelopeTranslator.to_place_command`` remains a supported
+    inbound adapter whose result is now handed to
+    ``ExecutionEngine.submit()`` like any other request. Deleting the type
+    would break historical-log decode for no safety gain — reachability is
+    decided by who *subscribes*, not by whether a name exists.
+    """
 
     request: OrderRequest
 

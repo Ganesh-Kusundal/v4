@@ -1,9 +1,15 @@
-"""CQRS contracts — strategy Signal → PlaceOrderCommand → engine → Order events.
+"""Order contracts — strategy Signal → OrderRequest → submit() → Order events.
 
 Proves the documented order flow end-to-end through the real reactive bus
 with no broker involved: a strategy emits a ``Signal``, ``ReactiveStrategyEngine``
-bridges it into a ``PlaceOrderCommand``, and ``ExecutionEngine`` (with
-``SimulatedFillSource``) publishes ``OrderPlaced`` + ``OrderFilled``.
+sizes it and hands the ``OrderRequest`` to ``ExecutionEngine.submit()``, and
+the engine (with ``SimulatedFillSource``) publishes ``OrderPlaced`` +
+``OrderFilled``.
+
+As of AC-22 that is the only spine. The request used to travel as a
+``PlaceOrderCommand`` on the public bus, which made the bus a second door to
+the venue that skipped the strategy's sizing and protective-pair gates. The
+negative control in this module proves the door is shut.
 
 Also covers the scanner wiring: ``ScannerEngine`` is the documented
 scanner component (the removed ``scanner_runtime`` module and
@@ -21,7 +27,6 @@ from tradex_domain import (
     Fill,
     OrderFilled,
     OrderPlaced,
-    PlaceOrderCommand,
     Quote,
     Signal,
 )
@@ -87,17 +92,21 @@ def _candle() -> Candle:
 
 
 class TestCqrsSignalToOrder:
-    """The documented CQRS flow: Signal → PlaceOrderCommand → OrderPlaced."""
+    """The documented flow: Signal → OrderRequest → submit() → OrderPlaced."""
 
     def test_signal_becomes_order_placed_and_filled(self) -> None:
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        submitted: list[OrderRequest] = []
 
-        commands: list[PlaceOrderCommand] = []
+        def _record(request: OrderRequest) -> None:
+            submitted.append(request)
+            engine.submit(request)
+
+        strategy_engine = ReactiveStrategyEngine(bus, _record)
+
         placed: list[OrderPlaced] = []
         filled: list[OrderFilled] = []
-        bus.of_type(PlaceOrderCommand).subscribe(on_next=commands.append)
         bus.of_type(OrderPlaced).subscribe(on_next=placed.append)
         bus.of_type(OrderFilled).subscribe(on_next=filled.append)
 
@@ -109,15 +118,15 @@ class TestCqrsSignalToOrder:
         bus.publish(_candle())
         bus.publish(_candle())
 
-        # Strategy signal bridged into a CQRS command (the bar-1 signal fired
-        # when bar 2 arrived, priced at bar 2's open)
-        assert len(commands) == 1
-        assert commands[0].request.instrument == INSTRUMENT
-        assert commands[0].request.side == OrderSide.BUY
-        assert commands[0].request.price is not None
-        assert commands[0].request.price.value == Decimal("2500")
+        # The strategy's signal was sized and handed to the venue door (the
+        # bar-1 signal fired when bar 2 arrived, priced at bar 2's open)
+        assert len(submitted) == 1
+        assert submitted[0].instrument == INSTRUMENT
+        assert submitted[0].side == OrderSide.BUY
+        assert submitted[0].price is not None
+        assert submitted[0].price.value == Decimal("2500")
 
-        # Engine processed the command through the FillSource seam
+        # Engine processed it through the FillSource seam
         assert len(placed) == 1
         assert placed[0].order.instrument == INSTRUMENT
         assert len(filled) == 1
@@ -129,15 +138,15 @@ class TestCqrsSignalToOrder:
         engine.shutdown()
         strategy_engine.dispose_all()
 
-    def test_engine_also_processes_direct_place_commands(self) -> None:
-        """Direct PlaceOrderCommand submission (no strategy) hits the same spine."""
+    def test_engine_also_processes_direct_submits(self) -> None:
+        """Direct ``submit()`` (no strategy) hits the same spine."""
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
         placed: list[OrderPlaced] = []
         bus.of_type(OrderPlaced).subscribe(on_next=placed.append)
 
         # SimulatedFillSource now requires a positive price (zero-priced fills
-        # corrupted P&L), so direct commands must price the order.
+        # corrupted P&L), so direct submits must price the order.
         request = OrderRequest(
             instrument=INSTRUMENT,
             side=OrderSide.BUY,
@@ -145,7 +154,7 @@ class TestCqrsSignalToOrder:
             quantity=Quantity(value=Decimal("2")),
             price=Price(value=Decimal("2500")),
         )
-        bus.publish(PlaceOrderCommand(request=request))
+        engine.submit(request)
 
         assert len(placed) == 1
         assert placed[0].order.instrument == INSTRUMENT

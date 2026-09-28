@@ -32,7 +32,6 @@ from pathlib import Path
 import pytest
 from tradex_domain import OHLC, Candle, OrderSide, Quote, Signal, Timeframe
 from tradex_domain.enums import AssetClass, ExchangeId
-from tradex_domain.events import PlaceOrderCommand
 from tradex_domain.instruments import (
     Commodity,
     Currency,
@@ -57,6 +56,7 @@ from tradex_strategy.core.sizing import (
 )
 
 # -- fixtures in round rupee/tick numbers, so every expected size is hand-checkable --
+from strategy._ac22_recorder import RecordingSubmit
 
 REPO = Path(__file__).resolve().parents[3]  # <repo>/trading/tests/strategy/this_file.py
 _T0 = datetime(2026, 7, 31, 10, 30, tzinfo=UTC)
@@ -606,9 +606,8 @@ class _Signaller:
 
 def _engine_with(signal: Signal, sizer: PositionSizer) -> tuple[ReactiveBus, list]:
     bus = ReactiveBus()
-    orders: list[PlaceOrderCommand] = []
-    bus.of_type(PlaceOrderCommand).subscribe(orders.append)
-    engine = ReactiveStrategyEngine(bus, sizer=sizer, fill_reference="signal_close")
+    orders = RecordingSubmit()
+    engine = ReactiveStrategyEngine(bus, orders, sizer=sizer, fill_reference="signal_close")
     engine.register(_Signaller(signal))
     bus.publish(_quote(signal.instrument, "2500"))
     return bus, orders
@@ -620,7 +619,7 @@ def test_the_engine_does_not_size_from_strength() -> None:
     for strength in (1.0, 7.0, 1000.0):
         _bus, orders = _engine_with(_signal(strength=strength), sizer)
         assert len(orders) == 1
-        quantities.append(orders[0].request.quantity)
+        quantities.append(orders[0].quantity)
 
     assert quantities == [Quantity(UNITS_BY_RISK)] * 3
     assert quantities[0] != Quantity(Decimal("1"))
@@ -630,7 +629,7 @@ def test_a_refused_size_publishes_nothing_at_all() -> None:
     # No stop, no configured notional: the sizer cannot decide, so no order.
     _bus, orders = _engine_with(_signal(stop=None, target=None), _sizer())
 
-    assert orders == []
+    assert len(orders) == 0
 
 
 def test_a_shipped_strategy_no_longer_buys_one_share() -> None:
@@ -647,18 +646,16 @@ def test_a_shipped_strategy_no_longer_buys_one_share() -> None:
     assert signal.strength == 1.0  # signal quality, and the whole of it
 
     bus = ReactiveBus()
-    orders: list[PlaceOrderCommand] = []
-    bus.of_type(PlaceOrderCommand).subscribe(orders.append)
-    engine = ReactiveStrategyEngine(
-        bus, sizer=_sizer(fallback_notional=Decimal("50000")),
+    orders = RecordingSubmit()
+    engine = ReactiveStrategyEngine(bus, orders, sizer=_sizer(fallback_notional=Decimal("50000")),
         fill_reference="signal_close",
     )
     engine.register(strategy)
     bus.publish(_quote(_instrument(lot="1", tick="0.05")))
 
     assert len(orders) == 1
-    assert orders[0].request.quantity == Quantity(Decimal("20"))
-    assert orders[0].request.quantity.value != 1
+    assert orders[0].quantity == Quantity(Decimal("20"))
+    assert orders[0].quantity.value != 1
 
 
 def test_a_shipped_strategy_that_declares_a_stop_is_sized_by_that_stop() -> None:
@@ -700,10 +697,8 @@ def test_a_shipped_strategy_that_declares_a_stop_is_sized_by_that_stop() -> None
     )
     # and the order the engine builds carries both halves of that decision
     bus = ReactiveBus()
-    orders: list[PlaceOrderCommand] = []
-    bus.of_type(PlaceOrderCommand).subscribe(orders.append)
-    engine = ReactiveStrategyEngine(
-        bus, sizer=_sizer(), fill_reference="signal_close",
+    orders = RecordingSubmit()
+    engine = ReactiveStrategyEngine(bus, orders, sizer=_sizer(), fill_reference="signal_close",
     )
 
     class _Bar(_Signaller):
@@ -713,8 +708,8 @@ def test_a_shipped_strategy_that_declares_a_stop_is_sized_by_that_stop() -> None
     engine.register(_Bar(signal))
     bus.publish(_candle(instrument, "130", "130", minutes=9))
     assert len(orders) == 1
-    assert orders[0].request.quantity == decision.quantity
-    assert orders[0].request.stop_loss_price == stop
+    assert orders[0].quantity == decision.quantity
+    assert orders[0].stop_loss_price == stop
 
 
 def test_no_shipped_strategy_constructs_a_signal_with_its_own_quantity() -> None:
@@ -746,10 +741,10 @@ def test_the_size_uses_the_price_the_order_fills_at_not_the_signal_bar_close() -
     instrument = _instrument(lot="1", tick=None)
     signal = _signal(instrument, stop=None, target=None)
     bus = ReactiveBus()
-    orders: list[PlaceOrderCommand] = []
-    bus.of_type(PlaceOrderCommand).subscribe(orders.append)
+    orders = RecordingSubmit()
     engine = ReactiveStrategyEngine(
-        bus, sizer=_sizer(fallback_notional=Decimal("1000")), fill_reference="next_open",
+        bus, orders, sizer=_sizer(fallback_notional=Decimal("1000")),
+        fill_reference="next_open",
     )
 
     class _BarSignaller(_Signaller):
@@ -763,5 +758,5 @@ def test_the_size_uses_the_price_the_order_fills_at_not_the_signal_bar_close() -
     assert len(orders) == 1
     # 1,000 of notional at a 2,500 signal close would be 0.4 units; at the 50 open
     # it is 20, and 20 is what the order carries.
-    assert orders[0].request.quantity == Quantity(Decimal("20"))
-    assert orders[0].request.price == Price(value=Decimal("50"))
+    assert orders[0].quantity == Quantity(Decimal("20"))
+    assert orders[0].price == Price(value=Decimal("50"))

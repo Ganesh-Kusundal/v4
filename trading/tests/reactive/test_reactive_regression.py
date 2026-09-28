@@ -264,7 +264,15 @@ class TestReactivePipelineIntegration:
     """Integration: ReactiveBus + ExecutionEngine reactive pipeline."""
 
     def test_order_request_flows_through_bus(self) -> None:
-        """Verify OrderRequest published to bus triggers the engine pipeline."""
+        """AC-22: an OrderRequest on the bus does NOT flow to the pipeline.
+
+        This used to read "Verify OrderRequest published to bus triggers the
+        engine pipeline", and it did. The engine subscribed to
+        ``of_type(OrderRequest)`` alongside the ``PlaceOrderCommand``
+        subscription, so the bus was a second, unowned door to the venue with
+        no legitimate publisher anywhere in the repository. Both intake
+        subscriptions are gone; the order now goes through ``submit()``.
+        """
         from tradex_domain.enums import OrderSide, OrderType, ProductType, TimeInForce
         from tradex_domain.execution import OrderRequest
         from tradex_domain.instruments import Equity
@@ -274,7 +282,7 @@ class TestReactivePipelineIntegration:
 
         bus = ReactiveBus()
         fill_source = PaperFillSource()
-        _engine = ExecutionEngine(bus=bus, fill_source=fill_source)
+        engine = ExecutionEngine(bus=bus, fill_source=fill_source)
 
         events: list[Any] = []
         bus.stream().subscribe(lambda m: events.append(m))
@@ -290,12 +298,20 @@ class TestReactivePipelineIntegration:
             product_type=ProductType.INTRADAY,
         )
 
-        # Publish to bus — reactive pipeline should process it
         bus.publish(req)
 
         event_types = [type(e) for e in events]
-        assert OrderPlaced in event_types
-        assert OrderFilled in event_types
+        assert OrderPlaced not in event_types, (
+            "a bare OrderRequest on the bus reached the venue; submit() must be "
+            "the only path (AC-22)"
+        )
+        assert engine.cache.all_orders() == []
+
+        # The sanctioned door, for contrast: the same request DOES place.
+        engine.submit(req)
+        after = [type(e) for e in events]
+        assert after.count(OrderPlaced) == 1
+        assert after.count(OrderFilled) == 1
 
     def test_kill_switch_blocks_reactive_pipeline(self) -> None:
         """Verify kill switch prevents reactive pipeline from processing."""

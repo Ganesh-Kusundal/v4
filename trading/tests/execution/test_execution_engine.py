@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
 from tradex_domain import (
     CorrelationId,
     Equity,
@@ -174,7 +175,9 @@ def test_pipeline_error_publishes_error_occurred(monkeypatch) -> None:
     # Order — the v3 bug this regression guard exists for.
     monkeypatch.setattr(engine._kill_switch, "is_set", _boom)
 
-    bus.publish(_request())
+    # AC-22: submit() is the only door, so this is where the failure surfaces.
+    with pytest.raises(RuntimeError):
+        engine.submit(_request())
 
     assert len(seen) == 1
     assert isinstance(seen[0].error, RuntimeError)

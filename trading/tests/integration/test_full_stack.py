@@ -230,6 +230,8 @@ class TestStrategyExecution:
         from tradex_strategy.core.engine import ReactiveStrategyEngine
 
         bus = ReactiveBus()
+        # No submit callable: this asserts StrategyContext injection, never
+        # order flow, so no order is expected to reach a venue.
         engine = ReactiveStrategyEngine(bus)
 
         seen_contexts: list[StrategyContext] = []

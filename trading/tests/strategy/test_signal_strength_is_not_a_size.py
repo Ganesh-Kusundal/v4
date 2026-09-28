@@ -29,12 +29,13 @@ from pathlib import Path
 import pytest
 from tradex_domain import OrderSide, Quote, Signal
 from tradex_domain.enums import AssetClass, ExchangeId
-from tradex_domain.events import PlaceOrderCommand
 from tradex_domain.instruments import Equity, InstrumentId
 from tradex_domain.value_objects import Price, Quantity
 from tradex_reactive.bus import ReactiveBus
 from tradex_strategy.core.engine import ReactiveStrategyEngine
 from tradex_strategy.core.sizing import PositionSizer
+
+from strategy._ac22_recorder import RecordingSubmit
 
 REPO = Path(__file__).resolve().parents[3]  # <repo>/trading/tests/strategy/this_file.py
 
@@ -147,9 +148,8 @@ def test_strength_cannot_move_the_size_by_a_single_unit() -> None:
     for value in (1.0, 0.0, -3.0, 3.5, 1000.0):
         signal = _signal(value)
         bus = ReactiveBus()
-        orders: list[PlaceOrderCommand] = []
-        bus.of_type(PlaceOrderCommand).subscribe(orders.append)
-        engine = ReactiveStrategyEngine(bus, sizer=_SIZER, fill_reference="signal_close")
+        orders = RecordingSubmit()
+        engine = ReactiveStrategyEngine(bus, orders, sizer=_SIZER, fill_reference="signal_close")
 
         class _Signaller:
             strategy_id = "gate"
@@ -161,7 +161,7 @@ def test_strength_cannot_move_the_size_by_a_single_unit() -> None:
         engine.register(_Signaller())
         bus.publish(Quote(instrument=_INSTRUMENT, ltp=Price(value=Decimal("2500"))))
         assert len(orders) == 1
-        order_sizes.add(orders[0].request.quantity)
+        order_sizes.add(orders[0].quantity)
 
     assert order_sizes == {Quantity(Decimal("400"))}
     assert order_sizes != {Quantity(Decimal("1"))}

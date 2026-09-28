@@ -126,7 +126,7 @@ class TestGoldenAllCostsParity:
             bus, SimulatedFillSource(slippage_model=_SLIPPAGE),
             fee_calculator=FeeCalculator(),
         )
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills: list = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_FullCostLadder(INSTRUMENT))
@@ -168,7 +168,7 @@ class TestGoldenAllCostsParity:
             bus, SimulatedFillSource(slippage_model=_SLIPPAGE),
             fee_calculator=None,
         )
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         strategy_engine.register(_FullCostLadder(INSTRUMENT))
 
         try:
@@ -208,7 +208,7 @@ class TestGoldenAllCostsParity:
             bus, SimulatedFillSource(slippage_model=_SLIPPAGE),
             fee_calculator=FeeCalculator(),
         )
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         strategy_engine.register(_FullCostLadder(INSTRUMENT))
 
         try:
@@ -263,7 +263,7 @@ class TestStrategyVersionStamping:
 
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource(slippage_model=_SLIPPAGE))
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         strategy = _FullCostLadder(INSTRUMENT)
         strategy_engine.register(strategy)
         try:
@@ -323,7 +323,7 @@ class TestBusMessageLogAuditability:
         engine = ExecutionEngine(
             bus, SimulatedFillSource(slippage_model=_SLIPPAGE),
         )
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         strategy_engine.register(_FullCostLadder(INSTRUMENT))
 
         candles: list = []

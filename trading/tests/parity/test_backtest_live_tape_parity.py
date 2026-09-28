@@ -362,7 +362,8 @@ def _run_live(
         config=AppConfig(risk=permissive_risk(), execution=ExecutionConfig(fees_enabled=True)),
     )
     strategy_engine = ReactiveStrategyEngine(
-        session.bus, fill_reference="next_open", sizer=sizer,
+        session.bus, session.engine.submit,
+        fill_reference="next_open", sizer=sizer,
     )
     strategy_engine.register(_TapeParityStrategy())
     fills: list[Fill] = []

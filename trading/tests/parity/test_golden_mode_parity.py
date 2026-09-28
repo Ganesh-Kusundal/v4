@@ -132,7 +132,9 @@ class TestGoldenReactiveParity:
     def test_paper_path_fills_at_reference_price_not_nominal(self) -> None:
         session = TradingSession.paper(config=_CFG)
         strategy = SmaCrossStrategy("golden-paper", INSTRUMENT)
-        strategy_engine = ReactiveStrategyEngine(session.bus, sizer=_one_share_sizer())
+        strategy_engine = ReactiveStrategyEngine(
+            session.bus, session.engine.submit, sizer=_one_share_sizer(),
+        )
         strategy_engine.register(strategy)
         fills = []
         sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
@@ -169,9 +171,9 @@ class TestGoldenReactiveParity:
 
         bus = ReactiveBus()
         strategy = SmaCrossStrategy("golden-boot", INSTRUMENT)
-        strategy_engine = ReactiveStrategyEngine(bus)
-        strategy_engine.register(strategy)
         engine = ExecutionEngine(bus, SimulatedFillSource())
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
+        strategy_engine.register(strategy)
         fills = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         try:
@@ -192,7 +194,7 @@ class TestGoldenReactiveParity:
 
         session = TradingSession.paper(config=_CFG)
         paper_strategy = SmaCrossStrategy("golden-count-paper", INSTRUMENT)
-        strategy_engine = ReactiveStrategyEngine(session.bus)
+        strategy_engine = ReactiveStrategyEngine(session.bus, session.engine.submit)
         strategy_engine.register(paper_strategy)
         try:
             for candle in _candles():
@@ -355,7 +357,7 @@ class TestAccountingConvergence:
         # SAME prices as BacktestEngine (bar-2 open 110, bar-3 open 120). ---
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource())
-        strategy_engine = ReactiveStrategyEngine(bus)
+        strategy_engine = ReactiveStrategyEngine(bus, engine.submit)
         fills: list = []
         bus.of_type(OrderFilled).subscribe(fills.append)
         strategy_engine.register(_TimedBuySell(INSTRUMENT))
@@ -380,7 +382,9 @@ class TestAccountingConvergence:
         at bar 22's OPEN (12.0) — identical prices, not just identical P&L."""
         session = TradingSession.paper(config=_CFG)
         strategy = SmaCrossStrategy("golden-exact", INSTRUMENT)
-        strategy_engine = ReactiveStrategyEngine(session.bus, sizer=_one_share_sizer())
+        strategy_engine = ReactiveStrategyEngine(
+            session.bus, session.engine.submit, sizer=_one_share_sizer(),
+        )
         strategy_engine.register(strategy)
         fills = []
         sub = session.bus.of_type(OrderFilled).subscribe(fills.append)
@@ -440,7 +444,7 @@ class TestAccountingConvergence:
 
         # --- Path B: reactive paper session (end-to-end boot composition) ---
         session = TradingSession.paper(config=_CFG)
-        strategy_engine = ReactiveStrategyEngine(session.bus)
+        strategy_engine = ReactiveStrategyEngine(session.bus, session.engine.submit)
         strategy_engine.register(_TimedPartial(INSTRUMENT))
         fills: list = []
         sub = session.bus.of_type(OrderFilled).subscribe(fills.append)

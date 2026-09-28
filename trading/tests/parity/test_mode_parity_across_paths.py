@@ -16,7 +16,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-from tradex_domain.events import OrderFilled, PlaceOrderCommand
+from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Fill, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
@@ -77,9 +77,7 @@ def _run_engine(
     fills: list[Fill] = []
     bus.of_type(OrderFilled).subscribe(lambda event: fills.append(event.fill))
     for index, (side, quantity, price) in enumerate(LADDER):
-        bus.publish(
-            PlaceOrderCommand(request=_request(side, quantity, price, f"lad-{index}")),
-        )
+        engine.submit(_request(side, quantity, price, f"lad-{index}"))
     return engine, fills
 
 
@@ -124,14 +122,12 @@ def _replay_into(engine_fills, fees, *, prefix: str) -> list[Fill]:
     replay_bus.of_type(OrderFilled).subscribe(lambda e: replayed.append(e.fill))
     try:
         for index, fill in enumerate(engine_fills):
-            replay_bus.publish(
-                PlaceOrderCommand(
-                    request=_request(
-                        fill.side,
-                        str(fill.quantity.value),
-                        str(fill.price.value),
-                        f"{prefix}-{index}",
-                    ),
+            replay_engine.submit(
+                _request(
+                    fill.side,
+                    str(fill.quantity.value),
+                    str(fill.price.value),
+                    f"{prefix}-{index}",
                 ),
             )
         return replayed, replay_engine

@@ -18,7 +18,6 @@ from tradex_domain import (
     OrderSide,
     OrderStatus,
     OrderType,
-    PlaceOrderCommand,
     TimeInForce,
 )
 from tradex_domain.events import Fill
@@ -99,7 +98,7 @@ class TestLiveFillBridge:
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, BrokerFillSource(_AckBroker()))
         try:
-            bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-wrap")))
+            engine.submit(_request(correlation_id="cid-wrap"))
             order = engine.cache.all_orders()[0]
             assert order.order_id.value == "dhan-order-1"
         finally:
@@ -113,7 +112,7 @@ class TestLiveFillBridge:
         bus.of_type(OrderPlaced).subscribe(placed.append)
         try:
             # 1. Strategy order is ACK'd, no synchronous fill.
-            bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-1")))
+            engine.submit(_request(correlation_id="cid-1"))
             assert len(broker.submitted) == 1
             assert len(placed) == 1
             assert placed[0].order.status == OrderStatus.ACK
@@ -136,7 +135,7 @@ class TestLiveFillBridge:
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, BrokerFillSource(_AsyncFillBroker()))
         try:
-            bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-2")))
+            engine.submit(_request(correlation_id="cid-2"))
             order_id = engine.cache.all_orders()[0].order_id.value
             bus.publish(_fill(order_id))
             bus.publish(_fill(order_id))  # re-published broker fill
@@ -180,7 +179,7 @@ class TestLiveFillBridge:
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, BrokerFillSource(_AsyncFillBroker()))
         try:
-            bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-4")))
+            engine.submit(_request(correlation_id="cid-4"))
             order_id = engine.cache.all_orders()[0].order_id.value
 
             bus.publish(_fill(order_id, qty=3))
@@ -209,7 +208,7 @@ class TestLiveFillBridge:
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, BrokerFillSource(_AsyncFillBroker()))
         try:
-            bus.publish(PlaceOrderCommand(request=_request(correlation_id="cid-5")))
+            engine.submit(_request(correlation_id="cid-5"))
             order_id = engine.cache.all_orders()[0].order_id.value
 
             bus.publish(_fill(order_id, qty=3, fill_id="trade-1"))

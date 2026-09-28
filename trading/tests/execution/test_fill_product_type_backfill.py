@@ -39,7 +39,7 @@ from tradex_domain.enums import (
     ProductType,
     TimeInForce,
 )
-from tradex_domain.events import OrderFilled, PlaceOrderCommand
+from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import (
@@ -266,7 +266,7 @@ class TestLiveBridgeLabelsTheFillFromTheVenueOrder:
         published: list[OrderFilled] = []
         bus.of_type(OrderFilled).subscribe(published.append)
         try:
-            bus.publish(PlaceOrderCommand(request=_live_request(product, cid)))
+            engine.submit(_live_request(product, cid))
             stream.emit(_stream_order(product, cid, filled=3))
             assert published, "the bridge published no fill"
             assert [e.fill.product_type for e in published] == [product]
