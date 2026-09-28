@@ -1,0 +1,91 @@
+# TradeX v4 — Prometheus scrape config (AC-17, lane 5f).
+#
+# deploy/prometheus-rules.yml (lane 5b) is a rule file. A rule file with no
+# scrape config is 20 alerts that can never fire, because the metrics they
+# evaluate are never collected. This file is the missing half of that pair and
+# it is deliberately the smallest config that closes the loop:
+#
+#   scrape_configs  — collects /metrics from the API at :8080
+#   rule_files      — points at lane 5b's rules, so they actually evaluate
+#   alerting        — points at lane 5b's alertmanager, so a firing alert
+#                     actually reaches tradex-pager / tradex-ticket
+#
+# NOTHING ELSE IS HERE, and that is a judgement worth stating. There is no
+# relabeling, no service discovery, no recording rules, no federation, and no
+# remote-write: spec 0002's stack table settles the shape as "FastAPI plus
+# uvicorn, one process ... multi process is explicitly not scheduled", on one
+# operator machine. A full Kubernetes-shaped config here would be a second
+# deployment target nobody in this repo runs.
+#
+# The port is 8080, which is the `tradex serve` default (cli.py:79), the port
+# the Dockerfile exposes and serves, and the port compose publishes. All three
+# are asserted to agree by observability/tests/test_deploy_artifacts.py, so a
+# change to any one of them fails the build rather than silently producing a
+# Prometheus that scrapes nothing.
+#
+# Validated by observability/tests/test_deploy_artifacts.py.
+
+global:
+  # 15s is Prometheus's default and is kept deliberately: the fastest window in
+  # 5b's rule file is `increase(feed_recovery_failures_total[10m])` and
+  # `increase(orders_unknown_outcome_total[15m])`. A 15s scrape gives a 10m
+  # window 40 samples, comfortably above the ~2 that Prometheus needs to
+  # extrapolate a rate. The evaluation_interval is set equal to it so a rule
+  # firing is never evaluated against a scrape that has not happened yet.
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  # A 10s scrape_timeout against a 15s interval: timeout must be <= interval or
+  # Prometheus rejects the config outright.
+  evaluation_interval: 15s
+  external_labels:
+    # Every alert this stack emits is labelled with the stack it came from.
+    # lane 5b's rules carry no environment label, so this is where paper and
+    # live get told apart downstream — and a stale paper alert paging a human
+    # is a real failure mode, so the label is not optional.
+    monitor: tradex
+
+rule_files:
+  # Lane 5b. These paths are relative to the file, which is the config mounted
+  # at /etc/prometheus in deploy/compose.yml, so both files must be mounted
+  # into the same directory for the reference to resolve.
+  - /etc/prometheus/prometheus-rules.yml
+
+alerting:
+  alertmanagers:
+    # Lane 5b. Static rather than service discovery, for the same reason the
+    # scrape target is static: there is exactly one of each on one machine.
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  # The API. One job, one target, one port, matching the Dockerfile and the
+  # compose service.
+  #
+  # The path is /metrics and the scheme is http, both of which the validation
+  # test reads back out of fastapi_app.py rather than trusting this comment:
+  # the route is registered by @app.get("/metrics") in create_app and
+  # unauthenticated on purpose, so a scrape needs no credential.
+  - job_name: tradex
+    metrics_path: /metrics
+    scheme: http
+    # 15s here deliberately overrides the 15s global to the same value rather
+    # than restating it — an override that agrees with the default is one more
+    # place the two can drift apart silently, so it is stated once, globally.
+    static_configs:
+      - targets:
+          - "api:8080"
+        labels:
+          # Surfaced on every series, so a dashboard can separate a paper
+          # session from a live one without joining to anything external.
+          environment: paper
+
+  # Prometheus scrapes itself. Not decoration: without `up` on the Prometheus
+  # target there is no series that goes stale when collection breaks, so a
+  # dead scrape pipeline is indistinguishable from a healthy quiet system —
+  # the same failure shape as an alert on a metric nothing emits, which is
+  # what test_alert_rules.py exists to prevent.
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - "localhost:9090"

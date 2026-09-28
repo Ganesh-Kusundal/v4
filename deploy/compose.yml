@@ -1,0 +1,223 @@
+# TradeX v4 — deployment stack (AC-17, lane 5f).
+#
+# This is a COMPOSE file, not a set of Kubernetes manifests, and that is a
+# decision with evidence behind it rather than a shortcut:
+#
+#   * Before this lane the repo had no Dockerfile, no compose file, no Helm
+#     chart, no manifest and no systemd unit. There is no cluster in this
+#     project's world and no other lane has introduced one.
+#   * Spec 0002 fixes the target: "FastAPI plus uvicorn, one process ... Correct
+#     for one operator machine; multi process is explicitly not scheduled", with
+#     SQLite and a local parquet lake.
+#   * The app refuses multi-process serving for a live session
+#     (start_fastapi_server raises on --workers/--reload), so there is one API
+#     process and there is not going to be a Deployment with a replica count.
+#
+# So the artifact set is deliberately four files and no more:
+#   Dockerfile           the image, and the HEALTHCHECK probe block
+#   compose.yml          this file: what runs, on which port, with which config
+#   prometheus.yml       the scrape config, without which 5b's rules never fire
+#   webhook-receiver.py  the sink behind 5b's receiver URLs, so the route exists
+#
+# Bring it up:
+#   docker compose -f deploy/compose.yml up -d
+#   docker compose -f deploy/compose.yml ps          # api reports (healthy)
+#   curl -fsS localhost:8080/health/live
+#   curl -fsS localhost:8080/health/ready
+#
+# Validated by observability/tests/test_deploy_artifacts.py, which asserts the
+# probe paths against the routes the app actually registers, the port in all
+# three artifacts against each other, and the alertmanager wiring against
+# lane 5b's files.
+
+name: tradex
+
+services:
+  # ---------------------------------------------------------------------------
+  # The API.
+  # ---------------------------------------------------------------------------
+  # The probe block lives in the Dockerfile, not here. A second copy of a probe
+  # definition is a second copy to forget when an endpoint changes, and the
+  # image is the thing that has to work when someone runs it outside compose.
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: tradex-api:local
+    # Overrides the Dockerfile CMD, which is the same invocation; kept explicit
+    # because the port here is one of the three the test cross-checks and a
+    # reader of this file should not have to open the Dockerfile to see it.
+    #
+    # Block sequence rather than flow style, for one reason: the repo's own
+    # stdlib YAML subset parser (shared with observability/tests/
+    # test_alert_rules.py, and used here to read this file) parses block
+    # mappings and block sequences. A flow list parses as one opaque string, so
+    # the validator could not read the port out of the run command and the
+    # service/scrape-config port agreement could not be checked at all.
+    command:
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "--broker"
+      - "PAPER"
+    environment:
+      # AC-10: from_env() refuses to build a config whose risk policy is
+      # incomplete, so a container with no TRADEX_RISK_* set exits at boot
+      # rather than serving unbounded trading. These are the paper-safe values
+      # that make `up` work out of the box; an operator overrides them from the
+      # .env file compose reads automatically next to this one.
+      TRADEX_RISK_MAX_ORDER_VALUE: "${TRADEX_RISK_MAX_ORDER_VALUE:-200000}"
+      TRADEX_RISK_MAX_POSITION_VALUE: "${TRADEX_RISK_MAX_POSITION_VALUE:-1000000}"
+      TRADEX_RISK_MAX_ORDERS_PER_MINUTE: "${TRADEX_RISK_MAX_ORDERS_PER_MINUTE:-10}"
+      TRADEX_RISK_MAX_DAILY_LOSS: "${TRADEX_RISK_MAX_DAILY_LOSS:-50000}"
+      TRADEX_RISK_MAX_DRAWDOWN_PCT: "${TRADEX_RISK_MAX_DRAWDOWN_PCT:-5}"
+      # Broker credentials are never written here. They come from the
+      # operator's own gitignored .env, and lane 5d owns the permission check.
+      TRADEX_ENV_FILE: "${TRADEX_ENV_FILE:-}"
+    ports:
+      # 8080:8080. Left on all host interfaces on purpose — the probe, the
+      # Prometheus scrape and the browser all have to reach it, and the app's
+      # own policy (_require_live_bind_loopback) is what refuses a non-loopback
+      # bind for a LIVE broker. For a loopback-only deployment, change the
+      # left-hand side to "127.0.0.1:8080:8080".
+      - "8080:8080"
+    volumes:
+      # The three pieces of state worth keeping across `down`/`up`:
+      #   ../runtime  SQLite event log, orders, workspace.sqlite, broker token
+      #               and TOTP state (TRADEX_RUNTIME_DIR)
+      #   ../data     the parquet datalake (TRADEX_DATALAKE_ROOT)
+      #   ./logs      structured logs, so they outlive the container
+      - "../runtime:/app/runtime"
+      - "../data:/app/data"
+      - "./logs:/app/logs"
+    # 10s grace, then SIGKILL. The ASGI lifespan in fastapi_app.py runs
+    # session.stop() on SIGTERM — that is what closes the feed socket and the
+    # SQLite handle, and 10s is the ceiling before Docker escalates past it.
+    stop_grace_period: 10s
+    restart: unless-stopped
+    networks:
+      - tradex
+
+  # ---------------------------------------------------------------------------
+  # The sink behind lane 5b's receiver URLs.
+  # ---------------------------------------------------------------------------
+  # deploy/alertmanager.yml points both receivers at
+  #   http://alertmanager-webhook.tradex.svc.cluster.local:8080/pager-critical
+  #   http://alertmanager-webhook.tradex.svc.cluster.local:8080/ticket
+  # and this is the service listening there. How the name resolves, in order,
+  # because the first two are necessary and the third is belt-and-braces:
+  #
+  #   1. `--webhook.url=http://alertmanager-webhook:8080` on the Alertmanager
+  #      service. The CLI flag overrides the webhook receiver 5b's config
+  #      names, and the flag wins, so 5b's routing is consumed exactly as
+  #      written rather than edited into this file's idea of it. This alone is
+  #      what makes delivery work.
+  #   2. The compose service is named `alertmanager-webhook`, so that short
+  #      name resolves on the shared network and something is listening.
+  #   3. The network below is created as
+  #      `alertmanager-webhook.tradex.svc.cluster.local`, so the FQDN in 5b's
+  #      file is a name inside this stack rather than an unreachable Kubernetes
+  #      service DNS entry.
+  #
+  # No explicit `aliases:` entry is declared for (3), and that is a considered
+  # omission rather than a missed one: whether Docker synthesises a
+  # `<service>.<network-name>` name on a user-defined network was checked
+  # against the Docker reference rather than assumed (see the note in
+  # observability/tests/test_deploy_artifacts.py), and (1) means the alerting
+  # path never depends on the answer. Adding a second spelling of the same name
+  # would be a second thing to keep correct.
+  #
+  # python:3.12-slim, no install step. webhook-receiver.py is stdlib-only on
+  # purpose — a sink that cannot start because a third-party wheel failed to
+  # resolve would be worse than no sink.
+  alertmanager-webhook:
+    image: python:3.12-slim
+    working_dir: /app
+    # Block sequence, same reason as the api service's command above.
+    command:
+      - "python"
+      - "webhook-receiver.py"
+    volumes:
+      - "./webhook-receiver.py:/app/webhook-receiver.py:ro"
+    # Block sequence: a single long flow element would be a parser edge case
+    # for no benefit, and this file is read by the validator like the others.
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+    # Plain, with no `aliases:` block — see the numbered note above.
+    networks:
+      - tradex
+
+  # ---------------------------------------------------------------------------
+  # Lane 5b's Alertmanager.
+  # ---------------------------------------------------------------------------
+  # `--config.file` mounts 5b's alertmanager.yml unchanged.
+  # `--webhook.url` overrides the webhook receiver 5b's file names, and the
+  # flag wins over the config. See note (1) above for why that matters.
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--webhook.listen-address=:8080"
+      - "--webhook.url=http://alertmanager-webhook:8080"
+    volumes:
+      - "./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"
+      - "alertmanager-data:/alertmanager"
+    ports:
+      # Loopback only: the Alertmanager UI is unauthenticated, and the only host
+      # that needs to see it is this one.
+      - "127.0.0.1:9093:9093"
+    restart: unless-stopped
+    networks:
+      - tradex
+    depends_on:
+      alertmanager-webhook:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # The scrape config plus lane 5b's rules.
+  # ---------------------------------------------------------------------------
+  # Both files land in the SAME directory because rule_files in prometheus.yml
+  # is an absolute container path; the test asserts the mount puts the rules
+  # exactly where the config claims they are.
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - "./prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+      - "./prometheus-rules.yml:/etc/prometheus/prometheus-rules.yml:ro"
+      - "prometheus-data:/prometheus"
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+    networks:
+      - tradex
+    depends_on:
+      - api
+      - alertmanager
+
+networks:
+  # Created under the fully qualified name lane 5b's receiver URL uses, so the
+  # dotted name in that file is a name inside this stack rather than an
+  # unreachable Kubernetes service DNS entry. A network name may contain dots;
+  # a service name may not, which is why the FQDN is split across the network
+  # name here and the service name above rather than written whole.
+  tradex:
+    name: alertmanager-webhook.tradex.svc.cluster.local
+
+volumes:
+  alertmanager-data:
+  prometheus-data:
