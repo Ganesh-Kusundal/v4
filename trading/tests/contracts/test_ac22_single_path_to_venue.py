@@ -305,9 +305,15 @@ def test_no_source_ships_a_publisher_for_the_closed_door() -> None:
     from pathlib import Path
 
     repo = Path(__file__).resolve().parents[3]
+    # Directories that are not the shipped source tree. ``.kilo/`` holds a stale
+    # copy of the repo (gitignored, on disk, with its own ``*/src`` trees), and
+    # a glob over ``*/src`` reaches into it. A check that reads a dead copy of
+    # the code is worse than no check: it fails on files nobody ships and says
+    # nothing about the ones they do.
+    _NOT_SOURCE = frozenset({".kilo", ".git", ".venv", "node_modules", "__pycache__"})
     offenders: list[str] = []
     for path in sorted(repo.rglob("*/src/**/*.py")):
-        if "__pycache__" in path.parts:
+        if any(part in _NOT_SOURCE for part in path.relative_to(repo).parts):
             continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
