@@ -193,6 +193,32 @@ class MarketFeed:
         """Max instruments per broker WebSocket connection (None = no cap)."""
         return self._max_stream_instruments
 
+    def wanted_instruments(self) -> list[Instrument]:
+        """A snapshot of every instrument the feed is subscribed to.
+
+        The per-symbol cadence monitor (AC-12, lane 3d) needs the *wanted* set,
+        not the tick set: a symbol the wire stops delivering for is absent from
+        :meth:`check_stale`'s state rather than stale in it, so that is the one
+        failure no amount of tape-level watching can see.
+        """
+        with self._stream_lock:
+            return list(self._instruments.values())
+
+    def last_tick(self, instrument: Instrument | None = None) -> datetime | None:
+        """When *instrument* (or the most recent tick at all) last arrived.
+
+        The cadence monitor ages a symbol from its own first tick, so this has
+        to answer per instrument; ``None`` for an instrument that has never
+        ticked, which the caller must distinguish from "ticked long ago" — the
+        two get different verdicts, and collapsing them here would make a
+        never-subscribed symbol look like a dead one.
+        """
+        iid = getattr(instrument, "instrument_id", instrument)
+        with self._last_tick_lock:
+            if instrument is None:
+                return max(self._last_tick.values(), default=None)
+            return self._last_tick.get(iid)
+
     def _check_cap(self, instruments: Sequence[Instrument]) -> None:
         """Raise ``ValueError`` when *instruments* would exceed the broker cap.
 

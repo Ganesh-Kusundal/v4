@@ -213,6 +213,48 @@ groups:
           description: "p95 of a single FeedRecoveryCoordinator.recover() is over 60s, the resync budget, so recoveries are not finishing inside the session."
 
   # ---------------------------------------------------------------------------
+  # Per-symbol cadence liveness (AC-12, lane 3d).
+  #
+  # Neither wire format carries a sequence number, so a dropped frame is
+  # byte-for-byte indistinguishable from a minute in which nothing traded. The
+  # feed-level rules above cannot separate them and cannot see the worst case:
+  # feed_age_seconds/check_stale only age instruments that have already ticked,
+  # so a symbol the wire stops delivering for is ABSENT from that state rather
+  # than stale in it. SymbolCadenceMonitor reads the wanted set and asks per
+  # symbol: one tick in any 3-minute window, on the 09:15-anchored bar grid,
+  # during 09:15-15:30 IST.
+  #
+  # The gauge holds a count, not a per-symbol series, on purpose: a tape can be
+  # 500 symbols and a label per symbol is 500 series that nobody queries. The
+  # per-symbol detail is in the WARNING log line the check emits on each
+  # transition, so the log answers "which one" and the gauge answers "is it
+  # happening at all".
+  # ---------------------------------------------------------------------------
+  - name: tradex.feed_liveness
+    rules:
+      - alert: TradeXFeedSymbolSilent
+        expr: feed_liveness_silent_symbols > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/stale-feed.md
+        annotations:
+          summary: "A subscribed symbol has gone silent for a 3-minute window"
+          description: "At least one symbol on the wanted set produced no tick in any 3-minute session-anchored window for 5m. Neither wire format carries a sequence number, so this is the only signal that separates a dropped frame from an illiquid minute. Read the feed_monitor WARNING line for which symbol, then follow the stale-feed runbook."
+
+      - alert: TradeXFeedLivenessExemptions
+        expr: increase(feed_liveness_exempt_total[30m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          team: trading
+          runbook: docs/operations/runbooks/stale-feed.md
+        annotations:
+          summary: "Per-symbol cadence exemptions are being applied"
+          description: "At least one symbol was exempted from the per-symbol cadence check in 30m because the instrument master reports it halted or delisted. The exemption is correct — those securities produce no ticks by design — but it is also a blind spot, and this alert is what keeps it from being a silent one. Before accepting the exemptions, confirm the master is not truncated or mis-parsed: a sudden jump here is far more likely a bad master than a genuinely halted universe."
+
+  # ---------------------------------------------------------------------------
   # Order safety. An UNKNOWN outcome and a tripped kill switch are the two
   # conditions where the local book and the venue may disagree.
   # ---------------------------------------------------------------------------

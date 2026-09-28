@@ -9,15 +9,38 @@ session goes live and stops it on ``stop()`` (no duplicate timers).
 
 The monitor also exports the feed's health as metrics, so operators can alert
 on ``feed_state``/``feed_age_seconds`` without a second polling path.
+
+Two more liveness questions hang off this one owned thread rather than each
+getting a timer of its own:
+
+* :class:`OrderStreamWatchdog` — is the *other* socket answering at all.
+* :class:`SymbolCadenceMonitor` — is *each* subscribed symbol still ticking.
+
+That last one exists because the 30 s feed-level threshold cannot answer it.
+``MarketFeed.check_stale`` only sees instruments that have ticked at least once
+(``_last_tick`` is written by ``_on_quote``), so a symbol the wire stops
+delivering for entirely is invisible to it, and no wire format here carries a
+sequence number, so a dropped frame is indistinguishable from an illiquid
+minute. One poll, three questions, one lifecycle.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
-from datetime import UTC, datetime
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from datetime import time as dt_time
 from typing import Any
+
+from tradex_domain.instrument_lifecycle import (
+    EXEMPT_STATES,
+    normalize_status,
+    row_status,
+)
+from tradex_domain.market_calendar import IST, MARKET_CLOSE, MARKET_OPEN
+from tradex_domain.timeframe import bucket_start
 
 log = logging.getLogger(__name__)
 
@@ -67,12 +90,18 @@ class FeedStaleMonitor:
         on_status: Callable[[dict[str, Any]], None] | None = None,
         clock: Callable[[], datetime] | None = None,
         order_watchdog: OrderStreamWatchdog | None = None,
+        cadence_monitor: SymbolCadenceMonitor | None = None,
     ) -> None:
         self._feed = feed
         # The order stream is checked by this same owned thread rather than a
         # second one: one timer means one lifecycle, one stop path, and no
         # way for a poll to outlive the session that started it.
         self._order_watchdog = order_watchdog
+        # Per-symbol cadence rides the same poll. It is a *different* question
+        # (each symbol, not the tape) at a *different* timescale (3m, not 30s),
+        # but the timer, the stop path and the failure semantics are identical,
+        # so a second thread would buy nothing and could disagree with this one.
+        self._cadence_monitor = cadence_monitor
         self._interval = float(
             interval_seconds if interval_seconds is not None else _default_interval(feed)
         )
@@ -156,6 +185,12 @@ class FeedStaleMonitor:
                 watchdog.check()
             except Exception:  # noqa: BLE001 - monitoring must not crash
                 log.warning("order stream watchdog check failed", exc_info=True)
+        cadence = self._cadence_monitor
+        if cadence is not None:
+            try:
+                cadence.check()
+            except Exception:  # noqa: BLE001 - monitoring must not crash
+                log.warning("per-symbol cadence check failed", exc_info=True)
         self._publish_metrics()
         self._notify_status()
         return stale
@@ -343,4 +378,436 @@ class OrderStreamWatchdog:
         return True
 
 
-__all__ = ["FeedStaleMonitor", "ORDER_FEED_STALE_AFTER", "OrderStreamWatchdog"]
+#: A subscribed symbol must deliver at least one tick in any window this wide
+#: during session hours (AC-12, lane 3d).
+#:
+#: Three minutes, not the feed's 30 s, because the question is per symbol. A 30 s
+#: threshold on a per-symbol clock would alarm on every thinly traded scrip, and
+#: an alarm that cries wolf on the illiquid is no alarm at all. Three minutes is
+#: the window the programme names, and it is short enough that a genuinely dead
+#: symbol is caught inside a single NIFTY bar.
+CADENCE_WINDOW_SECONDS = 180.0
+
+#: How long a symbol must have been on the *wanted* set before a window with no
+#: tick at all in it counts against it.
+#:
+#: A subscription alone does not prove liveness, so the clock is not started at
+#: ``subscribe()``: the monitor cannot see when a symbol was subscribed, and a
+#: cold boot subscribes the whole tape at once, where the first seconds
+#: legitimately deliver nothing for the back of the book. It is started at the
+#: monitor's *first sighting* of the symbol instead, so a scrip that joins the
+#: tape mid-session gets the same full window a boot-time symbol does.
+#:
+#: This is what keeps the check honest about the case that matters most. A
+#: symbol that has produced **no** ticks at all is not a young subscription
+#: forever — it is exactly the failure the lane exists for, and it is the one
+#: :meth:`MarketFeed.check_stale` structurally cannot see (the symbol is absent
+#: from ``_last_tick`` rather than stale in it). Treating "never ticked" as
+#: permanently unjudgeable would leave the headline failure unmonitored behind a
+#: graceful-sounding rule.
+CADENCE_GRACE_SECONDS = 180.0
+
+#: Instrument-master lifecycle states that exempt a symbol from the cadence
+#: contract. The vocabulary itself — which vendor spellings map to which state —
+#: lives in ``tradex_domain.instrument_lifecycle``, because the two master
+#: parsers read their vendor's status column through that same table and this
+#: module consumes what they wrote. A private copy here would be a third
+#: spelling, and a drift is silent in the worst direction: the exemption stops
+#: applying and every halted stock on the tape pages the operator forever.
+#:
+#: The rule that matters: an *unrecognised* status is not an exemption. An
+#: unknown word is a reason to keep looking, not a reason to stop.
+EXEMPT_MASTER_STATES = EXEMPT_STATES
+
+
+def normalize_master_status(value: object) -> str | None:
+    """Canonical lifecycle state for a master status cell, or ``None``.
+
+    A thin, named alias of the domain vocabulary so a reader of this module
+    (and its tests) can talk about "master status" without knowing which layer
+    defines it. ``None`` means the master said nothing usable, and therefore
+    *not* exempt: a blank cell, ``"active"`` and ``"something new"`` all land
+    here, so the symbol stays under the cadence contract.
+    """
+    return normalize_status(value)
+
+
+def master_row_status(row: object) -> str | None:
+    """The canonical lifecycle state a master *row* carries, or ``None``.
+
+    Reads a normalized row's ``master_status`` or any vendor's own status
+    column, so a caller can hand it a raw CSV/JSON mapping or an
+    already-parsed row without knowing which.
+    """
+    return row_status(row)
+
+
+def master_exempt(row: object) -> bool:
+    """Whether a master row's lifecycle state exempts its symbol from cadence."""
+    return row_status(row) in EXEMPT_MASTER_STATES
+
+
+def _as_ist(moment: datetime) -> datetime:
+    """*moment* as an aware IST datetime, whatever awareness it arrived with.
+
+    The feed stamps last-tick times in UTC (``datetime.now(UTC)``) and the
+    datalake contract stores naive IST; a check that subtracted one from the
+    other would raise rather than answer. Normalizing at the boundary is what
+    lets a live feed and a replayed tape share one cadence implementation.
+    """
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=IST)
+    return moment.astimezone(IST)
+
+
+def in_session_hours(
+    now: datetime, *, window: tuple[dt_time, dt_time] | None = None
+) -> bool:
+    """Whether *now* falls inside the cash session, in IST wall time.
+
+    The bounds are the market calendar's :data:`MARKET_OPEN` / :data:`MARKET_CLOSE`
+    — the same two values ``tradex_domain.timeframe`` anchors the bar grid to —
+    read here rather than restated, so the cadence check and the bars it judges
+    cannot disagree about when the day begins or ends. Lane 0d owns that anchor;
+    a second copy of "09:15" in this module would be a second session.
+
+    Both ends are inclusive, matching ``FeedIntegrityTracker._session_violation``
+    (``start <= time <= end``): a stamp at exactly 15:30 is the closing print
+    and still belongs to the session.
+
+    Naive input is read as already-IST, the datalake contract; aware input is
+    converted to IST first, so a UTC clock cannot silently check the wrong day.
+    """
+    local = now.astimezone(IST) if now.tzinfo is not None else now.replace(tzinfo=IST)
+    start, end = window or (MARKET_OPEN, MARKET_CLOSE)
+    return start <= local.time() <= end
+
+
+@dataclass(frozen=True, slots=True)
+class CadenceViolation:
+    """One subscribed symbol that produced no tick inside a cadence window.
+
+    ``quiet_seconds`` is the age of the silence, not the age of the last tick:
+    the window is measured from the far edge of the bucket the last tick fell
+    in, which is the instant the gap became provable.
+    """
+
+    instrument: Any
+    instrument_id: str
+    quiet_seconds: float
+
+
+class SymbolCadenceMonitor:
+    """Per-symbol tick cadence: one tick per window, in session hours (AC-12).
+
+    Why this is not :meth:`MarketFeed.check_stale`
+    ------------------------------------------------
+    ``check_stale`` is a *tape* check: a 30 s threshold over instruments that
+    have already ticked, since ``_last_tick`` is only written by ``_on_quote``.
+    It answers "is the socket producing at all", which is exactly what a 30 s
+    threshold should answer, and it is right to. It cannot answer "is *this*
+    symbol alive", because a symbol the wire stops delivering for is *absent*
+    from that state rather than stale in it — a feed can be perfectly healthy by
+    every measure ``check_stale`` makes while one scrip has gone dark.
+
+    Neither wire format carries a sequence number, so a dropped frame is
+    indistinguishable from an illiquid minute, and only a cadence expectation
+    separates them. Merging the two checks would force a choice that is wrong
+    either way: fold cadence into ``check_stale`` and a genuinely dead socket
+    takes three minutes to notice, or keep 30 s and every thinly traded scrip
+    alarms. So they stay separate, answer different questions, and never
+    disagree: the cadence monitor's verdict is per symbol and goes to its own
+    counters. It does not demote the feed, because one illiquid or delisted
+    scrip must never shut the order gate for a healthy tape — the fail direction
+    there is "keep the symbol visible", not "refuse to trade".
+
+    Why it does not own a thread
+    -----------------------------
+    It is polled by :meth:`FeedStaleMonitor.poll_once`, the same owned daemon
+    thread that already polls the quote tape and the order stream — the same
+    one-lifecycle-per-timer rule :class:`OrderStreamWatchdog` follows. A second
+    thread would have to be started, stopped, and made exception-safe a second
+    time for a check that runs in microseconds.
+
+    The exemption, and why it is counted
+    -------------------------------------
+    A halted or delisted security produces no ticks *by design*. Held to the same
+    contract it would alarm on every poll for the rest of the session, every
+    session, forever — and an alert that fires every day is an alert nobody
+    reads, so the check would be worthless in exactly the way this lane exists
+    to prevent. So the instrument master's lifecycle state exempts the symbol.
+
+    But a silent exemption is the opposite failure: a dead symbol quietly
+    reclassified as "halted" and never looked at again, which is a blind spot
+    wearing an exemption. So every exemption increments
+    ``feed_liveness_exempt_total`` (labelled by the canonical state) *once per
+    symbol per state*, and ``feed_liveness_exempt_symbols`` carries the size of
+    the blind spot as it stands right now. The counter is the audit trail, and
+    it is armed in ``deploy/prometheus-rules.yml``: a rising exemption count is
+    coverage quietly being withdrawn, and a sudden jump is far more likely to be
+    a truncated or mis-parsed master than a genuinely halted universe.
+    """
+
+    def __init__(
+        self,
+        *,
+        instruments: Callable[[], Iterable[Any]] | None = None,
+        ticks: Callable[[Any], datetime | None] | None = None,
+        status_of: Callable[[Any], object] | None = None,
+        metrics: Any | None = None,
+        window_seconds: float = CADENCE_WINDOW_SECONDS,
+        grace_seconds: float = CADENCE_GRACE_SECONDS,
+        clock: Callable[[], datetime] | None = None,
+        session_window: tuple[dt_time, dt_time] | None = None,
+    ) -> None:
+        self._instruments = instruments
+        self._ticks = ticks
+        self._status_of = status_of
+        self._metrics = metrics
+        self._window = float(window_seconds)
+        self._grace = float(grace_seconds)
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._session_window = session_window
+        self._lock = threading.Lock()
+        #: Currently-quiet symbols, so a continuing silence is one log line and
+        #: one metric reading rather than one per poll, and a symbol that
+        #: resumes clears its verdict on the next check.
+        self._reported: dict[str, CadenceViolation] = {}
+        #: (instrument_id, state) pairs already counted, so a symbol exempt
+        #: every poll for six hours counts once per state rather than 40,000
+        #: times — while still being *counted at all*, which is the requirement.
+        self._exempt_counted: set[tuple[str, str]] = set()
+        #: The blind spot as it stands right now, which is a different and more
+        #: urgent fact than the lifetime total.
+        self._exempt_now: set[str] = set()
+        #: First sweep at which each symbol was seen on the wanted set. This is
+        #: the start of the no-tick-at-all window (see
+        #: :data:`CADENCE_GRACE_SECONDS`): without it a symbol that never
+        #: delivers a single frame could never be judged, which is precisely
+        #: the failure this check exists to catch. Dropped for symbols that
+        #: leave the tape, so a resubscribe starts a fresh window.
+        self._seen_since: dict[str, datetime] = {}
+        self._off_session_polls = 0
+
+    # -- introspection --------------------------------------------------------
+
+    @property
+    def window_seconds(self) -> float:
+        """The cadence window, in seconds."""
+        return self._window
+
+    @property
+    def grace_seconds(self) -> float:
+        """Silence tolerated from the first tick before the contract starts."""
+        return self._grace
+
+    @property
+    def off_session_polls(self) -> int:
+        """Polls skipped because the market was closed."""
+        return self._off_session_polls
+
+    @property
+    def exempt_now(self) -> frozenset[str]:
+        """Instrument ids currently exempt from the cadence contract."""
+        with self._lock:
+            return frozenset(self._exempt_now)
+
+    @property
+    def violations(self) -> tuple[CadenceViolation, ...]:
+        """Symbols currently reported as having gone quiet."""
+        with self._lock:
+            return tuple(self._reported.values())
+
+    # -- input ----------------------------------------------------------------
+
+    def reset(self) -> None:
+        """Forget the quiet set, the sighting clock and the exemption memory."""
+        with self._lock:
+            self._reported.clear()
+            self._exempt_counted.clear()
+            self._exempt_now.clear()
+            self._seen_since.clear()
+
+    def check(self) -> list[CadenceViolation]:
+        """Evaluate every subscribed symbol once; return the current violations.
+
+        Never raises. This runs inside the same poll as the tape and order-stream
+        checks, so a raise here would take all three down; a monitor that dies is
+        a monitor that stopped monitoring. A per-symbol error degrades to "not
+        exempt, not judged", which is the fail-loud direction.
+
+        Off session there is nothing to judge, so the whole sweep is skipped: a
+        quiet tape at 20:00 is not a defect, and a check that ran anyway would
+        alarm on every symbol for seven hours a day.
+        """
+        now = self._clock()
+        if not in_session_hours(now, window=self._session_window):
+            with self._lock:
+                self._off_session_polls += 1
+                # A verdict does not outlive the session that produced it: the
+                # first ticks of a new day are "late" relative to the quiet
+                # window the last one ended in, by construction.
+                self._reported.clear()
+            return []
+        try:
+            instruments = list(self._instruments()) if self._instruments else []
+        except Exception:  # noqa: BLE001 - never take the poll down
+            log.warning("per-symbol cadence could not read the tape", exc_info=True)
+            return []
+        violations: list[CadenceViolation] = []
+        exempt_now: set[str] = set()
+        present: set[str] = set()
+        for instrument in instruments:
+            try:
+                iid = str(getattr(instrument, "instrument_id", instrument))
+                present.add(iid)
+                state = self._exempt_state(instrument)
+                if state is not None:
+                    exempt_now.add(iid)
+                    self._count_exempt(iid, state)
+                    continue
+                quiet_since = self._quiet_since(instrument, now)
+                if quiet_since is None:
+                    continue
+                # Both sides aware-IST: ``_quiet_since`` normalizes, and the
+                # caller's clock may be UTC (``datetime.now(UTC)``) or naive
+                # IST (a replay). ``_as_ist`` is what keeps the two comparable.
+                quiet = (_as_ist(now) - _as_ist(quiet_since)).total_seconds()
+                if quiet < self._window:
+                    continue
+                violations.append(
+                    CadenceViolation(
+                        instrument=instrument,
+                        instrument_id=iid,
+                        quiet_seconds=quiet,
+                    )
+                )
+            except Exception:  # noqa: BLE001 - one bad symbol, not a dead check
+                log.warning("per-symbol cadence could not judge a symbol", exc_info=True)
+        with self._lock:
+            # A symbol that left the tape is forgotten, so a later resubscribe
+            # earns a fresh window rather than inheriting an old verdict.
+            for gone in set(self._seen_since) - present:
+                del self._seen_since[gone]
+        self._publish(violations, exempt_now)
+        return violations
+
+    # -- internals ------------------------------------------------------------
+
+    def _exempt_state(self, instrument: Any) -> str | None:
+        """Canonical exempt state for *instrument*, or ``None``.
+
+        Two sources, and both end up in the same counter:
+
+        1. ``status_of`` — an injected resolver. Boot passes one bound to the
+           broker's instrument registry, so a master row's lifecycle state is
+           read where the master actually landed (the registry's per-instrument
+           meta is the master row's metadata by construction).
+        2. ``Instrument.meta.extra`` — the value object's own metadata, so an
+           instrument built straight from a master row is exempt without a
+           registry lookup. This is what makes the exemption testable and usable
+           off a full live boot.
+        """
+        if self._status_of is not None:
+            state = normalize_master_status(self._status_of(instrument))
+            if state in EXEMPT_MASTER_STATES:
+                return state
+        meta = getattr(instrument, "meta", None)
+        extra = getattr(meta, "extra", None) if meta is not None else None
+        if isinstance(extra, dict):
+            return normalize_master_status(extra.get("master_status"))
+        return None
+
+    def _count_exempt(self, iid: str, state: str) -> None:
+        """Count this symbol's exemption once per state and log it once."""
+        with self._lock:
+            key = (iid, state)
+            if key in self._exempt_counted:
+                return
+            self._exempt_counted.add(key)
+        metrics = self._metrics
+        if metrics is not None:
+            # Labels ride the ``inc()`` call, not the family lookup: a family
+            # created without them would publish an unlabelled series and every
+            # reader would be summing blind spots across states.
+            metrics.counter("feed_liveness_exempt_total").inc(1, state=state)
+        log.info(
+            "per-symbol cadence exempting %s (instrument master reports %s): a "
+            "security in this state produces no ticks by design — counted in "
+            "feed_liveness_exempt_total so the blind spot stays visible",
+            iid, state,
+        )
+
+    def _quiet_since(self, instrument: Any, now: datetime) -> datetime | None:
+        """Start of *instrument*'s current empty window, or ``None`` if healthy.
+
+        Two cases, and the distinction between them is the whole point of the
+        class:
+
+        **The symbol has ticked.** The window is measured on the
+        *session-anchored* grid from ``tradex_domain.timeframe.bucket_start``
+        (lane 0d), not on a rolling wall clock from the last tick. A tick at
+        09:16 falls in the 09:15-anchored 09:15-09:18 bucket, so its window
+        closes at 09:18 — the same grid the bars themselves are cut on. A second
+        window arithmetic here would be a second session definition, and the
+        cadence would disagree with the bars by up to one window width.
+
+        **The symbol has never ticked.** The window runs from the monitor's
+        first sighting of it on the wanted set (:data:`CADENCE_GRACE_SECONDS`).
+        This is the case ``check_stale`` cannot see at all — a symbol the wire
+        never delivers for is absent from ``_last_tick``, not stale in it — so
+        it is the one that most needs a verdict. A brand-new subscription is
+        not judged until its window has elapsed, which is what keeps a cold
+        boot from alarming on the whole tape at once.
+        """
+        now_ist = _as_ist(now)
+        iid = str(getattr(instrument, "instrument_id", instrument))
+        last = self._ticks(instrument) if self._ticks is not None else None
+        if isinstance(last, datetime):
+            # ``MarketFeed._last_tick`` stamps aware UTC while a replayed tape
+            # carries the datalake's naive IST, and ``bucket_start`` is naive
+            # IST either way; ``_as_ist`` is what lets the two coexist rather
+            # than raise a ``TypeError`` the per-symbol guard would swallow.
+            last_ist = _as_ist(last)
+            bucket = bucket_start(last_ist.replace(tzinfo=None), int(self._window))
+            return (bucket + timedelta(seconds=self._window)).replace(tzinfo=IST)
+        if self._grace <= 0:
+            return self._seen_since.get(iid, now_ist)
+        with self._lock:
+            first = self._seen_since.setdefault(iid, now_ist)
+        return first
+
+    def _publish(self, violations: list[CadenceViolation], exempt_now: set[str]) -> None:
+        metrics = self._metrics
+        if metrics is not None:
+            metrics.gauge("feed_liveness_silent_symbols").set(float(len(violations)))
+            metrics.gauge("feed_liveness_exempt_symbols").set(float(len(exempt_now)))
+        current = {v.instrument_id: v for v in violations}
+        with self._lock:
+            for iid, violation in current.items():
+                if iid not in self._reported:
+                    log.warning(
+                        "no tick for %s in any %.0fs window during session hours "
+                        "(quiet %.0fs): a dropped frame is indistinguishable "
+                        "from an illiquid minute and only the cadence tells "
+                        "them apart",
+                        iid, self._window, violation.quiet_seconds,
+                    )
+            self._reported = current
+            self._exempt_now = set(exempt_now)
+
+
+__all__ = [
+    "CADENCE_GRACE_SECONDS",
+    "CADENCE_WINDOW_SECONDS",
+    "EXEMPT_MASTER_STATES",
+    "FeedStaleMonitor",
+    "ORDER_FEED_STALE_AFTER",
+    "CadenceViolation",
+    "OrderStreamWatchdog",
+    "SymbolCadenceMonitor",
+    "in_session_hours",
+    "master_exempt",
+    "master_row_status",
+    "normalize_master_status",
+]

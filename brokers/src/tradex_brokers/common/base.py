@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 from tradex_domain.capabilities import BrokerCapabilities, require_capability
 from tradex_domain.errors import BrokerUnavailableError, OrderRejectedError
+from tradex_domain.instrument_lifecycle import NORMALIZED_KEY, row_status
 from tradex_domain.instruments import Equity, Index, Instrument
 from tradex_domain.market import Depth, HistoricalSeries, Quote, require_depth_supported
 from tradex_domain.protocols import (
@@ -387,6 +388,14 @@ class BaseBroker:
             native_kind = str(row.get("instrument_type") or "").strip()
             if native_kind:
                 meta["instrument_type"] = native_kind
+            # AC-12 (lane 3d): the security's lifecycle state, carried onto the
+            # registry so the per-symbol cadence check can read it where the
+            # master actually landed. ``None`` is written as "absent" rather
+            # than omitted so a reader can tell "master said active" from "this
+            # master has no status column at all" — and neither is exempt.
+            status = row_status(row)
+            if status is not None:
+                meta[NORMALIZED_KEY] = status
             self._extra_row_meta(row, meta)
             incumbent = fresh.provider_key(iid)
             fresh.register_authoritative(iid, key, meta)
