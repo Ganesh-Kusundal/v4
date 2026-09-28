@@ -594,11 +594,24 @@ class IndicatorSeriesCache:
     def compute(
         self, indicator_id: str, key: tuple[str, str], frame: Any
     ) -> dict[str, list]:
-        """Bars for *frame* plus the warm compute over them."""
-        self.bars(key, frame)
+        """Bars for *frame* plus the warm compute over them.
+
+        The one place the compute happens. It goes through
+        :meth:`IncrementalIndicator.compute` rather than reimplementing the
+        merge here, so there is a single warm path to reason about — a
+        duplicate one is exactly the kind that survives a mutation because
+        nothing exercises it.
+        """
+        bars = self.bars(key, frame)
         with self._lock:
             assert self._window is not None
-            return compute_indicator(indicator_id, self._window.shims())
+            return self._window.compute(indicator_id, bars)
+
+    def window_bars(self) -> list[dict[str, Any]]:
+        """The bar list the last compute ran over, for point indexing."""
+        with self._lock:
+            assert self._window is not None
+            return self._window.bars()
 
     def bars_cold(self, key: tuple[str, str], frame: Any) -> list[dict[str, Any]]:
         """Bars for *frame* with **no** warm reuse — the reference path.
@@ -834,7 +847,7 @@ class IndicatorStreamRegistry:
         if series is None:
             series = self._series_cache.acquire(key)
         got = series.compute(indicator_id, key, frame)
-        bars = series.bars(key, frame)
+        bars = series.window_bars()
         plots = list(got.keys())
         points = []
         for i in range(max(0, len(bars) - _POINTS_PER_PUSH), len(bars)):
