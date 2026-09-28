@@ -1,11 +1,17 @@
 # Pending work inventory, verified against the working tree
 
 **Date**: 2026-09-28
-**Closure run complete.** Verified against `55451e4`: **5313 passed, 2 skipped, 10 xfailed**
-in 2m24s, `ruff check .` clean. `trading/tests/interface/test_ws_bars_replay.py` (18 failures) is
+**Closure run complete.** Verified against `1792f4d`: **5351 passed, 2 skipped, 10 xfailed**
+in 2m48s, `ruff check .` clean. `trading/tests/interface/test_ws_bars_replay.py` (18 failures) is
 deselected and is **pre-existing**: reproduced identically on a pristine worktree at `2515821`,
 before any work in this run. Not a regression.
 **Closure log at the end.** The findings below are as originally established.
+
+> **Correction, `1792f4d`.** Two lanes were reported merged during the closure run and were not.
+> A follow-up audit against the branches found the 3d per-symbol cadence lane had never reached
+> `HEAD` at all, and the 3g default-path controls were dropped from the merge. Both are fixed here
+> and re-verified. The lesson is in the closure log: a merge that reported a file list is not
+> evidence the files are in the tree, and `git log <branch>..HEAD` is the check that settles it.
 **Method**: seven verification agents worked the spec lane tables against the tree. Every disputed
 claim was then adjudicated by direct experiment (mutation testing, live probes) rather than accepted
 from a commit message or an agent summary.
@@ -224,13 +230,13 @@ report. "Mutation" is the count of tests that FAILED when the lane's protection 
 | 3f | quarantine + live alert | `ea5c703` | 17 fail |
 | 5f | deploy artifacts with a probe block | `dd59354` | 4 fail |
 | 3c | late-tick window, booked bars frozen | `b78b765` | 9 fail (window), 5 fail (immutability) |
-| 3d | per-symbol cadence + counted halt exemption | `ad732af` | 9 fail |
-| 3g | process-level cache, corrected after my first merge | `86538b0`, `b78b765`, `4d5caf2` | 1 fail (caught on re-test) |
+| 3d | per-symbol cadence + counted halt exemption | `ae33c18` (re-merged) | 9 fail |
+| 3g | process-level cache, corrected twice | `86538b0`, `b78b765`, `8b3340a` | 1 fail (caught on re-test) |
 | AC-22 | `submit()` is the only path to the venue | `df52f4c` | 5 fail |
 | 4c | event store version registry + `prev_hash` chain | `9bbcd61` | 15 fail |
 | 3i | scanner rate limit + cache + portfolio context | `2aec13a` | 4 fail |
 
-### Three things the parallel run taught, worth keeping
+### Four things the parallel run taught, worth keeping
 
 1. **The editable-venv trap is the single biggest source of false results here.** Every worktree
    test run resolves `tradex_*` to the main checkout. Three separate agents had to be told. One
@@ -240,6 +246,11 @@ report. "Mutation" is the count of tests that FAILED when the lane's protection 
    the DEFAULT construction path, which is what production uses.
 3. **A repo-wide static check must exclude non-source trees.** The AC-22 check globbed
    `*/src/**/*.py` and read `.kilo/worktrees/sour-ragdoll/`, a gitignored copy of an older tree.
+4. **A merge that printed a file list is not proof the files are in the tree.** Two lanes were
+   reported merged and were not: 3d was absent from `HEAD` entirely, and 3g's default-path tests
+   were dropped. Both were caught only by walking the branches afterwards and running
+   `git log <branch>..HEAD` plus a file-existence check per lane. Every closure claim in this
+   document should be read the same way: re-derived from the tree, not from the merge transcript.
 
 ### Still open after the closure run
 
