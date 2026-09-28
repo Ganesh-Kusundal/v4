@@ -164,6 +164,7 @@ def boot(
     feed_instruments: Sequence[Instrument] | None = None,
     validation_report_store: Any = None,
     reconciliation_monitor: Any = None,
+    reconciliation_monitor_factory: Any = None,
 ) -> TradingSession:
     """Fail-closed boot: compose all components into a ready TradingSession.
 
@@ -217,6 +218,25 @@ def boot(
         for the *correctness* of that route; it is load-bearing for its
         *timeliness*, because without it drift is only ever observed when
         somebody asks.
+    reconciliation_monitor_factory :
+        A callable ``(broker, cache, engine, metrics) -> monitor`` invoked inside
+        the boot, *before* the session starts, so the returned monitor is
+        running by the time ``boot()`` returns.
+
+        This exists because the two halves of the daemon live on opposite sides
+        of the package boundary: ``build_reconciliation_monitor_seams`` is in
+        ``tradex_interfaces`` and ``ReconciliationMonitor`` is in
+        ``tradex_runtime``, which may not import ``tradex_interfaces``. A
+        composition root that can see both passes a closure here; ``boot()``
+        supplies the components from the session it is already building, and the
+        session then owns the monitor's lifecycle.
+
+        Overrides ``reconciliation_monitor`` when both are given, because a
+        factory is strictly more capable: it sees the real broker and cache
+        rather than objects a caller had to construct separately.
+
+        ``None`` (the default) leaves the monitor unset unless
+        ``reconciliation_monitor`` is passed.
 
     Returns
     -------
@@ -389,6 +409,7 @@ def boot(
                 event_store=event_store, feed_instruments=feed_instruments,
                 validation_report_store=validation_report_store,
                 reconciliation_monitor=reconciliation_monitor,
+                reconciliation_monitor_factory=reconciliation_monitor_factory,
             )
         except BaseException:
             # C3: best-effort rollback so a failed live boot never
@@ -409,6 +430,7 @@ def boot(
             event_store=event_store, feed_instruments=feed_instruments,
             validation_report_store=validation_report_store,
             reconciliation_monitor=reconciliation_monitor,
+            reconciliation_monitor_factory=reconciliation_monitor_factory,
         )
     except BaseException:
         _safe_teardown(session=None, broker=broker, bus=bus, writer_lock=None)
@@ -472,6 +494,7 @@ def _boot_tail(
     feed_instruments: Sequence[Instrument] | None = None,
     validation_report_store: Any = None,
     reconciliation_monitor: Any = None,
+    reconciliation_monitor_factory: Any = None,
 ) -> TradingSession:
     """Steps 5→end of :func:`boot`, extracted so the live path can be
     rollback-wrapped. The body is the original ``boot()`` logic unchanged.
@@ -963,7 +986,12 @@ def _boot_tail(
         # tradex_interfaces, which this package may not import. The session owns
         # the lifecycle: started in start(), stopped in stop() before the broker
         # is torn down.
-        reconciliation_monitor=reconciliation_monitor,
+        reconciliation_monitor=reconciliation_monitor
+        or (
+            reconciliation_monitor_factory(broker, engine.cache, engine, metrics)
+            if reconciliation_monitor_factory is not None
+            else None
+        ),
         # AC-17 / lane 2e: the same store the engine appends to, handed to the
         # session so the safety surface can read the log it needs to date
         # UNKNOWN orders and find the last reconciliation. Before this the

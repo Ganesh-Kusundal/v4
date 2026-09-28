@@ -89,6 +89,39 @@ def test_boot_accepts_a_reconciliation_monitor():
         session.stop()
 
 
+def test_boot_factory_receives_the_real_components_and_starts_the_monitor():
+    """A factory is invoked inside the boot with the session's own broker and
+    cache, and the monitor it returns is running when boot() returns.
+
+    This is the path cmd_serve uses. A factory assigned post-hoc would never
+    start, because boot() calls session.start() before it returns.
+    """
+    seen = {}
+
+    def _factory(broker, cache, engine, metrics):
+        seen["broker"] = broker
+        seen["cache"] = cache
+        seen["engine"] = engine
+        seen["metrics"] = metrics
+        return RecordingMonitor()
+
+    cfg = _unbounded_risk(AppConfig())
+    broker = PaperBroker()
+    session = boot(cfg, broker=broker, wire_strategies=False,
+                   reconciliation_monitor_factory=_factory)
+    try:
+        # The factory saw the real objects boot was already building, not
+        # shadows a caller had to construct separately.
+        assert seen.get("broker") is broker, "the factory must receive boot's broker"
+        assert seen.get("cache") is session.cache, "the factory must receive the session's book"
+        assert seen.get("engine") is session.engine
+        # boot() resolved the factory to a monitor and started it.
+        assert session._reconciliation_monitor is not None
+        assert session._reconciliation_monitor.alive
+    finally:
+        session.stop()
+
+
 def test_session_stop_stops_the_injected_monitor():
     """stop() tears the monitor down before the broker goes."""
     monitor = RecordingMonitor()

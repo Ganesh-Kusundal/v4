@@ -397,6 +397,18 @@ class TradingSession:
         return self._metrics
 
     @property
+    def cache(self) -> TradingCache:
+        """The OMS book the reconciliation monitor reads and adopts into.
+
+        Exposed so a composition root outside ``tradex_runtime`` can build the
+        adoption seams, which need the book and the broker together
+        (``build_reconciliation_monitor_seams``). Neither is constructable from
+        this package alone without importing ``tradex_interfaces``, which the
+        package boundary forbids.
+        """
+        return self._cache
+
+    @property
     def engine(self) -> ExecutionEngine:
         """Execution engine."""
         return self._engine

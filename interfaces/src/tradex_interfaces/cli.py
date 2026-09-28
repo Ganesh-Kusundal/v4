@@ -419,7 +419,43 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
                 broker_id=broker_id,
                 live_enabled=broker_id is not BrokerId.PAPER,
             )
-            session = boot(config, wire_strategies=False)
+            # Build the reconciliation daemon from inside the boot, not after
+            # it: boot() calls session.start() before it returns, so a monitor
+            # assigned post-hoc would never be started. Passing a factory lets
+            # boot() construct it and hand it to the session, which then owns
+            # the lifecycle (start in start(), stop in stop() before the broker
+            # is torn down).
+            #
+            # The factory is a closure here — not a function in tradex_runtime —
+            # because the two halves of the daemon sit on opposite sides of the
+            # package boundary: build_reconciliation_monitor_seams is in
+            # tradex_interfaces (it binds the adoption policy to the OMS book)
+            # and ReconciliationMonitor is in tradex_runtime, which may not
+            # import tradex_interfaces (tests/test_import_boundaries.py). This
+            # command is the composition root that can see both.
+            def _build_reconciliation_monitor(broker, cache, engine, metrics):
+                from tradex_runtime.reconciliation_monitor import (
+                    ReconciliationMonitor,
+                )
+
+                from tradex_interfaces.safety import (
+                    build_reconciliation_monitor_seams,
+                )
+
+                seams = build_reconciliation_monitor_seams(
+                    broker=broker, cache=cache, engine=engine,
+                )
+                return ReconciliationMonitor(
+                    reconcile=seams.reconcile,
+                    adopt=seams.adopt,
+                    metrics=metrics,
+                )
+
+            session = boot(
+                config,
+                wire_strategies=False,
+                reconciliation_monitor_factory=_build_reconciliation_monitor,
+            )
         assert session is not None
         start_fastapi_server(
             session,

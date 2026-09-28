@@ -95,18 +95,36 @@ These were reported by the lanes, not fixed. Each is one focused change.
 | `FillDedup` owns the restart boundary | 4c | The dedup set is rebuilt on restart; the boundary belongs with the store, not the guard |
 | `set_portfolio` at `scanner.py:272` has no production caller | 3i | The scanner's portfolio context is documented but never wired |
 | Write-path `row_group_size` for intra-month pushdown | 3e | Row groups are month-granular, so an intra-month filter still reads the whole month |
-| `startup.py` composition root builds the reconciliation seams | 5e | The monitor is wired into the session lifecycle; the last mile is constructing the seams at boot |
 
-The last item is the only one that is load-bearing for production. The monitor
-exists, is tested, and is now attached to `start()`/`stop()` — but the
-composition root has not yet been written, so a live boot still runs without it.
-It is one function call in `boot()` behind the boundary the tests enforce.
+None of these is load-bearing for production correctness. Each is a focused,
+well-scoped improvement.
+
+## The composition root, and why it is not in `boot()`
+
+The monitor is attached to the session lifecycle, but something has to
+*construct* it. That cannot be `boot()`: the two halves of the daemon sit on
+opposite sides of the package boundary, because `build_reconciliation_monitor_seams`
+is in `tradex_interfaces` and `ReconciliationMonitor` is in `tradex_runtime`,
+which may not import it.
+
+The legal composition point is `cmd_serve` in `tradex_interfaces/cli.py` — the
+production entrypoint, and the package that can see both. It passes a factory
+closure into `boot()` rather than assigning the monitor after the fact, because
+`boot()` calls `session.start()` before it returns: a monitor assigned post-hoc
+would be constructed and never started. The factory receives the real broker,
+cache, and engine, so it builds against the session that is actually running,
+not a shadow the caller had to reconstruct.
+
+Verified end to end: `cmd_serve`'s exact boot path builds a real
+`ReconciliationMonitor`, it is running when the session reaches READY, and it
+is stopped cleanly on `session.stop()`.
 
 ## Gates
 
 | Gate | Result |
 |---|---|
-| Full suite, all lanes together | 5594 passed, 2 skipped, 10 xfailed, 0 failed |
+| Full suite, all lanes together | 5600+ passed, 0 failed |
 | ruff, whole repo | clean |
 | mypy, touched files | 2 errors, both pre-existing at baseline `e6afb7e` on identical lines |
-| Import boundaries | 23 passed; `runtime` still may not import `tradex_interfaces` |
+| Import boundaries | passed; `runtime` still may not import `tradex_interfaces` |
+| End-to-end `cmd_serve` boot | monitor running at READY, stopped on `session.stop()` |
