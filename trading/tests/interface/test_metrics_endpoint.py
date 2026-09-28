@@ -26,11 +26,17 @@ def test_render_counter_and_histogram():
     text = reg.render_prometheus()
     assert "# TYPE orders_total counter" in text
     assert "orders_total 5.0" in text
-    assert "# TYPE latency_seconds summary" in text
+    # Lane 5a (AC-17): the histogram used to render as a hand-rolled
+    # ``summary`` with ``_min``/``_max`` lines. That is not parseable by
+    # Prometheus — a summary exposes quantiles, not min/max — so the catalog's
+    # p95/p99 rows could never be turned into a ``histogram_quantile`` rule.
+    # It is now a cumulative histogram, which is what /metrics must emit.
+    assert "# TYPE latency_seconds histogram" in text
     assert "latency_seconds_count 2" in text
     assert "latency_seconds_sum 0.4" in text
-    assert "latency_seconds_min 0.1" in text
-    assert "latency_seconds_max 0.3" in text
+    assert 'latency_seconds_bucket{le="0.1"} 1' in text
+    assert 'latency_seconds_bucket{le="0.5"} 2' in text
+    assert 'latency_seconds_bucket{le="+Inf"} 2' in text
 
 
 def test_render_gauge():
