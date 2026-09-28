@@ -639,6 +639,11 @@ def _boot_tail(
     # failure degrades to the existing bus fallback.
     stream_backend = None
     fill_bridge: Any = None
+    # AC-12: order-stream frame-age watchdog. Stamped by the fill bridge on
+    # every order frame; polled by the same owned monitor thread that already
+    # watches the quote tape. Built here (before the bridge) so the bridge can
+    # stamp it, and reused in the market-feed block below to join the poll.
+    order_watchdog: Any = None
     if cfg.mode == "live":
         try:
             sb = getattr(broker, "stream_backend", None)
@@ -646,6 +651,8 @@ def _boot_tail(
                 stream_backend = sb()
         except Exception as exc:
             raise RuntimeError("live order-stream backend unavailable") from exc
+        from tradex_runtime.feed_monitor import OrderStreamWatchdog
+        order_watchdog = OrderStreamWatchdog(feed_supervisor)
         # Live fill bridge: translate broker order-stream updates into bus
         # OrderFilled events so live fills reach the OMS (HIGH-4). Live boot
         # fails closed if this safety-critical bridge cannot be installed.
@@ -687,6 +694,9 @@ def _boot_tail(
                     # ever reads, so the share of live fills booked without
                     # per-trade detail is invisible to an operator.
                     metrics=metrics,
+                    # Stamp the AC-12 order-stream liveness clock on every
+                    # frame so a silently dead order socket is detectable.
+                    on_frame=order_watchdog.record_frame,
                 )
             except Exception as exc:
                 raise RuntimeError("live fill bridge unavailable at boot") from exc
@@ -771,8 +781,11 @@ def _boot_tail(
             recorder=tape_recorder,
         )
         # The session owns the monitor's lifecycle; nothing else has to
-        # remember to poll check_stale().
-        feed_monitor = FeedStaleMonitor(market_feed, metrics=metrics)
+        # remember to poll check_stale(). The same thread also checks the
+        # order-stream watchdog (AC-12) — one poll, two feeds.
+        feed_monitor = FeedStaleMonitor(
+            market_feed, metrics=metrics, order_watchdog=order_watchdog
+        )
         # Recovery is fail-closed: without a history provider it can only ever
         # fail, which is exactly the guarantee we want from a bare reconnect.
         try:

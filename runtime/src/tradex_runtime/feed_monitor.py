@@ -66,8 +66,13 @@ class FeedStaleMonitor:
         metrics: Any | None = None,
         on_status: Callable[[dict[str, Any]], None] | None = None,
         clock: Callable[[], datetime] | None = None,
+        order_watchdog: OrderStreamWatchdog | None = None,
     ) -> None:
         self._feed = feed
+        # The order stream is checked by this same owned thread rather than a
+        # second one: one timer means one lifecycle, one stop path, and no
+        # way for a poll to outlive the session that started it.
+        self._order_watchdog = order_watchdog
         self._interval = float(
             interval_seconds if interval_seconds is not None else _default_interval(feed)
         )
@@ -145,6 +150,12 @@ class FeedStaleMonitor:
                     stale = list(check())
                 except Exception:  # noqa: BLE001 - monitoring must not crash
                     log.warning("feed check_stale failed", exc_info=True)
+        watchdog = self._order_watchdog
+        if watchdog is not None:
+            try:
+                watchdog.check()
+            except Exception:  # noqa: BLE001 - monitoring must not crash
+                log.warning("order stream watchdog check failed", exc_info=True)
         self._publish_metrics()
         self._notify_status()
         return stale
@@ -216,4 +227,120 @@ class FeedStaleMonitor:
             log.warning("feed status observer failed", exc_info=True)
 
 
-__all__ = ["FeedStaleMonitor"]
+#: Frame age (seconds) after which a quiet **order** stream is DEGRADED.
+#: The quote threshold is 30s (AC-12); the order stream is twice as tolerant
+#: because order updates are event-driven and legitimately rare, but it must
+#: still be bounded — a socket that goes permanently quiet leaves a resting
+#: order believed live, which is the more expensive failure of the two.
+ORDER_FEED_STALE_AFTER = 60.0
+
+
+class OrderStreamWatchdog:
+    """Frame-age watchdog for the broker order/portfolio stream (AC-12).
+
+    :class:`FeedStaleMonitor` covers the *quote* tape only. This covers the
+    other socket, and it exists for one specific reason: a silently dead order
+    stream is the one that leaves a resting order believed live. The socket
+    blocks in ``recv()`` forever, nothing raises, and every downstream
+    "no update" reading is indistinguishable from "no fills happened" — so
+    the only way to notice is to time the frames out ourselves.
+
+    Unlike the quote path this is a plain frame counter, not per-instrument:
+    the order stream carries no symbol to attribute staleness to.
+
+    It marks the **same** :class:`~tradex_runtime.feed_supervisor.FeedSupervisor`
+    the quote path marks, so a dead order socket trips the existing
+    ``require_feed`` gate rather than needing a second, parallel gate that
+    nothing reads. That is the fail-closed direction: a false DEGRADED is a
+    refusal to trade, a missed DEGRADED is a resting order with no exit.
+    """
+
+    def __init__(
+        self,
+        supervisor: Any,
+        *,
+        stale_after: float = ORDER_FEED_STALE_AFTER,
+        enabled: bool = True,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._supervisor = supervisor
+        self._stale_after = float(stale_after)
+        self._enabled = bool(enabled)
+        self._clock = clock or (lambda: datetime.now(UTC))
+        self._last_frame_at: datetime | None = None
+        self._lock = threading.Lock()
+        #: Set once the stream has gone quiet, cleared by the next frame, so a
+        #: DEGRADED→READY transition is a real event rather than a poll artefact.
+        self._reported = False
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @property
+    def stale_after(self) -> float:
+        return self._stale_after
+
+    @property
+    def last_frame_at(self) -> datetime | None:
+        with self._lock:
+            return self._last_frame_at
+
+    def record_frame(self, at: datetime | None = None) -> None:
+        """Stamp liveness. Called for **every** order-stream frame.
+
+        Deliberately records on any frame, including a status-only update the
+        fill bridge later discards: the question this answers is "is the
+        socket answering at all", and a status frame is an answer.
+        """
+        with self._lock:
+            self._last_frame_at = at or self._clock()
+            self._reported = False
+
+    def reset(self) -> None:
+        """Forget the frame clock — e.g. after a deliberate reconnect."""
+        with self._lock:
+            self._last_frame_at = None
+            self._reported = False
+
+    def age_seconds(self) -> float | None:
+        """Seconds since the last frame; ``None`` if no frame has arrived."""
+        with self._lock:
+            last = self._last_frame_at
+        if last is None:
+            return None
+        return max(0.0, (self._clock() - last).total_seconds())
+
+    def check(self) -> bool:
+        """Mark the feed DEGRADED if the order stream is too quiet.
+
+        Returns ``True`` when this call is the one that degraded. Never
+        raises: a watchdog that dies is a watchdog that stopped watching.
+
+        A stream that has **never** delivered a frame is not aged — it is
+        started-at-boot and may legitimately carry no updates. It is the
+        *silence after* a live stream that is the failure mode, and ageing a
+        stream that was never up would mark every quiet session DEGRADED.
+        """
+        if not self._enabled:
+            return False
+        age = self.age_seconds()
+        if age is None or age <= self._stale_after:
+            return False
+        with self._lock:
+            if self._reported:
+                return False
+            self._reported = True
+        mark = getattr(self._supervisor, "mark_stale", None)
+        if not callable(mark):
+            return False
+        mark()
+        log.warning(
+            "order stream silent for %.1fs (> %.1fs): marking feed DEGRADED — "
+            "a resting order cannot be believed live on a dead socket",
+            age, self._stale_after,
+        )
+        return True
+
+
+__all__ = ["FeedStaleMonitor", "ORDER_FEED_STALE_AFTER", "OrderStreamWatchdog"]

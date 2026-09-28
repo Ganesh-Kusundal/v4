@@ -14,6 +14,13 @@ from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote
 from tradex_domain.value_objects import Price, Quantity
 
+#: WebSocket keepalive (AC-12). A TCP half-open socket blocks ``recv()``
+#: forever with no exception, so the library-level ping/pong is the only
+#: thing that turns "silently dead" into a reconnect. 20s keepalive /
+#: 20s timeout keeps detection well inside the frame-age watchdog.
+WS_PING_INTERVAL = 20.0
+WS_PING_TIMEOUT = 20.0
+
 
 def level_pair(raw: dict[str, Any]) -> tuple[Price, Quantity]:
     """Build a ``(Price, Quantity)`` depth level from a raw buy/sell row."""
@@ -79,4 +86,9 @@ def row_to_quote(
     )
 
 
-__all__ = ["level_pair", "row_to_quote"]
+__all__ = [
+    "WS_PING_INTERVAL",
+    "WS_PING_TIMEOUT",
+    "level_pair",
+    "row_to_quote",
+]

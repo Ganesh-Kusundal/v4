@@ -280,6 +280,7 @@ class LiveFillBridge:
         trade_id_resolver: TradeBookFillIdResolver | None = None,
         unsubscribe: Callable[[object], None] | None = None,
         metrics: Any | None = None,
+        on_frame: Callable[[], None] | None = None,
     ) -> None:
         """``subscribe_orders`` is the broker stream backend's subscribe method
         (``backend.subscribe_orders(handler)``); the bridge owns the returned
@@ -291,12 +292,18 @@ class LiveFillBridge:
         partial is booked at its own price and equal-lot partials dedup
         exactly (see :class:`TradeBookFillIdResolver`). ``metrics``, when
         provided, is a ``MetricsRegistry`` counting
-        :data:`AVG_PRICE_FALLBACK_METRIC`."""
+        :data:`AVG_PRICE_FALLBACK_METRIC`. ``on_frame``, when provided, is
+        called on every order-stream frame (AC-12 order-stream liveness)."""
         self._bus = bus
         self._engine = engine
         self._resolver = trade_id_resolver
         self._unsubscribe = unsubscribe
         self._metrics = metrics
+        # AC-12 liveness hook. Called on every order-stream frame *before* any
+        # status filtering, so the frame-age watchdog sees a status-only update
+        # too: the question it answers is "is the socket answering at all",
+        # and a status frame is an answer.
+        self._on_frame = on_frame
         self._avg_price_fallback_fills = 0
         # O(1) correlation-id -> engine order id index (H6).  Populated from
         # ``OrderPlaced`` and pruned by ``OrderCancelled`` so a stream update
@@ -356,6 +363,11 @@ class LiveFillBridge:
 
     def _on_order(self, order: Order) -> None:
         """Publish an ``OrderFilled`` per venue trade in the newly-filled delta."""
+        if self._on_frame is not None:
+            try:
+                self._on_frame()
+            except Exception:  # noqa: BLE001 - liveness must not drop a fill
+                log.warning("order stream liveness hook failed", exc_info=True)
         if order.status not in _FILL_STATUSES:
             return
         total = order.filled_quantity.value
