@@ -34,6 +34,29 @@ Legend: **Implemented** = emitted in code today; **Planned** = required by check
 | `feed_duplicate_closed_bars_total` | counter | Implemented | Duplicate closed bar stamps | low-rate warn | [stale-feed.md](./runbooks/stale-feed.md) |
 | `feed_session_boundary_violations_total` | counter | Implemented | Events outside cash session bounds | off-hours noise vs leak | [stale-feed.md](./runbooks/stale-feed.md) |
 | `feed_queue_drops_total` | counter | Implemented | WS outbound queue drops (`stream.py` `_track_drop`) | rate > 0 | [broker-disconnect.md](./runbooks/broker-disconnect.md) |
+| `feed_liveness_silent_symbols` | gauge | Implemented | Subscribed symbols that produced no tick in any 3-minute session-anchored window (`feed_monitor.SymbolCadenceMonitor`). Labels: none (a count, deliberately — the per-symbol detail is in the log, and a per-symbol metric would multiply series by tape size) | `> 0` for 5m during session → `TradeXFeedSymbolSilent` | [stale-feed.md](./runbooks/stale-feed.md) |
+| `feed_liveness_exempt_total` | counter | Implemented | Per-symbol cadence exemptions applied, counted once per `(symbol, state)`. Labels: `state` ∈ `halted`, `delisted` | `increase(...[30m]) > 0` → `TradeXFeedLivenessExemptions` | [stale-feed.md](./runbooks/stale-feed.md) |
+| `feed_liveness_exempt_symbols` | gauge | Implemented | Symbols exempt from the cadence contract *right now* — the size of the current blind spot, as distinct from the lifetime total | `> 0` is information, not a page; read with the counter above | [stale-feed.md](./runbooks/stale-feed.md) |
+
+**Why per-symbol cadence is a separate check from `feed_age_seconds`:** neither
+wire format carries a sequence number, so a dropped frame is byte-for-byte
+indistinguishable from a minute in which nothing traded. `feed_age_seconds` and
+`check_stale` answer "is the tape producing at all" on a 30 s threshold, and they
+can only see instruments that have already ticked at least once — a symbol the
+wire stops delivering for is *absent* from that state, not stale in it. The
+cadence check reads the *wanted* set and asks a different question per symbol:
+does this scrip print at least once in any 3-minute window, on the same
+09:15-anchored grid the bars are cut on, during 09:15-15:30 IST?
+
+**Why the exemption is counted, loudly:** a halted or delisted security produces
+no ticks by design, and held to the same contract it would alarm every poll for
+the rest of the session, every session — an alert that always fires is an alert
+nobody reads, which defeats the check entirely. So the instrument master's
+lifecycle state exempts it. Applied silently, that exemption is a blind spot
+with a plausible name: a dead symbol gets quietly reclassified "halted" and is
+never looked at again. Hence the counter, and hence the alert on it. A *rising*
+exemption count is coverage being withdrawn; a *sudden jump* is far more likely a
+truncated or mis-parsed master than a genuinely halted universe.
 
 ---
 
@@ -113,6 +136,8 @@ quarantined partition replaces it, so no manual delete is needed.
 | P1 | `orders.unknown_outcome_total` or confirmed `OrderSubmissionUnknownError` | Page; [unknown-submission.md](./runbooks/unknown-submission.md) |
 | P2 | `feed_state` == 4 or `feed_age_seconds` high | Ticket; [stale-feed.md](./runbooks/stale-feed.md) |
 | P2 | `feed_recovery_failures_total` | Ticket; feed recovery |
+| P2 | `feed_liveness_silent_symbols` > 0 in session | Ticket; a subscribed symbol has gone dark — [stale-feed.md](./runbooks/stale-feed.md) |
+| P2 | `feed_liveness_exempt_total` increases | Ticket; coverage is being withdrawn from symbols the master calls halted/delisted — check the master is not truncated before believing the exemptions |
 | P2 | `reconciliation_drift_total.high.*` / `reconciliation_drift_total.critical.*` | Halt trading; [reconciliation-drift.md](./runbooks/reconciliation-drift.md) |
 | P3 | `risk.rejected` / `orders.rejected` elevated | Review limits/strategy |
 | P3 | `bus.messages.dropped` | Scale or reduce fan-out |

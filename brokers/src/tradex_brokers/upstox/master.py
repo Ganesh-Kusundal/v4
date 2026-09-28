@@ -6,6 +6,12 @@ that maps to a canonical v4 exchange via ``SEGMENT_CANONICAL``. Normalized
 rows are what ``UpstoxBroker.load_instruments`` consumes. Trading layers
 orchestrate caching around these primitives (``MasterFileCache`` /
 ``MasterLoader``) but never parse broker formats themselves.
+
+The one thing it reads beyond identity is each security's lifecycle state
+(``status`` → ``master_status``), because AC-12's per-symbol cadence exemption
+needs a real halted/delisted source rather than a value a caller guessed. The
+vocabulary is ``tradex_domain.instrument_lifecycle``'s, shared with the Dhan
+parser, so both vendors spell the same canonical state.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from tradex_domain import SDKError
+from tradex_domain.instrument_lifecycle import row_status
 from tradex_domain.value_objects import InstrumentId
 
 from tradex_brokers.common.transport import Fetch
@@ -124,6 +131,11 @@ def parse_upstox_master(raw: object, *, strict: bool) -> list[dict[str, Any]]:
         else:
             asset_class = "OTHER"
         lot_size = str(row.get("lot_size") or "").strip() or None
+        # Security lifecycle state (Upstox publishes it as ``status``). Carried
+        # through as the canonical ``master_status`` — ``None`` when absent or
+        # unrecognised, because an unknown status must never read as an
+        # exemption. See tradex_domain.instrument_lifecycle.
+        status = row_status(row)
         # Map Upstox fields to the normalized keys expected by UpstoxBroker.load_instruments
         normalized.append({
             "symbol": symbol,
@@ -136,6 +148,7 @@ def parse_upstox_master(raw: object, *, strict: bool) -> list[dict[str, Any]]:
             "strike": strike_raw if strike_raw not in (None, "") else None,
             "underlying": underlying or None,
             "lot_size": lot_size,
+            "master_status": status,
         })
     if strict and len(normalized) < MIN_MASTER_ROWS:
         raise SDKError(

@@ -808,7 +808,7 @@ def _boot_tail(
     tape_recorder: Any = None
     if cfg.mode == "live":
         from tradex_runtime.feed_integrity import FeedIntegrityTracker
-        from tradex_runtime.feed_monitor import FeedStaleMonitor
+        from tradex_runtime.feed_monitor import FeedStaleMonitor, SymbolCadenceMonitor
         from tradex_runtime.feed_recovery import (
             FeedRecoveryCoordinator,
             ParquetHistoryProvider,
@@ -844,11 +844,50 @@ def _boot_tail(
             integrity=integrity,
             recorder=tape_recorder,
         )
+        # AC-12 / lane 3d: per-symbol cadence. The feed-level 30 s threshold
+        # cannot see a symbol that stopped ticking *entirely* — it is absent
+        # from ``MarketFeed._last_tick`` rather than stale in it — and neither
+        # wire format carries a sequence number, so a dropped frame is
+        # indistinguishable from an illiquid minute. A symbol needs one tick per
+        # 3m session-anchored window; one that the instrument master reports as
+        # halted or delisted is exempt, and every exemption is counted in
+        # feed_liveness_exempt_total so the blind spot stays visible.
+        #
+        # It joins the SAME owned poll as the tape and the order stream rather
+        # than owning a second timer, and it does not demote the feed: one
+        # illiquid scrip must not shut the order gate for a healthy tape.
+        instrument_registry = getattr(broker, "registry", None)
+
+        def _master_status(instrument: Any) -> object:
+            """The instrument master's lifecycle state for *instrument*.
+
+            Read from the broker's instrument registry, which is where a master
+            load puts a row's metadata (``BaseBroker.load_instruments``). A
+            broker that exposes no registry, or an instrument it never loaded,
+            yields ``None`` — "not exempt", so the symbol keeps its cadence
+            contract rather than being waved through on a missing lookup.
+            """
+            iid = getattr(instrument, "instrument_id", None)
+            meta_of = getattr(instrument_registry, "meta", None)
+            if iid is None or not callable(meta_of):
+                return None
+            return meta_of(iid).get("master_status")
+
+        cadence_monitor = SymbolCadenceMonitor(
+            instruments=lambda: list(market_feed.wanted_instruments()),
+            ticks=lambda instrument: market_feed.last_tick(instrument),
+            status_of=_master_status,
+            metrics=metrics,
+        )
         # The session owns the monitor's lifecycle; nothing else has to
         # remember to poll check_stale(). The same thread also checks the
-        # order-stream watchdog (AC-12) — one poll, two feeds.
+        # order-stream watchdog (AC-12) and per-symbol cadence (lane 3d) — one
+        # poll, three questions, one lifecycle.
         feed_monitor = FeedStaleMonitor(
-            market_feed, metrics=metrics, order_watchdog=order_watchdog
+            market_feed,
+            metrics=metrics,
+            order_watchdog=order_watchdog,
+            cadence_monitor=cadence_monitor,
         )
         # Recovery is fail-closed: without a history provider it can only ever
         # fail, which is exactly the guarantee we want from a bare reconnect.

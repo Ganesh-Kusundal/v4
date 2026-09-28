@@ -7,6 +7,13 @@ consumes (symbol/exchange/key/asset_class plus derivative structure for
 futures/options). Trading layers orchestrate caching around these primitives
 (``MasterFileCache`` / ``MasterLoader``) but never parse broker formats
 themselves.
+
+The one thing it reads beyond identity is each security's lifecycle state
+(``SEM_STATUS`` → ``master_status``), because AC-12's per-symbol cadence
+exemption needs a real halted/delisted source rather than a value a caller
+guessed. The vocabulary is ``tradex_domain.instrument_lifecycle``'s, so both
+vendors spell the same canonical state and ``tradex_runtime`` can read back
+exactly what this parser wrote.
 """
 
 from __future__ import annotations
@@ -17,6 +24,7 @@ from collections.abc import Callable
 from typing import Any
 
 from tradex_domain import SDKError
+from tradex_domain.instrument_lifecycle import row_status
 
 from tradex_brokers.common.transport import Fetch
 from tradex_brokers.dhan.instruments import SEGMENT_CANONICAL
@@ -124,6 +132,13 @@ def parse_dhan_master(raw: object, *, strict: bool) -> list[dict[str, Any]]:
         # maths, slippage): pass through lot/tick from the master columns.
         lot_size = str(row.get("SEM_LOT_UNITS", "") or "").strip() or None
         tick_size = str(row.get("SEM_TICK_SIZE", "") or "").strip() or None
+        # The security's lifecycle state (SEM_STATUS). AC-12's cadence
+        # exemption needs a real halted/delisted source, and the scrip master is
+        # the only place Dhan publishes one. Normalized by
+        # ``tradex_domain.instrument_lifecycle`` so both vendors agree on
+        # spelling, and ``None`` when the column is absent or says nothing we
+        # recognise — "unknown" must never be mistaken for "exempt".
+        status = row_status(row)
         normalized.append({
             "symbol": symbol or instrument_name,
             "exchange": canonical,
@@ -145,6 +160,7 @@ def parse_dhan_master(raw: object, *, strict: bool) -> list[dict[str, Any]]:
             "underlying": underlying_text or None,
             "lot_size": lot_size,
             "tick_size": tick_size,
+            "master_status": status,
         })
     return normalized
 
