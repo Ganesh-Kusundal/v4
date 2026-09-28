@@ -11,6 +11,7 @@ import logging
 import threading
 import time
 import uuid
+from contextlib import nullcontext
 from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -898,11 +899,11 @@ class ExecutionEngine:
             return
 
         if not getattr(self._fill, "position_projection_owned", False):
-            # Prove affordability BEFORE booking anything (M-3 / AC-2).
-            self._require_cash_for_fill(fill, charged_fee)
-            self._position_manager.on_fill(fill)
-            self._apply_cash_fill(fill)
-            self._apply_fee(fill, charged_fee)
+            # Position, notional and fee as ONE operation under the ledger's
+            # single lock (AC-21). The affordability proof now lives inside
+            # apply_fill, so it cannot be separated from the debits it guards
+            # by a concurrent submit that read the same balance.
+            self._apply_fill_effect(fill, charged_fee)
         self._order_manager.on_order_filled(order, fill)
         # G3: record the fingerprint in the applied-fills set BEFORE
         # publishing so that any re-publish from the live-fill bridge
@@ -932,11 +933,16 @@ class ExecutionEngine:
         so a check on the notional alone would pass a fill that its own debit
         then refuses.
 
-        Both fill doors call this — the synchronous pipeline
-        (``_apply_fill_to_book``) and the inbound bus bridge (``_apply_fill``).
-        They are one implementation on purpose: this bug existed on the second
-        door precisely because it had been fixed on the first and the two
-        copies drifted apart.
+        Both fill doors prove affordability the same way, and they must: this
+        bug existed on the second door precisely because it had been fixed on
+        the first and the two copies drifted apart. The inbound bus bridge
+        (``_apply_fill``) calls this directly, because there the proof must run
+        ahead of the durable write so a refused fill never reaches the log. The
+        synchronous pipeline (``_apply_fill_to_book``) appends first and then
+        hands the same formula to ``CashLedger.apply_fill`` as its first step,
+        so the proof and the debits it guards run under one lock (AC-21) and
+        cannot be separated by a concurrent submit. One formula, two doors,
+        one lock.
 
         A SELL is held to its fee against the balance as it stands, before
         this fill's own credit lands, so a sell out of an empty account is
@@ -950,10 +956,6 @@ class ExecutionEngine:
         notional = fill.quantity.value * fill.price.value
         debit = notional if fill.side is OrderSide.BUY else Decimal(0)
         self._cash_ledger.require_debit(debit + charged_fee, f"fill {fill.order_id}")
-
-    def _apply_cash_fill(self, fill: Fill) -> None:
-        if self._cash_ledger is not None:
-            self._cash_ledger.on_fill(fill.side, fill.quantity, fill.price)
 
     def _compute_fee(self, fill: Fill) -> Decimal:
         """Compute *fill*'s fee and advance the capped-brokerage accrual.
@@ -1004,6 +1006,50 @@ class ExecutionEngine:
         self._position_manager.on_fee(fill, fee)
         if self._cash_ledger is not None:
             self._cash_ledger.on_fee(fee)
+
+    def _book_position(self, fill: Fill, charged_fee: Decimal) -> None:
+        """Position-booker mutations for one fill: the fill, then its fee.
+
+        Runs as ``CashLedger.apply_fill``'s ``book`` hook, i.e. while the single
+        ledger lock is held, so the position, the notional debit and the fee
+        debit are one operation (AC-21). The fee also lands in the position's
+        realised P&L; that is a position-booker mutation, not a cash one, and it
+        rides here so the whole per-fill position update sits inside the one lock.
+        """
+        self._position_manager.on_fill(fill)
+        if charged_fee > 0:
+            self._position_manager.on_fee(fill, Money(amount=charged_fee))
+
+    def _apply_fill_effect(self, fill: Fill, charged_fee: Decimal) -> None:
+        """Apply one fill's whole effect -- position, notional, fee -- atomically.
+
+        Delegates to ``CashLedger.apply_fill``, the single operation by which a
+        fill moves money. It holds the ledger's one lock across the affordability
+        proof, this position booking, the notional debit and the fee debit, so two
+        concurrent submits can never both pass the affordability check and both
+        debit (AC-21). The proof inside apply_fill is the same
+        ``require_debit`` check both doors and the negative controls exercise, so
+        an unaffordable fill is still refused whole -- before ``_book_position``
+        runs, so it books nothing and moves no cash.
+
+        When the engine holds no ledger (``cash=`` was never supplied and
+        ``restore_cash`` has not run) there is no cash state to guard, so the
+        position booking and its fee run directly -- the position booker's own
+        per-instrument lock still serialises them. This is the historical no-gate
+        mode and its behaviour is unchanged.
+        """
+        if self._cash_ledger is None:
+            self._position_manager.on_fill(fill)
+            self._apply_fee(fill, charged_fee)
+            return
+        self._cash_ledger.apply_fill(
+            fill.side,
+            fill.quantity,
+            fill.price,
+            charged_fee,
+            f"fill {fill.order_id}",
+            book=lambda: self._book_position(fill, charged_fee),
+        )
 
     def _no_receipt(self, sync: bool, message: str) -> OrderReceipt | None:
         """Terminate the pipeline before it can move money.
@@ -1112,48 +1158,63 @@ class ExecutionEngine:
                 else self._compute_fee(fill)
             )
         owns_projection = getattr(self._fill, "position_projection_owned", False)
-        if not owns_projection:
-            # Prove affordability BEFORE booking anything, and BEFORE the two
-            # records below that would make this fill un-refusable. The debits
-            # that follow are notional and then fee, each of which can trip the
-            # ledger's buying-power floor; the position is already booked by
-            # then, so a failure there leaves a position with no cash movement
-            # and the raise swallowed by the bus's subscriber isolation — the
-            # live book and the recovered book disagreeing for good (AC-2).
-            #
-            # This sits ahead of the durable write and the dedup fingerprint,
-            # which is where the synchronous door differs and why: a refused
-            # fill in the log is folded by recovery into a position this book
-            # never had, and a refused fill whose fingerprint is committed has
-            # its own re-delivery skipped as a duplicate, so the fill is lost
-            # with no error at all. Neither trace may exist for a fill that did
-            # not apply. ``require_debit`` only reads, so "persist before
-            # mutating" still holds for the first mutation, which is the
-            # booking below.
-            #
-            # The failure is republished as ``ErrorOccurred`` because
-            # ``ReactiveBus._isolate`` logs and drops a subscriber's exception:
-            # without this the raise stops at a log line and a run fed this
-            # door quietly loses a fill. ``BacktestEngine.run`` treats it as
-            # run-ending; the live boot logs and counts it.
-            try:
-                self._require_cash_for_fill(fill, charged_fee)
-            except ValueError as exc:
-                self._bus.publish(ErrorOccurred(error=exc))
-                raise
-        # Persist BEFORE mutating — same invariant as the sync fill path.
-        if not self._append(OrderFilled(fill=fill, fee_amount=charged_fee)):
-            log.error(
-                "Inbound fill not durable; leaving the book unchanged for %s",
-                fill.order_id,
-            )
-            return
-        # The write landed, so this fill is now applied and must dedup.
-        self._record_applied_fill(fill)
-        if not owns_projection:
-            self._position_manager.on_fill(fill)
-            self._apply_cash_fill(fill)
-            self._apply_fee(fill, charged_fee)
+        # AC-21: hold the ledger's ONE lock across this door's entire critical
+        # section -- the affordability proof, the durable append, the dedup
+        # fingerprint and the booking/debits. Without the lock a concurrent
+        # submit could pass this fill's proof on a balance the other fill was
+        # about to consume, or slip between the append and the debits. With no
+        # ledger there is no cash state to guard (the proof is already a no-op),
+        # so the section runs unserialised exactly as before.
+        scope = (
+            self._cash_ledger.transaction()
+            if self._cash_ledger is not None
+            else nullcontext()
+        )
+        with scope:
+            if not owns_projection:
+                # Prove affordability BEFORE booking anything, and BEFORE the two
+                # records below that would make this fill un-refusable. The debits
+                # that follow are notional and then fee, each of which can trip the
+                # ledger's buying-power floor; the position is already booked by
+                # then, so a failure there leaves a position with no cash movement
+                # and the raise swallowed by the bus's subscriber isolation -- the
+                # live book and the recovered book disagreeing for good (AC-2).
+                #
+                # This sits ahead of the durable write and the dedup fingerprint,
+                # which is where the synchronous door differs and why: a refused
+                # fill in the log is folded by recovery into a position this book
+                # never had, and a refused fill whose fingerprint is committed has
+                # its own re-delivery skipped as a duplicate, so the fill is lost
+                # with no error at all. Neither trace may exist for a fill that did
+                # not apply. ``require_debit`` only reads, so "persist before
+                # mutating" still holds for the first mutation, which is the
+                # booking below.
+                #
+                # The failure is republished as ``ErrorOccurred`` because
+                # ``ReactiveBus._isolate`` logs and drops a subscriber's exception:
+                # without this the raise stops at a log line and a run fed this
+                # door quietly loses a fill. ``BacktestEngine.run`` treats it as
+                # run-ending; the live boot logs and counts it.
+                try:
+                    self._require_cash_for_fill(fill, charged_fee)
+                except ValueError as exc:
+                    self._bus.publish(ErrorOccurred(error=exc))
+                    raise
+            # Persist BEFORE mutating -- same invariant as the sync fill path, and
+            # still ahead of the booking. It sits inside the ledger lock so the
+            # whole proof->append->book sequence is atomic against other submitters.
+            if not self._append(OrderFilled(fill=fill, fee_amount=charged_fee)):
+                log.error(
+                    "Inbound fill not durable; leaving the book unchanged for %s",
+                    fill.order_id,
+                )
+                return
+            # The write landed, so this fill is now applied and must dedup.
+            self._record_applied_fill(fill)
+            if not owns_projection:
+                # Position, notional and fee as ONE operation under the same lock
+                # that proved affordability above (AC-21).
+                self._apply_fill_effect(fill, charged_fee)
         if existing is not None:
             # Existing order (any non-rejected status). G3: a
             # *distinct* fill (different fingerprint) is a real
