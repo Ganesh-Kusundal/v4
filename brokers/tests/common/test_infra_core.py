@@ -24,8 +24,9 @@ from tradex_brokers.common.ws_reconnect import (
 def test_reconnect_config_defaults() -> None:
     cfg = ReconnectConfig()
     assert cfg.max_retries == 10
-    assert cfg.base_delay == 1.0
-    assert cfg.max_delay == 60.0
+    # AC-12/3b: 5s base escalating to a 300s ceiling, retried indefinitely.
+    assert cfg.base_delay == 5.0
+    assert cfg.max_delay == 300.0
     assert cfg.exponential_base == 2.0
     assert cfg.jitter is True
 
@@ -46,10 +47,9 @@ def test_ws_reconnect_manager_alias() -> None:
 
 
 def test_ws_reconnect_manager_basic() -> None:
-    mgr = WsReconnectManager(max_retries=3, jitter=False)
+    mgr = WsReconnectManager(max_retries=3, base_delay=1.0, jitter=False)
     delay = mgr.next_delay()
-    assert delay is not None
-    assert delay == 1.0  # base_delay * (2 ** 0)
+    assert delay == 1.0  # base cadence before the escalation point
     assert mgr.attempt_count == 1
     mgr.reset()
     assert mgr.attempt_count == 0

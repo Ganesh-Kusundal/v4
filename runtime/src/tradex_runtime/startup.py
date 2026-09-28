@@ -871,6 +871,12 @@ def _boot_tail(
                 "Refusing to start session: kill switch tripped during "
                 "startup reconciliation. Inspect drift before clearing."
             )
+        # AC-12 / lane 3b: after any *subsequent* order/portfolio socket
+        # reconnect, re-read orders and positions from the venue through the
+        # same reconciliation path (never resume blind). Installed on the
+        # order-stream backend, which mixes in AutoReconnectMixin and fires
+        # set_reconnect_hook after each successful reopen.
+        _install_post_reconnect_reread(broker, engine, stream_backend)
 
     # C4: attach the strategy registry to the session so callers (and tests)
     # can inspect lifecycle state via session.strategy_registry().  The
@@ -1110,6 +1116,44 @@ def _reconcile_cash(broker: Any, engine: Any) -> list[Any]:
             local_amount, venue_amount,
         )
     return drifts
+
+
+def _install_post_reconnect_reread(
+    broker: Any, engine: Any, stream_backend: Any
+) -> None:
+    """Re-read the venue book after every order/portfolio stream reconnect.
+
+    AC-12/3b: a dropped order/portfolio socket reconnects and replays its
+    subscription, but the socket carries only *incremental* updates — anything
+    that changed at the venue while it was down is never re-delivered. Without
+    a re-read the session would resume blind and a resting order or position
+    could silently diverge.
+
+    This wires the *existing* reconnect hook (:meth:`set_reconnect_hook`) on
+    the order-stream backend to the *existing* reconciliation
+    (:func:`_run_startup_reconciliation`), which re-reads
+    ``get_orderbook()`` + ``get_positions()``, runs ``engine.reconcile``,
+    refreshes the OMS cache, and trips the kill switch on HIGH/CRITICAL drift.
+    The hook fires only on a real reconnect (never on the initial connect), so
+    a session whose socket never dropped performs no extra re-read.
+
+    Best-effort: backends without a reconnect hook (paper, fakes) are skipped
+    and reconciliation failure is already contained by the callee.
+    """
+    if stream_backend is None:
+        return
+    set_hook = getattr(stream_backend, "set_reconnect_hook", None)
+    if not callable(set_hook):
+        return
+
+    def _reread() -> None:
+        log.info("order/portfolio stream reconnected; re-reading venue book")
+        try:
+            _run_startup_reconciliation(broker, engine)
+        except Exception:  # noqa: BLE001 — hook must not abort the receive loop
+            log.warning("post-reconnect venue re-read failed", exc_info=True)
+
+    set_hook(_reread)
 
 
 def _run_startup_reconciliation(broker: Any, engine: Any) -> bool:
