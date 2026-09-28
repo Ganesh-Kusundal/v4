@@ -18,9 +18,11 @@ The monitor is injected rather than built in ``boot()`` for the same reason
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import replace
+from unittest.mock import patch
 
 from tradex_brokers.paper.adapter import PaperBroker
 from tradex_config.schema import AppConfig
@@ -199,3 +201,77 @@ def test_start_starts_the_monitor_and_stop_stops_it():
     time.sleep(0.05)
     assert monitor.stopped == 1
     assert not monitor.alive
+
+
+# ---------------------------------------------------------------------------
+# The composition helper itself, pinned to the real seam contract
+# ---------------------------------------------------------------------------
+
+
+def test_build_reconciliation_monitor_is_importable_from_the_cli_root():
+    """The helper is the single composition point for the two package halves.
+
+    A test that imported only ReconciliationMonitor would not pin the thing
+    that actually breaks: the seam builder and the monitor have to be joined by
+    a module that can see both, and this is that module.
+    """
+    from tradex_interfaces.cli import build_reconciliation_monitor
+
+    assert callable(build_reconciliation_monitor)
+
+
+def test_main_boot_path_runs_the_monitor():
+    """main() boots the paper session that ``tradex serve`` reuses.
+
+    This pins the gap: cmd_serve skips its own boot for a bound runtime, so a
+    monitor built only inside cmd_serve would never exist for a paper server.
+    The monitor has to be built by the boot main() calls, and the way to pin
+    that is to intercept boot and inspect the kwargs — the same style as
+    test_cli_serve, which asserts boot is called at all.
+    """
+    from tradex_interfaces.cli import build_reconciliation_monitor, main
+
+    # from_env is the only route that can carry a complete risk policy (AC-10
+    # refuses to boot without one), so the test supplies the limits the way an
+    # operator would. UNBOUNDED (-1) is the explicit opt-out, not a bypass.
+    risk_env = {
+        "TRADEX_RISK_MAX_ORDER_VALUE": "-1",
+        "TRADEX_RISK_MAX_POSITION_VALUE": "-1",
+        "TRADEX_RISK_MAX_ORDERS_PER_MINUTE": "-1",
+        "TRADEX_RISK_MAX_DAILY_LOSS": "-1",
+        "TRADEX_RISK_MAX_DRAWDOWN_PCT": "-1",
+    }
+
+    captured = {}
+    real_boot = boot
+
+    def _capture(*boot_args, **boot_kwargs):
+        captured["kwargs"] = boot_kwargs
+        # Fall through to a real boot so the session is genuine. main() stops
+        # this session in its own finally, so capture the monitor now while
+        # the session is live — after main() returns it is already stopped.
+        session = real_boot(*boot_args, **boot_kwargs)
+        captured["monitor"] = session._reconciliation_monitor
+        captured["monitor_running"] = (
+            session._reconciliation_monitor is not None
+            and session._reconciliation_monitor.running
+        )
+        return session
+
+    with patch("tradex_runtime.startup.boot", side_effect=_capture),\
+         patch.dict(os.environ, risk_env, clear=False):
+        try:
+            main(["health"])
+        except SystemExit:
+            pass
+
+    assert (
+        captured.get("kwargs", {}).get("reconciliation_monitor_factory")
+        is build_reconciliation_monitor
+    ), "main() must pass the factory so the reused paper session carries a monitor"
+
+    # The session main() built is real and carried a running monitor at READY.
+    # This is the object cmd_serve reuses in paper mode, so if the monitor was
+    # not running here a paper server would have no reconciliation at all.
+    assert captured.get("monitor") is not None
+    assert captured.get("monitor_running") is True

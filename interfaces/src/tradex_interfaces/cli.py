@@ -300,7 +300,16 @@ def main(argv: list[str] | None = None) -> int:
     # via from_env: the operator's TRADEX_RISK_* policy has to reach boot, and
     # a literal AppConfig here cannot carry one (AC-10 refuses to boot without
     # a complete risk policy, which made every `tradex` command unusable).
-    session = boot(from_env())
+    #
+    # The reconciliation monitor is built here, not in cmd_serve, because this
+    # is the session ``tradex serve`` reuses in paper mode: cmd_serve skips its
+    # own boot for a bound runtime, so a monitor built only there would never
+    # exist for a paper server. quote/order are one-shot commands and pass no
+    # factory — a daemon thread that outlives a single CLI call is not useful.
+    session = boot(
+        from_env(),
+        reconciliation_monitor_factory=build_reconciliation_monitor,
+    )
     runtime = types.SimpleNamespace(
         session=session,
         config=types.SimpleNamespace(environment=session.mode.upper()),
@@ -377,6 +386,39 @@ def cmd_orders(args: Any) -> int:
     return 0
 
 
+def build_reconciliation_monitor(broker, cache, engine, metrics):
+    """Build the reconciliation daemon for a live session.
+
+    The single composition helper for lane 5e. The two halves of the daemon sit
+    on opposite sides of the package boundary: ``build_reconciliation_monitor_seams``
+    is in ``tradex_interfaces`` (it binds the adoption policy to the OMS book)
+    and ``ReconciliationMonitor`` is in ``tradex_runtime``, which may not import
+    ``tradex_interfaces`` (see ``tests/test_import_boundaries.py``). This module
+    is the composition root that can see both.
+
+    Callers pass this as ``reconciliation_monitor_factory`` to ``boot()``, which
+    invokes it *before* ``session.start()`` — a monitor assigned post-hoc would
+    be constructed and never started, because ``boot()`` starts the session
+    before it returns.
+    """
+    from tradex_runtime.reconciliation_monitor import (
+        ReconciliationMonitor,
+    )
+
+    from tradex_interfaces.safety import (
+        build_reconciliation_monitor_seams,
+    )
+
+    seams = build_reconciliation_monitor_seams(
+        broker=broker, cache=cache, engine=engine,
+    )
+    return ReconciliationMonitor(
+        reconcile=seams.reconcile,
+        adopt=seams.adopt,
+        metrics=metrics,
+    )
+
+
 def cmd_serve(args: Any, runtime: Any = None) -> int:
     """Start the TradeX HTTP API (FastAPI + uvicorn) against a booted session.
 
@@ -424,37 +466,12 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
             # assigned post-hoc would never be started. Passing a factory lets
             # boot() construct it and hand it to the session, which then owns
             # the lifecycle (start in start(), stop in stop() before the broker
-            # is torn down).
-            #
-            # The factory is a closure here — not a function in tradex_runtime —
-            # because the two halves of the daemon sit on opposite sides of the
-            # package boundary: build_reconciliation_monitor_seams is in
-            # tradex_interfaces (it binds the adoption policy to the OMS book)
-            # and ReconciliationMonitor is in tradex_runtime, which may not
-            # import tradex_interfaces (tests/test_import_boundaries.py). This
-            # command is the composition root that can see both.
-            def _build_reconciliation_monitor(broker, cache, engine, metrics):
-                from tradex_runtime.reconciliation_monitor import (
-                    ReconciliationMonitor,
-                )
-
-                from tradex_interfaces.safety import (
-                    build_reconciliation_monitor_seams,
-                )
-
-                seams = build_reconciliation_monitor_seams(
-                    broker=broker, cache=cache, engine=engine,
-                )
-                return ReconciliationMonitor(
-                    reconcile=seams.reconcile,
-                    adopt=seams.adopt,
-                    metrics=metrics,
-                )
-
+            # is torn down). See build_reconciliation_monitor for why the
+            # factory is defined here rather than in tradex_runtime.
             session = boot(
                 config,
                 wire_strategies=False,
-                reconciliation_monitor_factory=_build_reconciliation_monitor,
+                reconciliation_monitor_factory=build_reconciliation_monitor,
             )
         assert session is not None
         start_fastapi_server(
