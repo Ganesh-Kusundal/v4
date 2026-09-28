@@ -94,6 +94,7 @@ class TradingSession:
         writer_lock: object | None = None,
         feed_monitor: object | None = None,
         feed_recovery: object | None = None,
+        reconciliation_monitor: object | None = None,
         event_store: object | None = None,
         validation_report_store: object | None = None,
     ) -> None:
@@ -163,6 +164,19 @@ class TradingSession:
         #: ``tradex_analytics`` (see tests/test_import_boundaries.py). The
         #: composition that can see both builds it and passes it in.
         self._validation_report_store = validation_report_store
+        #: Automatic reconciliation daemon. Owned here for the same reason as
+        #: the feed monitor: no caller has to remember to poll it, and the
+        #: session tears it down in ``stop()`` before the broker it reads is
+        #: torn down, so a poll cannot observe a half-stopped broker.
+        #:
+        #: Injected, never constructed here. The seams that drive it
+        #: (``build_reconciliation_monitor_seams``) live in ``tradex_interfaces``
+        #: because they bind the adoption policy to the OMS book, and
+        #: ``tradex_runtime`` may not import ``tradex_interfaces`` (see
+        #: ``tests/test_import_boundaries.py``). The composition root that can
+        #: see both builds one and passes it here; ``None`` leaves reconciliation
+        #: to the on-demand route, which re-derives a read on each request.
+        self._reconciliation_monitor = reconciliation_monitor
         #: AC-17 / lane 2e: the drift items from the most recent reconcile.
         #: ``engine.reconcile`` returns them and startup used to log them and
         #: drop them, so the safety surface always fell through to re-deriving
@@ -189,6 +203,15 @@ class TradingSession:
                 self._feed_monitor.start()  # type: ignore[attr-defined]
             except Exception:  # pragma: no cover – defensive
                 log.warning("feed stale monitor start failed", exc_info=True)
+        # Start the reconciliation poller too: venue drift that an operator
+        # never asks about still has to be adopted, and the monitor's contract
+        # is that a failed poll degrades to a logged warning rather than
+        # killing the thread (lane 5e). Stopped symmetrically in stop().
+        if self._reconciliation_monitor is not None:
+            try:
+                self._reconciliation_monitor.start()  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover – defensive
+                log.warning("reconciliation monitor start failed", exc_info=True)
 
     def stop(self) -> None:
         """Transition to STOPPED state. Dispose all subscriptions.
@@ -220,6 +243,15 @@ class TradingSession:
             except Exception:  # pragma: no cover – defensive teardown
                 log.warning("feed stale monitor stop failed", exc_info=True)
             self._feed_monitor = None
+        # Stop the reconciliation poller before the broker is torn down so a
+        # poll cannot observe a half-stopped broker. Same ordering as the feed
+        # monitor above for the same reason.
+        if self._reconciliation_monitor is not None:
+            try:
+                self._reconciliation_monitor.stop()  # type: ignore[attr-defined]
+            except Exception:  # pragma: no cover – defensive teardown
+                log.warning("reconciliation monitor stop failed", exc_info=True)
+            self._reconciliation_monitor = None
         if self._market_feed is not None:
             try:
                 self._market_feed.stop()  # type: ignore[attr-defined]
@@ -449,6 +481,7 @@ class TradingSession:
         *,
         bus: ReactiveBus | None = None,
         config: AppConfig | None = None,
+        reconciliation_monitor: object | None = None,
     ) -> TradingSession:
         """Create a paper trading session with a simulated broker.
 
@@ -488,7 +521,10 @@ class TradingSession:
             broker_id=BrokerId(broker_id) if broker_id else BrokerId.PAPER,
         )
         # Historical minimal component set: no reactive strategy/scanner wiring.
-        return boot(cfg, bus=bus, broker=PaperBroker(), wire_strategies=False)
+        return boot(
+            cfg, bus=bus, broker=PaperBroker(), wire_strategies=False,
+            reconciliation_monitor=reconciliation_monitor,
+        )
 
     @property
     def feed_supervisor(self) -> object | None:

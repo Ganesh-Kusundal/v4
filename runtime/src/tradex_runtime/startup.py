@@ -163,6 +163,7 @@ def boot(
     wire_strategies: bool = True,
     feed_instruments: Sequence[Instrument] | None = None,
     validation_report_store: Any = None,
+    reconciliation_monitor: Any = None,
 ) -> TradingSession:
     """Fail-closed boot: compose all components into a ready TradingSession.
 
@@ -197,6 +198,25 @@ def boot(
         :func:`tradex_interfaces.safety_report_store.build_validation_report_store`
         and passes it here. ``None`` leaves the accessor ``None``, which the
         safety surface reports as *absent* rather than as "not promotable".
+    reconciliation_monitor :
+        A :class:`~tradex_runtime.reconciliation_monitor.ReconciliationMonitor`
+        (or any object with the same ``start()``/``stop()`` surface) that
+        continuously reconciles the OMS book against the venue and *adopts*
+        venue positions when the read is clean.
+
+        **Injected, never constructed here.** The seams that drive it —
+        ``build_reconciliation_monitor_seams`` — live in ``tradex_interfaces``
+        because they bind the adoption policy to the OMS book and to
+        ``derive_venue_adoption``, and ``tradex_runtime`` may not import
+        ``tradex_interfaces`` (see ``tests/test_import_boundaries.py``). A
+        composition root that can see both builds one and passes it here, the
+        same shape as ``validation_report_store``.
+
+        ``None`` leaves reconciliation to the on-demand safety route, which
+        re-derives a venue read on each request. The daemon is not load-bearing
+        for the *correctness* of that route; it is load-bearing for its
+        *timeliness*, because without it drift is only ever observed when
+        somebody asks.
 
     Returns
     -------
@@ -368,6 +388,7 @@ def boot(
                 fee_calculator=fee_calculator, order_store=order_store,
                 event_store=event_store, feed_instruments=feed_instruments,
                 validation_report_store=validation_report_store,
+                reconciliation_monitor=reconciliation_monitor,
             )
         except BaseException:
             # C3: best-effort rollback so a failed live boot never
@@ -387,6 +408,7 @@ def boot(
             fee_calculator=fee_calculator, order_store=order_store,
             event_store=event_store, feed_instruments=feed_instruments,
             validation_report_store=validation_report_store,
+            reconciliation_monitor=reconciliation_monitor,
         )
     except BaseException:
         _safe_teardown(session=None, broker=broker, bus=bus, writer_lock=None)
@@ -449,6 +471,7 @@ def _boot_tail(
     event_store: Any = None,
     feed_instruments: Sequence[Instrument] | None = None,
     validation_report_store: Any = None,
+    reconciliation_monitor: Any = None,
 ) -> TradingSession:
     """Steps 5→end of :func:`boot`, extracted so the live path can be
     rollback-wrapped. The body is the original ``boot()`` logic unchanged.
@@ -935,6 +958,12 @@ def _boot_tail(
         writer_lock=writer_lock,
         feed_monitor=feed_monitor,
         feed_recovery=feed_recovery,
+        # Lane 5e: the reconciliation daemon. Injected for the same boundary
+        # reason as validation_report_store above — the seam builder lives in
+        # tradex_interfaces, which this package may not import. The session owns
+        # the lifecycle: started in start(), stopped in stop() before the broker
+        # is torn down.
+        reconciliation_monitor=reconciliation_monitor,
         # AC-17 / lane 2e: the same store the engine appends to, handed to the
         # session so the safety surface can read the log it needs to date
         # UNKNOWN orders and find the last reconciliation. Before this the
