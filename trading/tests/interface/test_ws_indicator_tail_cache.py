@@ -61,6 +61,27 @@ def lake(tmp_path, monkeypatch):
     return root
 
 
+@pytest.fixture(autouse=True)
+def _reset_process_level_caches():
+    """Clear the module-level caches around every test in this file.
+
+    These are deliberately process-wide, which is the point of the lane — and
+    which means they outlive the test that populated them. Without this, a
+    test that constructs a default (non-injected) registry leaves a held
+    series reference on ``SERIES_CACHE`` that a later test counts, and the
+    failure surfaces somewhere unrelated as a wrong refcount.
+
+    Tests that assert on the caches should inject their own instances (most of
+    this file does) so they do not depend on shared state at all; this fixture
+    only keeps the default-constructed tests from contaminating each other.
+    """
+    si.TAIL_CACHE.clear()
+    si.SERIES_CACHE.clear()
+    yield
+    si.TAIL_CACHE.clear()
+    si.SERIES_CACHE.clear()
+
+
 def _bar(i: int, base: float | None = None) -> dict:
     """One serialized bar at bucket *i*; a deterministic pseudo-random walk
     so an indicator has something non-degenerate to chew on."""
@@ -143,6 +164,113 @@ def _bit_equal_points(got: list, want: list) -> str | None:
 # ---------------------------------------------------------------------------
 # (a) the cache is genuinely shared across two connections
 # ---------------------------------------------------------------------------
+
+
+def test_default_construction_uses_the_process_level_cache():
+    """The default — the path production actually takes — is the shared one.
+
+    Every other test in this file injects ``tail_cache=`` so it can count loads
+    on a cache it owns. That is a *dependency-injection* test: it proves the
+    cache class behaves when shared, and says nothing about whether the
+    process shares it.
+
+    Production does not inject. ``stream.py`` builds the registry per connection
+    with a push sink and nothing else, so the whole process-level property rests
+    on one default:
+
+        self._tail_cache = TAIL_CACHE if tail_cache is None else tail_cache
+
+    Change that line to build a fresh cache and every injected-cache test still
+    passes while the running server silently re-reads 400 bars per client —
+    the original defect, restored, with a green suite. So the default is
+    asserted here directly, and the production call site is pinned alongside it.
+    """
+    conn_a = IndicatorStreamRegistry(push=lambda m: None)
+    conn_b = IndicatorStreamRegistry(push=lambda m: None)
+    assert conn_a._tail_cache is conn_b._tail_cache is si.TAIL_CACHE, (
+        "a default-constructed registry is not using the process-level tail "
+        "cache; every websocket connection would get its own and re-read the "
+        "lake for bars another connection already had"
+    )
+    assert conn_a._series_cache is conn_b._series_cache is si.SERIES_CACHE, (
+        "the live bar window and shims must be shared the same way, or a "
+        "second connection rebuilds 400 candle shims for nothing"
+    )
+
+
+def test_production_constructs_the_registry_with_no_injected_cache():
+    """``ws_stream`` must build the registry the way the default test assumes.
+
+    The default is only load-bearing if nothing overrides it. If the route
+    started passing its own ``IndicatorTailCache()`` — the most natural-looking
+    "fix" for a process-level cache, and one that would restore the per-client
+    duplication — the default would keep holding and the suite would stay
+    green. So the call site is pinned to the production shape: a push sink and
+    nothing else.
+    """
+    import ast
+    import inspect
+
+    from tradex_interfaces.routes import stream as stream_route
+
+    src = inspect.getsource(stream_route.ws_stream)
+    calls = [
+        node
+        for node in ast.walk(ast.parse(inspect.cleandoc(src)))
+        if isinstance(node, ast.Call)
+        and getattr(node.func, "id", None) == "IndicatorStreamRegistry"
+    ]
+    assert len(calls) == 1, f"expected one registry construction, found {len(calls)}"
+    call = calls[0]
+    assert call.keywords == [], (
+        "ws_stream injects keyword arguments into IndicatorStreamRegistry "
+        f"({sorted(kw.arg for kw in call.keywords)}); a per-connection cache "
+        f"passed here would beat the process-level default and put the "
+        f"duplication back"
+    )
+    assert len(call.args) == 1, (
+        f"expected the push sink as the only positional argument, got {len(call.args)}"
+    )
+
+
+def test_default_construction_reads_the_lake_once_for_two_connections(lake, monkeypatch):
+    """The same one-load property, reached through the production shape.
+
+    The behavioural twin of
+    :func:`test_default_construction_uses_the_process_level_cache`: no
+    ``tail_cache=`` argument anywhere, so this fails the moment the default
+    stops being the shared singleton, and it fails on the number of lake reads
+    rather than on the identity of an attribute.
+
+    Counted on the real module-level :data:`TAIL_CACHE` (restored in a
+    ``finally``) because with default construction there is nothing else to
+    count on.
+    """
+    loads: list[int] = []
+
+    def _load(instrument, timeframe, now):
+        loads.append(now)
+        return [_bar(i) for i in range(100)]
+
+    monkeypatch.setattr(si, "_load_datalake_tail", _load)
+    conn_a = IndicatorStreamRegistry(push=lambda m: None)
+    conn_b = IndicatorStreamRegistry(push=lambda m: None)
+    key = ("NSE:RELIANCE", "1m")
+    try:
+        for reg in (conn_a, conn_b):
+            reg.add(*key, ["sma"], "bar-close")
+            reg.handle_bar_frame(_frame(200))
+        assert len(loads) == 1, (
+            f"two default-constructed connections read the lake {len(loads)} "
+            f"times for the same (instrument, timeframe)"
+        )
+        assert si.TAIL_CACHE.keys() == [key]
+        assert si.SERIES_CACHE.peek(key).holders == 2, (
+            "the two connections did not share one series cache"
+        )
+    finally:
+        conn_a.close()
+        conn_b.close()
 
 
 def test_tail_is_shared_across_two_connections(lake, monkeypatch):
