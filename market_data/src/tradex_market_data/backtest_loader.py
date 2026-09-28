@@ -36,13 +36,21 @@ either routing it through ``load()`` or guarding the provider, and the provider
 also serves the chart's own bar requests, which are not backtests — a decision
 for whoever owns that route, not something to bolt on here.
 
-The report is not decoration. The checked-in delisting ledger
-(``Dependencies/nse_delistings.csv``) has **zero sourced rows**: nothing in this
-repository holds historical index membership and no configured broker serves it
-for a past date, so the exit side of the check is *unverified* rather than
-*clean*, and every load says so. ``point_in_time_report`` and
-``universe_snapshot`` are shared with ``trading/scripts/backtest_datalake.py``
-so the two surfaces cannot drift into reporting different things.
+``trading/scripts/backtest_datalake.py`` gets its guard from this loader
+(``ParquetBacktestLoader.load``) and its report from the same
+``point_in_time_report``, so the CLI cannot report a different verdict from the
+library — the sharing is real, but it happens through the loader call rather
+than through the script calling this module's functions directly.
+
+The exit side is checked against the real ledger
+(``Dependencies/nse_delistings.csv``), which carries the 438 rows NSE publishes
+in its own "List of delisted Companies" file. It is an *exchange* delisting
+ledger, not index membership: it says a symbol left the exchange, which is the
+survivorship-relevant event, but it does not and cannot say when a name left
+*this index* — NSE publishes no per-index membership history. So a window that
+spans one of these delistings is refused (nothing here holds what replaced the
+name), while a window in which every run symbol was delisted before the window
+opened is genuinely clean on the exit side. The report says which.
 """
 
 from __future__ import annotations
@@ -76,8 +84,9 @@ log = logging.getLogger(__name__)
 #: it measured rather than printing a bare number.
 DEPENDENCIES_DIR = Path(__file__).resolve().parents[3] / "Dependencies"
 
-#: The delisting ledger. Hand-maintained, because it has no other possible
-#: source, and **header-only today** — see the module docstring.
+#: The delisting ledger, transcribed from NSE's own published "List of
+#: delisted Companies" (sheet ``delisted``). It records *exchange* delisting,
+#: not index membership — see the module docstring.
 DELISTINGS_LEDGER = DEPENDENCIES_DIR / "nse_delistings.csv"
 
 #: Column recording when a constituent snapshot was taken. It is *not* a
@@ -86,24 +95,50 @@ DELISTINGS_LEDGER = DEPENDENCIES_DIR / "nse_delistings.csv"
 #: not.
 _MEMBERSHIP_COLUMN = "membership_asof"
 
+#: The cash series the universe CSVs and the delisting ledger both key on.
+#: Mirrors ``tradex_domain.universe._CASH_SERIES`` and ``pit._CASH_SERIES``:
+#: the same two values, spelled out three times rather than exported through a
+#: public constant, because each of the three is a reader of a *different*
+#: artifact and none of them should import another's private name.
+_CASH_SERIES = frozenset({"EQ", "BE"})
+
 
 def universe_snapshot(name: str) -> tuple[tuple[str, ...], date]:
-    """``(cash members, snapshot date)`` for a constituent CSV.
+    """``(cash members, snapshot date)`` for a constituent CSV — the PIT record.
 
-    The members come from ``load_universe`` so the cash-series filter stays
-    owned by the domain and the guard checks the same set the loader will read.
-    The date is the CSV's ``membership_asof`` column, and it dates the
-    *snapshot*: it says the membership below is the one that held on that date,
-    and nothing about when each name joined.
+    This reads ``Dependencies/<name>_list.csv`` **off disk, directly**. That is
+    the whole point of the function, and it is why it does not call
+    ``load_universe``: a membership record that is produced by the same call
+    that selected the data cannot contradict it, and a check between two
+    views of one thing is a comparison of a set with itself. Reading the file
+    gives the guard a *second, independent* view of what the index held on the
+    snapshot date, and it is the one that can disagree with the run.
+
+    So the entry half of the point-in-time guard compares the run's resolved
+    selection against this file's rows. A name the loader put into the run
+    that the artifact does not list is a look-ahead the guard now catches —
+    whether it got in through a bad CSV, a changed cash-series rule, or an
+    injected universe.
+
+    Only cash-series rows are members, for the same reason
+    ``tradex_domain.universe.load_universe`` keeps them: a non-cash series
+    sharing a symbol is a different security, and the loader cannot hold it.
 
     :raises ValueError: a snapshot carrying anything other than one distinct
         ``membership_asof`` cannot date itself, and a manifest built from it
-        would be claiming a precision the file does not carry.
+        would be claiming a precision the file does not carry. Raising is
+        fail-closed: a manifest that cannot be dated must not be built, even
+        to have it checked.
     """
-    members = tuple(i.symbol for i in load_universe(name))
     path = DEPENDENCIES_DIR / f"{name}_list.csv"
     with open(path, newline="", encoding="utf-8") as fh:
-        stamps = {(row.get(_MEMBERSHIP_COLUMN) or "").strip() for row in csv.DictReader(fh)}
+        rows = list(csv.DictReader(fh))
+    members = tuple(
+        row["Symbol"].strip().upper()
+        for row in rows
+        if (row.get("Series") or "").strip().upper() in _CASH_SERIES
+    )
+    stamps = {(row.get(_MEMBERSHIP_COLUMN) or "").strip() for row in rows}
     stamps.discard("")
     if len(stamps) != 1:
         raise ValueError(
@@ -348,20 +383,32 @@ class ParquetBacktestLoader:
     ) -> None:
         """Assert the loaded set is point-in-time correct for *window*, then say how far.
 
-        AC-4. The entry side cannot be checked from inside a loader that
-        resolved the symbols itself: a manifest built from the same call that
-        picked the data is a tautology, so the report states the composition's
-        real provenance instead of implying a check that did not happen. The
-        exit side can be, and is: a symbol in the run that the ledger says was
-        delisted inside the window means the composition at the open differs
-        from the composition at the close, and nothing checked in here holds the
+        AC-4. Both halves of the assertion have to be able to fail, and each
+        has to compare two things that can actually disagree.
+
+        **Entry.** Every symbol the run reads has to be one the declared
+        universe held as of the snapshot date; a name the index did not hold
+        is knowledge the run could not have had. The two sides are genuinely
+        separate: ``symbols`` is what :meth:`_resolve_instruments` put in the
+        run, and ``universe_snapshot`` re-reads the constituent CSV off disk.
+        The pre-2026-09-28 shape built the manifest from ``load_universe`` and
+        then compared it against symbols that had come out of that very call,
+        so on the universe path the entry half compared a set with itself and
+        could not fire — the ledger was the only half with any teeth.
+
+        **Exit.** A symbol in the run that the ledger says was delisted inside
+        the window means the composition at the open differs from the
+        composition at the close, and nothing checked in here holds the
         membership that replaced it. So the run is refused.
 
         A run resolving to no symbols has no backtest to bias, so there is
         nothing to check and nothing to report.
 
-        :raises PitViolation: a symbol delisted inside the window, or one whose
-            delisting date was never established.
+        :raises PitViolation: a symbol the declared universe does not hold,
+            one delisted inside the window, or one whose delisting date was
+            never established.
+        :raises ValueError: the universe CSV carries no single snapshot
+            date, so a manifest cannot honestly be built for it.
         """
         symbols = sorted(
             {getattr(inst, "symbol", None) or str(inst.instrument_id) for inst in insts}
@@ -371,6 +418,10 @@ class ParquetBacktestLoader:
 
         as_of: date | None = None
         if universe is None:
+            # No index named, so there is no membership record to check the
+            # run against and none is invented here. The exit half still
+            # applies: a caller naming a symbol that stopped existing
+            # mid-window is the same survivorship problem.
             members = tuple(symbols)
             label = "caller-named symbols (no index snapshot)"
         else:

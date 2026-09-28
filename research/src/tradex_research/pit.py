@@ -24,8 +24,9 @@ The universe artifacts
 ----------------------
 Two checked-in CSVs under ``Dependencies/`` carry the membership history, and
 they are the *only* copy that exists: nothing in this repository holds
-historical index membership, and neither configured broker will serve it for
-past dates. Both therefore record a claim no weaker than what can be sourced.
+historical **index** membership, and neither configured broker will serve it
+for past dates. Both therefore record a claim no weaker than what can be
+sourced.
 
 ``nifty{50,100,200,500}_list.csv`` carry a ``membership_asof`` column — the
 date the snapshot was last refreshed, which is *not* each name's index entry
@@ -34,12 +35,20 @@ answer "when did each name join", and inventing a per-name date is precisely
 the failure this module exists to prevent.
 
 ``nse_delistings.csv`` (``symbol,delist_date,series``) is the exit-side
-counterpart and is **header-only**: zero delistings could be established from
-any source available here, so there are zero rows. It is not empty by
-oversight. A caller that wants a point-in-time verdict must therefore treat an
-empty ledger as *unverified* rather than as *no delistings* — the window check
-below can only report what the ledger says, and a ledger with nothing in it
-establishes nothing.
+counterpart, transcribed from NSE's own published "List of delisted Companies"
+file (sheet ``delisted``, 438 rows, 2002-04-15 … 2024-10-17). It records
+**exchange** delisting, not index membership: NSE publishes the former and
+does not publish per-index membership history, so the ledger says a symbol
+left the exchange and says nothing about when it left *this index*. Every row
+carries a real date, so the window check below has something to work with; the
+``series`` column is empty because the source has no Series column at all (its
+``Board`` is a listing segment — Main Board / SME / ITP — not a series), and
+guessing one would be inventing the exact kind of precision this module
+refuses to fabricate.
+
+A caller that wants a point-in-time verdict must still read the ledger's scope
+correctly: it can prove a name stopped existing mid-window, and it cannot
+prove who replaced it in the index.
 """
 
 from __future__ import annotations
@@ -116,15 +125,24 @@ def assert_feature_ts_leq_decision_ts(
 def load_delistings(path: Path | str | None = None) -> dict[str, date | None]:
     """Read the checked-in delisting ledger into ``{symbol: delist_date}``.
 
-    ``Dependencies/nse_delistings.csv`` is hand-maintained because it has no
-    other possible source. A row whose ``delist_date`` is blank records a
-    symbol known to be gone whose exit date was never established; it is
-    carried through as ``None`` rather than dropped, because a dropped row is
-    a hole that looks like a name that never left.
+    ``Dependencies/nse_delistings.csv`` is a transcription of NSE's own
+    published "List of delisted Companies" file. A row whose ``delist_date``
+    is blank records a symbol known to be gone whose exit date was never
+    established; it is carried through as ``None`` rather than dropped,
+    because a dropped row is a hole that looks like a name that never left.
 
     A row naming a series outside the cash segment is skipped: that is a
     debenture or bond sharing a trading symbol with an equity, and applying its
-    delisting would fail a window on a name that is still listed.
+    delisting would fail a window on a name that is still listed. The shipped
+    file leaves ``series`` blank (the source has no such column), and a blank
+    series is *not* treated as non-cash — it is the only honest answer to a
+    column the exchange does not publish, and dropping every row would restore
+    the empty ledger this file exists to replace.
+
+    The source lists a few symbols more than once under one ISIN, so the dict
+    is a last-row-wins collapse of a slightly longer row list. That is the
+    conservative direction: the later date is the one that ends any window the
+    earlier date would have let through.
 
     :param path: Ledger path; defaults to ``Dependencies/nse_delistings.csv``.
     :returns: ``{symbol: delist_date}``, ``None`` where the date is blank.
@@ -195,7 +213,10 @@ def assert_historical_universe(
     Note that an **empty** ledger raises nothing: it simply cannot report an
     exit-side violation, because there is nothing in it to report. A caller
     relying on the exit half must therefore treat ``load_delistings() == {}`` as
-    *unverified* and say so, not as *no delistings happened*.
+    *unverified* and say so, not as *no delistings happened*. The shipped
+    ledger is not empty, so this is a property of the reader rather than of the
+    artifact — but the branch is the one that lets a future empty file pass
+    silently, so it stays stated.
 
     :param manifest: Universe manifest recording the PIT constituency.
     :param symbols_in_dataset: Symbols actually used in the research run.

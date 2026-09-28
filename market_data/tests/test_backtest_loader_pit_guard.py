@@ -7,20 +7,26 @@ every backtest surface actually calls: the CLI, ``session.backtest.load()`` and
 Two different things are under test here, and conflating them is how a vacuous
 pass reads as a clean result:
 
-* the guard **refuses** a window the delisting ledger already rules out, before
-  a single bar is read; and
+* the guard **refuses** a run the artifacts already rule out — a symbol the
+  declared universe does not hold (entry side), a symbol delisted inside the
+  window (exit side) — before a single bar is read; and
 * it **reports how far the check got**. The shipped ledger
-  (``Dependencies/nse_delistings.csv``) has zero sourced rows — nothing in this
-  repository holds historical index membership and no broker serves it for past
-  dates — so the exit side of the assertion is *unverified* for every window.
-  Every test that loads a valid universe therefore asserts the unverified line
-  is present, not merely that the load returned candles.
+  (``Dependencies/nse_delistings.csv``) carries the 438 rows NSE publishes in
+  its own "List of delisted Companies" file, so the exit side is genuinely
+  checked, and each load has to say which.
+
+The nine "acknowledge a limit" tests are kept: they pin the *reporting*
+behaviour that a non-vacuous guard still has to get right, and the
+``TestTheEntryHalfIsLoadBearing`` class below is what proves the assertion
+itself can fail.
 """
 
 from __future__ import annotations
 
+import csv
 import logging
 from datetime import date, datetime
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -34,6 +40,30 @@ _WINDOW = (datetime(2026, 7, 1), datetime(2026, 7, 31))
 
 #: 2026-07-01 opens 42 days before the nifty50 snapshot's ``membership_asof``.
 _NIFTY50_SNAPSHOT = date(2026, 8, 12)
+
+#: The shipped ledger, read as rows rather than as ``load_delistings()``'s dict.
+#: The two differ on purpose: the dict is keyed by symbol, and NSE's own file
+#: lists ``VIKASHMET`` twice under one ISIN, so 438 rows are 437 symbols.
+_LEDGER = Path(loader_mod.DELISTINGS_LEDGER)
+
+#: A symbol no universe file lists — the look-ahead the entry half exists to
+#: catch. Named so a violation message in a failing test explains itself.
+_OUTSIDER = "NOTININDEX"
+
+
+def _nifty50_symbols() -> set[str]:
+    """Every symbol the nifty50 CSV lists, read straight from the file.
+
+    The entry-half tests stub ``load_universe`` (the loader's *selection*
+    source) and rely on ``universe_snapshot`` (the guard's *record* source)
+    still reading the file. That split is the property under test, so these
+    tests must not accidentally stub both.
+    """
+    with open(loader_mod.DEPENDENCIES_DIR / "nifty50_list.csv", newline="", encoding="utf-8") as fh:
+        return {r["Symbol"].strip().upper() for r in csv.DictReader(fh)}
+
+
+_NIFTY50_SYMBOLS = _nifty50_symbols()
 
 
 def _upsert_bars(store: ParquetStorage, symbol: str, days: tuple[int, ...]) -> None:
@@ -159,12 +189,14 @@ class TestLoaderReportsWhatTheCheckCouldNotEstablish:
             )
         assert [c.timestamp for c in candles] == _expected_timestamps()
 
-    def test_the_empty_ledger_is_reported_as_unverified(self, tmp_path, caplog) -> None:
-        """The half that passes vacuously has to say so on every run.
+    def test_the_sourced_ledger_is_reported_as_checked(self, tmp_path, caplog) -> None:
+        """The exit side is no longer unverified, and the report must say so.
 
-        Each fragment is asserted separately: ``UNVERIFIED`` alone could be any
-        line, and a bare number in a sentence would pass without naming the
-        artifact it measured.
+        The empty-ledger branch is still reachable — the next test pins it,
+        against a monkeypatched ledger — but against the *shipped* file the run
+        has 437 sourced delistings behind it, and a report still saying
+        "UNVERIFIED - holds 0 delistings" would be understating its own
+        evidence.
         """
         store = ParquetStorage(tmp_path)
         _upsert_bars(store, "RELIANCE", (1, 2, 3, 6))
@@ -175,6 +207,36 @@ class TestLoaderReportsWhatTheCheckCouldNotEstablish:
                 instruments=[Equity.of("NSE", "RELIANCE")], start=_WINDOW[0], end=_WINDOW[1]
             )
         assert "PIT universe check:" in caplog.text
+        assert (
+            f"checked against {len(load_delistings(_LEDGER))} sourced delisting(s)"
+            in caplog.text
+        )
+        assert "nse_delistings.csv" in caplog.text
+        assert "holds 0 delistings" not in caplog.text
+        assert "UNVERIFIED" not in caplog.text
+
+    def test_an_empty_ledger_is_still_reported_as_unverified(
+        self, tmp_path, monkeypatch, caplog
+    ) -> None:
+        """The honesty branch, kept by monkeypatching the ledger back to empty.
+
+        The shipped file is sourced, so this cannot be reached through the real
+        artifact any more — but the report must keep failing *loudly* rather
+        than silently claiming a clean result if the ledger is ever emptied, so
+        the branch is pinned here instead of being deleted along with its only
+        way in. Each fragment is asserted separately: ``UNVERIFIED`` alone
+        could be any line, and a bare number would pass without naming the
+        artifact it measured.
+        """
+        store = ParquetStorage(tmp_path)
+        _upsert_bars(store, "RELIANCE", (1, 2, 3, 6))
+        loader = ParquetBacktestLoader(store=store)
+        monkeypatch.setattr(loader_mod, "load_delistings", lambda *a, **k: {})
+
+        with caplog.at_level(logging.WARNING):
+            loader.load(
+                instruments=[Equity.of("NSE", "RELIANCE")], start=_WINDOW[0], end=_WINDOW[1]
+            )
         assert "exit side:  UNVERIFIED" in caplog.text
         assert "holds 0 delistings" in caplog.text
         assert "nse_delistings.csv" in caplog.text
@@ -185,9 +247,12 @@ class TestLoaderReportsWhatTheCheckCouldNotEstablish:
     ) -> None:
         """The number is a measurement of the artifact, not a constant.
 
-        Written against the shipped ledger's own row count so it keeps holding
-        when somebody sources real rows — at which point the exit side stops
-        being unverified and says so.
+        Compared against the *same file the guard reads* — the loader passes
+        ``DELISTINGS_LEDGER`` explicitly rather than relying on
+        ``load_delistings()``'s default, which resolves relative to whatever
+        checkout ``tradex_research`` was imported from. A test that called the
+        bare default here would measure a different artifact than the one the
+        run reported on, and would go quietly stale in a worktree.
         """
         store = ParquetStorage(tmp_path)
         _upsert_bars(store, "RELIANCE", (1, 2, 3, 6))
@@ -197,16 +262,19 @@ class TestLoaderReportsWhatTheCheckCouldNotEstablish:
             loader.load(
                 instruments=[Equity.of("NSE", "RELIANCE")], start=_WINDOW[0], end=_WINDOW[1]
             )
-        assert f"holds {len(load_delistings())} delistings" in caplog.text
+        assert (
+            f"checked against {len(load_delistings(_LEDGER))} sourced delisting(s)"
+            in caplog.text
+        )
 
     def test_a_sourced_delisting_outside_the_window_stops_the_zero_claim(
         self, tmp_path, monkeypatch, caplog
     ) -> None:
-        """The non-vacuity control.
+        """The non-vacuity control, at a size the shipped file can produce.
 
         With one sourced delisting dated outside the window the report has to
-        count it and drop the empty-ledger sentence. If the emptiness line were
-        hardcoded prose, this fails — which is the whole point of writing it.
+        count it and drop the empty-ledger sentence. If either were hardcoded
+        prose, this fails — which is the whole point of writing it.
         """
         store = ParquetStorage(tmp_path)
         _upsert_bars(store, "RELIANCE", (1, 2, 3, 6))
@@ -299,6 +367,101 @@ class TestUnboundedLoadDerivesTheWindowItCovered:
             candles = loader.load(instruments=[Equity.of("NSE", "RELIANCE")])
         assert [c.timestamp for c in candles] == _expected_timestamps()
         assert "window [2026-07-01, 2026-07-06] (derived from the loaded bars)" in caplog.text
+
+
+class TestTheEntryHalfIsLoadBearing:
+    """The entry half can actually fail. These are the non-vacuity proofs.
+
+    Every other test in this file either reports or refuses, and a report is
+    only as strong as the assertion behind it. The guard's entry half compares
+    the run's resolved selection against the constituent CSV read off disk, so
+    a symbol that got into the run without being a member is a violation it
+    must raise on. Each test here puts exactly such a symbol in the run and
+    asserts the raise — if the manifest were built from the same
+    ``load_universe`` call that selected the data (the tautology this work
+    removed), none of these would fire, because a set compared with itself
+    is always equal.
+    """
+
+    def test_a_symbol_the_universe_does_not_hold_refuses_the_load(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The canonical case: a run carries a name the index never listed.
+
+        ``load_universe`` is stubbed to hand back a real nifty50 member *plus*
+        a name outside it. The selection the loader builds therefore contains
+        a symbol the on-disk CSV does not, and the entry half must catch it.
+        ``load_universe`` is only the *selection* source here; the manifest is
+        built independently by ``universe_snapshot`` reading the file, which
+        is precisely why stubbing one does not neuter the guard.
+        """
+        store = ParquetStorage(tmp_path)
+        _upsert_bars(store, _OUTSIDER, (1, 2, 3, 6))
+        real = [Equity.of("NSE", sym) for sym in sorted(_NIFTY50_SYMBOLS)]
+        monkeypatch.setattr(
+            loader_mod, "load_universe", lambda name: [*real, Equity.of("NSE", _OUTSIDER)]
+        )
+        loader = ParquetBacktestLoader(store=store)
+
+        with pytest.raises(PitViolation) as excinfo:
+            loader.load(universe="nifty50", start=_WINDOW[0], end=_WINDOW[1])
+        assert _OUTSIDER in str(excinfo.value)
+
+    def test_a_symbol_outside_the_universe_is_caught_even_on_the_derived_window(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The unbounded path derives its window from the bars, and the entry
+        half still fires — the violation is about the symbol, not the window."""
+        store = ParquetStorage(tmp_path)
+        _upsert_bars(store, _OUTSIDER, (1, 2, 3, 6))
+        monkeypatch.setattr(
+            loader_mod,
+            "load_universe",
+            lambda name: [Equity.of("NSE", _OUTSIDER), Equity.of("NSE", "RELIANCE")],
+        )
+        loader = ParquetBacktestLoader(store=store)
+
+        with pytest.raises(PitViolation, match=_OUTSIDER):
+            loader.load(universe="nifty50")
+
+    def test_the_entry_check_reads_the_csv_not_the_selection_call(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The two sides are genuinely independent sources.
+
+        If the manifest were derived from the same ``load_universe`` call as
+        the selection, stubbing that call to include an outsider would put the
+        outsider on *both* sides of the comparison and the guard would pass.
+        Here the stub adds a name the on-disk file does not list, and the guard
+        raises — proving the manifest came from the file, not from the stub.
+        """
+        store = ParquetStorage(tmp_path)
+        _upsert_bars(store, _OUTSIDER, (1, 2, 3, 6))
+        assert _OUTSIDER not in _NIFTY50_SYMBOLS  # the premise: the file omits it
+        monkeypatch.setattr(
+            loader_mod,
+            "load_universe",
+            lambda name: [Equity.of("NSE", _OUTSIDER), Equity.of("NSE", "RELIANCE")],
+        )
+        loader = ParquetBacktestLoader(store=store)
+
+        with pytest.raises(PitViolation, match=_OUTSIDER):
+            loader.load(universe="nifty50", start=_WINDOW[0], end=_WINDOW[1])
+
+    def test_a_member_is_not_falsely_flagged(self, tmp_path, caplog) -> None:
+        """The negative control for the entry half.
+
+        A real member loaded on the universe path must pass — if the entry
+        check were comparing the wrong things, it would either fire on
+        everyone or never fire at all, and the raise-path tests above cannot
+        tell those apart. This is the pass that says the guard is selective.
+        """
+        loader = ParquetBacktestLoader(store=ParquetStorage(tmp_path))
+
+        with caplog.at_level(logging.WARNING):
+            loader.load(universe="nifty50", start=_WINDOW[0], end=_WINDOW[1])
+        assert "PIT universe check:" in caplog.text
+        assert "not in universe manifest" not in caplog.text
 
 
 class TestTheGuardSaysNothingWhenThereIsNoRun:
