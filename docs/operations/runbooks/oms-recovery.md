@@ -24,7 +24,7 @@
 ```bash
 # After serve boot (example)
 curl -sS -H "X-API-Key: $TRADEX_SERVE_API_KEY" http://127.0.0.1:8000/orders
-python -m tradex_trading.interface.cli orders
+python -m tradex_interfaces.cli orders   # or: tradex orders
 ls -la "${TRADEX_RUNTIME_DIR:-.tradex_v4}"  # runtime + optional DB path from config
 ```
 

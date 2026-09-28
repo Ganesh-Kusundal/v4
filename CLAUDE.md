@@ -10,11 +10,11 @@
 
 ```python
 # 1. Load credentials
-from tradex_trading.config.env import load_env_file
+from tradex_config.env import load_env_file
 load_env_file('.env.local')
 
 # 2. Build broker (auto-handles TOTP auth, token refresh, instrument registry)
-from tradex_trading.runtime.live import build_broker_from_env
+from tradex_runtime.live import build_broker_from_env
 broker = build_broker_from_env('dhan')  # or 'upstox'
 broker.connect()
 
@@ -29,30 +29,48 @@ quote = broker.ltp(inst)
 broker.close()
 ```
 
+> **Path note (verified 2026-09-28).** These are the real package paths. There is
+> no `tradex_trading` package anymore — `b941da2` retired it and
+> `import tradex_trading` raises `ModuleNotFoundError`. The shim tree that used
+> to re-export these names is gone, so the old paths do not merely warn, they do
+> not import. Evidence: `git grep -n "def load_env_file" -- '*.py'` →
+> `config/src/tradex_config/env.py:138`; `git grep -n "def build_broker_from_env"`
+> → `runtime/src/tradex_runtime/live.py:565`; and
+> `.venv/bin/python -c "import tradex_trading"` →
+> `ModuleNotFoundError: No module named 'tradex_trading'`.
+
 **Alternative: Full session boot** (includes strategy engine, bus, etc.)
 ```python
-from tradex_trading.config.schema import AppConfig
-from tradex_trading.runtime.startup import boot
+from tradex_config.schema import AppConfig
+from tradex_runtime.startup import boot
 from tradex_domain import BrokerId
 
 cfg = AppConfig(broker_id=BrokerId.DHAN, mode='live', live_enabled=True)
 session = boot(cfg)
-# session.market.history(...), session.market.ltp(...), etc.
+# session.broker.history(...), session.broker.ltp(...), etc.
 session.stop()
 ```
+
+**`session.market` does not exist.** The accessor is `session.broker`
+(`runtime/src/tradex_runtime/session_impl.py:373`), which returns the
+`BrokerAdapter`; `history`/`ltp` live on it. There is no `market` property — the
+closest name is `market_feed` (`:524`), and that is the live tick feed, not a
+history surface. The `boot()` signature above is the real one
+(`runtime/src/tradex_runtime/startup.py:158`): it takes `config`, `bus`,
+`broker`, `wire_strategies`, `feed_instruments`, `validation_report_store`.
 
 **Key points:**
 - `build_broker_from_env()` handles ALL auth: TOTP generation, token minting, token persistence, refresh
 - Credentials come from `.env.local` (DHAN_CLIENT_ID, DHAN_ACCESS_TOKEN, DHAN_PIN, DHAN_TOTP_SECRET, etc.)
 - Timestamps from broker are UTC tz-aware — convert to IST before storing: `ts.astimezone(IST).replace(tzinfo=None)`
-- Dhan `/charts/intraday` serves up to 90 days per request; `ParallelHistoryFetcher` guards intraday timeframes (M1/M5/M15/H1) to ranges ≤ 90 days and raises `SDKError` beyond that (fail-loud, no silent truncation)
+- Dhan `/charts/intraday` serves up to 90 days per request; `ParallelHistoryFetcher` **auto-chunks** long intraday ranges into ≤90-day windows rather than failing — `_DHAN_INTRADAY_MAX_DAYS = 90` and `_chunk_cap_for()` at `market_data/src/tradex_market_data/parallel_fetcher.py:35` / `:56`. (It raises `ValueError`, not `SDKError`, and only for the wrong broker count: "requires exactly one broker".)
 - Dhan returns phantom post-market bars (16:00-20:00) — filter to 9:15-15:30 IST
 
 ### Datalake Operations (Parquet Storage, Backfill, Sync)
 
 ```python
 # Read from datalake
-from tradex_trading.datalake.parquet_storage import ParquetStorage
+from tradex_market_data.parquet_storage import ParquetStorage
 store = ParquetStorage('data/')
 df = store.read(symbols=['RELIANCE'], start=datetime(2026, 5, 1), end=datetime(2026, 8, 1))
 
@@ -137,16 +155,27 @@ starting exactly at 09:15 loses the 09:15 bar) and its NSE 1m series **stops at
 whatever window is asked for. Upstox serves the full 09:15–15:29. Both adapters
 widen an intraday request to the whole day, so a tail-only gap fetch reaches
 Dhan as a full-session request and comes back with a day of candles, none of
-them the ones requested. `ParallelHistoryFetcher` therefore checks a response
-against the window it asked for (`_clipped_tail`) and fetches an uncovered tail
-from another broker, merging it over the bars already in hand
-(`_merge_candles`) — a non-empty response is not evidence of a complete one, and
-that missing check is what let the same 15-minute hole survive every fill run.
+them the ones requested.
+
+> **Correction (verified 2026-09-28).** An earlier version of this paragraph said
+> `ParallelHistoryFetcher` validates responses against the requested window via
+> `_clipped_tail` and cross-broker tail-merges via `_merge_candles`. **Neither
+> name exists** — `git grep -n "_clipped_tail\|_merge_candles" -- '*.py'` returns
+> nothing, and the module docstring says the opposite:
+> `market_data/src/tradex_market_data/parallel_fetcher.py:4-7` — *"No failover, no
+> clipped-tail merge — those lived here when multi-broker sync was the path; sync
+> is Dhan-only now, and Upstox tail repair is a separate script."* The fetcher's
+> real post-fetch work is `_stitch_windows` (`:306`), which concatenates
+> auto-chunked windows and dedupes by timestamp; it has no coverage check and no
+> cross-broker path. Tail repair now lives in `trading/scripts/repair_gaps.py`
+> (with `fill_gaps.py` / `topup_gaps.py`). The 15-minute Dhan hole is real and is
+> still not fixable by re-fetching; only the *mechanism* that was claimed to
+> handle it was wrong.
 
 ### Universe Loading
 
 ```python
-from tradex_trading.datalake.universe import load_universe, available_universes
+from tradex_domain.universe import load_universe, available_universes
 
 # Load Nifty constituents as Equity instruments
 instruments = load_universe('nifty500')  # returns list[Equity]
@@ -158,17 +187,23 @@ available_universes()  # ['nifty100', 'nifty200', 'nifty50', 'nifty500']
 
 CSV files are in `Dependencies/nifty{50,100,200,500}_list.csv`.
 
-### Parallel History Fetcher (Multi-Broker)
+### Parallel History Fetcher (single broker, parallel symbols)
 
 ```python
-from tradex_trading.datalake.parallel_fetcher import ParallelHistoryFetcher
+from tradex_market_data.parallel_fetcher import ParallelHistoryFetcher
 
-# Instruments split across ALL configured brokers; long intraday ranges are
-# auto-chunked (Dhan caps one poll at 90d intraday, Upstox at 30d minute)
-fetcher = ParallelHistoryFetcher({'dhan': dhan_broker, 'upstox': upstox_broker})
+# Long intraday ranges are auto-chunked (Dhan caps one poll at 90d intraday,
+# Upstox at 30d minute); symbols are fetched concurrently.
+fetcher = ParallelHistoryFetcher({'dhan': dhan_broker})
 results = fetcher.fetch(instruments, Timeframe.M1, start, end)
 # Returns dict[str, HistoricalSeries] keyed by instrument_id
 ```
+
+Despite the plural-sounding name, the constructor requires **exactly one**
+broker — `"requires exactly one broker"` is raised otherwise
+(`market_data/src/tradex_market_data/parallel_fetcher.py`). It is parallel across
+symbols, not across brokers. The old "split across ALL configured brokers" claim
+was wrong even before the shim removal.
 
 ### Chart UI (openalgo-charts frontend)
 
@@ -191,7 +226,8 @@ npm install && npm run build
 cd ../frontend && npm install && npm run typecheck && npm run build
 
 # 3. Serve everything (REST + WS + UI) — then open http://127.0.0.1:8000/ui/
-cd .. && python -m tradex_trading.interface.cli serve --broker paper --port 8000
+cd .. && tradex serve --broker paper --port 8000
+# (equivalently: python -m tradex_interfaces.cli serve ...)
 
 # 4. E2E (Playwright, root devDependency)
 cd frontend && npm run e2e     # builds first, then serves on :8123; E2E_PORT to move it
@@ -263,7 +299,7 @@ self-consistent and tests nothing about the new ones, because the gate takes its
 parameters from each golden's own recorded settings — so a green parity run is not
 evidence that the fixtures reflect the pin.
 
-The chart is render-only: every computation lives in `tradex_trading`. Bars come from `/api/charts/history/{exchange}:{symbol}` (datalake-first, broker fallback), indicators from the backend registry surfaced through the chart's Tier-2 contract (`frontend/src/tier2.ts`), backtests/scanners run `BacktestEngine`/`ScannerEngine` server-side (`POST /api/charts/backtest`, `POST /api/charts/scanner/run`), and forming bars/replay stream over `/ws/stream` (`subscribe_bars`, `replay_start/pause/resume/speed/stop`). Replay drives the SAME BarAggregator path as live quotes via `SyntheticTickGenerator`. Chart timestamps are UTC seconds of IST wall clock; the chart renders in Asia/Kolkata.
+The chart is render-only: every computation lives in the backend packages (`tradex_runtime`, `tradex_analytics`, `tradex_market_data`). Bars come from `/api/charts/history/{exchange}:{symbol}` (datalake-first, broker fallback), indicators from the backend registry surfaced through the chart's Tier-2 contract (`frontend/src/tier2.ts`), backtests/scanners run `BacktestEngine`/`ScannerEngine` server-side (`POST /api/charts/backtest`, `POST /api/charts/scanner/run`), and forming bars/replay stream over `/ws/stream` (`subscribe_bars`, `replay_start/pause/resume/speed/stop`). Replay drives the SAME BarAggregator path as live quotes via `SyntheticTickGenerator` — verified at `interfaces/src/tradex_interfaces/routes/stream.py:537-541` ("The same aggregation path serves live quotes and (Task: replay) synthetic ones"). Chart timestamps are UTC seconds of IST wall clock (`interfaces/src/tradex_interfaces/routes/chart.py:237`); the chart renders in Asia/Kolkata (`frontend/src/feed.ts:665`).
 
 Chart state lives in **one store**: the server workspace blob
 (`frontend/src/workspace.ts`), written as `{v, series, state}` where `series` is
@@ -447,14 +483,22 @@ What follows are the invariants, which do not drift:
 ```
 domain/          → Pure domain types (Equity, Candle, Order, Signal, etc.)
 brokers/         → Broker adapters (Dhan, Upstox, Paper)
-trading/         → Trading engine, strategies, datalake, analytics
+trading/         → Tests + legacy scripts (the `tradex_trading` package was REMOVED; nothing imports it)
 frontend/        → openalgo-charts UI (Vite build; dist served at /ui)
-Dependencies/    → Universe CSVs (nifty50/100/200/500)
-data/            → Parquet datalake (ohlcv/)
+Dependencies/    → Universe CSVs (nifty50/100/200/500) + `nse_delistings.csv` (438 rows)
+data/            → Parquet datalake (ohlcv/) + `quarantine/` for unreadable files
 runtime/         → Token state, broker runtime files
+config/          → `tradex_config` (env loading, schema)
+market_data/     → `tradex_market_data` (parquet storage, parallel fetcher)
+analytics/       → `tradex_analytics` (indicators)
+execution/       → `tradex_execution` (engine, sqlite event store)
+interfaces/      → `tradex_interfaces` (FastAPI routes, WS, the `tradex` CLI)
 ```
 
-**Dependency direction:** domain ← brokers ← trading (never reverse)
+**Dependency direction:** `domain` ← `brokers` ← the extracted packages (`config`,
+`market_data`, `analytics`, `execution`, `strategy`, `runtime`, `interfaces` …).
+`trading/` is a downstream consumer — tests and legacy scripts — and no longer owns
+source for any of these names.
 
 ---
 
@@ -464,7 +508,62 @@ runtime/         → Token state, broker runtime files
 2. **DON'T** investigate TOTP/auth internals unless explicitly debugging auth
 3. **DON'T** store UTC timestamps in the datalake — always convert to IST
 4. **DON'T** assume broker data is clean — Dhan returns phantom post-market bars
-5. **DON'T** fetch intraday history for ranges > 90 days from Dhan (API limit — `ParallelHistoryFetcher` raises `SDKError`)
+5. **DON'T** fetch intraday history for ranges > 90 days from Dhan in one call — `ParallelHistoryFetcher` auto-chunks long ranges into ≤90-day windows, so if you bypass it you must chunk yourself (it no longer raises `SDKError`; that was the pre-auto-chunk behavior)
 6. **DON'T** reinvent parallel fetching — use `ParallelHistoryFetcher`
 7. **DON'T** manually parse universe CSVs — use `load_universe()`
-8. **DON'T** compute indicators/strategy logic in the frontend — the chart renders; `tradex_trading` computes (new backend indicator registry entries appear in the UI automatically via the Tier-2 wiring)
+8. **DON'T** compute indicators/strategy logic in the frontend — the chart renders; the backend computes (new backend indicator registry entries appear in the UI automatically via the Tier-2 wiring)
+
+---
+
+## Standing lessons (learned the hard way, re-verified 2026-09-28)
+
+These are repo-specific traps that have each produced at least one wrong result. Read them
+before trusting a test run, a doc claim, or a merge.
+
+### 1. The editable venv defeats worktrees — reproduce mutations *in place*
+
+The shared `.venv` is an editable install. `.venv/lib/python3.13/site-packages/` holds 17
+`_editable_impl_tradex_*.pth` files, one per workspace package, and each is a single absolute
+path into the **main** checkout — `_editable_impl_tradex_domain.pth` contains
+`.../v4/domain/src`. Python loads those at startup from `site`, regardless of which worktree
+launched the interpreter:
+
+```
+$ cd /tmp/pristine-worktree && ../../v4/.venv/bin/python -c "import tradex_domain as m; print(m.__file__)"
+/Users/apple/Downloads/v2-cleanup-remove-dead-temp-legacy-2026-07-31/v4/domain/src/tradex_domain/__init__.py
+```
+
+So a source mutation made inside a worktree is **silently never exercised** by a test run from
+that worktree. This produced a false PASS here (a control appeared to pass with its lock
+removed) and a wrong "pre-existing failure" verdict that hid 38 failing tests behind a
+deselection.
+
+**The fix is not a second worktree.** It is `git checkout <commit> -- <src files>` *in place*,
+run the test, then restore. That changes what the interpreter actually imports. Any
+"I reproduced this from a clean worktree" claim in this repo is unreliable until re-done in
+place.
+
+### 2. Docs that name a Python path are load-bearing, and they rot
+
+`CLAUDE.md` is read before the code, so a stale import path in it is worse than no
+documentation — it sends the next agent to a module that does not exist. As of 2026-09-28 this
+file pointed at a package retired by `b941da2`, a serve command that exits without starting,
+two functions that never existed (`_clipped_tail`, `_merge_candles`), and an error path
+(`SDKError`) that had been replaced by auto-chunking. Every one of those was plausible prose
+and none of it was true.
+
+**Rule:** before you trust a doc's claim about a module, function, or command, re-derive it —
+`git grep -n "<name>"` and actually run the command. A doc is a claim about the tree at a
+moment in time, not ground truth. If you change a module path or a CLI entry, grep the docs
+and runbooks for the old name in the same change.
+
+### 3. A status table is a snapshot, not a state machine
+
+The lane tables in `docs/audits/2026-09/pending-work-inventory.md` were accurate when written
+and stale within days, because work landed after them — five "NOT STARTED" rows were already
+contradicted by the closure log on the same page. Counts drift the same way: a test count or a
+file count is true for exactly one commit.
+
+**Rule:** treat any "NOT STARTED" or "absent" claim in an audit as unverified until you grep
+the tree for the named symbol. Absence claims are the worst class — you cannot grep for what
+is not there, so the burden of proof is on re-deriving the check, not on re-reading the table.

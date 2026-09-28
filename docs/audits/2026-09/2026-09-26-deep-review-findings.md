@@ -1,5 +1,20 @@
 # Deep Review Addendum & Corrected Plan
 
+> **Status note added 2026-09-28 (lane 4f).** Two findings below have since been acted on and are
+> no longer true; both were correct when measured. **(1)** The "`python -m tradex_trading.interface.cli`
+> is a silent no-op" finding (§4) — the whole `tradex_trading` package was removed by `b941da2`, and
+> the real entry point is now `interfaces/pyproject.toml:38` → `tradex = "tradex_interfaces.cli:main"`,
+> with a working `__main__` guard at `interfaces/src/tradex_interfaces/cli.py:619`. **(2)** The
+> "`config/tests` (7) and `services/duckdb-analytics/tests` (54) are absent from `testpaths`, so 61
+> tests never run" finding (§4) — both are now listed in `pyproject.toml:26-33` with a comment
+> recording the omission, and collection now stands at **5470 tests**. The remaining CI findings
+> (no `py.typed`, no root `[tool.mypy]`, coverage without `--cov-fail-under`) were not re-verified
+> as fixed. The vacuous-guard findings in §5 refer to `tests/test_import_boundaries.py`, which has
+> since been substantially rewritten — the `tradex_trading` subtraction trick it describes is gone,
+> though 2 of its 23 tests currently fail in the working tree against *new, untracked* code from
+> other lanes (`reconciliation_monitor.py` imports `tradex_interfaces`), which is concurrent work,
+> not a documentation issue.
+
 **Date:** 2026-09-26 · **Repo:** `v4` @ `df377a0` · **Method:** 6 parallel read-only agents (superpowers `dispatching-parallel-agents`), one per independent domain: money path · composition root/shutdown · test suite · deletion boundaries · interfaces/WS · CI/packaging. 13+ probe scripts executed in `/tmp`. **No repo file was modified by any agent** (`git status` clean throughout).
 
 **This document supersedes §6 (DELETE) and §F (Plan) of `trading-predeploy-plan.md`.** A banner has been added there.

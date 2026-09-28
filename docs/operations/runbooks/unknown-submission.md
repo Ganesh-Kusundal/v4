@@ -30,7 +30,7 @@ Distinct from:
 
 ```bash
 # List local OMS view (CLI when session bound)
-python -m tradex_trading.interface.cli orders
+python -m tradex_interfaces.cli orders   # or: tradex orders
 curl -sS -H "X-API-Key: $TRADEX_SERVE_API_KEY" http://127.0.0.1:8000/orders
 ```
 

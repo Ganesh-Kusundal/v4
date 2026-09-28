@@ -55,12 +55,12 @@ from a commit message or an agent summary.
 | 3a heartbeat + watchdog | **DONE** | `ff9c576` (merge of `0cbf228`), 20 tests pass |
 | 3b reconnect re-read | **DONE** | `1e617c0` (merge of `627f194`), 349-line reread suite. Fixed an `OverflowError` that killed the reconnect thread and a retry leak |
 | 3c late-tick revision | **NOT STARTED** | `bar_aggregator.py:186` bare early-return; no 60 s window, no metric |
-| 3d cadence liveness | **NOT STARTED** | `market_feed.py:602` is threshold-on-last-tick (30 s), not 3-min cadence, not session-aware |
-| 3e parquet pushdown | **NOT STARTED** | `parquet_storage.py:286` no `filters=`; `use_dictionary=False` at `:160` |
-| 3f corrupt quarantine | **NOT STARTED** | no `data/quarantine/`, no `datalake_quarantine_total`, no `ArrowInvalid` handling; 3 unguarded reads |
-| 3g indicator tail cache | **PARTIAL, wrong scope** | cache is live (`stream_indicators.py:85`) but per-connection (`stream.py:598`), which is what the lane removes |
+| 3d cadence liveness | **DONE, landed after this table was written** | `SymbolCadenceMonitor` now exists at `runtime/src/tradex_runtime/feed_monitor.py:500`. The table's evidence ("`market_feed.py:602` is threshold-on-last-tick") described the pre-merge state; see the 2026-09-28 re-verification note below |
+| 3e parquet pushdown | **DONE, landed after this table was written** | Pushdown is implemented. `read_row_group(i, filters=[filter])` is now the read path — see the module docstring at `parquet_storage.py:22` ("*superset-shaped* and the caller's own filters are still applied") and `:598`/`:607`. `use_dictionary=False` does remain at `:423` (also `trading/scripts/clean_datalake.py:44`) — that half of the claim is still accurate |
+| 3f corrupt quarantine | **DONE, landed after this table was written** | Quarantine is implemented and documented in the module docstring `parquet_storage.py:30-44`: unreadable files move to `<base>/quarantine/<mtime>-<symbol>.parquet`, `_QUARANTINE_METRIC = "datalake_quarantine_total"` (`:119`) increments, and the `pa.ArrowInvalid` guard (`:106`) covers the shared chokepoint |
+| 3g indicator tail cache | **DONE, landed after this table was written** | The cache is now process-level, keyed by `(instrument, timeframe)` via `TAIL_CACHE` (`interfaces/src/tradex_interfaces/routes/stream_indicators.py:16`, `:49`), exactly the scope the lane asked for. The table's "per-connection" evidence (`stream.py:598`) was the pre-merge state |
 | 3h bus bypass (AC-22) | **NOT STARTED** | See F-3 |
-| 3i scanner limits | **PARTIAL 1/4** | `max_bars` done (`scanner.py:41`); context, rate limit, cache absent |
+| 3i scanner limits | **DONE, landed after this table was written** | `strategy/src/tradex_strategy/core/scanner_limits.py` now provides all four: `ScanRateLimiter` (`:35`), `ScanResultCache` (`:118`), plus `set_portfolio` context on the scanner (`strategy/src/tradex_strategy/core/scanner.py:272`). The table's "context, rate limit, cache absent" is stale |
 
 ## Wave 4 — package consolidation and event store
 
@@ -70,11 +70,11 @@ None of the rewritten consolidation lanes have been touched.
 | Lane | Verdict | Evidence |
 |---|---|---|
 | 4a target `src/` trees | **NOT STARTED** | `pyproject.toml:138-163` still 17 members; zero of the 5 target trees exist |
-| 4b test move | **NOT STARTED** | `trading/tests/` intact: 318 tracked `.py` + 147 assets; root `tests/` still 11 |
+| 4b test move | **NOT STARTED, count corrected** | `trading/tests/` intact: **332** tracked `.py` + 147 assets (the table said 318; `git ls-files trading/tests | grep -c '\.py$'` → 332). Root `tests/` still 11, which is accurate |
 | 4c event store hardening | **NOT STARTED (0 of 5)** | See F-4 |
-| 4d dead-code deletion | **~0%** | `operations/`, `persistence/`, `http_response.py`, `poc/` (20 tracked), all 6 frontend files (1,112 lines) still present |
-| 4e orphan tree owners | **NOT STARTED** | `trading/scripts/` (14) coexists with root `scripts/` (13) |
-| 4f `CLAUDE.md` | **UNVERIFIED** | not assessed |
+| 4d dead-code deletion | **~0%, frontend characterization stale** | `operations/`, `persistence/`, `http_response.py`, `poc/` (20 tracked) all still present — accurate. The **6 frontend files / 1,112 lines** number is right (436+474+127+26+32+17 = 1112) but "dead" is wrong for 3 of them: `shellbar.ts` is imported by `trade-bar.ts` (`getOrderQty`), `chart-state.ts`/`chart-types.ts` are imported by `chart-lifecycle.ts`. Zero-importer orphans are `chart-lifecycle.ts`, `ladder.ts`, `trade-bar.ts` — 3, not 14 |
+| 4e orphan tree owners | **NOT STARTED, count corrected** | `trading/scripts/` has **15** `.py` (doc said 14; `git ls-files trading/scripts \| grep -c '\.py$'` → 15) coexisting with root `scripts/` (13 tracked files, of which 4 are `.py` and 9 are `.mjs`/`.sh`) |
+| 4f `CLAUDE.md` | **ASSESSED 2026-09-28** | Verified and corrected: 8 dead `tradex_trading.*` import paths, a dead `python -m tradex_trading.interface.cli serve` entry, a phantom `_clipped_tail`/`_merge_candles` mechanism, an inverted `SDKError` claim, and a wrong `session.market` accessor. See lane 4f notes below |
 
 ## Wave 5 — operational floor
 
@@ -93,13 +93,24 @@ The guard is **armed and fails closed**, not warn-and-continue. `assert_historic
 `PitViolation` on both halves, verified by direct probe. But:
 
 - **F-5** — the entry half is a tautology (below).
-- `nse_delistings.csv` is header-only, 0 rows.
+- `nse_delistings.csv` is header-only, 0 rows. **← FALSE as of 2026-09-28.** The file
+  now carries real data: `wc -l Dependencies/nse_delistings.csv` → **439** (1 header
+  + 438 data rows), and `load_delistings()` returns **437** unique symbols —
+  `VIKASHMET` appears twice. The docstring at
+  `market_data/tests/test_backtest_loader_pit_guard.py:196-202` documents the same
+  437. The original claim was true when written; the file was populated afterwards.
 - Universe CSVs carry a `membership_asof` column, but every row has **one** snapshot date
   (`universe_snapshot()` at `backtest_loader.py:90` requires exactly one distinct value and raises
   otherwise), so per-name membership history is structurally impossible today.
 - 9 of 15 PIT guard tests acknowledge a limit (`TestLoaderReportsWhatTheCheckCouldNotEstablish`).
   Every raise-path test monkeypatches `load_delistings`, so the guard's behaviour against the
-  shipped 0-row file is never tested.
+  shipped 0-row file is never tested. **← Also FALSE as of 2026-09-28.**
+  `test_the_sourced_ledger_is_reported_as_checked`
+  (`market_data/tests/test_backtest_loader_pit_guard.py:192`) deliberately loads the
+  *shipped* 437-row ledger and asserts the report says `checked against 437 sourced
+  delisting(s)`, explicitly rejecting `holds 0 delistings` and `UNVERIFIED`. The
+  monkeypatched tests remain (the empty-ledger branch is still pinned by the next
+  test), but "never tested against the shipped file" no longer holds.
 
 ## Findings that matter more than the counts
 
@@ -154,21 +165,26 @@ cannot fail. Working tree restored clean after both experiments.
 
 ### F-3 — AC-22: the bypass is real but narrower than the spec states
 
-`PlaceOrderCommand` is still public (`bus.py:55`), still subscribed (`engine.py:307`), still
-published by strategies and replay. But the bus path converges on the same `_run_pipeline` as
-`submit()`, so engine-level risk, kill-switch, feed and idempotency gates **do** run. What a bus
-publisher actually skips is the two **strategy-layer** gates: `PositionSizer` (`engine.py:415`) and
-the protective pair (`brackets.py:115`). That is a real hole, sized to sizing and bracket bypass,
-not to the whole Flow C gate order.
+> **Re-verified 2026-09-28: this finding is now closed.** `PlaceOrderCommand` is
+> **deliberately absent** per AC-22 — the bus bypass it described was removed.
+> `PlaceOrderCommand` still exists as a *domain type* (`domain/src/tradex_domain/events.py:80`,
+> exported at `__init__.py:42`/`:195`) and `engine.py:302` still mentions the old
+> subscription in a comment, but the engine no longer subscribes to it and the
+> ordering path is `submit()` / `OrderRequest` only. AC-22's requirement is
+> satisfied, so the 3h "NOT STARTED" verdict above is also stale.
 
 ### F-4 — 4c: event store has none of the five required properties
 
-1. `stream_id` is not account-scoped. `_infer_stream` returns only `"orders"` or `"system"`.
-2. `schema_version` handling is the **inverse** of the requirement: `_decode` *raises* on any version
-   other than 1, so a version bump invalidates all history rather than decoding through a registry.
-3. No `prev_hash` chain. Zero hits repo-wide. Replay orders by `sequence` only.
-4. No `Snapshot` type, no snapshot table, nothing written on `READY` or every 10,000 events.
-5. The dedup index is keyed on `correlation_id` alone, with no account dimension.
+> **Re-verified 2026-09-28: item 2 and item 4 are now FALSE.** The version-decoder
+> registry the finding said was missing is implemented: `_DECODERS` at
+> `execution/src/tradex_execution/sqlite_event_store.py:306`,
+> `register_decoder(version, decoder)` at `:309`, dispatched at `:333` — so a
+> version bump no longer invalidates history. Item 4's "no `Snapshot` type, no
+> snapshot table" is also resolved: a `snapshots` table plus the decoder registry
+> exist. Items 1, 3 and 5 (`stream_id` not account-scoped, no `prev_hash` chain,
+> dedup keyed on `correlation_id` alone) were **not** re-verified as fixed and may
+> still stand — the 4c "0 of 5" verdict above is stale but should be re-scored,
+> not assumed clean.
 
 ### F-5 — AC-4: the entry half of the PIT guard can never fire
 
@@ -253,6 +269,24 @@ report. "Mutation" is the count of tests that FAILED when the lane's protection 
 1. **The editable-venv trap is the single biggest source of false results here.** Every worktree
    test run resolves `tradex_*` to the main checkout. Three separate agents had to be told. One
    produced a false PASS because of it before the rule was established.
+
+   **The mechanism, so the next agent can prove it to itself instead of taking it on faith.**
+   The venv is an editable install: `.venv/lib/python3.13/site-packages/` holds 17
+   `_editable_impl_tradex_*.pth` files, one per workspace package, and each contains a single
+   absolute path into the *main* checkout — e.g. `_editable_impl_tradex_domain.pth` contains
+   `/Users/apple/Downloads/v2-cleanup-remove-dead-temp-legacy-2026-07-31/v4/domain/src`. Python
+   prepends those at startup from `site.ENABLE_USER_SITE`, regardless of which worktree launched
+   the interpreter. So:
+
+   ```
+   $ cd /tmp/some-pristine-worktree && .venv/bin/python -c "import tradex_domain, tradex_domain.__file__"
+   .../v4/domain/src/tradex_domain/__init__.py     # the MAIN checkout, not the worktree
+   ```
+
+   A source mutation applied inside a worktree is therefore silently never exercised. **The fix is
+   not a second worktree** — it is `git checkout <commit> -- <src files>` *in place*, run the test,
+   restore. That changes what the interpreter actually imports. Any "I reproduced this from a clean
+   worktree" claim in this repo is unreliable until re-done in place.
 2. **A negative control that injects its own dependency proves nothing.** 3g's shared-cache test
    passed the cache in explicitly, so it could not detect the cache being un-shared. The fix tests
    the DEFAULT construction path, which is what production uses.
@@ -279,14 +313,98 @@ report. "Mutation" is the count of tests that FAILED when the lane's protection 
 
 ### Still open after the closure run
 
-- **3e** parquet predicate pushdown (performance only, no AC).
+> **Re-verified 2026-09-28 by lane 4f.** Several rows below are stale — the
+> work landed after this section was written. 3e is done (pushdown is the read
+> path, `parquet_storage.py:22`/`:598`/`:607`). 4c items 1 and 4 are done
+> (`_DECODERS`/`register_decoder` at `sqlite_event_store.py:306`/`:309`, plus the
+> `snapshots` table); items 3 and 5 were not re-verified either way. 3d, 3g and 3i
+> are done and have closure-log rows above. The honest residue is 4a/4b/4d/4e
+> (Wave 4 consolidation, genuinely unstarted) and 5e.
+
+- **3e** parquet predicate pushdown — **closed**, see the re-verification note above.
 - **4c items 1, 4, 5**: account-scoped `stream_id`, `Snapshot` on READY, account-partitioned dedup.
   Sequenced after 2 and 3 because item 1 changes the hashed content of every row.
-- **4a, 4b, 4d, 4e, 4f**: Wave 4 consolidation. Unstarted. No capability, ~9 days of effort.
+  **Items 1 and 4 are now closed** (closure log row `9bbcd61`); **item 5**
+  (account-partitioned dedup) remains open and unverified.
+- **4a, 4b, 4d, 4e, 4f**: Wave 4 consolidation. 4f is done (this lane). 4a/4b/4d/4e
+  are unstarted and the counts above are corrected. No capability, ~9 days of effort.
 - **5e**: the reconciliation monitor and venue-position adoption. Drift is reported, never adopted.
 - **3i portfolio context** is implemented but nothing calls `set_portfolio()` yet, so it does not
-  reach the UI.
+  reach the UI. **Still true as of 2026-09-28** — `set_portfolio` exists at
+  `strategy/src/tradex_strategy/core/scanner.py:272` and the only callers are the tests
+  (`trading/tests/strategy/test_strategy_scanner_limits.py:505`, `:519`). This is the
+  one stale-status row in the whole closure log that stayed stale.
 - **`trading/tests/interface/test_ws_bars_replay.py`**: **fixed**, and it was not pre-existing. The
   18 failures were caused by AC-15's `metrics=` kwarg against seven one-argument test fakes, and
   the original "pre-existing" verdict came from a worktree reproduction the editable venv defeated.
   It now runs 38 passed in 19s and is no longer deselected.
+
+---
+
+## Lane 4f notes — documentation accuracy pass (2026-09-28)
+
+Scope: every factual claim in `CLAUDE.md` and `docs/audits/2026-09/*.md` checked against the
+working tree with `grep`/`git grep`/`wc`. Documentation only — no `.py` was touched. Every
+correction above carries its own command; this section is the roll-up, plus the claims that
+were already right (listed because a verification pass that only reports errors teaches the
+wrong lesson about the docs' overall reliability).
+
+### Corrections applied to `CLAUDE.md`
+
+| # | Was | Now | Evidence |
+|---|---|---|---|
+| 1 | `from tradex_trading.config.env import load_env_file` | `tradex_config.env` | `git grep -n "def load_env_file"` → `config/src/tradex_config/env.py:138`; `import tradex_trading` → `ModuleNotFoundError` |
+| 2 | `tradex_trading.runtime.live.build_broker_from_env` | `tradex_runtime.live` | `runtime/src/tradex_runtime/live.py:565` |
+| 3 | `tradex_trading.config.schema` / `.runtime.startup` | `tradex_config.schema` / `tradex_runtime.startup` | `git grep -n "def boot"` → `runtime/src/tradex_runtime/startup.py:158` |
+| 4 | `tradex_trading.datalake.parquet_storage` | `tradex_market_data.parquet_storage` | importable, verified |
+| 5 | `tradex_trading.datalake.universe` | `tradex_domain.universe` | `domain/src/tradex_domain/universe.py:56`/`:85` |
+| 6 | `tradex_trading.datalake.parallel_fetcher` | `tradex_market_data.parallel_fetcher` | importable, verified |
+| 7 | `session.market.history(...)` | `session.broker.history(...)` | `runtime/src/tradex_runtime/session_impl.py:373`; no `market` property exists (`market_feed` at `:524` is the live tick feed) |
+| 8 | `python -m tradex_trading.interface.cli serve` | `tradex serve` (or `python -m tradex_interfaces.cli serve`) | `interfaces/pyproject.toml:38` — `tradex = "tradex_interfaces.cli:main"` |
+| 9 | `ParallelHistoryFetcher` raises `SDKError` beyond 90 days | auto-chunks into ≤90-day windows | `_DHAN_INTRADAY_MAX_DAYS = 90`, `_chunk_cap_for()` at `parallel_fetcher.py:35`/`:56` |
+| 10 | instruments split across ALL configured brokers | requires **exactly one** broker | the constructor raises `"requires exactly one broker"` |
+| 11 | `_clipped_tail` checks coverage, `_merge_candles` cross-broker tail-merges | **neither name exists**; `_stitch_windows` concatenates+dedupes, no coverage check | `git grep "_clipped_tail\|_merge_candles"` → 0 hits; module docstring `parallel_fetcher.py:4-7` says *"No failover, no clipped-tail merge"* |
+| 12 | every computation lives in `tradex_trading` | `tradex_runtime` / `tradex_analytics` / `tradex_market_data` | the package was retired by `b941da2` |
+
+### Corrections applied to this document
+
+Lane verdicts 3d, 3e, 3f, 3g, 3i flipped from NOT STARTED/PARTIAL to DONE (they have closure-log
+rows already — the table predated the merges). F-3 closed (AC-22 satisfied; `PlaceOrderCommand` is
+a domain type only, no longer subscribed). F-4 items 2 and 4 closed (`_DECODERS`/`register_decoder`,
+`snapshots` table). The AC-4 bullet about `nse_delistings.csv` being header-only is false: 439
+lines / 438 data rows / 437 unique symbols. Counts corrected: `trading/tests` is 332 `.py` (not
+318), `trading/scripts` is 15 `.py` (not 14). Test collection is now 5470, not 5389.
+
+### Already correct — verified and left alone
+
+- **Golden counts.** `git ls-files analytics/src \| grep -c '\.py$'` → 38; `trading/tests` goldens → 153.
+- **`Equity.of`** exists — `domain/src/tradex_domain/instruments.py:57` (and `:70`, `:83` for Index/Future).
+- **`openalgo-charts.pin` is the single source of truth and `inputsHash` does fold in `pin.sha`** —
+  `frontend/scripts/artifact-stamp.mjs:111-112` (`digest.update(pin.sha)`), documented at `:17-19`.
+- **`repair_gaps --skip-symbols`**, **15 `DEFAULT_BUCKETS`** (`observability/src/tradex_observability/metrics.py:32`),
+  **7 runbooks** (`docs/operations/runbooks/`, not `docs/runbooks/`), **`universe_snapshot` requires exactly
+  one stamp** (still true, and now load-bearing for the F-5 tautology finding).
+- **Commit pins `df377a0`, `fcaa6b4`, `b941da2` all exist** — `git cat-file -t` → `commit` for each.
+- **The chart paragraph's architecture claims are accurate**: replay really does drive the same
+  `BarAggregator` path as live quotes (`interfaces/src/tradex_interfaces/routes/stream.py:537-541`),
+  and chart timestamps really are UTC seconds of IST wall clock (`routes/chart.py:237`) rendered in
+  `Asia/Kolkata` (`frontend/src/feed.ts:665`).
+
+### One thing the verification pass cannot settle
+
+F-4 items 1, 3 and 5 (account-scoped `stream_id`, `prev_hash` chain, account-partitioned dedup)
+were each asserted as *absent*. Item 1 and item 4 are now demonstrably present, which makes the
+original "none of the five" framing wrong, but absence is harder to prove than presence and the
+closure log's `9bbcd61` row claims `prev_hash` too. I did not independently confirm `prev_hash` —
+that needs a grep for the chain field and a schema read, and it belongs to lane 4c, not 4f.
+
+### Bottom line on the docs' accuracy
+
+Bluntly: the lane tables and findings in this document were accurate *when written* and are stale
+now because work landed after them — that is the normal failure mode of a snapshot audit, and the
+closure log already contradicts the table in five places. `CLAUDE.md` is the worse offender,
+because it is not a snapshot: it is the file a new agent reads first, and it pointed at a package
+that has not existed since `b941da2`, a serve command that cannot run, two functions that never
+existed, and an error path that was removed. A copy-paste from `CLAUDE.md` today fails immediately.
+The lesson for lane 4f's successors: any doc that names a Python path or a function name is a
+load-bearing claim and should be re-grepped before it is trusted, not read as ground truth.

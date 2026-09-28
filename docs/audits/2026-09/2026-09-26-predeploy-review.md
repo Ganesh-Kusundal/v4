@@ -1,5 +1,14 @@
 # Pre-Deployment System Review — `trading/` package (shim tree, legacy paths, composition root)
 
+> **Status note added 2026-09-28 (lane 4f).** This review describes a tree state that no longer
+> exists. `trading/src/tradex_trading/` — the 159-file / 2,584-line shim tree it analyses, and the
+> `tradex = "tradex_trading.interface.cli:main"` entry point it defends — were removed by `b941da2`.
+> The entry point it said was missing from `interfaces/pyproject.toml` is now there:
+> `interfaces/pyproject.toml:38` → `tradex = "tradex_interfaces.cli:main"`. Read this document as a
+> time-stamped finding, not as current state: the counts and file lists below were correct on
+> 2026-09-26 against `chore/cleanup-overhaul`, and every `tradex_trading.*` path in it now fails to
+> import. Nothing in the analysis was wrong; the tree moved under it.
+
 **Repo:** `/Users/apple/Downloads/v2-cleanup-remove-dead-temp-legacy-2026-07-31/v4`
 **Branch:** `chore/cleanup-overhaul` · 482 modified files
 **Method:** AST-based reference graph + word-boundary textual scan over all 917 git-tracked files. No files modified.

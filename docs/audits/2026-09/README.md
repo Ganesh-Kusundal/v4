@@ -23,8 +23,8 @@ re opens work that is done.
 | Finding | Closed by | Verified at HEAD |
 |---|---|---|
 | M-1, unguarded read modify write on the position book from mark to market, shares vanishing | `a2e0371` | `mark_to_market.py:91` takes `position_lock` |
-| M-2, `submission_boundary_crossed` undeclared and defaulting false, a second live order under one key | `709274c` | `fill_sources.py:52` declares it on the Protocol |
-| M-3, idempotency key completed before money moved, fee permanently lost, replay diverging | `5f3e4b7` | `engine.py:847` records the result after the mutations |
+| M-2, `submission_boundary_crossed` undeclared and defaulting false, a second live order under one key | `709274c` | `fill_sources.py:56` declares it on the Protocol |
+| M-3, idempotency key completed before money moved, fee permanently lost, replay diverging | `5f3e4b7` | `engine.py:972` records the result after the mutations (was `:847` at the time of the fix; the file has grown since — the anchor is the `M-3` comment block in `_apply_fill`) |
 | A committed fill destroyed by a concurrent re mark | `f37749e` | same region |
 | SIGTERM skipping session teardown | `a794fbe` | `fastapi_app.py:104-112` documents the lifespan ownership |
 

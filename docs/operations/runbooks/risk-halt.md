@@ -72,7 +72,7 @@ Re-arm checklist:
 2. List kill switch reason string from logs (`Kill switch tripped: …`).
 3. Export open orders at trip time vs broker final state.
 4. Verify cancel failures from `trip_kill_switch` return list.
-5. Document config changes (env vars in `tradex_trading.config.env`).
+5. Document config changes (env vars in `tradex_config.env`).
 
 ## Related metrics & alerts
 

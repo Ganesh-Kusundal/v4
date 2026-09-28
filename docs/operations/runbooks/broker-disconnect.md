@@ -50,7 +50,7 @@ curl -sS http://127.0.0.1:8000/metrics | rg 'feed_|kill_switch|orders\.'
 5. If recovery fails → `halted`; fix history source or gap, then retry recovery or restart session:
    ```bash
    # Example local serve (loopback, paper for drill)
-   python -m tradex_trading.interface.cli serve --broker paper --port 8000
+   tradex serve --broker paper --port 8000   # or: python -m tradex_interfaces.cli serve ...
    ```
 6. After READY, verify quotes on watched symbols and `feed_age_seconds` decay.
 
