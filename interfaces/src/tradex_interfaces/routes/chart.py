@@ -27,6 +27,7 @@ from tradex_domain.timezones import IST_ZONE
 from tradex_execution.projection import execution_projection
 
 from tradex_interfaces.auth.deps import require_auth
+from tradex_interfaces.safety import build_safety_report
 
 #: Interval codes the chart may request, mapped to canonical Timeframes.
 #: Deliberately no monthly code: neither side has calendar-month bucketing yet
@@ -787,6 +788,26 @@ def create_chart_router(
             "scanners": scanners,
             "backtestable": backtestable,
         }
+
+    # ----------------------------------------------------------------- safety
+
+    @router.get("/safety", dependencies=[Depends(require_auth)])
+    async def get_safety() -> dict:
+        """The whole safety picture in one call (AC-17).
+
+        Feed state and last-event age, unresolved UNKNOWN orders with their age
+        and correlation id, reconciliation drift counted by *derived* severity
+        with the time it was last checked, and per strategy its lifecycle
+        state, promotion status, report id and any promotion failures.
+
+        The handler is a shell: ``safety.build_safety_report`` derives every
+        number, including the severity rule, so none of it can be tested only
+        through HTTP. A session is optional and its absence is reported as
+        absent — an unbooted server is itself a safety fact, not a 500.
+        """
+        if session is None:
+            return build_safety_report(None).to_wire()
+        return build_safety_report(session).to_wire()
 
     @router.post("/backtest", dependencies=[Depends(require_auth)])
     async def run_backtest(body: dict) -> dict:
