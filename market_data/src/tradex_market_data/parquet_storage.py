@@ -12,6 +12,17 @@ Layout: ``base_path/ohlcv/symbol={SYMBOL}/year={YYYY}/month={MM}/data.parquet``
 Partition pruning keeps reads fast: ``read(symbols, start, end)`` only scans
 the symbol + year/month partitions that overlap the requested range.
 
+**Predicate pushdown (lane 3e).** Partition pruning is directory-level and
+stops at the month: a request for the last week of March still decodes every
+row group in ``month=03/data.parquet`` and throws 95% of the rows away in
+pandas. ``read()`` now builds a timestamp predicate and hands it to the
+parquet reader, so row groups whose statistics fall entirely outside the
+window are skipped before any page is decompressed. The predicate is
+intentionally loose and inclusive on both ends, so the read stays
+*superset-shaped* and the caller's own filters are still applied — the rows
+returned are bit-identical to what the old path returned, only fewer are
+decoded to produce them.
+
 Upsert is idempotent: re-upserting the same (symbol, timeframe, timestamp)
 replaces old rows instead of duplicating them. Concurrent upserts to the
 same partition are serialized via per-partition locks.
@@ -28,7 +39,9 @@ increments ``datalake_quarantine_total{symbol,file}`` (the counter
 absent. The affected symbol therefore reads as an empty series, the other
 symbols are unaffected, and the data team is paged. On the two write paths
 a quarantined partition is replaced by the incoming rows, so the lake
-rebuilds itself on the next backfill.
+rebuilds itself on the next backfill. The filtered read goes through the
+same chokepoint — it raises ``ArrowInvalid`` from the same call site, so the
+quarantine guard covers it without a second ``try``.
 
 Adapted from nTrade's ParquetStorage.
 """
@@ -47,6 +60,8 @@ import pandas as pd
 
 # ponytail: pyarrow is already installed (ParquetDataCatalog depends on it).
 import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 
@@ -59,6 +74,20 @@ _BASE_COLUMNS = [
     "symbol", "exchange", "kind", "timeframe", "timestamp",
     "open", "high", "low", "close", "volume",
 ]
+
+#: The one column the read path pushes down (lane 3e). Every range query on
+#: the lake is a time range, and the Hive layout already prunes symbol and
+#: year/month, so timestamp is the one column whose per-row-group statistics
+#: are worth handing to the reader. ``timeframe`` is deliberately NOT pushed
+#: down: a file holds one timeframe today, so pushing it would add a
+#: predicate that cannot prune anything and would give a caller a way to
+#: ask for a silently-empty read by typo'ing the string.
+_TIMESTAMP_COLUMN = "timestamp"
+
+#: Local filesystem used to build one-file fragments. Module-level because it
+#: is stateless and constructing it per partition was measurable overhead in
+#: a 500-symbol scan for no benefit.
+_local_fs = pa.fs.LocalFileSystem()
 
 #: Parquet read failures that mean "this file is unreadable" and must be
 #: quarantined, rather than "this process is in trouble".
@@ -258,7 +287,11 @@ class ParquetStorage:
         )
         return destination.name
 
-    def _read_partition(self, partition_dir: Path) -> pa.Table | None:
+    def _read_partition(
+        self,
+        partition_dir: Path,
+        filter: pc.Expression | None = None,
+    ) -> pa.Table | None:
         """Read one partition's parquet, quarantining it if it is unreadable.
 
         Returns ``None`` — the caller's signal to drop this partition — for
@@ -266,15 +299,59 @@ class ParquetStorage:
         this method. This is the single chokepoint all three call sites go
         through, so a fourth unguarded read added later is guarded by
         construction rather than by remembering.
+
+        *filter* is an optional :class:`pyarrow.compute.Expression` (lane 3e).
+        When it is present the read is a filtered one and row groups whose
+        timestamp statistics cannot satisfy the predicate are skipped before
+        any page is decompressed, instead of being decoded and discarded in
+        pandas. It cannot change the result, only how much is decoded to
+        produce it: a row group is skipped only when the predicate provably
+        excludes every row in it, and the caller still applies its own bounds.
         """
         parquet_file = partition_dir / "data.parquet"
         if not parquet_file.exists():
             return None
         try:
-            return pq.ParquetFile(parquet_file).read()
+            if filter is None:
+                # The dedup reads in ``upsert`` and ``_write_parquet`` need
+                # every row, so they pass no predicate. Keeping both shapes on
+                # this one chokepoint keeps AC-15's guard covering exactly the
+                # reads it covered before.
+                return pq.ParquetFile(parquet_file).read()
+            return self._read_filtered(parquet_file, filter)
         except _CORRUPT_FILE_ERRORS as exc:
             self.quarantine(parquet_file, exc)
             return None
+
+    @staticmethod
+    def _read_filtered(path: Path, filter: pc.Expression) -> pa.Table:
+        """Read one parquet file with *filter* pushed into the reader.
+
+        The whole of lane 3e. ``ParquetFile.read()`` decodes every row group
+        in the file and hands all of them to pandas, which then throws most
+        away for a narrow window. Building a one-file
+        :class:`pyarrow.dataset.ParquetFileFragment` and reading it with the
+        predicate makes pyarrow consult each row group's per-column statistics
+        and skip the ones that cannot match, so the decode never happens.
+
+        A fragment, not a whole-directory ``ds.dataset()``, on purpose: the
+        quarantine chokepoint above needs the read to raise from one call
+        site, and a fragment is the narrowest dataset object that still
+        accepts a filter and still raises ``ArrowInvalid`` on a truncated file
+        — which is what keeps AC-15 intact (verified:
+        ``test_parquet_quarantine.py`` passes unchanged).
+
+        When the predicate excludes every row of every partition, ``read()``
+        still returns an empty frame — it builds one from its own column list,
+        which types every column ``object``, exactly as the unfiltered path
+        already did. Matching that is deliberate: the caller's empty-result
+        contract is unchanged by this lane, and a typed empty frame is a
+        separate improvement for a separate change.
+        """
+        fragment = ds.ParquetFileFormat().make_fragment(
+            str(path), filesystem=_local_fs
+        )
+        return fragment.to_table(filter=filter)
 
     # ------------------------------------------------------------------ write
 
@@ -480,6 +557,11 @@ class ParquetStorage:
         if not hive_paths:
             return pd.DataFrame(columns=_BASE_COLUMNS)
 
+        # Lane 3e: hand the time bounds to the reader, not just to pandas.
+        # ``_pushdown_filter`` is None only when the caller gave no bounds at
+        # all, which is the case where nothing can be pruned anyway.
+        pushdown = self._pushdown_filter(start_ts, end_ts)
+
         tables = []
         for pdir in hive_paths:
             # Site 3 of 3, and the one the spec describes: a corrupt partition
@@ -487,7 +569,7 @@ class ParquetStorage:
             # comes back as an empty series and the symbols that were fine
             # still come back. This is the read path every call site (chart,
             # scanner, backtest, replay, recovery) shares.
-            table = self._read_partition(pdir)
+            table = self._read_partition(pdir, filter=pushdown)
             if table is not None and table.num_rows > 0:
                 tables.append(table.to_pandas())
 
@@ -510,6 +592,43 @@ class ParquetStorage:
             # same class of phantom; keep stored & served views consistent.
             result = result[market_session_mask(result["timestamp"])]
         return result.sort_values(["symbol", "timestamp"]).reset_index(drop=True)
+
+    @staticmethod
+    def _pushdown_filter(
+        start_ts: pd.Timestamp | None,
+        end_ts: pd.Timestamp | None,
+    ) -> pc.Expression | None:
+        """Build the timestamp predicate handed to the parquet reader.
+
+        Returns ``None`` when neither bound is set, which signals "read
+        everything" — the same signal ``read()``'s own Python filters take
+        from an absent bound, so the two cannot disagree.
+
+        The bounds deliberately mirror the comparison ``read()`` applies
+        itself: the lower bound closes to ``>=`` and the upper to ``<=``, both
+        inclusive. Every row the predicate admits is one the caller may keep,
+        so it can only make the read *superset-shaped*; it can never drop a row
+        the caller wanted. That is what makes the pushdown safe to leave on by
+        default rather than behind a flag, and it is also why the caller's own
+        filters are still applied afterwards — the predicate widens nothing,
+        and the row groups it leaves in can straddle the requested edge.
+
+        Both bounds are sent even though the Hive partition walk has already
+        narrowed to the month: inside one month file a request for the last
+        week still spans every row group, and that is the case where pruning
+        pays.
+        """
+        terms: list[pc.Expression] = []
+        if start_ts is not None:
+            terms.append(pc.field(_TIMESTAMP_COLUMN) >= pa.scalar(start_ts))
+        if end_ts is not None:
+            terms.append(pc.field(_TIMESTAMP_COLUMN) <= pa.scalar(end_ts))
+        if not terms:
+            return None
+        expr = terms[0]
+        for term in terms[1:]:
+            expr = expr & term
+        return expr
 
     def _resolve_partitions(
         self,
