@@ -45,7 +45,7 @@ from tradex_execution.slippage import PercentageSlippageModel
 from tradex_reactive.bus import ReactiveBus
 from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_strategy.core.engine import ReactiveStrategyEngine
-from tradex_strategy.core.scanner import ScannerEngine
+from tradex_strategy.core.scanner import DEFAULT_SCANNER_CALL_INTERVAL, ScannerEngine
 from tradex_strategy.extensions import all_scanners, all_strategies
 
 from tradex_runtime.logging_config import setup_structured_logging
@@ -761,9 +761,23 @@ def _boot_tail(
             # corrupt partition quarantined while the scanner reads the local
             # lake is counted on the very registry ``GET /metrics`` renders.
             scanner_market: Any = ParquetMarketProvider(metrics=metrics)
+            # Local disk: a scan here costs no venue quota, so pacing it
+            # would only add wall clock to a backtest.
+            scanner_call_interval = 0.0
         else:
             scanner_market = broker
-        scanner_engine = ScannerEngine(market=scanner_market)
+            # AC-13: paper/live scan through the *broker*, i.e. the same
+            # venue quota the live feed is drawing from.  A 500-symbol scan
+            # is 500 back-to-back calls into it, which is the degradation
+            # the scanner's own rate limit exists to stop.  The interval
+            # is stated here — the composition root is the only place that
+            # knows the provider is a venue — rather than inferred from the
+            # provider's class inside the engine.
+            scanner_call_interval = DEFAULT_SCANNER_CALL_INTERVAL
+        scanner_engine = ScannerEngine(
+            market=scanner_market,
+            min_call_interval=scanner_call_interval,
+        )
         # G7: stream Candle events into the scanner's rolling buffer so
         # _history() can serve incremental data instead of re-fetching.
         from tradex_domain.market import Candle as _Candle

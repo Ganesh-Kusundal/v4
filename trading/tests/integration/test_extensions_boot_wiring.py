@@ -106,6 +106,10 @@ class TestBootWiresDiscovery:
             broker=_fake_broker_with_history([10.0]),
         )
         try:
+            # These fakes answer instantly, so the paper-mode pacing (AC-13)
+            # would be minutes of pure sleep across the shipped universes.
+            # The quota itself is pinned in test_strategy_scanner_limits.py.
+            session._scanner_engine._limiter.min_interval = 0.0
             results = {}
             for i, definition in enumerate(session._scanner_definitions):
                 results[f"scanner_{i}"] = session._scanner_engine.run(definition)
@@ -139,6 +143,8 @@ class TestBootWiresDiscovery:
         broker = _fake_broker_with_history(closes)
         session = boot(AppConfig(risk=permissive_risk(), mode="paper"), broker=broker)
         try:
+            # Instant fake provider; see test_run_all_runs_every_discovered_scanner.
+            session._scanner_engine._limiter.min_interval = 0.0
             # Identify the two-condition pullback scanner by its condition
             # names (ScannerDefinition carries no name field).
             pullback = next(
@@ -165,6 +171,7 @@ class TestBootWiresDiscovery:
             broker=_fake_broker_with_history([10.0]),
         )
         try:
+            session._scanner_engine._limiter.min_interval = 0.0
             for definition in all_scanners:
                 results = session._scanner_engine.run(definition)
                 assert isinstance(results, list)
@@ -226,11 +233,55 @@ def test_paper_boot_with_real_broker_runs_discovered_scanner() -> None:
     session = boot(_CFG)
     try:
         assert session._scanner_engine is not None  # noqa: SLF001 – wiring probe
+        # The real paper broker answers in memory; the AC-13 pacing would be
+        # minutes of sleep across every shipped universe. The quota itself is
+        # pinned in test_strategy_scanner_limits.py against an injected clock.
+        session._scanner_engine._limiter.min_interval = 0.0
         for definition in all_scanners:
             results = session._scanner_engine.run(definition)
             assert isinstance(results, list)
     finally:
         session.stop()
+
+
+class TestScannerRateLimitWiring:
+    """AC-13 — the composition root applies the limit, and the mode decides.
+
+    Both directions are asserted, and the second is the one that regresses
+    silently: a limit that is only ever switched *on* somewhere is a limit
+    that costs latency and prevents nothing. The mode split is the whole
+    point — pacing a backtest over local parquet buys nothing and costs
+    minutes, while leaving paper/live unpaced is the Wave 3 gate failure
+    ("a scanner over 500 symbols degrades the feed").
+    """
+
+    def test_paper_mode_paces_the_broker_backed_scanner(self) -> None:
+        """Paper/live scan through the broker, so the gate is live."""
+        from tradex_strategy.core.scanner import DEFAULT_SCANNER_CALL_INTERVAL
+
+        session = boot(
+            AppConfig(risk=permissive_risk(), mode="paper"),
+            broker=_fake_broker_with_history([10.0]),
+        )
+        try:
+            engine = session._scanner_engine  # noqa: SLF001 – wiring probe
+            assert engine._limiter.min_interval > 0.0  # noqa: SLF001
+            assert engine._limiter.min_interval == DEFAULT_SCANNER_CALL_INTERVAL  # noqa: SLF001
+        finally:
+            session.stop()
+
+    def test_backtest_mode_does_not_pace_the_local_provider(self) -> None:
+        """Backtest scans the local lake, so the gate must be off."""
+        for mode in ("backtest", "replay"):
+            session = boot(
+                AppConfig(risk=permissive_risk(), mode=mode),
+                broker=_fake_broker_with_history([10.0]),
+            )
+            try:
+                engine = session._scanner_engine  # noqa: SLF001 – wiring probe
+                assert engine._limiter.min_interval == 0.0  # noqa: SLF001
+            finally:
+                session.stop()
 
 
 #: AC-10: a paper/live boot needs a named risk policy. This suite is

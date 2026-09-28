@@ -302,6 +302,13 @@ class TestNifty500TechnicalScanner:
 
         session = boot(AppConfig(risk=permissive_risk(), mode="paper"), broker=fake_broker())
         try:
+            # AC-13: paper mode paces the scanner's provider reads, and this
+            # fake answers instantly, so the pacing is pure sleep — 500
+            # symbols at the venue's 0.25 s historical interval is two
+            # minutes of nothing.  The test is about the boot→scan path, not
+            # the quota, and the quota is pinned by
+            # ``test_strategy_scanner_limits.py`` against an injected clock.
+            session._scanner_engine._limiter.min_interval = 0.0
             results = session._scanner_engine.run(nifty500_technical_scanner)
             assert isinstance(results, list)
         finally:
