@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Sequence
+from contextlib import ExitStack
 
 from tradex_domain.execution import Order, Position
 from tradex_domain.instruments import Instrument
@@ -97,6 +99,52 @@ class TradingCache(TradingCacheProtocol):
         """Insert or update a position keyed by instrument id."""
         with self._positions_lock:
             self._positions[self._instrument_key(position.instrument)] = position
+
+    def _instrument_locks(self, positions: list[Position]) -> list[threading.RLock]:
+        """One per-instrument lock per row, in row order.
+
+        Called with rows already sorted by key so every batch applies in the
+        same acquisition order (sorted-key order) regardless of caller order:
+        two concurrent batches can never deadlock against each other, and the
+        order is a refinement of the fill path's one-lock-at-a-time RMW, so no
+        cycle with it exists either.
+        """
+        return [self.position_lock(position.instrument) for position in positions]
+
+    def set_positions(self, positions: Sequence[Position]) -> None:
+        """Write every row in *positions* as one batch, or none of them.
+
+        The adoption apply's atomic seam (P0-F6). Why a batch method at all:
+        the venue-position adoption writes a *plan* — a set of rows that are
+        correct together. Written one ``set_position`` at a time, a fill's
+        read-modify-write on any touched instrument can slip between two rows
+        (the fill holds ``position_lock`` across its RMW; a per-row write takes
+        only the dict lock and interleaves), and a reader sees a half-applied
+        plan. Here every touched instrument lock is held — in sorted key order
+        — across the whole swap, so neither can happen.
+
+        Validation runs before any lock is taken or any row written: a bad row
+        anywhere raises :class:`TypeError` with the book untouched, matching
+        the plan's all-or-nothing semantics.
+        """
+        rows = list(positions)
+        for position in rows:
+            if not isinstance(position, Position):
+                raise TypeError(
+                    "set_positions requires Position rows, got "
+                    f"{type(position).__name__}"
+                )
+        keyed = sorted(
+            ((self._instrument_key(p.instrument), p) for p in rows),
+            key=lambda item: item[0],
+        )
+        locks = self._instrument_locks([p for _, p in keyed])
+        with ExitStack() as stack:
+            for lock in locks:
+                stack.enter_context(lock)
+            with self._positions_lock:
+                for key, position in keyed:
+                    self._positions[key] = position
 
     def get_position(self, instrument: Instrument | InstrumentId | str) -> Position | None:
         """Return the position for the given instrument, or None."""

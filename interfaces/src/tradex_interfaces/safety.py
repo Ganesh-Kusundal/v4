@@ -1319,19 +1319,36 @@ def adopt_venue_positions(
 def _apply_venue_adoption(plan: VenueAdoption, cache: Any) -> None:
     """Write the plan's positions into *cache*, or nothing if the plan is empty.
 
-    The write is the cache's own method, so the book's locking and its key scheme
-    stay where they are owned. A cache with no ``set_position`` is reported rather
-    than worked around: an adoption that silently skipped writing because the seam
-    was missing would report a correction it never made.
+    The write is the cache's own method, so the book's locking and its key
+    scheme stay where they are owned — and when the cache offers the batch
+    seam (``set_positions``), the whole plan lands under one set of instrument
+    locks. That is the plan's own semantics: the rows are correct *together*,
+    and a per-row apply lets a fill's read-modify-write slip between two rows
+    or a reader see a half-applied plan (P0-F6).
+
+    A cache with no batch seam still works, but the fallback is per-row and
+    therefore NOT atomic: it is logged as such, because an adoption that
+    silently half-applied while reporting a full correction is exactly the
+    corruption this module exists to prevent. A cache with no write method at
+    all is reported rather than worked around.
     """
     if plan.is_empty:
+        return
+    rows = [*plan.positions.values(), *plan.cleared.values()]
+    write_batch = getattr(cache, "set_positions", None)
+    if callable(write_batch):
+        write_batch(rows)
         return
     write = getattr(cache, "set_position", None)
     if not callable(write):
         raise TypeError(
             "venue position adoption requires a cache with set_position(Position)"
         )
-    for position in (*plan.positions.values(), *plan.cleared.values()):
+    log.warning(
+        "venue position adoption apply is NOT atomic: cache lacks "
+        "set_positions(Sequence[Position]); falling back to per-row writes"
+    )
+    for position in rows:
         write(position)
 
 

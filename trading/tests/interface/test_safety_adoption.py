@@ -21,6 +21,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from tradex_domain.execution import (
     Order,
     OrderSide,
@@ -106,6 +107,10 @@ class _Cache:
     Mirrors :meth:`tradex_execution.trading_cache.TradingCache.set_position`,
     which takes the position and keys it itself — the adoption does not choose
     the key, the book does.
+
+    Deliberately has NO ``set_positions``: this stub is the fallback shape, so
+    every existing test exercises the per-row path and one test pins the
+    warning that makes the non-atomic fallback visible.
     """
 
     def __init__(self, positions: list[Position] | None = None) -> None:
@@ -123,6 +128,24 @@ class _Cache:
 
     def written_ids(self) -> list[str]:
         return [str(p.instrument.instrument_id) for p in self.writes]
+
+
+class _BatchCache(_Cache):
+    """A cache that owns the atomic batch seam (the real ``TradingCache`` shape).
+
+    Records the batch and counts single-row writes: the adoption must use the
+    batch exactly once and never fall back to ``set_position`` when the batch
+    exists.
+    """
+
+    def __init__(self, positions: list[Position] | None = None) -> None:
+        super().__init__(positions)
+        self.batches: list[list[Position]] = []
+
+    def set_positions(self, positions: list[Position]) -> None:
+        self.batches.append(list(positions))
+        for position in positions:
+            self._positions[str(position.instrument.instrument_id)] = position
 
 
 def _order(instrument: Instrument, status: OrderStatus) -> Order:
@@ -1018,3 +1041,52 @@ def test_adoption_outcome_reports_its_own_adopted_count() -> None:
         applied=True,
     )
     assert outcome.adopted_count == 1
+
+
+# -- the apply is batch-atomic when the cache offers it (P0-F6) ----------------
+
+
+def _adoption_scenario() -> tuple[_Broker, list[Position]]:
+    """One adopted (X agrees? no) and one cleared instrument, so the apply
+    batch carries both kinds of write."""
+    broker = _Broker([_position(_RELIANCE, Decimal("7")), _position(_TCS, Decimal("0"))])
+    local = [_position(_RELIANCE, Decimal("3")), _position(_TCS, Decimal("3"))]
+    return broker, local
+
+
+def test_apply_uses_the_batch_seam_exactly_once_and_never_the_per_row_write() -> None:
+    cache = _BatchCache()
+    broker, local = _adoption_scenario()
+    outcome = adopt_venue_positions(
+        broker=broker,
+        local_positions=local,
+        cache=cache,
+        known_instruments=["NSE:RELIANCE", "NSE:TCS"],
+    )
+    assert outcome.applied
+    assert len(cache.batches) == 1, "the whole plan lands in one batch write"
+    written = {
+        str(p.instrument.instrument_id) for p in cache.batches[0]
+    }
+    assert written == {"NSE:RELIANCE", "NSE:TCS"}  # adopted + cleared together
+    assert cache.writes == [], "never fall back to set_position when the batch exists"
+
+
+def test_apply_falls_back_to_per_row_with_a_visible_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    cache = _Cache()
+    broker, local = _adoption_scenario()
+    with caplog.at_level("WARNING"):
+        outcome = adopt_venue_positions(
+            broker=broker,
+            local_positions=local,
+            cache=cache,
+            known_instruments=["NSE:RELIANCE", "NSE:TCS"],
+        )
+    assert outcome.applied
+    assert len(cache.writes) == 2
+    assert "NOT atomic" in caplog.text, (
+        "a per-row fallback must be visible: a partial apply that logs a "
+        "correction it did not complete is the corruption this prevents"
+    )
