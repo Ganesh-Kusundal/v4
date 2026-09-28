@@ -203,3 +203,34 @@ def test_serve_app_builds_non_live_dhan_session(
     assert config.mode == mode
     create_app.assert_called_once_with(session, api_key=None)
     assert result is app
+
+
+def test_serve_app_passes_the_reconciliation_factory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """serve_app builds the sessions a uvicorn spawn reuses.
+
+    workers>1 and --reload delegate to serve_app, so a boot without the
+    factory here means those configurations run with no reconciliation
+    daemon. This pins the factory on every spawn-built session.
+    """
+    monkeypatch.setenv("TRADEX_SERVE_BROKER", "PAPER")
+    monkeypatch.setenv("TRADEX_SERVE_MODE", "paper")
+    monkeypatch.setenv("TRADEX_SERVE_HOST", "127.0.0.1")
+
+    with patch(
+        "tradex_runtime.startup.boot",
+        return_value=MagicMock(),
+    ) as boot, patch.object(
+        fastapi_app,
+        "create_app",
+        return_value=object(),
+    ):
+        fastapi_app.serve_app()
+
+    from tradex_interfaces.cli import build_reconciliation_monitor
+
+    assert (
+        boot.call_args.kwargs.get("reconciliation_monitor_factory")
+        is build_reconciliation_monitor
+    ), "serve_app must build the monitor for every session it boots"

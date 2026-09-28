@@ -505,15 +505,32 @@ def serve_app() -> FastAPI:
     # complete one, so the previous two constructions made `tradex serve`
     # unusable. ``broker``/``mode`` are explicit here because this function
     # already resolved them from its own SERVE_* variables.
+    #
+    # All three boots pass the reconciliation factory: this is the path a
+    # uvicorn spawn takes for workers>1 and --reload, so a missing factory here
+    # would mean those configurations run the server with no reconciliation
+    # daemon at all. The helper is imported from the CLI module, which is the
+    # single composition point that can join the two package halves.
+    from tradex_interfaces.cli import build_reconciliation_monitor
+
     config = from_env()
     if mode == "paper":
-        session = boot(config, wire_strategies=False)
+        session = boot(
+            config, wire_strategies=False,
+            reconciliation_monitor_factory=build_reconciliation_monitor,
+        )
     elif mode == "live":
         config = replace(config, broker_id=BrokerId(broker), live_enabled=True)
-        session = boot(config, wire_strategies=False)
+        session = boot(
+            config, wire_strategies=False,
+            reconciliation_monitor_factory=build_reconciliation_monitor,
+        )
     else:
         config = replace(config, broker_id=BrokerId(broker), mode=mode)
-        session = boot(config, wire_strategies=False)
+        session = boot(
+            config, wire_strategies=False,
+            reconciliation_monitor_factory=build_reconciliation_monitor,
+        )
     return create_app(session, api_key=api_key)
 
 

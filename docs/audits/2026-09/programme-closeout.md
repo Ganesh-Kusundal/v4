@@ -115,9 +115,35 @@ would be constructed and never started. The factory receives the real broker,
 cache, and engine, so it builds against the session that is actually running,
 not a shadow the caller had to reconstruct.
 
-Verified end to end: `cmd_serve`'s exact boot path builds a real
-`ReconciliationMonitor`, it is running when the session reaches READY, and it
-is stopped cleanly on `session.stop()`.
+The helper was then hoisted to module level as `build_reconciliation_monitor`,
+because **three** boot sites need it, not one. Finding the other two was the
+point of checking every `boot(` in the tree rather than stopping at the first
+working one:
+
+- `main()` — builds the paper session that `tradex serve` **reuses**. Missing
+  here, a paper server ran with no monitor while a live one had it.
+- `serve_app()` in `fastapi_app.py` — the session a uvicorn spawn builds for
+  `workers>1` and `--reload`. All three of its mode branches pass it now.
+
+`quote` and `order` deliberately pass nothing: they are one-shot commands, and a
+daemon thread that outlives a single CLI call is not useful.
+
+Verified end to end against each path: the monitor is running when the session
+reaches READY, and stopped cleanly on `session.stop()`.
+
+## A leak the change exposed
+
+`test_serve_app_factory_builds_ready_paper_session` boots a real session and
+never stopped it. That was harmless while `serve_app` started no threads. Once
+it built a monitor, the polling thread outlived the test, and
+`test_reconciliation_monitor`'s own thread-counting assertions saw two live
+`reconciliation-monitor` threads — so two tests failed **only in the full
+suite**, never in isolation, and only in one collection order. The test now
+stops its session.
+
+The lesson generalises past this case: a test that boots a real component and
+drops it without teardown is a latent leak, and adding a thread to that
+component turns it into a cross-file failure that no single-file run reproduces.
 
 ## Gates
 

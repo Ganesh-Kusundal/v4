@@ -1737,6 +1737,15 @@ class TestStartFastapiServerGuards:
         assert isinstance(app, FastAPI)
         assert str(app.state.session.state) == "READY"
         assert app.state.api_key == "worker-secret"
+        # Stop the session this test booted. serve_app now builds a real
+        # reconciliation monitor, whose polling thread is named
+        # "reconciliation-monitor"; without this the thread outlives the test
+        # and test_reconciliation_monitor's own thread-counting assertions see
+        # two live threads and fail depending on collection order.
+        try:
+            app.state.session.stop()
+        except Exception:  # pragma: no cover - teardown only
+            pass
 
 
 #: AC-10: the SDK session factories need a named risk policy like any
