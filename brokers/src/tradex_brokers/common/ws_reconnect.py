@@ -16,6 +16,11 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# Cap the escalation exponent: with indefinite retries ``over`` grows without
+# bound and ``2.0 ** over`` would eventually overflow a float long after the
+# delay has already been clamped to ``max_delay`` (2**1024 > float range).
+_MAX_ESCALATION_STEPS = 64
+
 
 @dataclass(frozen=True)
 class ReconnectConfig:
@@ -26,26 +31,40 @@ class ReconnectConfig:
     """
 
     max_retries: int = 10
-    base_delay: float = 1.0
-    max_delay: float = 60.0
+    base_delay: float = 5.0
+    max_delay: float = 300.0
     exponential_base: float = 2.0
     jitter: bool = True
 
 
 class WSReconnectManager:
-    """Manages WebSocket reconnection with exponential backoff and jitter.
+    """WebSocket reconnection backoff — retries **indefinitely** (AC-12/3b).
+
+    A dropped order or market-data socket is never abandoned: giving up
+    silently would leave a resting order believed live and the book blind
+    for the rest of the session. There is no retry ceiling — only a *delay*
+    ceiling, reached by backing off.
+
+    Schedule (see :meth:`_raw_delay`):
+
+    * attempts 1..``max_retries`` (default 10) use ``base_delay`` (default 5 s);
+    * from attempt ``max_retries + 1`` the delay grows by ``exponential_base``
+      per attempt from ``base_delay`` up to ``max_delay`` (default 300 s) and
+      then holds at ``max_delay`` forever.
+
+    So ``max_retries`` is the *escalation point*, not a give-up limit.
 
     Parameters
     ----------
     max_retries:
-        Maximum number of consecutive reconnection attempts before giving up.
-        ``next_delay()`` returns ``None`` when this limit is exceeded.
+        Attempt at which the delay escalates toward ``max_delay`` (default 10).
+        Not a give-up limit: ``next_delay()`` never stops returning a delay.
     base_delay:
-        Initial delay in seconds before the first reconnection attempt.
+        Delay in seconds used for the initial attempts (default 5 s).
     max_delay:
-        Maximum delay cap in seconds (after exponential growth).
+        Ceiling in seconds the delay grows to after escalation (default 300 s).
     exponential_base:
-        Multiplier applied to the delay for each successive retry.
+        Multiplier applied per attempt once past the escalation point.
     jitter:
         If ``True``, apply random jitter (±25 %) to each delay to avoid
         thundering-herd problems.
@@ -54,8 +73,8 @@ class WSReconnectManager:
     def __init__(
         self,
         max_retries: int = 10,
-        base_delay: float = 1.0,
-        max_delay: float = 60.0,
+        base_delay: float = 5.0,
+        max_delay: float = 300.0,
         exponential_base: float = 2.0,
         jitter: bool = True,
     ) -> None:
@@ -75,23 +94,34 @@ class WSReconnectManager:
         self._attempt: int = 0
         self._lock = threading.Lock()
 
+    def _raw_delay(self, attempt: int) -> float:
+        """Delay in seconds for a zero-based *attempt* index, before jitter.
+
+        Because retries are indefinite, ``over`` can be arbitrarily large on a
+        long outage. Clamp the exponent so ``base ** over`` cannot overflow
+        before the ceiling clamp is applied (the cap is already reached long
+        before the clamp bites).
+        """
+        if attempt < self._max_retries:
+            # Flat base cadence until the escalation point.
+            return min(self._base_delay, self._max_delay)
+        over = min(attempt - self._max_retries, _MAX_ESCALATION_STEPS)
+        return min(
+            self._base_delay * (self._exponential_base ** over),
+            self._max_delay,
+        )
+
     # -- public API ---------------------------------------------------------
 
-    def next_delay(self) -> float | None:
+    def next_delay(self) -> float:
         """Compute the delay before the next reconnection attempt.
 
-        Returns
-        -------
-        float or None
-            Delay in seconds, or ``None`` if *max_retries* has been exceeded.
+        Always returns a delay: reconnects retry indefinitely (AC-12/3b), so
+        there is no attempt count at which the stream is abandoned. The delay
+        escalates toward :attr:`max_delay` after the escalation point.
         """
         with self._lock:
-            if self._attempt >= self._max_retries:
-                return None
-            delay = min(
-                self._base_delay * (self._exponential_base ** self._attempt),
-                self._max_delay,
-            )
+            delay = self._raw_delay(self._attempt)
             if self._jitter:
                 # ±25 % jitter
                 delay = delay * (0.75 + random.random() * 0.5)  # noqa: S311
@@ -110,8 +140,8 @@ class WSReconnectManager:
             return self._attempt
 
     @property
-    def exhausted(self) -> bool:
-        """``True`` if the maximum number of retries has been reached."""
+    def escalates(self) -> bool:
+        """``True`` once the attempt counter is at/over the escalation point."""
         with self._lock:
             return self._attempt >= self._max_retries
 
@@ -185,11 +215,16 @@ class AutoReconnectMixin:
         *,
         reconnect: bool = True,
         max_retries: int = 10,
-        base_delay: float = 1.0,
-        max_delay: float = 60.0,
+        base_delay: float = 5.0,
+        max_delay: float = 300.0,
         grace_seconds: float = 30.0,
     ) -> None:
         """Initialise the reconnect machinery (call at end of ``__init__``).
+
+        Reconnects retry indefinitely: the delay stays at ``base_delay`` for
+        the first ``max_retries`` attempts, then escalates toward ``max_delay``
+        and holds there, so a long outage is survived without a dead socket
+        (AC-12/3b).
 
         ``grace_seconds`` is the socket lifetime a successful reconnect must
         survive before the backoff counter resets. Without it, a flapping
@@ -216,9 +251,6 @@ class AutoReconnectMixin:
             if self._reconnect_thread is not None:
                 return
             delay = self._reconnect.next_delay()
-            if delay is None:
-                log.warning("stream reconnect attempts exhausted; giving up")
-                return
             self._reconnect_thread = threading.Thread(
                 target=self._reconnect_worker, args=(delay,), daemon=True
             )
