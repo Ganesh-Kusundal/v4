@@ -1,12 +1,24 @@
 # Pending work inventory, verified against the working tree
 
 **Date**: 2026-09-28
-**Closure run complete.** Verified against `1792f4d`: **5351 passed, 2 skipped, 10 xfailed**
-in 2m48s, `ruff check .` clean. `trading/tests/interface/test_ws_bars_replay.py` (18 failures) is
-deselected and is **pre-existing**: reproduced identically on a pristine worktree at `2515821`,
-before any work in this run. Not a regression.
+**Closure run complete.** Verified against `e6afb7e`: **5389 passed, 2 skipped, 10 xfailed**
+in 3m38s with **no deselection**, `ruff check .` clean. `trading/tests/interface/test_ws_bars_replay.py`
+is fixed, not pre-existing — see the correction below.
 **Closure log at the end.** The findings below are as originally established.
 
+> **Correction, `e6afb7e`.** The claim that the 18 replay failures were pre-existing was wrong.
+> The reproduction behind it ran pytest from a pristine worktree, but the venv is an *editable*
+> install whose `.pth` files hold absolute paths into the main checkout, so that run still imported
+> the modified `stream.py`. This is the same editable-venv trap recorded as lesson 1 below, and the
+> reproduction fell into it. A bisect that swaps source files *in place* gives the true answer:
+> the failures begin at `ea5c703` (AC-15), which added `metrics=` to two `ParquetStorage`
+> constructions in `stream.py`. Seven in-test fakes still took one positional argument, so the route
+> raised `TypeError` before sending `replay_started`. The fakes now accept `**_kwargs`.
+> A second, unrelated flake is also fixed: lane 3d's composition test pinned a real wall clock
+> against a session-gated monitor and so failed every evening outside 09:15-15:30 IST.
+> **38 tests were being hidden by the wrong verdict.** "5351 passed with 38 deselected" is now
+> "5389 passed with nothing deselected".
+>
 > **Correction, `1792f4d`.** Two lanes were reported merged during the closure run and were not.
 > A follow-up audit against the branches found the 3d per-symbol cadence lane had never reached
 > `HEAD` at all, and the 3g default-path controls were dropped from the merge. Both are fixed here
@@ -251,6 +263,19 @@ report. "Mutation" is the count of tests that FAILED when the lane's protection 
    were dropped. Both were caught only by walking the branches afterwards and running
    `git log <branch>..HEAD` plus a file-existence check per lane. Every closure claim in this
    document should be read the same way: re-derived from the tree, not from the merge transcript.
+5. **"Pre-existing" must be established by bisect, not by a second worktree.** The one
+   pre-existing verdict in this document was wrong for exactly the reason lesson 1 gives: the
+   reproduction ran from a pristine worktree, and the editable install pointed it back at the main
+   checkout's modified source. The reliable procedure is to `git checkout <commit> -- <src files>`
+   *in place*, run the test, and restore — that changes what the interpreter actually imports. A
+   bisect done that way over the 12 lane commits is what located `ea5c703`. A claim of
+   "pre-existing" that was not obtained in place is not a claim, it is a guess, and it hides real
+   regressions: here it hid 38 failing tests behind a deselection.
+6. **A test with an ambient input is a test that fails on a schedule.** Lane 3d's composition test
+   read the real wall clock and handed it to a monitor that skips its whole sweep outside session
+   hours, so it passed every morning and failed every evening. It looked like a broken lane and was
+   really a broken test. Anything whose behaviour is gated on session hours, a date, or a timezone
+   must be pinned to an explicit instant in its test, never to `datetime.now()`.
 
 ### Still open after the closure run
 
@@ -261,5 +286,7 @@ report. "Mutation" is the count of tests that FAILED when the lane's protection 
 - **5e**: the reconciliation monitor and venue-position adoption. Drift is reported, never adopted.
 - **3i portfolio context** is implemented but nothing calls `set_portfolio()` yet, so it does not
   reach the UI.
-- **`trading/tests/interface/test_ws_bars_replay.py`**: 18 pre-existing failures, reproduced on
-  pristine `2515821`. Out of scope for this run and worth its own look.
+- **`trading/tests/interface/test_ws_bars_replay.py`**: **fixed**, and it was not pre-existing. The
+  18 failures were caused by AC-15's `metrics=` kwarg against seven one-argument test fakes, and
+  the original "pre-existing" verdict came from a worktree reproduction the editable venv defeated.
+  It now runs 38 passed in 19s and is no longer deselected.
