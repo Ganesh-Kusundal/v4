@@ -28,7 +28,11 @@ from tradex_domain.value_objects import InstrumentId
 
 from tradex_brokers.common.provider_common import instrument_from_id
 from tradex_brokers.common.ws_reconnect import AutoReconnectMixin
-from tradex_brokers.common.ws_shared import row_to_quote
+from tradex_brokers.common.ws_shared import (
+    WS_PING_INTERVAL,
+    WS_PING_TIMEOUT,
+    row_to_quote,
+)
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +50,12 @@ def default_ws_factory(url: str) -> Any:
     """Open a real synchronous WebSocket connection (``[live]`` extra)."""
     from websockets.sync.client import connect  # noqa: PLC0415 — optional dep
 
-    return connect(url, max_size=2**20)
+    return connect(
+        url,
+        max_size=2**20,
+        ping_interval=WS_PING_INTERVAL,
+        ping_timeout=WS_PING_TIMEOUT,
+    )
 
 
 class UpstoxPortfolioStreamBackend(AutoReconnectMixin):
