@@ -595,6 +595,9 @@ async def ws_stream(
                         log.exception("on_bar_frame integrity hook failed for %s", frame.instrument)
 
         # --- Indicator push (Tier-2 subscribe seam) ----------------------
+        # One registry per connection (subscriptions are per-connection), but
+        # the datalake tail and warm indicator state behind it are
+        # process-level, so a second client on the same series reuses them.
         indicator_registry = IndicatorStreamRegistry(
             lambda frame_dict: _track_drop(_enqueue_drop_oldest(ticks, frame_dict))
         )
@@ -1504,6 +1507,14 @@ async def ws_stream(
                 registry.release()  # last client stops the shared feed
             except Exception:  # pragma: no cover – defensive
                 pass
+        # Give the process-level indicator tail/series caches their end of
+        # life. The registry holds reference counts on them, so without this
+        # a series' warm window would outlive every connection that ever
+        # subscribed to it.
+        try:
+            indicator_registry.close()
+        except Exception:  # pragma: no cover – defensive
+            log.exception("indicator registry close failed")
         # Cancel any live broker order-stream subscription for this client.
         _unsubscribe_orders()
         bar_aggregators.clear()
