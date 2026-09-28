@@ -128,8 +128,21 @@ working one:
 `quote` and `order` deliberately pass nothing: they are one-shot commands, and a
 daemon thread that outlives a single CLI call is not useful.
 
-Verified end to end against each path: the monitor is running when the session
-reaches READY, and stopped cleanly on `session.stop()`.
+Every production `boot(` site in the tree, audited:
+
+| Site | Long-running? | Monitor? |
+|---|---|---|
+| `main()` -> `tradex serve` (paper) | yes, server | yes |
+| `cmd_serve()` -> `tradex serve` (live) | yes, server | yes |
+| `serve_app()` (workers>1, --reload) | yes, server | yes, all 3 modes |
+| `quote` | no, one-shot | no, correctly |
+| `order` | no, one-shot | no, correctly |
+| `quick_start_live.py` | no, boots then stops | no, correctly |
+| `boot_context()` | forwards `**boot_kwargs` | capable |
+| `TradingSession.live()` | no production callers | n/a |
+
+Verified end to end against each server path: the monitor is running when the
+session reaches READY, and stopped cleanly on `session.stop()`.
 
 ## A leak the change exposed
 
