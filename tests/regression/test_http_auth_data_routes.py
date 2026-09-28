@@ -55,6 +55,30 @@ def _holding() -> MagicMock:
     return holding
 
 
+def _position() -> MagicMock:
+    """A cached position, the shape ``/positions`` and ``/holdings`` read now.
+
+    Lane 3i moved the portfolio routes off ``broker.get_holdings()`` onto the
+    OMS cache (``get_session_portfolio``), because for a paper session the
+    broker's own dict is never written by the session's fill path and a filled
+    position reported a flat account. ``_holding`` is kept for the auth
+    assertions that do not go through the OMS book, and this is the equivalent
+    a session-scoped read actually returns.
+    """
+    position = MagicMock()
+    position.instrument.instrument_id = f"NSE:{_SECRET_SYMBOL}"
+    position.quantity.value = Decimal(_SECRET_QTY)
+    position.avg_price.value = Decimal("0")
+    position.realized_pnl.amount = Decimal("0")
+    position.unrealized_pnl.amount = Decimal("0")
+    position.mark_price = None
+    position.marked_at = None
+    position.mark_source = None
+    position.is_long = True
+    position.is_short = False
+    return position
+
+
 def _session_with_data() -> MagicMock:
     """A bound session whose reads return recognisable, secret-bearing data.
 
@@ -69,7 +93,7 @@ def _session_with_data() -> MagicMock:
     session.state = "READY"
     session.broker.get_account.return_value = _account()
     session.broker.get_holdings.return_value = [_holding()]
-    session.engine.cache.all_positions.return_value = []
+    session.engine.cache.all_positions.return_value = [_position()]
     return session
 
 
@@ -161,17 +185,24 @@ def test_holdings_are_served_to_a_valid_key() -> None:
 
 
 def test_positions_are_served_to_a_valid_key() -> None:
-    """``/positions`` is the one read that answers ``[]`` for a stubbed book.
+    """``/positions`` now answers the live OMS book, so it carries a row.
 
-    Pinning it alongside the two that carry a body keeps the guard honest
-    across all three shapes -- an empty list, a populated list, and an object.
+    Lane 3i moved the portfolio routes onto ``get_session_portfolio`` (the
+    session's OMS cache) instead of the broker's own holdings dict. Pinning
+    the populated shape keeps the guard honest across all three shapes — an
+    empty list, a populated list, and an object — and stops it from being
+    satisfied by a route that silently serves a stub. ``_SECRET_QTY`` appears
+    precisely because the row is live data the guard must protect.
     """
     response = _client(api_key="secret-key").get(
         "/positions", headers={"X-API-Key": "secret-key"}
     )
 
     assert response.status_code == 200, response.text
-    assert response.json() == []
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["instrument"] == f"NSE:{_SECRET_SYMBOL}"
+    assert body[0]["quantity"] == _SECRET_QTY
 
 
 # ---------------------------------------------------------------------------

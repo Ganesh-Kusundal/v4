@@ -10,7 +10,7 @@ from tradex_execution.projection import execution_projection
 from tradex_interfaces._helpers import serialize_position
 from tradex_interfaces.auth.deps import require_auth
 from tradex_interfaces.models import PositionResponse
-from tradex_interfaces.routes.deps import get_session
+from tradex_interfaces.routes.deps import get_session, get_session_portfolio
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -22,7 +22,11 @@ async def get_positions(
 ) -> list[PositionResponse]:
     if session is None:
         return []
-    positions = session.engine.cache.all_positions()
+    # The live book: ``get_session_portfolio`` reads the OMS cache the
+    # session's own fill path writes to, so a fill that lands while the
+    # session is running is what this endpoint returns on the next request.
+    portfolio = get_session_portfolio(session)
+    positions = portfolio.positions
     # The canonical economic values come from the same projection the parity
     # suite compares across modes, so this endpoint cannot drift from what
     # backtest/replay/live agree on. ``serialize_position`` still supplies the
@@ -55,18 +59,18 @@ async def get_holdings(session: Any | None = Depends(get_session)) -> list[dict]
     """Get holdings (long-term positions)."""
     if session is None:
         raise HTTPException(status_code=400, detail="no session bound")
-    try:
-        holdings = list(session.broker.get_holdings())
-        return [
-            {
-                "instrument_id": (
-                    str(h.instrument.instrument_id)
-                    if hasattr(h, "instrument")
-                    else str(h)
-                ),
-                "quantity": float(h.quantity.value) if hasattr(h, "quantity") else 0,
-            }
-            for h in holdings
-        ]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    # The same live book as ``/positions``. The broker's own holdings read is
+    # deliberately NOT the source here: for paper the session's fill path
+    # never writes the broker's position dict (``PaperFillSource`` owns no
+    # projection, so the engine books the OMS cache), so a ``/holdings`` that
+    # read ``broker.get_holdings()`` would report a flat account for a session
+    # holding a filled position — the stub this replaces.
+    portfolio = get_session_portfolio(session)
+    return [
+        {
+            "instrument_id": str(position.instrument.instrument_id),
+            "quantity": float(position.quantity.value),
+        }
+        for position in portfolio.positions
+        if float(position.quantity.value) != 0.0
+    ]
