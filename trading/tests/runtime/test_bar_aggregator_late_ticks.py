@@ -28,8 +28,8 @@ import pytest
 from tradex_domain.enums import Timeframe
 from tradex_observability.metrics import MetricsRegistry
 from tradex_runtime.bar_aggregator import (
-    LATE_TICKS_DROPPED_METRIC,
     LATE_TICK_REVISION_SECONDS,
+    LATE_TICKS_DROPPED_METRIC,
     REASON_BOOKED_FILL,
     REASON_STALE,
     REASON_WINDOW_EXPIRED,
