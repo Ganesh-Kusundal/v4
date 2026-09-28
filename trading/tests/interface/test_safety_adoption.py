@@ -66,12 +66,13 @@ def _position(
     *,
     avg_price: Decimal = Decimal("100"),
     strategy_id: str | None = "strat-a",
+    realized: Decimal = Decimal("0"),
 ) -> Position:
     return Position(
         instrument=instrument,
         quantity=Quantity(value=quantity),
         avg_price=Price(value=avg_price),
-        realized_pnl=Money(amount=Decimal("0"), currency="INR"),
+        realized_pnl=Money(amount=realized, currency="INR"),
         unrealized_pnl=Money(amount=Decimal("0"), currency="INR"),
         mark_price=None,
         marked_at=None,
@@ -1183,3 +1184,95 @@ def test_seams_still_adopt_when_the_engine_has_no_order_listing_at_all() -> None
     outcome = seams.adopt()
     assert outcome.applied
     assert cache.written_ids() == ["NSE:RELIANCE"]
+
+
+# -- the local realized-P&L ledger survives adoption (P0-Q1) -------------------
+
+
+def test_adopt_preserves_the_local_realized_pnl_when_the_venue_omits_it() -> None:
+    """The fee ledger must not be silently zeroed by an adoption.
+
+    The fill path books fees into ``realized_pnl`` (PositionAccountant.on_fee)
+    and round-trip closes into it (apply_fill). A venue position payload
+    usually carries no per-position realized figure, so the old code defaulted
+    to 0 and adoption DESTROYED the local ledger: total P&L jumped by exactly
+    the fees already booked, on every adopted instrument, with nothing logged
+    as a correction.
+    """
+    local = _position(_RELIANCE, Decimal("3"), realized=Decimal("-42.50"))
+    venue = _position(_RELIANCE, Decimal("7"), realized=Decimal("0"))
+    cache = _Cache([local])
+    outcome = adopt_venue_positions(
+        broker=_Broker([venue]),
+        local_positions=[local],
+        cache=cache,
+        known_instruments=["NSE:RELIANCE"],
+    )
+    assert outcome.applied
+    written = cache.writes[0]
+    assert written.realized_pnl.amount == Decimal("-42.50"), (
+        "a venue that reports no realized figure must not erase the local "
+        "fee/round-trip ledger"
+    )
+    assert written.quantity.value == Decimal("7"), "the venue's quantity still wins"
+
+
+def test_adopt_keeps_local_realized_even_when_the_venue_reports_zero() -> None:
+    """A venue reporting ``0`` is indistinguishable from reporting nothing.
+
+    A broker that always serialises realized_pnl=0 is common; treating that as
+    a real venue figure would zero a genuine local ledger on the first poll.
+    Zero is therefore read as 'no information', and the local figure stands.
+    """
+    local = _position(_RELIANCE, Decimal("3"), realized=Decimal("-7.25"))
+    cache = _Cache([local])
+    adopt_venue_positions(
+        broker=_Broker([_position(_RELIANCE, Decimal("7"), realized=Decimal("0"))]),
+        local_positions=[local],
+        cache=cache,
+        known_instruments=["NSE:RELIANCE"],
+    )
+    assert cache.writes[0].realized_pnl.amount == Decimal("-7.25")
+
+
+def test_adopt_quantizes_the_venue_avg_price_onto_the_local_grid() -> None:
+    """The adopted basis lands on the same q2 grid the fill path books.
+
+    Writing the venue's raw average price puts the book OFF the paisa grid the
+    local path uses, and the next fill's ``q2(total_cost/qty)`` then snaps
+    back across the adoption tolerance, ping-ponging the basis on every fill
+    (quant review, Cycle 2). q2 is tradex_domain.utils.q2: the single source
+    of truth for money rounding across every mode.
+    """
+    local = _position(_RELIANCE, Decimal("3"), avg_price=Decimal("100.00"))
+    venue = _position(_RELIANCE, Decimal("7"), avg_price=Decimal("99.955"))
+    cache = _Cache([local])
+    adopt_venue_positions(
+        broker=_Broker([venue]),
+        local_positions=[local],
+        cache=cache,
+        known_instruments=["NSE:RELIANCE"],
+    )
+    written = cache.writes[0]
+    assert written.avg_price.value == Decimal("99.96"), (
+        "ROUND_HALF_UP to paisa, matching every other booked average"
+    )
+    assert written.avg_price.value == written.avg_price.value.quantize(Decimal("0.01"))
+
+
+def test_adopt_preserves_the_local_currency_on_realized_pnl() -> None:
+    """The carried-over ledger keeps the local position's currency.
+
+    A venue that omits realized has no currency to offer either; defaulting to
+    the instrument's currency is right for a fresh position but wrong for a
+    local row whose ledger was booked in another currency.
+    """
+    local = _position(_RELIANCE, Decimal("3"), realized=Decimal("-5.00"))
+    cache = _Cache([local])
+    adopt_venue_positions(
+        broker=_Broker([_position(_RELIANCE, Decimal("7"), realized=Decimal("0"))]),
+        local_positions=[local],
+        cache=cache,
+        known_instruments=["NSE:RELIANCE"],
+    )
+    assert cache.writes[0].realized_pnl.currency == local.realized_pnl.currency

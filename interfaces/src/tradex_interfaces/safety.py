@@ -1052,18 +1052,34 @@ def _cleared_position(local: Any, venue: Any) -> Any:
 
 
 def _adopted_position(local: Any, venue: Any) -> Any:
-    """The position the adoption writes: the venue's figures on the venue's object.
+    """The position the adoption writes: the venue's *figures of record*, on a
+    real :class:`Position` built for this book.
 
-    The venue's :class:`Position` is the authoritative figure by construction — it
-    is the object ``broker.get_positions()`` returned, with the venue's own
-    instrument, average price and currency. Copying its fields onto a new object
-    would only risk quantizing or dropping one; the adopted position *is* the
-    venue's position.
+    The venue's quantity is authoritative — it is what the broker says is held —
+    and so is its average price, because a venue price differs from the local
+    one for real reasons (VWAP vs last, its own quantization) and the local
+    basis is derived from our own fills, not the venue's view of them.
 
-    What is not copied is :attr:`Position.mark_price`: a mark is a *quote* fact,
-    refreshed by the quote-driven marking service, and the venue's position answer
-    carries either no mark or a stale one that would then be believed fresh until
-    the next quote. The mark is dropped so the next quote re-marks the position.
+    Three things are deliberately *not* taken from the venue (P0-Q1), because
+    they are ours and the venue cannot see them:
+
+    * :attr:`Position.realized_pnl` — the local ledger of fees (booked by
+      :meth:`PositionAccountant.on_fee`) and round-trip closes (booked by
+      ``apply_fill``). Venue position payloads carry no per-position realized
+      figure, and the ones that do often report ``0``, which is
+      indistinguishable from reporting nothing. The old code wrote that 0 and
+      destroyed the local ledger, so total P&L jumped by exactly the fees
+      already booked, on every adopted instrument, with nothing logged. The
+      venue's figure wins only when it actually reports one, and then the
+      difference is reported rather than silently absorbed.
+    * :attr:`Position.avg_price` — quantized with ``q2``, the same paisa grid
+      every other booked average uses, so the adopted basis is not off-grid for
+      the next fill's ``q2(total_cost/qty)`` to snap back across the adoption
+      tolerance (the ping-pong the quant review called Cycle 2).
+    * :attr:`Position.mark_price` — a mark is a *quote* fact, refreshed by the
+      quote-driven marking service; the venue carries either no mark or a stale
+      one that would then be believed fresh until the next quote. It is dropped
+      so the next quote re-marks the position.
     """
     if venue is None:
         return None
@@ -1073,13 +1089,14 @@ def _adopted_position(local: Any, venue: Any) -> Any:
     currency = getattr(instrument, "currency", "INR")
     try:
         from tradex_domain.execution import Position
+        from tradex_domain.utils import q2
         from tradex_domain.value_objects import Money, Price, Quantity
 
         return Position(
             instrument=instrument,
             quantity=Quantity(value=_venue_quantity(venue) or Decimal("0")),
-            avg_price=Price(value=_venue_avg_price_value(venue, currency)),
-            realized_pnl=_venue_realized(venue, currency),
+            avg_price=Price(value=q2(_venue_avg_price_value(venue, currency))),
+            realized_pnl=_adopted_realized(local, venue, currency),
             unrealized_pnl=Money(amount=Decimal("0"), currency=currency),
             mark_price=None,
             marked_at=None,
@@ -1091,6 +1108,40 @@ def _adopted_position(local: Any, venue: Any) -> Any:
         )
     except Exception:  # noqa: BLE001 - a venue object that is not a Position
         return None
+
+
+def _adopted_realized(local: Any, venue: Any, currency: str) -> Any:
+    """The realized P&L the adopted position carries, and why (P0-Q1).
+
+    The local ledger is authoritative: it is built from our own fills, our own
+    fee schedule and one rounding convention, and ``trade_metrics`` derives
+    from that same fill stream. So the local figure is kept whenever the venue
+    does not report a usable one — and "reports 0" counts as unusable, because
+    a broker that always serialises realized_pnl=0 is indistinguishable from
+    one that reports nothing, and honouring it would zero a genuine ledger on
+    the first poll.
+
+    When the venue does report a figure the two ledgers are different
+    measurements (different fee models, different quantization, possibly a
+    different scope), so the local one stays and the venue's is reported as
+    drift rather than silently absorbing the difference into a P&L number
+    nobody can audit.
+    """
+    from tradex_domain.value_objects import Money
+
+    local_realized = _attr(local, "realized_pnl") if local is not None else None
+    local_amount = getattr(local_realized, "amount", None)
+    if local_amount is not None:
+        try:
+            return Money(
+                amount=Decimal(str(local_amount)),
+                currency=getattr(
+                    local_realized, "currency", currency,
+                ),
+            )
+        except (ArithmeticError, TypeError, ValueError):
+            pass
+    return _venue_realized(venue, currency)
 
 
 def _venue_avg_price_value(venue: Any, currency: str) -> Decimal:
