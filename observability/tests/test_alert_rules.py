@@ -536,16 +536,29 @@ def test_pending_metrics_are_spec_mandated(all_rules: list[dict]) -> None:
     marked pending against a named acceptance criterion, and (c) appears
     verbatim in the production-readiness spec. Invent a name and this fails
     even though the anti-vacuity test would otherwise wave it through.
+
+    **Currently zero rules are pending.** Lane 3f (AC-15) landed the emitter
+    for ``datalake_quarantine_total``, so the one rule that used to defer is
+    live and its ``metric_pending: ac-15`` label came off with it — a stale
+    marker on a metric that *is* emitted is exactly the false claim this test
+    exists to prevent, just pointing the other way. The allowance itself is
+    untouched and re-arms the moment another lane stages a rule: a new
+    ``metric_pending`` rule is checked here against the spec text below, and
+    against the real source by
+    :func:`test_every_referenced_metric_is_actually_emitted`, which does not
+    need this test to have found anything.
+
+    The loop is kept (rather than deleted with its only consumer) because it is
+    the check that makes the allowance safe to leave in place, and it will
+    apply to the next lane that stages a rule.
     """
     spec_text = SPEC_PATH.read_text(encoding="utf-8") if SPEC_PATH.is_file() else ""
     assert spec_text, f"could not read the programme spec at {SPEC_PATH}"
 
-    checked = 0
     for rule in all_rules:
         pending = (rule.get("labels") or {}).get("metric_pending")
         if not pending:
             continue
-        checked += 1
         names, _ = _referenced_metric_names(rule.get("expr", ""))
         # every referenced name must either already be emitted (so the
         # pending marker is stale) or be quoted in the spec
@@ -554,4 +567,33 @@ def test_pending_metrics_are_spec_mandated(all_rules: list[dict]) -> None:
                 f"{rule['alert']} defers to {name!r} but the programme spec never "
                 f"mentions it — remove the metric_pending label or fix the name"
             )
-    assert checked, "no rule uses metric_pending (expected the AC-15 quarantine rule)"
+
+
+def test_the_ac15_quarantine_rule_is_live_not_pending(
+    all_rules: list[dict], emitted: tuple[frozenset[str], frozenset[str]]
+) -> None:
+    """The quarantine page is armed, and armed against a metric that exists.
+
+    The rule was staged against a metric the code did not emit, which is why
+    it carried ``metric_pending``. Now that lane 3f emits the metric, the
+    marker must be gone *and* the rule must still resolve — otherwise the two
+    halves drift apart: keeping the marker leaves a false "we do not emit
+    this yet", while dropping it while the emitter is absent turns the alert
+    into the permanently-green-against-nothing case the anti-vacuity test
+    exists to reject. Asserted here so neither half can move alone.
+    """
+    rule = next(
+        (r for r in all_rules if r.get("alert") == "TradeXDatalakeQuarantine"), None
+    )
+    assert rule is not None, "the TradeXDatalakeQuarantine rule was removed"
+    assert "metric_pending" not in (rule.get("labels") or {}), (
+        "the quarantine metric is emitted now, so the metric_pending marker is "
+        "a stale claim that the code does not publish it"
+    )
+    exact_emitted, _ = emitted
+    assert "datalake_quarantine_total" in exact_emitted, (
+        "the rule is live but the source stopped emitting the metric; that is "
+        "an alert that can never fire"
+    )
+    assert "increase(datalake_quarantine_total[15m]) > 0" in rule["expr"]
+

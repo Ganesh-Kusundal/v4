@@ -16,6 +16,20 @@ Upsert is idempotent: re-upserting the same (symbol, timeframe, timestamp)
 replaces old rows instead of duplicating them. Concurrent upserts to the
 same partition are serialized via per-partition locks.
 
+**Corrupt files are quarantined, not raised (AC-15).** A truncated or
+otherwise unreadable ``data.parquet`` used to make ``pyarrow.ArrowInvalid``
+propagate out of every read to every call site — chart, scanner, backtest,
+replay, recovery — so one bad file made that symbol unreadable everywhere,
+permanently, and there was no operator signal. Every parquet read now goes
+through :meth:`ParquetStorage._read_partition`, which catches the decode
+errors, moves the file to ``<base>/quarantine/<mtime>-<symbol>.parquet``,
+increments ``datalake_quarantine_total{symbol,file}`` (the counter
+``deploy/prometheus-rules.yml`` pages on) and reports the partition as
+absent. The affected symbol therefore reads as an empty series, the other
+symbols are unaffected, and the data team is paged. On the two write paths
+a quarantined partition is replaced by the incoming rows, so the lake
+rebuilds itself on the next backfill.
+
 Adapted from nTrade's ParquetStorage.
 """
 
@@ -25,8 +39,9 @@ import logging
 import os
 import shutil
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -35,12 +50,49 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 
+if TYPE_CHECKING:  # pragma: no cover — import cycle avoidance only
+    from tradex_observability.metrics import MetricsRegistry
+
 log = logging.getLogger(__name__)
 
 _BASE_COLUMNS = [
     "symbol", "exchange", "kind", "timeframe", "timestamp",
     "open", "high", "low", "close", "volume",
 ]
+
+#: Parquet read failures that mean "this file is unreadable" and must be
+#: quarantined, rather than "this process is in trouble".
+#:
+#: ``ArrowInvalid`` is the one AC-15 names, and it is what a truncated, empty
+#: or garbage-bodied file raises; the other Arrow decode errors are the shapes
+#: a file written by a different/broken writer produces instead, and all of
+#: them have the same consequence for the lake. ``OSError`` covers
+#: ``ArrowIOError`` (pyarrow's I/O errors subclass it) and a file that vanished
+#: between the ``exists()`` check and the read.
+#:
+#: ``ArrowMemoryError`` is deliberately absent: it IS an ``ArrowException``,
+#: but quarantining a healthy file because the box was short on RAM would
+#: destroy good data to hide a transient.
+_CORRUPT_FILE_ERRORS: tuple[type[BaseException], ...] = (
+    pa.ArrowInvalid,
+    pa.ArrowNotImplementedError,
+    pa.ArrowTypeError,
+    pa.ArrowSerializationError,
+    OSError,
+)
+
+#: The quarantine counter. This exact name is the one
+#: ``deploy/prometheus-rules.yml`` alerts on (``TradeXDatalakeQuarantine``,
+#: ``increase(datalake_quarantine_total[15m]) > 0``), so renaming it silently
+#: de-fuses a live page. It is a legal Prometheus name, so ``_sanitized``
+#: leaves it exactly as written here. Labels are ``symbol`` and ``file``,
+#: exactly as the spec states.
+_QUARANTINE_METRIC = "datalake_quarantine_total"
+
+#: Guards quarantine target-name allocation so two threads quarantining two
+#: different corrupt files for the same symbol in the same second cannot
+#: resolve to one destination and one of the files be overwritten.
+_quarantine_lock = threading.Lock()
 
 # ponytail: calendar constants single-sourced (domain/market_calendar.py); keep
 # local aliases so this module's grep for _MARKET_OPEN still hits.
@@ -73,7 +125,11 @@ class ParquetStorage:
     _partition_locks: dict[str, threading.Lock] = {}
     _locks_guard = threading.Lock()
 
-    def __init__(self, base_path: str | Path):
+    def __init__(
+        self,
+        base_path: str | Path,
+        metrics: MetricsRegistry | None = None,
+    ):
         self.base_path = Path(base_path)
         # ponytail: if base_path already ends with 'ohlcv', use it directly
         if self.base_path.name == "ohlcv":
@@ -81,6 +137,19 @@ class ParquetStorage:
         else:
             self._ohlcv_root = self.base_path / "ohlcv"
         self._ohlcv_root.mkdir(parents=True, exist_ok=True)
+        #: Optional AC-15 metrics registry. Duck-typed exactly as
+        #: ``FeeCalculator``/``ExecutionEngine`` type theirs: anything exposing
+        #: ``counter(name) -> .inc(**labels)`` works, and ``None`` is normal
+        #: (scripts, the chart route's cached store) rather than a bug.
+        self._metrics = metrics
+        #: Siblings of ``_ohlcv_root`` under the same base path, so the
+        #: quarantine directory sits at ``<base>/quarantine`` — which is
+        #: ``data/quarantine`` for the production root
+        #: (``ParquetStorage("data")``) and lands inside ``tmp_path`` for a
+        #: test, with nothing to patch and no chance of a test writing into
+        #: the real lake. A base path already named ``ohlcv`` puts it at
+        #: ``<ohlcv>/../quarantine``, i.e. beside the store it protects.
+        self._quarantine_root = self._ohlcv_root.parent / "quarantine"
 
     @classmethod
     def _get_partition_lock(cls, partition_key: str) -> threading.Lock:
@@ -89,6 +158,123 @@ class ParquetStorage:
             if partition_key not in cls._partition_locks:
                 cls._partition_locks[partition_key] = threading.Lock()
             return cls._partition_locks[partition_key]
+
+    # ------------------------------------------------------------------ quarantine
+
+    def _partition_symbol(self, partition_dir: Path) -> str:
+        """The symbol a Hive partition directory belongs to.
+
+        Read off the ``symbol=`` path segment rather than out of the file,
+        because the file is unreadable — that is the only situation this is
+        ever called in. Falls back to ``"unknown"`` if a caller ever hands in
+        a path outside the Hive layout, so the metric is still emitted with a
+        usable value instead of a ``KeyError`` replacing the ``ArrowInvalid``.
+        """
+        for part in reversed(partition_dir.parts):
+            if part.startswith("symbol="):
+                return part.split("=", 1)[1]
+        return "unknown"
+
+    def _quarantine_name(self, path: Path, symbol: str) -> str:
+        """Allocate a free ``<mtime>-<symbol>.parquet`` name under the lock.
+
+        The name is the file's mtime rendered as a compact UTC stamp,
+        ``YYYYmmddTHHMMSSZ``, for two reasons. It sorts lexicographically in
+        chronological order, so ``ls data/quarantine`` reads as a timeline
+        without a sort. And it is derived from the corrupt file itself, not
+        from the clock, so two quarantines of the same file at different times
+        are distinguishable, and a replayed test is deterministic when the
+        mtime is pinned.
+
+        The lock is held across the existence check *and* the subsequent move
+        so a concurrent quarantine of a second corrupt file for the same
+        symbol cannot pick the same free name. That is the one case where
+        plain ``os.replace`` would silently destroy the earlier file.
+        """
+        stamp = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC)
+        prefix = f"{stamp.strftime('%Y%m%dT%H%M%SZ')}-{symbol}"
+        with _quarantine_lock:
+            candidate = self._quarantine_root / f"{prefix}.parquet"
+            n = 0
+            while candidate.exists():
+                n += 1
+                candidate = self._quarantine_root / f"{prefix}-{n}.parquet"
+            return candidate.name
+
+    def quarantine(
+        self, path: Path, error: BaseException, *, symbol: str | None = None
+    ) -> str:
+        """Move an unreadable parquet file out of the lake and count it.
+
+        *path* is a partition's ``data.parquet`` and *error* the decode
+        exception it raised. Returns the quarantine file's name.
+
+        This never raises. The whole point of quarantining is that the caller
+        cannot go on reading the file, so a failure to move it (a read-only
+        mount, a full disk, a race with another thread that already took the
+        file) must not replace ``ArrowInvalid`` with an ``OSError`` and defeat
+        the guard. On such a failure the file is left where it is, the error
+        is logged, and the counter still fires — a file that stays put and
+        keeps failing is a louder signal than a silent skip, because the next
+        read quarantines (or re-reports) it again.
+
+        The counter is emitted even when the move fails, and before the move,
+        so a quarantine is observable whether or not the file could be moved.
+        """
+        symbol = symbol or self._partition_symbol(path.parent)
+        try:
+            file_label = str(path.relative_to(self._ohlcv_root.parent))
+        except ValueError:  # a path outside this store; label it as given
+            file_label = str(path)
+
+        if self._metrics is not None:
+            try:
+                self._metrics.counter(_QUARANTINE_METRIC).inc(
+                    symbol=symbol, file=file_label
+                )
+            except Exception:  # noqa: BLE001 — a metric must never break a read
+                log.exception("quarantine: could not publish %s", _QUARANTINE_METRIC)
+
+        try:
+            self._quarantine_root.mkdir(parents=True, exist_ok=True)
+            destination = self._quarantine_root / self._quarantine_name(path, symbol)
+            # os.replace, not Path.rename: the quarantine dir is a sibling of
+            # the store, so the move can cross a filesystem, where rename
+            # raises EXDEV and shutil.move would.
+            os.replace(path, destination)
+        except OSError:
+            log.exception(
+                "quarantine: could not move corrupt file %s (%s: %s); "
+                "leaving it in place and skipping it for this read",
+                path, type(error).__name__, error,
+            )
+            return ""
+
+        log.error(
+            "quarantine: corrupt parquet %s (%s: %s) moved to %s; "
+            "%s returns an empty series until the partition is rebuilt",
+            file_label, type(error).__name__, error,
+            self._quarantine_root / destination.name, symbol,
+        )
+        return destination.name
+
+    def _read_partition(self, partition_dir: Path) -> pa.Table | None:
+        """Read one partition's parquet, quarantining it if it is unreadable.
+
+        Returns ``None`` — the caller's signal to drop this partition — for
+        every corrupt/unreadable file, so an ``ArrowInvalid`` never escapes
+        this method. This is the single chokepoint all three call sites go
+        through, so a fourth unguarded read added later is guarded by
+        construction rather than by remembering.
+        """
+        parquet_file = partition_dir / "data.parquet"
+        if not parquet_file.exists():
+            return None
+        try:
+            return pq.ParquetFile(parquet_file).read()
+        except _CORRUPT_FILE_ERRORS as exc:
+            self.quarantine(parquet_file, exc)
+            return None
 
     # ------------------------------------------------------------------ write
 
@@ -121,8 +307,9 @@ class ParquetStorage:
                 partition_key = f"{symbol}/{year}/{int(month):02d}"
                 lock = self._get_partition_lock(partition_key)
                 with lock:
-                    if parquet_file.exists():
-                        existing = pq.ParquetFile(parquet_file).read().to_pandas()
+                    existing_table = self._read_partition(partition_dir)
+                    if existing_table is not None:
+                        existing = existing_table.to_pandas()
                         existing["timestamp"] = pd.to_datetime(existing["timestamp"])
                         if getattr(existing["timestamp"].dt, "tz", None) is not None:
                             existing["timestamp"] = existing["timestamp"].dt.tz_localize(None)
@@ -138,6 +325,11 @@ class ParquetStorage:
                             else grp
                         )
                     else:
+                        # First write into a new/empty partition, or the
+                        # partition was just quarantined as unreadable. Either
+                        # way there is nothing to merge, so the incoming rows
+                        # become the whole file — the write path stays usable
+                        # after a quarantine instead of needing a manual wipe.
                         combined = grp
 
                     if not combined.empty:
@@ -169,24 +361,34 @@ class ParquetStorage:
         External callers may use this directly; it remains atomic and dedupes.
         """
         if path.exists():
-            existing = pq.ParquetFile(path).read().to_pandas()
-            existing["timestamp"] = pd.to_datetime(existing["timestamp"])
-            if getattr(existing["timestamp"].dt, "tz", None) is not None:
-                existing["timestamp"] = existing["timestamp"].dt.tz_localize(None)
-            # Same dedup semantics as upsert: new data replaces old for
-            # matching (symbol, timeframe, timestamp) keys.
-            key_cols = ["symbol", "timeframe", "timestamp"]
-            existing = existing[
-                ~existing.set_index(key_cols).index.isin(
-                    df.set_index(key_cols).index
+            # Site 2 of 3. The dedup read goes through the same guarded
+            # chokepoint as upsert() and read(): a corrupt file is quarantined
+            # and this write replaces it with the incoming rows rather than
+            # raising. The file may no longer exist by the time _read_partition
+            # gets to it — quarantine moves it — so `path.exists()` is the
+            # fast path, not the guard.
+            existing_table = self._read_partition(path.parent)
+            if existing_table is not None:
+                existing = existing_table.to_pandas()
+                existing["timestamp"] = pd.to_datetime(existing["timestamp"])
+                if getattr(existing["timestamp"].dt, "tz", None) is not None:
+                    existing["timestamp"] = existing["timestamp"].dt.tz_localize(None)
+                # Same dedup semantics as upsert: new data replaces old for
+                # matching (symbol, timeframe, timestamp) keys.
+                key_cols = ["symbol", "timeframe", "timestamp"]
+                existing = existing[
+                    ~existing.set_index(key_cols).index.isin(
+                        df.set_index(key_cols).index
+                    )
+                ]
+                combined = (
+                    pd.concat([existing, df], ignore_index=True)
+                    if not existing.empty
+                    else df
                 )
-            ]
-            combined = (
-                pd.concat([existing, df], ignore_index=True)
-                if not existing.empty
-                else df
-            )
-            self._write_atomic(combined, path)
+                self._write_atomic(combined, path)
+            else:
+                self._write_atomic(df, path)
         else:
             self._write_atomic(df, path)
 
@@ -280,11 +482,13 @@ class ParquetStorage:
 
         tables = []
         for pdir in hive_paths:
-            parquet_file = pdir / "data.parquet"
-            if not parquet_file.exists():
-                continue
-            table = pq.ParquetFile(parquet_file).read()
-            if table.num_rows > 0:
+            # Site 3 of 3, and the one the spec describes: a corrupt partition
+            # is quarantined and contributes nothing, so the symbol it held
+            # comes back as an empty series and the symbols that were fine
+            # still come back. This is the read path every call site (chart,
+            # scanner, backtest, replay, recovery) shares.
+            table = self._read_partition(pdir)
+            if table is not None and table.num_rows > 0:
                 tables.append(table.to_pandas())
 
         if not tables:

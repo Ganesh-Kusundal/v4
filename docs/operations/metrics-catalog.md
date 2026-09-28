@@ -88,6 +88,23 @@ Legend: **Implemented** = emitted in code today; **Planned** = required by check
 
 ---
 
+## Datalake integrity
+
+| Metric | Type | Status | Description | Suggested alert | Runbook |
+|--------|------|--------|-------------|-----------------|---------|
+| `datalake_quarantine_total` | counter | Implemented | Corrupt parquet partitions moved to `data/quarantine/<mtime>-<symbol>.parquet`; the affected symbol reads as an empty series. Labels: `symbol`, `file` (store-relative path of the failed partition) | `increase(...[15m]) > 0` → `TradeXDatalakeQuarantine` | — |
+
+**Why a quarantine is a page and not a warning to ignore:** a corrupt partition is
+moved out of the lake and counted, so the affected symbol returns an empty series
+rather than raising `ArrowInvalid` at the chart, scanner, backtest, replay and
+recovery paths. That trade is only safe while someone is looking — a silent skip
+would let a symbol quietly read as "no data" forever. The alert is what closes
+the loop: inspect `data/quarantine/<mtime>-<symbol>.parquet` for what the writer
+produced, then rebuild the partition with a backfill. The next write into a
+quarantined partition replaces it, so no manual delete is needed.
+
+---
+
 ## Alert routing (recommended)
 
 | Priority | Condition | Action |
@@ -99,6 +116,7 @@ Legend: **Implemented** = emitted in code today; **Planned** = required by check
 | P2 | `reconciliation_drift_total.high.*` / `reconciliation_drift_total.critical.*` | Halt trading; [reconciliation-drift.md](./runbooks/reconciliation-drift.md) |
 | P3 | `risk.rejected` / `orders.rejected` elevated | Review limits/strategy |
 | P3 | `bus.messages.dropped` | Scale or reduce fan-out |
+| P2 | `datalake_quarantine_total` increases | Ticket; inspect `data/quarantine/` and rebuild the partition |
 
 ---
 
@@ -106,7 +124,7 @@ Legend: **Implemented** = emitted in code today; **Planned** = required by check
 
 ```bash
 export TRADEX_BASE=http://127.0.0.1:8000
-curl -sS "$TRADEX_BASE/metrics" | rg '^feed_|^orders\.|^kill_switch|^risk\.'
+curl -sS "$TRADEX_BASE/metrics" | rg '^feed_|^orders\.|^kill_switch|^risk\.|^datalake_'
 curl -sS -o /dev/null -w "ready_http=%{http_code}\n" "$TRADEX_BASE/health/ready"
 ```
 

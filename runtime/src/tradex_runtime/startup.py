@@ -740,7 +740,10 @@ def _boot_tail(
     if wire_strategies:
         if cfg.mode in ("backtest", "replay"):
             from tradex_market_data.market_provider import ParquetMarketProvider
-            scanner_market: Any = ParquetMarketProvider()
+            # AC-15: the scanner's parquet store gets the session registry, so a
+            # corrupt partition quarantined while the scanner reads the local
+            # lake is counted on the very registry ``GET /metrics`` renders.
+            scanner_market: Any = ParquetMarketProvider(metrics=metrics)
         else:
             scanner_market = broker
         scanner_engine = ScannerEngine(market=scanner_market)
@@ -756,7 +759,9 @@ def _boot_tail(
     backtest_loader: Any = None
     if cfg.mode in ("backtest", "replay"):
         from tradex_market_data.backtest_loader import ParquetBacktestLoader
-        backtest_loader = ParquetBacktestLoader()
+        # AC-15: same session registry as the scanner, so a quarantine hit
+        # while a backtest loads the lake is counted on the served metrics.
+        backtest_loader = ParquetBacktestLoader(metrics=metrics)
 
     # 8. Create session — strategies registered, scanner engine bound
     # so ``session._scanner_engine.run(definition)`` works.

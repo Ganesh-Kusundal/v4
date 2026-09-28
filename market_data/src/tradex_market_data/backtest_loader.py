@@ -225,6 +225,7 @@ class ParquetBacktestLoader:
         check_gaps: bool = True,
         gap_strict: bool = False,
         delisted: set[str] | None = None,
+        metrics: Any | None = None,
     ) -> None:
         """Initialize the loader.
 
@@ -256,7 +257,7 @@ class ParquetBacktestLoader:
         # base_path=None lets the provider resolve the anchored root at call
         # time; a default argument would freeze it at import time.
         self._provider = provider or ParquetMarketProvider(
-            store=store, base_path=base_path or datalake_root()
+            store=store, base_path=base_path or datalake_root(), metrics=metrics
         )
         self._calendar = calendar or NSETradingCalendar()
         self._check_gaps = check_gaps

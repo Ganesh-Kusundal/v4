@@ -35,12 +35,19 @@ class ParquetMarketProvider:
         self,
         store: ParquetStorage | None = None,
         base_path: str | Path | None = None,
+        metrics: Any | None = None,
     ) -> None:
         # Resolved here, not in the signature: a default argument is evaluated
         # once at def time, and the anchored root must be settled per call so a
         # chdir (or a later env change) can never move the store. Callers that
         # pass a store still ignore base_path.
-        self._store = store or ParquetStorage(base_path or datalake_root())
+        # ``metrics`` is forwarded to a store this constructor creates, so a
+        # quarantine on the provider's read path reaches the session registry
+        # that ``GET /metrics`` serves (AC-15). Ignored when a store is passed
+        # — that store already has whatever registry it was built with.
+        self._store = store or ParquetStorage(
+            base_path or datalake_root(), metrics=metrics
+        )
 
     @property
     def store(self) -> ParquetStorage:
@@ -121,8 +128,11 @@ class BulkPrefetchMarketProvider:
         end: datetime,
         store: ParquetStorage | None = None,
         base_path: str | Path | None = None,
+        metrics: Any | None = None,
     ) -> None:
-        self._store = store or ParquetStorage(base_path or datalake_root())
+        self._store = store or ParquetStorage(
+            base_path or datalake_root(), metrics=metrics
+        )
         self._start = start
         self._end = end
         frame = self._store.read(symbols=list(symbols), start=start, end=end)
