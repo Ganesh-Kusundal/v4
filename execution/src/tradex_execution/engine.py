@@ -50,6 +50,11 @@ from tradex_domain.execution import (
 )
 from tradex_domain.protocols import Clock
 from tradex_domain.value_objects import CorrelationId, Money, OrderId
+from tradex_observability.tracing import (
+    reset_correlation_id,
+    set_correlation_id,
+    trace_id_of,
+)
 from tradex_reactive.bus import ReactiveBus
 from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 
@@ -448,6 +453,55 @@ class ExecutionEngine:
                 )
 
     def _run_pipeline(
+        self, request: OrderRequest, *, sync: bool
+    ) -> OrderReceipt | None:
+        """Trace wrapper: pin the order's trace id for the whole pipeline.
+
+        The idempotency→risk→fill→OMS sequence below is the one place every
+        order passes through, whatever door it came in by (the reactive
+        ``PlaceOrderCommand`` subscription or the synchronous ``submit``). Binding
+        the domain ``CorrelationId`` into the logging contextvar here means every
+        log line the engine emits while this order is in flight — the risk gate,
+        the fee-schedule refusal, the durable-append failures, the venue call —
+        is stamped with the same id the order is persisted under, so one grep
+        returns the whole story of that order.
+
+        The contextvar is reset in a ``finally`` so the next unit of work on this
+        thread (the bus delivers a stream of independent orders) does not
+        inherit the previous order's id.
+        """
+        token = set_correlation_id(trace_id_of(request.correlation_id))
+        try:
+            self._log_trace_point("order.submit", request, sync=sync)
+            return self._run_pipeline_body(request, sync=sync)
+        finally:
+            reset_correlation_id(token)
+
+    def _log_trace_point(
+        self,
+        stage: str,
+        request: OrderRequest,
+        **fields: object,
+    ) -> None:
+        """Emit one greppable chain point for ``request``'s trace id.
+
+        The correlation id rides as a real structured field (``extra``), not
+        interpolated into the message, so the JSON formatter emits it as a
+        queryable key.
+        """
+        log.info(
+            "trace %s instrument=%s",
+            stage,
+            request.instrument.instrument_id,
+            extra={
+                "stage": stage,
+                "instrument": request.instrument.instrument_id,
+                "correlation_id": trace_id_of(request.correlation_id),
+                **fields,
+            },
+        )
+
+    def _run_pipeline_body(
         self, request: OrderRequest, *, sync: bool
     ) -> OrderReceipt | None:
         """Single idempotency→risk→fill→OMS sequence shared by the reactive

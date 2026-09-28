@@ -7,6 +7,7 @@ Frozen dataclass tree with strict shape validation.
 from __future__ import annotations
 
 import os
+import typing
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -337,6 +338,53 @@ class ExecutionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class LoggingConfig:
+    """Structured-logging configuration, read by ``boot`` (AC-17 / lane 5c).
+
+    The structured logging seam in ``tradex_runtime.logging_config`` existed
+    but had no production call site, so a real run emitted plain stdlib lines
+    and the correlation id was a contextvar nobody ever set. These two fields
+    are what make it operator-tunable rather than hardcoded:
+
+    ``level``
+        Root logger level, by name (``DEBUG``/``INFO``/``WARNING``/``ERROR``/
+        ``CRITICAL``, case-insensitive). A bad name raises rather than silently
+        falling back, because a typo that quietly disabled ERROR output on a
+        trading process is not a default anyone wants.
+    ``json_format``
+        JSON lines for ELK/Datadog instead of the human-readable format.
+    """
+
+    level: str = "INFO"
+    json_format: bool = False
+
+    #: Level names an operator may name. Kept here so the accepted set is one
+    #: list rather than a branch in ``__post_init__`` and a lookup in boot.
+    _LEVELS: typing.ClassVar[frozenset[str]] = frozenset(
+        {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+    )
+
+    def __post_init__(self) -> None:
+        level = str(self.level).strip().upper()
+        if level not in self._LEVELS:
+            raise ValueError(
+                f"logging level must be one of {sorted(self._LEVELS)}, "
+                f"got {self.level!r}"
+            )
+        object.__setattr__(self, "level", level)
+
+    def level_value(self) -> int:
+        """The ``logging`` module constant for :attr:`level`.
+
+        Resolved through ``getattr`` on the ``logging`` module so this stays
+        stdlib-only and there is no second level table to keep in sync.
+        """
+        import logging
+
+        return int(getattr(logging, self.level))
+
+
+@dataclass(frozen=True, slots=True)
 class AppConfig:
     """Application configuration.
 
@@ -362,6 +410,10 @@ class AppConfig:
         Broker connection configuration.
     persistence : PersistenceConfig
         Persistence configuration.
+    logging : LoggingConfig
+        Structured-logging level and output format, named by
+        ``$TRADEX_LOG_LEVEL`` and ``$TRADEX_LOG_JSON`` and applied by
+        ``boot()`` (AC-17 / lane 5c).
     feed_instruments : tuple[Instrument, ...]
         The tape a live session must be able to prove before it starts (AC-20).
         Empty by default — paper, backtest and replay need no tape — and named
@@ -380,6 +432,7 @@ class AppConfig:
     broker: BrokerConfig = field(default_factory=BrokerConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    logging: LoggingConfig = field(default_factory=LoggingConfig)
     feed_instruments: tuple[Instrument, ...] = field(
         default_factory=default_feed_instruments
     )
@@ -420,6 +473,7 @@ class AppConfig:
             "broker",
             "persistence",
             "execution",
+            "logging",
             "feed_instruments",
         }
         unknown = set(data) - allowed
@@ -440,6 +494,7 @@ class AppConfig:
         risk = _build(RiskConfig, data.get("risk"))
         persistence = _build(PersistenceConfig, data.get("persistence"))
         execution = _build(ExecutionConfig, data.get("execution"))
+        logging = _build(LoggingConfig, data.get("logging"))
         # Absent from the dict means "unset", which is the environment's
         # default — the same reading ``AppConfig()`` gets, so the two paths
         # cannot disagree about what the operator named.
@@ -461,6 +516,7 @@ class AppConfig:
             broker=broker,
             persistence=persistence,
             execution=execution,
+            logging=logging,
             feed_instruments=feed_instruments,
         )
 
@@ -483,6 +539,7 @@ __all__ = [
     "AppConfig",
     "BrokerConfig",
     "ExecutionConfig",
+    "LoggingConfig",
     "MissingRiskLimitError",
     "PersistenceConfig",
     "RiskConfig",

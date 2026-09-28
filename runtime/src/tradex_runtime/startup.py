@@ -47,6 +47,7 @@ from tradex_strategy.core.engine import ReactiveStrategyEngine
 from tradex_strategy.core.scanner import ScannerEngine
 from tradex_strategy.extensions import all_scanners, all_strategies
 
+from tradex_runtime.logging_config import setup_structured_logging
 from tradex_runtime.metrics import MetricsRegistry
 
 log = logging.getLogger(__name__)
@@ -193,6 +194,22 @@ def boot(
         Any error during boot prevents session creation (fail-closed).
     """
     cfg = config or AppConfig()
+
+    # AC-17 / lane 5c: turn on the structured logging that already existed.
+    # ``setup_structured_logging`` was defined and unit-tested but had NO
+    # production call site, so every real run emitted plain stdlib lines and the
+    # correlation id was a contextvar nobody ever set. It is installed here,
+    # before the first log line below, so boot's own output is structured too.
+    #
+    # First in the function on purpose: an operator who asks for JSON logs
+    # should not have to read the first dozen lines of the boot sequence in the
+    # other format, and a root logger configured once cannot be un-configured
+    # by anything that follows.
+    setup_structured_logging(
+        "tradex",
+        json_format=cfg.logging.json_format,
+        level=cfg.logging.level_value(),
+    )
     log.info("Booting runtime context...")
 
     # 0. Safety gates

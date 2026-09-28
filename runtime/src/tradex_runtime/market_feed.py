@@ -57,6 +57,7 @@ from tradex_domain.events import FeedGapDetected, StaleFeed
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote, require_depth_supported
 from tradex_domain.value_objects import InstrumentId
+from tradex_observability.tracing import get_correlation_id
 
 from tradex_runtime.feed_integrity import FeedIntegrityTracker
 from tradex_runtime.feed_supervisor import FeedState, FeedSupervisor
@@ -439,6 +440,27 @@ class MarketFeed:
 
     def _on_quote(self, quote: Quote) -> None:
         if quote.instrument.instrument_id in self._instruments:
+            # AC-17 / lane 5c, first link in the chain. A tick carries no order
+            # identity yet — the strategy mints the CorrelationId from this event
+            # when it turns the tick into a signal — so this records the event
+            # that the id is derived from, plus whatever id is already in scope
+            # (a replay/reconcile thread may be driving this feed under one).
+            #
+            # DEBUG, not INFO: the feed runs at tick frequency, and an INFO line
+            # per tick would bury the order lifecycle it exists to lead into. An
+            # operator tracing one order raises the level and filters on the id.
+            log.debug(
+                "trace feed.tick",
+                extra={
+                    "stage": "feed.tick",
+                    "instrument": quote.instrument.instrument_id,
+                    "ltp": str(quote.ltp.value),
+                    "event_timestamp": (
+                        quote.timestamp.isoformat() if quote.timestamp else None
+                    ),
+                    "correlation_id": get_correlation_id(),
+                },
+            )
             self._bus.publish(quote)
             received_at = datetime.now(UTC)
             with self._last_tick_lock:

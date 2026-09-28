@@ -18,6 +18,7 @@ from tradex_config.schema import (
     AppConfig,
     BrokerConfig,
     ExecutionConfig,
+    LoggingConfig,
     RiskConfig,
     default_feed_instruments,
     default_runtime_dir_str,
@@ -43,6 +44,11 @@ def from_env() -> AppConfig:
     - TRADEX_RISK_MAX_POSITION_VALUE: Max position value
     - TRADEX_RISK_MAX_ORDERS_PER_MINUTE: Max orders per minute
     - TRADEX_FEES_ENABLED: Deduct brokerage/STT/etc from fills (true/false)
+    - TRADEX_LOG_LEVEL: Root log level name (DEBUG/INFO/WARNING/ERROR/
+      CRITICAL; default INFO). An unrecognised name raises rather than
+      falling back, so a typo cannot quietly silence a trading process.
+    - TRADEX_LOG_JSON: Emit JSON lines for log aggregation instead of the
+      human-readable format (true/false; default false)
     - TRADEX_SLIPPAGE_BPS: Basis-points slippage on fill prices
     - TRADEX_FILL_REFERENCE: Strategy order timing (next_open | signal_close)
     - TRADEX_FEED_INSTRUMENTS: The tape a live session streams, as
@@ -111,6 +117,13 @@ def from_env() -> AppConfig:
             environment=os.environ.get("TRADEX_BROKER_ENVIRONMENT", "PAPER"),
         ),
         execution=execution,
+        # AC-17 / lane 5c: the structured-logging seam existed with no
+        # production call site. boot() applies this, so a run's verbosity and
+        # format are operator decisions rather than constants in the code.
+        logging=LoggingConfig(
+            level=os.environ.get("TRADEX_LOG_LEVEL", "INFO"),
+            json_format=_parse_bool(os.environ.get("TRADEX_LOG_JSON", "false")),
+        ),
         # The same per-call resolution ``runtime_dir`` uses, passed explicitly
         # for the same reason: this function is where an operator looks to see
         # which variable a setting comes from.
