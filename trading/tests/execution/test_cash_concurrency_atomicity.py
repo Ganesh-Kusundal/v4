@@ -8,17 +8,28 @@ debit. The account ends up negative, or the position book and the cash ledger
 disagree, and neither fact is visible anywhere.
 
 ``CashLedger.apply_fill`` now holds one lock across proof, position booking,
-notional and fee, so the pair is atomic. This suite is the proof, and it is
-built to FAIL if the lock is removed:
+notional and fee, so the pair is atomic. This suite covers the surrounding
+behaviour under concurrency:
 
-- ``test_concurrent_submits_cannot_both_pass_affordability`` is the direct
-  assertion. Every thread submits the same fill against capital that can pay
-  for a known small number of them. If the check and the debit are not atomic,
-  more than that many are accepted and cash goes negative.
+- ``test_concurrent_submits_cannot_both_pass_affordability`` asserts the
+  accepted count. Every thread submits the same fill against capital that can
+  pay for a known small number of them.
 - ``test_no_fill_is_lost`` asserts the accepted set is exactly the set whose
   fills landed in the book, so a "refuse everything" strategy cannot pass.
-- The two together are the negative control: the ledger must accept some fills
-  and refuse the rest, never lose one, and never go negative.
+
+**What this file does NOT prove, and where the real control is.** The seam
+helper below replaces ``CashLedger.apply_fill`` with a re-implementation whose
+body also takes ``self._lock``, so these tests prove their OWN lock was held
+and never execute the production critical section. They are not a negative
+control on ``apply_fill``: replace the ``with self._lock:`` inside production
+``apply_fill`` with a no-op and every test in this file still passes, because
+``require_debit`` and ``_debit_unlocked`` each re-enter the real lock on their
+own.
+
+``test_cash_ledger_lock_negative_control.py`` is the control that fails on that
+mutation. It exercises production ``apply_fill`` unmodified and stages the
+check-then-debit window through a callback the real method is handed. Read that
+file for the atomicity claim; read this one for what surrounds it.
 """
 
 from __future__ import annotations
