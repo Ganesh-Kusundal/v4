@@ -44,6 +44,7 @@ from __future__ import annotations
 import math
 
 from tradex_analytics._math import (
+    _closes,
     _rolling_sum,
     _shift,
     _sma_skip_none,
@@ -394,8 +395,6 @@ SPEC_KAMA = IndicatorSpec(
 # ---------------------------------------------------------------------------
 
 
-def _closes(candles: list) -> list[float]:
-    return [_to_float(c.ohlc.close.value) for c in candles]
 
 
 def _linreg_endpoint(values: list[float], period: int) -> list[float | None]:

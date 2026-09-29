@@ -27,6 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from tradex_analytics._math import (
+    _closes,
     _highest,
     _lowest,
     _shift,
@@ -38,10 +39,6 @@ from tradex_analytics.indicators import (
     _sma_seeded_ema,
     atr,
 )
-
-
-def _closes(candles: list) -> list[float]:
-    return [_to_float(c.ohlc.close.value) for c in candles]
 
 
 def envelope(

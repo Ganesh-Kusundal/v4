@@ -32,6 +32,7 @@ from typing import Any, cast
 from tradex_analytics._math import (
     _rma,
     _to_float,
+    _vol,
     sma,
 )
 from tradex_analytics.indicators import (
@@ -120,19 +121,6 @@ def _source_values(candles: list, source: str) -> list[float]:
     return [_src_val(c, "close") for c in candles]
 
 
-def _vol(candle: Any) -> float:
-    """Reference ``nz(volume)``: a bar with no volume traded nothing."""
-    if isinstance(candle, dict):
-        v = candle.get("volume")
-        if v is None:
-            return 0.0
-        fv = float(v)
-        return fv if fv == fv else 0.0
-    v = candle.volume.value
-    if v is None:
-        return 0.0
-    fv = float(v)
-    return fv if fv == fv else 0.0
 
 
 def _roc_ts(values: list[float], n: int) -> list[float | None]:

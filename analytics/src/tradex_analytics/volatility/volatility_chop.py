@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from typing import cast
 
 from tradex_analytics._math import (
+    _closes,
     _highest,
     _lowest,
     _rolling_sum,
@@ -32,10 +33,6 @@ from tradex_analytics.indicators import (
     IndicatorSpec,
     _sma_seeded_ema,
 )
-
-
-def _closes(candles: list) -> list[float]:
-    return [_to_float(c.ohlc.close.value) for c in candles]
 
 
 def _highs(candles: list) -> list[float]:

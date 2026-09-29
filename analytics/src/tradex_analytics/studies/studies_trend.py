@@ -35,6 +35,7 @@ from tradex_analytics._math import (
     _rolling_sum,
     _shift,
     _to_float,
+    _vol,
     sma,
 )
 from tradex_analytics.indicators import (
@@ -78,16 +79,6 @@ def _f(candle: Any, key: str) -> float:
     return _to_float(getattr(candle.ohlc, key).value)
 
 
-def _vol(candle: Any) -> float:
-    """Reference ``nz(volume)``: a bar with no volume traded nothing."""
-    if isinstance(candle, dict):
-        v = candle.get("volume")
-    else:
-        v = candle.volume.value
-    if v is None:
-        return 0.0
-    fv = float(v)
-    return fv if _isfinite(fv) else 0.0
 
 
 def _extract(

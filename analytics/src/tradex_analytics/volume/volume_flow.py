@@ -26,7 +26,6 @@ Parity notes
 from __future__ import annotations
 
 import math
-from typing import Any
 
 from tradex_analytics._math import (
     _highest,
@@ -34,6 +33,7 @@ from tradex_analytics._math import (
     _rolling_sum,
     _sma_skip_none,
     _to_float,
+    _vol,
 )
 from tradex_analytics.indicators import (
     IndicatorSpec,
@@ -47,13 +47,6 @@ from tradex_analytics.indicators import (
 # ---------------------------------------------------------------------------
 
 
-def _vol(candle: Any) -> float:
-    """Reference ``nz(volume)``: a bar with no volume traded nothing."""
-    v = candle.volume.value
-    if v is None:
-        return 0.0
-    fv = float(v)
-    return fv if math.isfinite(fv) else 0.0
 
 
 def _money_flow(candles: list) -> list[float]:

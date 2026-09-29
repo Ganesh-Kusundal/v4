@@ -12,6 +12,7 @@ import math
 from typing import Any, cast
 
 from tradex_analytics._math import (
+    _closes,
     _highest,
     _lowest,
 )
@@ -57,8 +58,6 @@ def _f(v: Any) -> float:
     return float(v)
 
 
-def _closes(candles: list) -> list[float]:
-    return [_f(c.ohlc.close.value) for c in candles]
 
 
 def _highs(candles: list) -> list[float]:
