@@ -47,12 +47,6 @@ _TF_BY_VALUE: dict[str, Timeframe] = {
     "30m": Timeframe.M30, "1h": Timeframe.H1, "1d": Timeframe.D1, "1w": Timeframe.W1,
 }
 
-DHAN_INTRADAY: frozenset[Timeframe] = frozenset(
-    {Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1}
-)
-UPSTOX_MINUTE: frozenset[Timeframe] = frozenset({Timeframe.M1, Timeframe.M5, Timeframe.M15})
-
-
 def normalize(value: Timeframe | str) -> tuple[str, Timeframe]:
     """Return (canonical_str, Timeframe) for ``str | Timeframe``."""
     raw = value.value if isinstance(value, Timeframe) else str(value)
@@ -166,8 +160,6 @@ def to_timeframe(value: Timeframe | str) -> Timeframe:
 
 
 __all__ = [
-    "DHAN_INTRADAY",
-    "UPSTOX_MINUTE",
     "bucket_seconds",
     "bucket_start",
     "bucket_wall_seconds",
