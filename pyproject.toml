@@ -112,6 +112,8 @@ max-statements = 850
 # including tests would make the baseline about test style instead.
 "**/tests/**" = ["C901", "PLR0912", "PLR0915"]
 "**/test_*.py" = ["C901", "PLR0912", "PLR0915"]
+# CLI scripts print to stdout by design; the logging standard applies to
+# library code, not to tools whose output IS the printout.
 "**/scripts/**" = ["T201"]
 
 [tool.mypy]
@@ -141,6 +143,289 @@ strict_optional = true
 # brokers/pyproject.toml.
 module = "tradex_brokers.proto.*_pb2"
 ignore_errors = true
+
+[tool.importlinter]
+root_packages = [
+    "tradex_domain",
+    "tradex_config",
+    "tradex_market_data",
+    "tradex_brokers",
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "domain purity"
+type = "forbidden"
+source_modules = ["tradex_domain"]
+forbidden_modules = [
+    "tradex_brokers",
+    "tradex_config",
+    "tradex_market_data",
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "config layer"
+type = "forbidden"
+source_modules = ["tradex_config"]
+forbidden_modules = [
+    "tradex_brokers",
+    "tradex_market_data",
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "market_data layer"
+type = "forbidden"
+source_modules = ["tradex_market_data"]
+forbidden_modules = [
+    "tradex_brokers",
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "brokers layer"
+type = "forbidden"
+source_modules = ["tradex_brokers"]
+forbidden_modules = [
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "execution layer"
+type = "forbidden"
+source_modules = ["tradex_execution"]
+forbidden_modules = [
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "replay layer"
+type = "forbidden"
+source_modules = ["tradex_replay"]
+forbidden_modules = [
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "strategy layer"
+type = "forbidden"
+source_modules = ["tradex_strategy"]
+forbidden_modules = [
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "runtime layer"
+type = "forbidden"
+source_modules = ["tradex_runtime"]
+forbidden_modules = [
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "analytics layer"
+type = "forbidden"
+source_modules = ["tradex_analytics"]
+forbidden_modules = [
+    "tradex_brokers",
+    "tradex_config",
+    "tradex_market_data",
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "duckdb-analytics layer"
+type = "forbidden"
+source_modules = ["duck_analytics"]
+forbidden_modules = [
+    "tradex_brokers",
+    "tradex_config",
+    "tradex_market_data",
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "reactive layer"
+type = "forbidden"
+source_modules = ["tradex_reactive"]
+forbidden_modules = [
+    "tradex_brokers",
+    "tradex_config",
+    "tradex_market_data",
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_observability",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "observability layer"
+type = "forbidden"
+source_modules = ["tradex_observability"]
+forbidden_modules = [
+    "tradex_brokers",
+    "tradex_config",
+    "tradex_market_data",
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_application",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
+
+[[tool.importlinter.contracts]]
+name = "application layer"
+type = "forbidden"
+source_modules = ["tradex_application"]
+forbidden_modules = [
+    "tradex_brokers",
+    "tradex_config",
+    "tradex_market_data",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_reactive",
+    "tradex_observability",
+    "tradex_persistence",
+    "tradex_research",
+    "tradex_operations",
+]
 
 [tool.uv.workspace]
 members = [
@@ -194,6 +479,7 @@ tradex-duckdb = { workspace = true }
 dev = [
     "ruff>=0.5,<1",
     "mypy>=1.10,<2",
+    "import-linter>=2.15,<3",
     "pytest>=8,<10",
     "pytest-cov>=5,<7",
     "pytest-timeout>=2.3,<3",
