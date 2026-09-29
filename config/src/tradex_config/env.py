@@ -12,6 +12,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from tradex_domain import BrokerId
+from tradex_domain.constants import PAPER_DEFAULT
 from tradex_domain.errors import SDKError
 
 from tradex_config.schema import (
@@ -60,7 +61,7 @@ def from_env() -> AppConfig:
       de-duplication live in ``schema.parse_feed_instruments``; a malformed
       entry raises rather than being dropped.
     """
-    broker_id_str = os.environ.get("TRADEX_BROKER", "PAPER")
+    broker_id_str = os.environ.get("TRADEX_BROKER", PAPER_DEFAULT)
     try:
         broker_id = BrokerId(broker_id_str)
     except ValueError:
@@ -114,7 +115,7 @@ def from_env() -> AppConfig:
         kill_switch_default=kill_switch,
         broker=BrokerConfig(
             name=os.environ.get("TRADEX_BROKER_NAME", "paper"),
-            environment=os.environ.get("TRADEX_BROKER_ENVIRONMENT", "PAPER"),
+            environment=os.environ.get("TRADEX_BROKER_ENVIRONMENT", PAPER_DEFAULT),
         ),
         execution=execution,
         # AC-17 / lane 5c: the structured-logging seam existed with no

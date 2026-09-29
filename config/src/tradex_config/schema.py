@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from tradex_domain import BrokerId
+from tradex_domain.constants import BOOK_MATCHING, PAPER_DEFAULT, SLIPPAGE_MODEL
 from tradex_domain.instruments import Equity, Instrument
 from tradex_domain.paths import default_runtime_dir
 from tradex_domain.risk_budget import (
@@ -258,7 +259,7 @@ class BrokerConfig:
     """Broker connection configuration."""
 
     name: str = "paper"
-    environment: str = "PAPER"
+    environment: str = PAPER_DEFAULT
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,7 +298,7 @@ class ExecutionConfig:
     #: coexist on purpose: running the same recorded session through both is how
     #: the paper path is proven to agree with itself before a strategy is
     #: promoted, so neither can be removed when the other is fixed.
-    fill_path: str = "slippage_model"
+    fill_path: str = SLIPPAGE_MODEL
     #: Half-spread the oracle's book is seeded with, in basis points of the mid.
     #: A top-of-book fill costs ``mid * book_spread_bps / 10_000`` per share,
     #: which is exactly what ``slippage_bps`` charges through the production
@@ -328,9 +329,9 @@ class ExecutionConfig:
                 f"fill_reference must be 'next_open' or 'signal_close', "
                 f"got {self.fill_reference!r}"
             )
-        if self.fill_path not in ("book_matching", "slippage_model"):
+        if self.fill_path not in (BOOK_MATCHING, SLIPPAGE_MODEL):
             raise ValueError(
-                f"fill_path must be 'book_matching' or 'slippage_model', "
+                f"fill_path must be '{BOOK_MATCHING}' or '{SLIPPAGE_MODEL}', "
                 f"got {self.fill_path!r}"
             )
         if not isinstance(self.book_spread_bps, Decimal):
@@ -434,7 +435,7 @@ class AppConfig:
     kill_switch_default: bool = False
     live_enabled: bool = False
     live_orders_enabled: bool = False
-    environment: str = "PAPER"
+    environment: str = PAPER_DEFAULT
     broker: BrokerConfig = field(default_factory=BrokerConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
@@ -508,7 +509,7 @@ class AppConfig:
         if unknown:
             raise ValueError(f"unknown config sections: {sorted(unknown)}")
 
-        broker_id_str = str(data.get("broker_id", "PAPER"))
+        broker_id_str = str(data.get("broker_id", PAPER_DEFAULT))
         valid_ids = [b.value for b in BrokerId]
         try:
             broker_id = BrokerId(broker_id_str)
@@ -540,7 +541,7 @@ class AppConfig:
             kill_switch_default=bool(data.get("kill_switch_default", False)),
             live_enabled=bool(data.get("live_enabled", False)),
             live_orders_enabled=bool(data.get("live_orders_enabled", False)),
-            environment=str(data.get("environment", "PAPER")),
+            environment=str(data.get("environment", PAPER_DEFAULT)),
             broker=broker,
             persistence=persistence,
             execution=execution,
