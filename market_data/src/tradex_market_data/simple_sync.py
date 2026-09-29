@@ -7,13 +7,14 @@ sync error — Upstox tail repair is a separate script.
 """
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from itertools import batched
 from typing import Any
 
 import pandas as pd
 from tradex_domain import Timeframe
 from tradex_domain.market import HistoricalSeries
+from tradex_domain.market_calendar import to_ist_naive
 
 from tradex_market_data.parallel_fetcher import ParallelHistoryFetcher
 
@@ -48,14 +49,9 @@ def series_to_frame(series: HistoricalSeries, symbol: str) -> pd.DataFrame:
     """Convert HistoricalSeries to storage DataFrame (tz-naive IST)."""
     if not series.candles:
         return pd.DataFrame()
-    from tradex_domain.market_calendar import to_ist_naive
 
     candles = series.candles
-    timestamps = [
-        to_ist_naive(c.timestamp if c.timestamp.tzinfo is not None
-                     else c.timestamp.replace(tzinfo=UTC))
-        for c in candles
-    ]
+    timestamps = [to_ist_naive(c.timestamp) for c in candles]
     return pd.DataFrame({
         "symbol": symbol,
         "exchange": [c.instrument.exchange.value if hasattr(c.instrument, "exchange") else "NSE"

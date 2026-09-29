@@ -10,6 +10,7 @@ from typing import cast
 from tradex_domain.enums import ExchangeId, Timeframe
 from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.instruments import Instrument
+from tradex_domain.market_calendar import IST, to_ist_naive
 from tradex_domain.serialization import Serializable
 from tradex_domain.value_objects import Price, Quantity
 
@@ -238,7 +239,6 @@ def _bucketize(candles: list[Candle], timeframe: Timeframe) -> dict[int, Candle]
     and hourly ones at 08:30 while the live feed had already moved to the 09:15
     open: a 30 minute backtest and a 30 minute chart reading different bars.
     """
-    from tradex_domain.market_calendar import IST
     from tradex_domain.timeframe import bucket_seconds, bucket_start
 
     seconds = bucket_seconds(timeframe)
@@ -261,7 +261,7 @@ def _bucketize(candles: list[Candle], timeframe: Timeframe) -> dict[int, Candle]
             timeframe=timeframe,
             ohlc=agg.ohlc,
             volume=agg.volume,
-            timestamp=datetime.fromtimestamp(key, tz=UTC).astimezone(IST).replace(tzinfo=None),
+            timestamp=to_ist_naive(datetime.fromtimestamp(key, tz=UTC)),
         )
     return out
 
