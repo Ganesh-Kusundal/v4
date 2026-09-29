@@ -1,8 +1,7 @@
 # openalgo-charts commit pin — the ONE source for this value.
 #
-# Read by:
-#   - .github/workflows/frontend-gate.yml  (clones and checks out this commit)
-#   - frontend/scripts/artifact-stamp.mjs  (records it in the build stamp)
+# The chart UI was removed 2026-09-29; the pin now documents the commit the
+# golden fixtures were captured from. Read by:
 #   - scripts/library-dist.mjs             (refuses to capture goldens from another commit)
 #   - trading/tests/analytics/test_goldens_provenance.py (asserts the goldens came from it)
 #

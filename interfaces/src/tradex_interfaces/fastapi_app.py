@@ -5,13 +5,12 @@ from __future__ import annotations
 import logging
 import os
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from starlette.responses import Response
 
 #: One origin policy for the whole app: the CORS allow-list below and the CSRF
@@ -44,14 +43,6 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # App factory
 # ---------------------------------------------------------------------------
-
-#: Built frontend assets (``frontend/dist``), resolved relative to the repo
-#: root. Extracted layout: ``tradex_interfaces`` → ``src`` → ``interfaces`` → repo.
-#: The mount is opt-in by presence: no dist directory means API-only behavior.
-_UI_DIST_DIR = (
-    Path(__file__).resolve().parents[3] / "frontend" / "dist"
-)
-
 
 class _StateResolvedCORSMiddleware(CORSMiddleware):
     """``CORSMiddleware`` whose allow-list comes from the shared origin policy.
@@ -374,25 +365,6 @@ def create_app(
             outbound_max=outbound_max,
             normalize_depth=normalize_depth,
         )
-
-
-    # Built frontend, when present: single origin for API + UI (no CORS in
-    # production). Absent dist = API-only app, byte-identical to before.
-    if _UI_DIST_DIR.is_dir():
-        from fastapi.staticfiles import StaticFiles
-
-        app.mount("/ui", StaticFiles(directory=_UI_DIST_DIR, html=True), name="ui")
-
-        # Inject the API key into index.html at request time so the SPA's WS
-        # layer can authenticate. Read-only: paper/dev have no key -> empty content.
-        @app.get("/", response_class=HTMLResponse)
-        async def _root_with_key() -> str:  # noqa: ANN001
-            html = (_UI_DIST_DIR / "index.html").read_text()
-            key = getattr(app.state, "api_key", None) or ""
-            return html.replace(
-                'content="" data-applied="false"',
-                f'content="{key}" data-applied="true"',
-            )
 
     # -- Prometheus metrics exposition (G14) -----------------------------------
     from tradex_runtime.metrics import MetricsRegistry

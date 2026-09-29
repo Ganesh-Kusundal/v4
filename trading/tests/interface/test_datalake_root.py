@@ -8,8 +8,7 @@ bars, so the frontend rendered an empty shellbar-only page and replay could
 never open ("no bars to replay").
 
 The contract under test: the default datalake root is anchored to the repo
-root via package location (same convention as ``_UI_DIST_DIR``), NOT to the
-process working directory.
+root via package location, NOT to the process working directory.
 """
 
 from __future__ import annotations

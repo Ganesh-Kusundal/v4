@@ -205,76 +205,32 @@ broker — `"requires exactly one broker"` is raised otherwise
 symbols, not across brokers. The old "split across ALL configured brokers" claim
 was wrong even before the shim removal.
 
-### Chart UI (openalgo-charts frontend)
+### Indicator parity goldens (chart library, UI removed)
 
-`frontend/` depends on `openalgo-charts: file:../openalgo-charts`, and that clone is
-**gitignored** — it is an independent upstream repo, not vendored source. So a fresh
-checkout must create it first, at the pinned commit, or `npm install` resolves a
-missing directory. The host imports the library's public exports only and never
-patches it, so the pin is the single knob controlling the UI.
+The chart UI (`frontend/` + the `openalgo-charts` clone) was removed on
+2026-09-29; the REST + WS surface remains (`/api/charts/*`, `/ws/stream`) and
+is what tests and tooling target. What remains of the chart-library
+relationship is the **golden-parity gate**: `frontend/` used to depend on
+`openalgo-charts: file:../openalgo-charts`, a **gitignored** clone of an
+independent upstream repo, and the golden fixtures under
+`trading/tests/analytics/goldens/` are a snapshot of that library's TypeScript
+indicator math at the commit pinned in `openalgo-charts.pin`. To re-derive or
+regenerate fixtures, clone the library at the pin (`OPENALGO_CHARTS_ROOT`
+overrides the expected `<repo>/openalgo-charts` location).
 
 ```bash
-# 1. The chart library, at the pinned upstream commit (public repo).
-#    dist/ is what the host consumes, and it is NOT committed upstream — build it.
-#    The pin lives in openalgo-charts.pin (one file): this step, the frontend build
-#    stamp, the golden generators and the pytest provenance gate all read it.
+# The chart library, at the pinned upstream commit (public repo).
+# The pin lives in openalgo-charts.pin (one file): the golden generators and
+# the pytest provenance gate all read it.
 git clone https://github.com/marketcalls/openalgo-charts.git openalgo-charts
 cd openalgo-charts && git checkout "$(sed -e 's/#.*//' -e '/^\s*$/d' ../openalgo-charts.pin | head -1 | awk '{print $1}')"
 npm install && npm run build
-
-# 2. The host (output: frontend/dist/, served by FastAPI at /ui/)
-cd ../frontend && npm install && npm run typecheck && npm run build
-
-# 3. Serve everything (REST + WS + UI) — then open http://127.0.0.1:8000/ui/
-cd .. && tradex serve --broker paper --port 8000
-# (equivalently: python -m tradex_interfaces.cli serve ...)
-
-# 4. E2E (Playwright, root devDependency)
-cd frontend && npm run e2e     # builds first, then serves on :8123; E2E_PORT to move it
 ```
-
-`npm run e2e` **builds before it tests**, and that is load-bearing rather than
-convenience: the suite serves `frontend/dist/`, so without the build it asserts
-against whatever bundle was last built — a negative control (deliberately broken
-source, expecting a failure) passed here once for exactly that reason.
-
-**The E2E run is self-contained.** `data/ohlcv/` is gitignored, so CI and a fresh
-clone have no market data and the chart would serve zero bars — every browser test
-would then pass against *"no bars for this range"* without exercising anything.
-`webServer` therefore runs `trading/scripts/seed_e2e_datalake.py` before `serve`.
-The seeder uses the production writer, is **idempotent**, and exits without
-writing when the symbol already has bars, so a developer with the real lake is
-unaffected. Overrides: `E2E_PORT`, `E2E_PYTHON`, `E2E_STATE_DIR`.
-
-It never reuses a running server: a regression suite must not depend on another
-process's state, and the workspace blob is the single source of chart state (so a
-dev server's database would decide which layout the tests boot into). It runs on
-its own port with its own workspace database in temp state, and leaves no files
-in the checkout. CI (`frontend-gate.yml`) runs this suite; locally it is opt-in.
 
 **`TRADEX_DATALAKE_ROOT`** points the datalake somewhere other than `<repo>/data`
 (`datalake/paths.py`, default unchanged). Use it to run a server against a
 fixture: seed a scratch root, serve with the override, and the real lake is never
 touched.
-
-**`dist/` goes stale silently — rebuild after every pull.** Upstream tracks zero
-`dist/` files and gitignores the directory, but `package.json` resolves
-`module`/`types`/`exports` there. So `git pull` inside `openalgo-charts` changes
-`src/` while the served UI keeps running the *previous* build, with no warning
-anywhere: the host imports a directory that still exists and still typechecks.
-This is exactly how the checkout was showing 2.1.0 chrome against a 2.1.8 source
-tree. `npm run build` in `openalgo-charts` and in `frontend` is part of pulling,
-not an optional step.
-
-**A build artifact is stale until it says otherwise.** `npm run build` writes
-`frontend/dist/BUILD_STAMP.json` (a hash of the sources it was built from, the
-pinned library and its build hash, and a per-file hash of what it emitted),
-`npm run verify-artifact` reads it back, and the Playwright `globalSetup`
-refuses to start the suite against a bundle that is not the current tree — a bare
-`npx playwright test` used to be able to pass against a previous bundle, which is
-exactly how a deliberately-broken source file once passed. `trading/scripts/
-e2e_smoke.py` compares the bytes `/ui/` serves against the stamp, so "the UI is
-mounted" is a claim about the built artifact rather than about a 200.
 
 **Bumping the library pin.** `trading/tests/analytics/test_golden_parity*.py`
 asserts the backend against **checked-in** fixtures captured from the library's
@@ -299,14 +255,17 @@ self-consistent and tests nothing about the new ones, because the gate takes its
 parameters from each golden's own recorded settings — so a green parity run is not
 evidence that the fixtures reflect the pin.
 
-The chart is render-only: every computation lives in the backend packages (`tradex_runtime`, `tradex_analytics`, `tradex_market_data`). Bars come from `/api/charts/history/{exchange}:{symbol}` (datalake-first, broker fallback), indicators from the backend registry surfaced through the chart's Tier-2 contract (`frontend/src/tier2.ts`), backtests/scanners run `BacktestEngine`/`ScannerEngine` server-side (`POST /api/charts/backtest`, `POST /api/charts/scanner/run`), and forming bars/replay stream over `/ws/stream` (`subscribe_bars`, `replay_start/pause/resume/speed/stop`). Replay drives the SAME BarAggregator path as live quotes via `SyntheticTickGenerator` — verified at `interfaces/src/tradex_interfaces/routes/stream.py:537-541` ("The same aggregation path serves live quotes and (Task: replay) synthetic ones"). Chart timestamps are UTC seconds of IST wall clock (`interfaces/src/tradex_interfaces/routes/chart.py:237`); the chart renders in Asia/Kolkata (`frontend/src/feed.ts:665`).
-
-Chart state lives in **one store**: the server workspace blob
-(`frontend/src/workspace.ts`), written as `{v, series, state}` where `series` is
-the last bar time the saved viewport was captured against. The widget's own
-`localStorage` persistence is deliberately **off** (`persist` is not passed), so a
-layout can never be restored from two sources that disagree — see
-`docs/design/2026-09-13-single-store-persistence.md`.
+Everything computational lives in the backend packages (`tradex_runtime`,
+`tradex_analytics`, `tradex_market_data`): bars from
+`/api/charts/history/{exchange}:{symbol}` (datalake-first, broker fallback),
+indicators from the backend registry, backtests/scanners via `BacktestEngine`/
+`ScannerEngine` (`POST /api/charts/backtest`, `POST /api/charts/scanner/run`),
+and forming bars/replay over `/ws/stream` (`subscribe_bars`,
+`replay_start/pause/resume/speed/stop`). Replay drives the SAME BarAggregator
+path as live quotes via `SyntheticTickGenerator`. Chart timestamps are UTC
+seconds of IST wall clock (`interfaces/src/tradex_interfaces/routes/chart.py`).
+Workspace state ({v, series, state}) still persists server-side in the workspace
+blob (`interfaces/src/tradex_interfaces/workspace_store.py`).
 
 Two rules to know before touching it:
 
@@ -374,18 +333,12 @@ visible slice grows past what it holds — which every live bar append does. Usi
 them re-ran the strategy over the appended sliver: observed on a live 1h chart, a
 51-round-trip run (Sharpe 0.32) became "Trades 0" after seven bars arrived.
 
-`frontend/src/backtest.ts` keeps **one** published run (`publishBacktestResult` /
-`currentBacktestResult`) that five surfaces read, and `frontend/src/trades-panel.ts`
-renders it as one row per round trip (gross P&L; the open lot as a row of dashes).
-Rows and zones both index `pairRoundTrips(fills).trips`, and a row click sets a
-`TripSelection` (`{kind:'trip', index}` or `{kind:'open'}`) that the zone painter
-reads — so the pick, the row's `aria-selected` and the emphasised zone all come
-from one state and cannot disagree. A published run clears the pick.
-
-Two traps, both already paid for: `metrics.num_trades` counts **fills**, not round
-trips (55 vs 27 on the same run), and a row that selects something needs DOM —
-`ChartTable.hitTest` returns the table's own `externalId` and never names a row.
-See `docs/design/2026-09-13-trades-table.md`.
+The per-trade table was rendered by the removed chart UI (`frontend/src/backtest.ts`
+/ `trades-panel.ts`, one published run indexed by `pairRoundTrips(fills).trips`);
+the backend contract it consumed is unchanged. Two traps, both already paid for:
+`metrics.num_trades` counts **fills**, not round trips (55 vs 27 on the same run),
+and the analysis surface must not re-derive round trips differently from
+`analytics`' `pairRoundTrips`. See `docs/design/2026-09-13-trades-table.md`.
 
 ---
 
@@ -484,7 +437,6 @@ What follows are the invariants, which do not drift:
 domain/          → Pure domain types (Equity, Candle, Order, Signal, etc.)
 brokers/         → Broker adapters (Dhan, Upstox, Paper)
 trading/         → Tests + legacy scripts (the `tradex_trading` package was REMOVED; nothing imports it)
-frontend/        → openalgo-charts UI (Vite build; dist served at /ui)
 Dependencies/    → Universe CSVs (nifty50/100/200/500) + `nse_delistings.csv` (438 rows)
 data/            → Parquet datalake (ohlcv/) + `quarantine/` for unreadable files
 runtime/         → Token state, broker runtime files
@@ -511,7 +463,7 @@ source for any of these names.
 5. **DON'T** fetch intraday history for ranges > 90 days from Dhan in one call — `ParallelHistoryFetcher` auto-chunks long ranges into ≤90-day windows, so if you bypass it you must chunk yourself (it no longer raises `SDKError`; that was the pre-auto-chunk behavior)
 6. **DON'T** reinvent parallel fetching — use `ParallelHistoryFetcher`
 7. **DON'T** manually parse universe CSVs — use `load_universe()`
-8. **DON'T** compute indicators/strategy logic in the frontend — the chart renders; the backend computes (new backend indicator registry entries appear in the UI automatically via the Tier-2 wiring)
+8. **DON'T** compute indicators/strategy logic outside the backend packages — the API surface renders nothing itself; every computation lives in `tradex_analytics`/`tradex_runtime`/`tradex_strategy`
 
 ---
 

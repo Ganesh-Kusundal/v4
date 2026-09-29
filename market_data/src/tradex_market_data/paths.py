@@ -7,10 +7,9 @@ cwd. When ``tradex serve`` is launched from anywhere but the repo root (on
 and the chart API served ``source: "none"`` with zero bars — the frontend
 rendered an empty shell and replay never opened.
 
-The anchor mirrors the convention already used by ``_UI_DIST_DIR``
-(interface/fastapi_app.py) and simple_sync: repo root is three parents
-above this file under the extracted layout
-(``tradex_market_data`` → ``src`` → ``market_data`` → repo).
+The anchor resolves the repo root from this file's package location
+(``tradex_market_data`` → ``src`` → ``market_data`` → repo), three parents
+above this file under the extracted layout.
 """
 
 from __future__ import annotations
