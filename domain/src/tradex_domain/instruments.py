@@ -12,7 +12,7 @@ from decimal import Decimal
 
 from tradex_domain.enums import AssetClass, ExchangeId
 from tradex_domain.serialization import Serializable
-from tradex_domain.value_objects import InstrumentId, Price
+from tradex_domain.value_objects import InstrumentId, Price, normalize_symbol
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +42,7 @@ class Instrument(Serializable):
     meta: InstrumentMeta = field(default_factory=InstrumentMeta)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "symbol", self.symbol.strip().upper())
+        object.__setattr__(self, "symbol", normalize_symbol(self.symbol))
 
     @property
     def underlying(self) -> str:
@@ -58,7 +58,7 @@ class Equity(Instrument):
         return cls(
             instrument_id=InstrumentId.equity(exchange, symbol),
             symbol=symbol,
-            exchange=ExchangeId(exchange.strip().upper()),
+            exchange=ExchangeId(normalize_symbol(exchange)),
         )
 
 
@@ -71,7 +71,7 @@ class Index(Instrument):
         return cls(
             instrument_id=InstrumentId.index(exchange, symbol),
             symbol=symbol,
-            exchange=ExchangeId(exchange.strip().upper()),
+            exchange=ExchangeId(normalize_symbol(exchange)),
         )
 
 
@@ -84,7 +84,7 @@ class Future(Instrument):
         return cls(
             instrument_id=InstrumentId.future(exchange, underlying, expiry),
             symbol=underlying,
-            exchange=ExchangeId(exchange.strip().upper()),
+            exchange=ExchangeId(normalize_symbol(exchange)),
             expiry=expiry,
         )
 
@@ -114,7 +114,7 @@ class Option(Instrument):
         return cls(
             instrument_id=InstrumentId.option(exchange, underlying, expiry, strike, right),
             symbol=underlying,
-            exchange=ExchangeId(exchange.strip().upper()),
+            exchange=ExchangeId(normalize_symbol(exchange)),
             expiry=expiry,
             strike=strike if isinstance(strike, Decimal) else Decimal(str(strike)),
             right=right,
@@ -130,7 +130,7 @@ class Currency(Instrument):
         return cls(
             instrument_id=InstrumentId.currency(exchange, symbol),
             symbol=symbol,
-            exchange=ExchangeId(exchange.strip().upper()),
+            exchange=ExchangeId(normalize_symbol(exchange)),
         )
 
 
@@ -143,7 +143,7 @@ class Commodity(Instrument):
         return cls(
             instrument_id=InstrumentId.commodity(exchange, symbol),
             symbol=symbol,
-            exchange=ExchangeId(exchange.strip().upper()),
+            exchange=ExchangeId(normalize_symbol(exchange)),
         )
 
 

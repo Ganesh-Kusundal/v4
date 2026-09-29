@@ -156,7 +156,7 @@ class InstrumentRegistry:
 
     def add_alias(self, name: str, instrument_id: InstrumentId) -> None:
         with self._lock:
-            self._state.aliases[name.strip().upper()] = instrument_id
+            self._state.aliases[normalize_symbol(name)] = instrument_id
 
     def replace_all(self, other: InstrumentRegistry) -> None:
         """Atomically replace this registry's state with *other*'s.

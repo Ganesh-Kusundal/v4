@@ -32,7 +32,7 @@ from pathlib import Path
 
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity, InstrumentMeta
-from tradex_domain.value_objects import InstrumentId
+from tradex_domain.value_objects import InstrumentId, normalize_symbol
 
 _NSE = "NSE"
 
@@ -41,7 +41,7 @@ _NSE = "NSE"
 _DEFAULT_CSV_DIR = Path(__file__).resolve().parents[3] / "Dependencies"
 
 # EQ = normal delivery, BE = trade-to-trade (both cash segment)
-_CASH_SERIES = frozenset({"EQ", "BE"})
+CASH_SERIES = frozenset({"EQ", "BE"})
 
 
 def _load_csv(path: Path) -> list[dict[str, str]]:
@@ -68,9 +68,9 @@ def load_universe(
 
     instruments: list[Equity] = []
     for row in _load_csv(csv_path):
-        symbol = row["Symbol"].strip().upper()
+        symbol = normalize_symbol(row["Symbol"])
         series = row.get("Series", "").strip().upper()
-        if series not in _CASH_SERIES:
+        if series not in CASH_SERIES:
             continue
         isin = (row.get("ISIN Code") or row.get("ISIN") or "").strip().upper() or None
         instruments.append(Equity(
@@ -91,4 +91,4 @@ def available_universes(csv_dir: Path | str | None = None) -> list[str]:
     )
 
 
-__all__ = ["load_universe", "available_universes"]
+__all__ = ["CASH_SERIES", "load_universe", "available_universes"]
