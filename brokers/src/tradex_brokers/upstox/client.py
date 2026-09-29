@@ -41,6 +41,7 @@ from tradex_brokers.common.endpoints import (
     UPSTOX_REST_BASE_URL,
     UPSTOX_V3_BASE_URL,
 )
+from tradex_brokers.common.order_status import map_order_status
 from tradex_brokers.common.provider_client import ProviderHttpClient
 from tradex_brokers.common.provider_common import (
     as_decimal,
@@ -228,17 +229,7 @@ class UpstoxApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AlertsMixin,
         )
         if instrument_id is None:
             raise ValueError(f"Upstox order missing mapped instrument token: {row!r}")
-        status = {
-            "complete": OrderStatus.FILLED,
-            "open": OrderStatus.ACK,
-            "pending": OrderStatus.PENDING,
-            "rejected": OrderStatus.REJECTED,
-            "cancelled": OrderStatus.CANCELLED,
-            "trigger pending": OrderStatus.ACK,
-            "queued": OrderStatus.ACK,
-            "after_market_order_req_received": OrderStatus.ACK,
-            "expired": OrderStatus.CANCELLED,
-        }.get(str(row.get("status", "open")).lower(), OrderStatus.UNKNOWN)
+        status = map_order_status(str(row.get("status", "open")))
         filled_quantity = Quantity(value=as_decimal(str(row.get("filled_quantity"))))
         # Upstox has no partial-fill status: a partially-filled resting order
         # stays ``open`` with 0 < filled_quantity < quantity. Without this

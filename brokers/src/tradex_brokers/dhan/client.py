@@ -34,6 +34,7 @@ from tradex_brokers.common.client_shared import (
     correlation_id,
     parse_timestamp_fallback,
 )
+from tradex_brokers.common.order_status import map_order_status
 from tradex_brokers.common.dhan_segments import dhan_segment_for
 from tradex_brokers.common.endpoints import DHAN_REST_BASE_URL
 from tradex_brokers.common.provider_client import ProviderHttpClient
@@ -343,20 +344,7 @@ class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
         )
         if instrument_id is None:
             raise ValueError(f"Dhan order missing mapped securityId: {row!r}")
-        status = {
-            "TRADED": OrderStatus.FILLED,
-            "PART_TRADED": OrderStatus.PARTIALLY_FILLED,
-            "CANCELLED": OrderStatus.CANCELLED,
-            "REJECTED": OrderStatus.REJECTED,
-            "PENDING": OrderStatus.PENDING,
-            "TRANSIT": OrderStatus.ACK,
-            "TRIGGER_PENDING": OrderStatus.ACK,
-            "AFTER_MARKET_ORDER": OrderStatus.ACK,
-            "OPEN_PENDING": OrderStatus.ACK,
-            "AMO_CANCELLED": OrderStatus.CANCELLED,
-        }.get(
-            str(row.get("orderStatus", row.get("status", "UNKNOWN"))).upper(), OrderStatus.UNKNOWN
-        )
+        status = map_order_status(str(row.get("orderStatus", row.get("status", "UNKNOWN"))))
         raw_price = row.get("price")
         avg = (
             row.get("averagePrice")
