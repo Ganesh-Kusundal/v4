@@ -31,6 +31,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
+from tradex_domain.constants import DEFAULT_TICK_SIZE
 from tradex_domain.enums import Timeframe
 from tradex_domain.market import Candle, Depth, Quote
 from tradex_domain.value_objects import Price, Quantity
@@ -183,7 +184,7 @@ class SyntheticTickGenerator:
         ponytail: exponential-decay quantities, NSE tick size (0.05).
         Sufficient for E2E testing; real depth requires live WebSocket data.
         """
-        tick_size = Decimal("0.05")
+        tick_size = DEFAULT_TICK_SIZE
         mid = mid_price
         bids = []
         asks = []

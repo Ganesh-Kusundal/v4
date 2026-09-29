@@ -11,6 +11,7 @@ from typing import Any, Final, cast
 
 from tradex_analytics.reports import max_drawdown, sharpe_ratio, total_return
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
+from tradex_domain.correlation_id import mint_correlation_id
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, Timeframe
 from tradex_domain.events import (
     ErrorOccurred,
@@ -19,6 +20,8 @@ from tradex_domain.events import (
     OrderRejected,
 )
 from tradex_domain.execution import OrderRequest
+from tradex_domain.marketing import select_mark
+from tradex_domain.protective import stop_hit, target_hit
 from tradex_domain.utils import q2
 from tradex_domain.value_objects import CorrelationId, Price, Quantity
 from tradex_execution.engine import ExecutionEngine
@@ -130,13 +133,12 @@ def _stop_gap_price(
 
 
 def _protective_trigger(
+    candle: Candle,
     side: OrderSide,
-    high: float,
-    low: float,
     stop: float,
     target: float,
 ) -> tuple[str | None, float | None]:
-    """Return ``(kind, level)`` when *high*/*low* pierce a declared leg.
+    """Return ``(kind, level)`` when the candle pierces a declared leg.
 
     ``level`` is the declared level the bar reached, **not** the price the leg
     fills at — a triggered stop is a stop-market and fills past its own level
@@ -145,12 +147,11 @@ def _protective_trigger(
     Stop is tested before target when both pierce on one bar — the same
     pessimistic convention as ``BracketBreakoutStrategy._exit_for_bar``.
     """
-    long = side is OrderSide.BUY
-    stop_hit = low <= stop if long else high >= stop
-    target_hit = high >= target if long else low <= target
-    if not stop_hit and not target_hit:
+    stop_hit_result = stop_hit(candle, Price(value=Decimal(str(stop))), side)
+    target_hit_result = target_hit(candle, Price(value=Decimal(str(target))), side)
+    if not stop_hit_result and not target_hit_result:
         return (None, None)
-    if stop_hit:
+    if stop_hit_result:
         return ("stop", stop)
     return ("target", target)
 
@@ -815,7 +816,7 @@ class BacktestEngine:
             high = float(candle.ohlc.high.value)
             low = float(candle.ohlc.low.value)
             kind, level = _protective_trigger(
-                bracket.side, high, low, bracket.stop, bracket.target,
+                candle, bracket.side, bracket.stop, bracket.target,
             )
             if level is None or kind is None:
                 return
@@ -838,7 +839,7 @@ class BacktestEngine:
                 quantity=bracket.quantity,
                 price=Price(value=Decimal(str(exit_price))),
                 correlation_id=CorrelationId(
-                    value=f"backtest-protect-{protective_seq}",
+                    value=mint_correlation_id("backtest-protect", protective_seq),
                 ),
                 tag="backtest-protective-exit",
                 reference_timestamp=candle.timestamp,
@@ -876,7 +877,7 @@ class BacktestEngine:
                 signal=signal,
                 entry=open_price,
                 quantity=decision.quantity,
-                correlation_id=CorrelationId(value=f"backtest-bridge-{bridge_seq}"),
+                correlation_id=CorrelationId(value=mint_correlation_id("backtest-bridge", bridge_seq)),
                 tag=f"{getattr(strategy, 'strategy_id', 'strategy')}@{version}",
                 reference_timestamp=candle.timestamp,
             )
@@ -1172,7 +1173,13 @@ class BacktestEngine:
                 last_close = inst_candles[-1].ohlc.close.value
             if not isinstance(last_close, Decimal):
                 last_close = Decimal(str(last_close))
-            mtm += qty * last_close
+            quote = Quote(
+                instrument=pos.instrument,
+                ltp=Price(value=last_close),
+                timestamp=as_of or inst_candles[-1].timestamp,
+            )
+            mark = select_mark(pos, quote)
+            mtm += qty * mark
         return mtm
 
 
