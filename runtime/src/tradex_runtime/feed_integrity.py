@@ -25,16 +25,12 @@ from datetime import datetime, time
 from enum import StrEnum
 from typing import Any
 
+from tradex_domain.constants import IST_TIMEZONE
 from tradex_domain.enums import Timeframe
 from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 from tradex_domain.timeframe import bucket_seconds
 
-try:  # pragma: no cover - zoneinfo is stdlib on 3.9+
-    from zoneinfo import ZoneInfo
-
-    _IST: ZoneInfo | None = ZoneInfo("Asia/Kolkata")
-except Exception:  # pragma: no cover - exotic platforms without tzdata
-    _IST = None
+_IST = IST_TIMEZONE
 
 #: Exchanges whose cash session is 09:15-15:30 IST.
 _CASH_EXCHANGES = frozenset({"NSE", "BSE", "IDX"})

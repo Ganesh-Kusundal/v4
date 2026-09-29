@@ -10,7 +10,9 @@ Ponytail: one file, stdlib only, no broker/trading import.
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time
+
+from tradex_domain.constants import IST_TIMEZONE
 
 # NSE/BSE cash session (IST wall time)
 MARKET_OPEN: time = time(9, 15)
@@ -18,7 +20,7 @@ MARKET_CLOSE: time = time(15, 30)
 
 # Canonical Indian market timezone. The datalake contract stores tz-naive IST;
 # convert broker UTC timestamps only through ``to_ist_naive``.
-IST: timezone = timezone(timedelta(hours=5, minutes=30))
+IST = IST_TIMEZONE
 
 
 def to_ist_naive(dt: datetime) -> datetime:

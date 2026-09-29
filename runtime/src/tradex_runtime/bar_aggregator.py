@@ -58,6 +58,19 @@ from "this print was hours late" without reading logs.
 aggregator's ``on_frame`` callback, like any other frame; nothing here writes to
 the datalake. The lake stays append-only, and ``trading/scripts/reconcile_bars.py``
 is the tool that owns writing a corrected bar over a stored one.
+
+**Why this module needed a second class (C1, lane A).** The aggregator alone
+never made a strategy trade, and it was not the aggregator's fault: nothing
+subscribed it to the feed. ``market_feed.py`` publishes only ``Quote``,
+``Depth`` and ``StaleFeed`` on the bus, while all five shipped strategies
+signal **only** from ``on_bar`` — ``sma_cross.on_quote`` and
+``mean_reversion.on_quote`` are stubs that return ``None``. So the chain
+``Quote -> BarAggregator -> Candle -> strategy.on_bar -> Signal`` had a
+missing middle and no ``Candle`` was ever published in paper or live.
+:func:`wire_bar_aggregation` is that missing middle, and it is a *function*
+rather than a class registration because the composition root owns the bus
+(``startup.py`` is off limits to this lane): the root calls this in three lines
+and the result is fully disposable at teardown.
 """
 
 from __future__ import annotations
@@ -66,14 +79,18 @@ import logging
 import math
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from tradex_domain.constants import IST_TIMEZONE
 from tradex_domain.enums import Timeframe
+from tradex_domain.market import OHLC, Candle, Quote
+from tradex_domain.market_calendar import to_ist_naive
 from tradex_domain.timeframe import bucket_seconds, bucket_start
+from tradex_domain.value_objects import Price, Quantity
 
 log = logging.getLogger(__name__)
 
@@ -400,15 +417,11 @@ class BarAggregator:
             raise ValueError("bar seed values must be finite")
 
     def _seed_start(self, chart_time: int) -> datetime:
-        from zoneinfo import ZoneInfo
-
-        aware = datetime.fromtimestamp(int(chart_time), tz=ZoneInfo("Asia/Kolkata"))
+        aware = datetime.fromtimestamp(int(chart_time), tz=IST_TIMEZONE)
         return bucket_start(aware.replace(tzinfo=None), self._seconds)
 
     def _chart_time(self, start: datetime) -> int:
-        from zoneinfo import ZoneInfo
-
-        return int(start.replace(tzinfo=ZoneInfo("Asia/Kolkata")).timestamp())
+        return int(start.replace(tzinfo=IST_TIMEZONE).timestamp())
 
     def on_quote(
         self,
@@ -787,6 +800,229 @@ class BarAggregator:
             self._last_forming_emit = self._now()
 
 
+def candle_from_frame(frame: BarFrame, instrument: Any) -> Candle:
+    """The domain ``Candle`` a strategy's ``on_bar`` receives, from *frame*.
+
+    One conversion, in one place, because the two types disagree on three
+    things and each disagreement is a silent-wrong-answer opportunity:
+
+    * ``BarFrame.instrument`` is the ``instrument_id`` **string** (all the
+      aggregator's own keys and its ledger are strings). ``Candle.instrument``
+      is the ``Instrument`` **object** a strategy calls ``.symbol`` on, so the
+      wiring keeps a per-instrument registry and the frame is resolved through
+      it here. An unknown id raises rather than being dropped: a bar for an
+      instrument nobody registered is a wiring error, and a strategy that
+      silently never sees it looks exactly like a quiet market.
+    * ``BarFrame.timeframe`` is the canonical ``Timeframe`` **value** string
+      (``"1m"``), because the ledger keys on it. ``Candle.timeframe`` is the
+      ``Timeframe`` **enum member**, so it is parsed back here.
+    * ``BarFrame.time`` is the chart epoch of the bucket start, a **number**.
+      ``Candle.timestamp`` is a ``datetime``, and ``ReactiveStrategyEngine``
+      stamps it onto the order as ``reference_timestamp`` and
+      ``_correlation_id`` derives the id from it, so it must be the bar's own
+      start instant in UTC — not the arrival time, which would make the same
+      bar produce a different correlation id on a replay.
+
+    The bucket start is reconstructed from the chart epoch rather than carried
+    on the frame, and is the *only* reading that keeps AC-1: the timestamp is
+    the moment the bar's information set closed, not the moment the print that
+    closed it landed.
+    """
+    timeframe = Timeframe(frame.timeframe)
+    return Candle(
+        instrument=instrument,
+        timeframe=timeframe,
+        ohlc=OHLC(
+            open=Price(value=Decimal(str(frame.open))),
+            high=Price(value=Decimal(str(frame.high))),
+            low=Price(value=Decimal(str(frame.low))),
+            close=Price(value=Decimal(str(frame.close))),
+        ),
+        volume=Quantity(value=Decimal(str(frame.volume))),
+        timestamp=datetime.fromtimestamp(int(frame.time), tz=UTC),
+    )
+
+
+class SessionBarAggregator:
+    """The whole ``Quote -> Candle`` bridge for a session's tape, owned.
+
+    Constructing this is the wiring; using it is not. It subscribes one
+    :class:`BarAggregator` per instrument to the bus's ``Quote`` stream, and
+    publishes the ``Candle`` each bar produces **back onto the same bus**, which
+    is what makes ``ReactiveStrategyEngine.register``'s
+    ``bus.of_type(Candle).subscribe(...)`` fire ``strategy.on_bar``.
+
+    Both facts are load-bearing and neither is a detail:
+
+    * **Same bus.** The engine is already subscribed to the bus it was
+      constructed with, and a second bus would be a second universe. The
+      bridge is handed the bus; it does not create one.
+    * **Closed bars only.** Forming frames are published too when
+      ``publish_forming=True``, and *not* by default. A strategy that acts on a
+      forming bar re-acts on every print inside it, and its EMA/SMA is reading
+      a bar whose high, low and close are still moving — that is the look-ahead
+      the backtest's ``next_open`` model exists to prevent, reintroduced on the
+      live side. Closed-only makes the live candle stream and the backtest
+      candle stream the same stream, which is the whole point of the parity
+      claim.
+
+    :meth:`flush` is the caller's to make at 15:30 (the aggregator does not
+    read a wall clock — see the module docstring), and :meth:`dispose` returns
+    the bus subscription, so the composition root's teardown owns the whole
+    thing through one object.
+    """
+
+    def __init__(
+        self,
+        bus: Any,
+        instruments: Iterable[Any],
+        timeframe: Timeframe = Timeframe.M1,
+        *,
+        run_id: str | None = None,
+        metrics: Any | None = None,
+        ledger: BookedFillLedger | None = None,
+        now: Callable[[], float] = time.monotonic,
+        publish_forming: bool = False,
+        on_bar_frame: Callable[[Any], None] | None = None,
+    ) -> None:
+        """
+        Args:
+            bus: the session's ``ReactiveBus``. Subscribed for ``Quote``,
+                published to for ``Candle`` — the same object.
+            instruments: the session's tape. Each element is an ``Instrument``
+                (which carries the ``instrument_id`` string the aggregator keys
+                on, and the object a ``Candle`` needs).
+            timeframe: bar width. ``M1`` by default because it is the finest
+                grid every shipped strategy's indicator can be built on.
+            run_id, metrics, ledger: passed through to each aggregator.
+            now: the monotonic clock the late-tick window and the forming-frame
+                throttle read.
+            publish_forming: publish a candle on every accepted print rather
+                than only on bar close. Off by default; see the class docstring
+                for why.
+            on_bar_frame: optional observer of every emitted ``BarFrame``,
+                including forming ones. This is the seam
+                ``MarketFeed.on_bar_frame`` (the integrity tracker) already
+                takes, so the same hook that watched bars from a history
+                resync can watch them from live ticks.
+        """
+        if not hasattr(bus, "of_type") or not hasattr(bus, "publish"):
+            raise TypeError(
+                "SessionBarAggregator needs the session bus: it subscribes "
+                f"of_type(Quote) and publishes Candle, got {type(bus).__name__}"
+            )
+        self._bus = bus
+        self._timeframe = timeframe
+        self._publish_forming = publish_forming
+        self._on_bar_frame = on_bar_frame
+        self._instruments: dict[str, Any] = {}
+        self._aggregators: dict[str, BarAggregator] = {}
+
+        for instrument in instruments:
+            key = instrument.instrument_id
+            if key in self._aggregators:
+                continue
+            self._instruments[key] = instrument
+            self._aggregators[key] = BarAggregator(
+                key,
+                timeframe,
+                on_frame=self._frame_publisher(key),
+                now=now,
+                run_id=run_id,
+                metrics=metrics,
+                ledger=ledger if ledger is not None else BookedFillLedger(),
+            )
+
+        # One subscription for the whole tape, not one per instrument: the
+        # aggregator is per (instrument, timeframe) but the bus stream is not,
+        # and a per-instrument `of_type(Quote)` would put N identical
+        # subscribers on the market lane.
+        self._subscription = bus.of_type(Quote).subscribe(self._on_quote)
+        log.info(
+            "bar aggregation wired: %d instrument(s) at %s -> Candle on the bus",
+            len(self._aggregators), timeframe.value,
+        )
+
+    # -- the bridge ---------------------------------------------------------
+
+    def _frame_publisher(self, key: str) -> Callable[[BarFrame], None]:
+        """The ``on_frame`` callback for one instrument's aggregator."""
+        def publish(frame: BarFrame) -> None:
+            if self._on_bar_frame is not None:
+                self._on_bar_frame(frame)
+            if not frame.closed and not self._publish_forming:
+                return
+            self._bus.publish(self._candle(frame))
+        return publish
+
+    def _candle(self, frame: BarFrame) -> Candle:
+        return candle_from_frame(frame, self._instruments[frame.instrument])
+
+    def _on_quote(self, quote: Quote) -> None:
+        """Hand one broker print to its instrument's aggregator."""
+        aggregator = self._aggregators.get(quote.instrument.instrument_id)
+        if aggregator is None:
+            return
+        aggregator.on_quote(
+            to_ist_naive(quote.timestamp),
+            quote.ltp.value,
+            quote.volume.value if quote.volume is not None else None,
+        )
+
+    # -- the seam the caller owns -------------------------------------------
+
+    def aggregator_for(self, instrument_id: str) -> BarAggregator | None:
+        """The aggregator for *instrument_id*, or ``None`` if it is not on the tape."""
+        return self._aggregators.get(instrument_id)
+
+    def mark_filled(self, frame: BarFrame) -> None:
+        """Freeze the bar *frame* names, so no late print may revise it.
+
+        The composition root calls this with the frame a fill was booked from.
+        It is the documented, deliberate link :class:`BookedFillLedger` cannot
+        import for itself (see that class's docstring), and routing it through
+        this object means the root holds one handle rather than a dict of them.
+        """
+        aggregator = self._aggregators.get(frame.instrument)
+        if aggregator is None:
+            raise KeyError(f"no aggregator for {frame.instrument!r}")
+        aggregator.mark_filled(frame)
+
+    def flush(self) -> None:
+        """Close every open bar. The caller does this at 15:30 or on teardown."""
+        for aggregator in self._aggregators.values():
+            aggregator.flush()
+
+    def dispose(self) -> None:
+        """Unsubscribe, flush and drop every aggregator. Idempotent."""
+        subscription, self._subscription = self._subscription, None
+        if subscription is not None:
+            try:
+                subscription.dispose()
+            except Exception:  # noqa: BLE001 — teardown is best-effort
+                log.warning("bar aggregation unsubscribe failed", exc_info=True)
+        for aggregator in self._aggregators.values():
+            aggregator.dispose(flush=True)
+        self._aggregators.clear()
+        self._instruments.clear()
+
+
+def wire_bar_aggregation(
+    bus: Any,
+    instruments: Sequence[Any],
+    timeframe: Timeframe = Timeframe.M1,
+    **kwargs: Any,
+) -> SessionBarAggregator:
+    """Construct and return the session's ``Quote -> Candle`` bridge.
+
+    A named function rather than a bare constructor so the wiring note Wave 2
+    follows is one call, and so the *intent* ("this is what makes ``on_bar``
+    fire") is greppable from the composition root. Every extra argument is
+    forwarded to :class:`SessionBarAggregator`; the common case needs none.
+    """
+    return SessionBarAggregator(bus, instruments, timeframe, **kwargs)
+
+
 __all__ = [
     "BarAggregator",
     "BarFrame",
@@ -798,5 +1034,8 @@ __all__ = [
     "REASON_STALE",
     "REASON_WINDOW_EXPIRED",
     "RevisedBar",
+    "SessionBarAggregator",
     "bucket_start",
+    "candle_from_frame",
+    "wire_bar_aggregation",
 ]

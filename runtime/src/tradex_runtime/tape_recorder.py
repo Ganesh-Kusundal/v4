@@ -76,9 +76,9 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from types import MappingProxyType
 from typing import TextIO
-from zoneinfo import ZoneInfo
 
 from tradex_brokers.common.instruments import instrument_from_id
+from tradex_domain.constants import IST_TIMEZONE
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Quote
 from tradex_domain.paths import default_runtime_dir
@@ -103,7 +103,7 @@ DEFAULT_MAX_BYTES = 64 * 1024 * 1024
 RECORD_KEYS = frozenset({"broker", "symbol", "ts", "price", "qty"})
 
 #: IST, the platform's storage convention (CLAUDE.md).
-IST = ZoneInfo("Asia/Kolkata")
+IST = IST_TIMEZONE
 
 _UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _SEGMENT = re.compile(r"\.(\d+)\.jsonl$")

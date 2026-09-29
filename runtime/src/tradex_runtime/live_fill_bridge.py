@@ -53,8 +53,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Any
-from zoneinfo import ZoneInfo
 
+from tradex_domain.constants import IST_TIMEZONE
 from tradex_domain.enums import OrderStatus
 from tradex_domain.events import OrderCancelled, OrderFilled, OrderPlaced
 from tradex_domain.execution import Fill, Order
@@ -70,7 +70,7 @@ _FILL_STATUSES = frozenset({OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED})
 #: (and the backtest's own reference timestamps are not), so a naive value
 #: mixed into one position would make ``fill.timestamp - lot_time`` in the
 #: analytics raise TypeError.
-IST = ZoneInfo("Asia/Kolkata")
+IST = IST_TIMEZONE
 
 #: ``Fill.fill_id`` marker for a fill booked from the cumulative average
 #: because per-trade detail was unavailable. A per-trade fill always carries
