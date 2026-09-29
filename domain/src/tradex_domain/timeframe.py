@@ -10,10 +10,6 @@ Previously every consumer re-declared its own mapping:
 Ponytail: one dict of dicts, typed, stdlib only.  Dhan lacks M30 — its
 interval is ``None`` so callers fail at the registry, not at the wire.
 
-Dhan poll caps (parallel_fetcher guards) also live here via
-``MAX_POLL_DAYS[(provider, timeframe)]`` — the only place that knows
-``Upstox M1→30d`` vs ``Dhan M1→90d``.
-
 The bar *grid* lives here too (:func:`bucket_start`), for the same reason: three
 sites bucket M1 into wider bars — the live aggregator, ``HistoricalSeries
 .resample`` and the vectorised bulk provider — and when each of them floored to
@@ -51,11 +47,6 @@ _TF_BY_VALUE: dict[str, Timeframe] = {
     "30m": Timeframe.M30, "1h": Timeframe.H1, "1d": Timeframe.D1, "1w": Timeframe.W1,
 }
 
-_SECONDS_BY_TF: dict[Timeframe, int] = {
-    Timeframe.M1: 60, Timeframe.M5: 300, Timeframe.M15: 900, Timeframe.M30: 1800,
-    Timeframe.H1: 3600, Timeframe.D1: 86400, Timeframe.W1: 604800,
-}
-
 DHAN_INTRADAY: frozenset[Timeframe] = frozenset(
     {Timeframe.M1, Timeframe.M5, Timeframe.M15, Timeframe.H1}
 )
@@ -73,7 +64,8 @@ def normalize(value: Timeframe | str) -> tuple[str, Timeframe]:
 
 def bucket_seconds(tf: Timeframe) -> int:
     """Seconds per bar for resample/bucketize."""
-    return _SECONDS_BY_TF[tf]
+    raw, _ = normalize(tf)
+    return _TIMEFRAMES[raw]["seconds"]  # type: ignore[return-value]
 
 
 #: The grid is IST wall clock, so wall stamps are counted from this epoch and
