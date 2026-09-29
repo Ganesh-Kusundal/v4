@@ -10,12 +10,7 @@ from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.market import Candle, HistoricalSeries
 from tradex_domain.value_objects import Price
 
-from tradex_analytics.reports import (
-    TRADING_DAYS_PER_YEAR,
-    max_drawdown,
-    sharpe_ratio,
-    total_return,
-)
+from tradex_analytics.reports import tearsheet as reports_tearsheet
 
 
 class AnalyticsEngine:
@@ -253,92 +248,7 @@ class AnalyticsEngine:
         )
 
 
-    def tearsheet(self, returns: Sequence[float] | None = None) -> dict[str, Any]:
-        """Generate a comprehensive performance tearsheet.
-
-        Parameters
-        ----------
-        returns : Sequence[float] | None
-            Series of returns. If None, uses internal data.
-
-        Returns
-        -------
-        dict[str, Any]
-            Performance metrics dictionary.
-        """
-        if returns is None or len(returns) == 0:
-            return {
-                "total_return": 0.0,
-                "sharpe_ratio": 0.0,
-                "max_drawdown": 0.0,
-                "volatility": 0.0,
-                "sortino_ratio": 0.0,
-                "calmar_ratio": 0.0,
-                "win_rate": 0.0,
-                "profit_factor": 0.0,
-                "num_trades": 0,
-            }
-
-        ret_list = list(returns)
-
-        # Build equity curve from returns for functions that expect prices
-        equity_curve = [1.0]
-        for r in ret_list:
-            equity_curve.append(equity_curve[-1] * (1.0 + r))
-
-        tr = total_return(equity_curve)
-        sr = sharpe_ratio(ret_list)
-        md = max_drawdown(equity_curve)
-
-        # Volatility (annualized)
-        import math
-
-        mean_r = sum(ret_list) / len(ret_list) if ret_list else 0
-        var_r = sum((r - mean_r) ** 2 for r in ret_list) / max(len(ret_list) - 1, 1)
-        vol = math.sqrt(var_r * TRADING_DAYS_PER_YEAR)  # annualized
-
-        # Sortino (downside deviation)
-        downside = [r for r in ret_list if r < 0]
-        if downside:
-            downside_var = sum(r**2 for r in downside) / len(downside)
-            downside_dev = math.sqrt(downside_var * TRADING_DAYS_PER_YEAR)
-            sortino = (
-                (mean_r * TRADING_DAYS_PER_YEAR) / downside_dev
-                if downside_dev > 0
-                else 0
-            )
-        else:
-            sortino = 0.0
-
-        # Calmar
-        calmar = (mean_r * TRADING_DAYS_PER_YEAR) / abs(md) if md != 0 else 0.0
-
-        # Win rate
-        wins = sum(1 for r in ret_list if r > 0)
-        win_rate = wins / len(ret_list) if ret_list else 0.0
-
-        # Profit factor
-        gross_profit = sum(r for r in ret_list if r > 0)
-        gross_loss = abs(sum(r for r in ret_list if r < 0))
-        profit_factor = (
-            gross_profit / gross_loss
-            if gross_loss > 0
-            else float("inf") if gross_profit > 0 else 0.0
-        )
-
-        return {
-            "total_return": tr,
-            "sharpe_ratio": sr,
-            "max_drawdown": md,
-            "volatility": vol,
-            "sortino_ratio": sortino,
-            "calmar_ratio": calmar,
-            "win_rate": win_rate,
-            "profit_factor": profit_factor,
-            "num_trades": len(ret_list),
-            "gross_profit": gross_profit,
-            "gross_loss": gross_loss,
-        }
+    tearsheet = staticmethod(reports_tearsheet)
 
     def summary(self, returns: Sequence[float] | None = None) -> str:
         """Generate a human-readable performance summary.

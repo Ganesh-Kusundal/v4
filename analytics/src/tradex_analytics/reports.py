@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from decimal import Decimal
+from typing import Any
 
 NumericValue = float | Decimal
 
@@ -22,6 +24,7 @@ __all__ = [
     "max_drawdown",
     "sharpe_ratio",
     "sortino_ratio",
+    "tearsheet",
     "total_return",
 ]
 
@@ -212,5 +215,85 @@ def total_return(equity_curve: list) -> float:
         return 0.0
 
     return (final - initial) / initial
+
+
+def tearsheet(returns: Sequence[float] | None = None) -> dict[str, Any]:
+    """Generate a comprehensive performance tearsheet.
+
+    Parameters
+    ----------
+    returns : Sequence[float] | None
+        Series of returns. If None, uses internal data.
+
+    Returns
+    -------
+    dict[str, Any]
+        Performance metrics dictionary.
+    """
+    if returns is None or len(returns) == 0:
+        return {
+            "total_return": 0.0,
+            "sharpe_ratio": 0.0,
+            "max_drawdown": 0.0,
+            "volatility": 0.0,
+            "sortino_ratio": 0.0,
+            "calmar_ratio": 0.0,
+            "win_rate": 0.0,
+            "profit_factor": 0.0,
+            "num_trades": 0,
+        }
+
+    ret_list = list(returns)
+
+    equity_curve = [1.0]
+    for r in ret_list:
+        equity_curve.append(equity_curve[-1] * (1.0 + r))
+
+    tr = total_return(equity_curve)
+    sr = sharpe_ratio(ret_list)
+    md = max_drawdown(equity_curve)
+
+    mean_r = sum(ret_list) / len(ret_list) if ret_list else 0
+    var_r = sum((r - mean_r) ** 2 for r in ret_list) / max(len(ret_list) - 1, 1)
+    vol = math.sqrt(var_r * TRADING_DAYS_PER_YEAR)
+
+    downside = [r for r in ret_list if r < 0]
+    if downside:
+        downside_var = sum(r**2 for r in downside) / len(downside)
+        downside_dev = math.sqrt(downside_var * TRADING_DAYS_PER_YEAR)
+        sortino = (
+            (mean_r * TRADING_DAYS_PER_YEAR) / downside_dev
+            if downside_dev > 0
+            else 0
+        )
+    else:
+        sortino = 0.0
+
+    calmar = (mean_r * TRADING_DAYS_PER_YEAR) / abs(md) if md != 0 else 0.0
+
+    wins = sum(1 for r in ret_list if r > 0)
+    win_rate = wins / len(ret_list) if ret_list else 0.0
+
+    gross_profit = sum(r for r in ret_list if r > 0)
+    gross_loss = abs(sum(r for r in ret_list if r < 0))
+    profit_factor = (
+        gross_profit / gross_loss
+        if gross_loss > 0
+        else float("inf") if gross_profit > 0 else 0.0
+    )
+
+    return {
+        "total_return": tr,
+        "sharpe_ratio": sr,
+        "max_drawdown": md,
+        "volatility": vol,
+        "sortino_ratio": sortino,
+        "calmar_ratio": calmar,
+        "win_rate": win_rate,
+        "profit_factor": profit_factor,
+        "num_trades": len(ret_list),
+        "gross_profit": gross_profit,
+        "gross_loss": gross_loss,
+    }
 
 
