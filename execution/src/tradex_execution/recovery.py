@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Protocol, runtime_checkable
 
 from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
 from tradex_domain.events import (
@@ -15,6 +14,7 @@ from tradex_domain.events import (
     OrderFilled,
 )
 from tradex_domain.execution import Order
+from tradex_domain.protocols import EventStore, OrderRepository
 from tradex_domain.value_objects import Money, Price, Quantity
 
 from tradex_execution.trading_cache import TradingCache
@@ -36,19 +36,6 @@ class CashState:
     cash: Decimal
     total_fees: Decimal
     opening_cash: Decimal
-
-
-@runtime_checkable
-class OrderRepository(Protocol):
-    def save(self, order: Order) -> None: ...
-    def get(self, order_id: str) -> Order | None: ...
-    def all(self) -> Sequence[Order]: ...
-
-
-@runtime_checkable
-class EventStore(Protocol):
-    def append(self, event: DomainEvent) -> int: ...
-    def replay(self, stream: str = "orders") -> Iterator[DomainEvent]: ...
 
 
 @dataclass(frozen=True, slots=True)

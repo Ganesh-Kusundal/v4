@@ -8,12 +8,13 @@ than by separate protocols.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.enums import BrokerId, Timeframe
+from tradex_domain.events import DomainEvent
 from tradex_domain.execution import (
     Account,
     Order,
@@ -263,14 +264,36 @@ class MasterRefreshProvider(Protocol):
     def ensure_master_fresh(self, *, force_refresh: bool = False) -> None: ...
 
 
+class OrderRepository(Protocol):
+    """Persistence contract for orders.
+
+    Defined here, not in the execution package, so the domain owns the
+    interface and the infrastructure conforms to it.
+    """
+
+    def save(self, order: Order) -> None: ...
+    def get(self, order_id: str) -> Order | None: ...
+    def all(self) -> Sequence[Order]: ...
+
+
+@runtime_checkable
+class EventStore(Protocol):
+    """Append-only domain event stream."""
+
+    def append(self, event: DomainEvent) -> int: ...
+    def replay(self, stream: str = "orders") -> Iterator[DomainEvent]: ...
+
+
 __all__ = [
     "BrokerAdapter",
     "BrokerClientPort",
     "Clock",
     "DepthStreamPort",
+    "EventStore",
     "IndicatorComputer",
     "MasterRefreshProvider",
     "MarketStreamPort",
+    "OrderRepository",
     "OrderStreamPort",
     "SessionFacade",
     "TradingCacheProtocol",
