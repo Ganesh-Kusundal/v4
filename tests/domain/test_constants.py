@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -11,10 +12,14 @@ class TestSessionConstants:
         assert C.SESSION_OPEN == "09:15:00"
 
     def test_session_close(self):
-        assert C.SESSION_CLOSE == "15:29:00"
+        assert C.SESSION_CLOSE == "15:30:00"
 
     def test_ist_timezone(self):
-        assert C.IST_TIMEZONE == ZoneInfo("Asia/Kolkata")
+        # A fixed +05:30 offset, not ZoneInfo: see the note on the constant.
+        # ZoneInfo answers utcoffset(None) with None, which the session-grid
+        # arithmetic depends on being answerable.
+        assert C.IST_TIMEZONE.utcoffset(None) == timedelta(hours=5, minutes=30)
+        assert C.IST_TIMEZONE is not ZoneInfo("Asia/Kolkata")
 
 
 class TestTradingConstants:

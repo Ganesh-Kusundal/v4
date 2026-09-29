@@ -67,12 +67,17 @@ class TestAnalyticsEngine:
 
     def test_compute_ema(self) -> None:
         candles = _fake_candles([float(i) for i in range(1, 25)])
-        result = compute_indicator("ema", candles, {"period": 20})
+        result = compute_indicator("ema", candles, {"length": 20})
         assert "value" in result
         assert len(result["value"]) == 24
-        assert result["value"][0] == pytest.approx(1.0)
-        assert all(a < b for a, b in zip(result["value"], result["value"][1:]))
-        assert result["value"][-1] < 24.0
+        # The registry's ema is SMA-seeded, so the first length-1 values are
+        # warmup None. (The module-level ``ema`` helper seeds from index 0 and
+        # emits there; that is a different entry point, not this one.)
+        assert result["value"][0] is None
+        emitted = [v for v in result["value"] if v is not None]
+        assert len(emitted) == 24 - 19
+        assert all(a < b for a, b in zip(emitted, emitted[1:]))
+        assert emitted[-1] < 24.0
 
     def test_compute_rsi(self) -> None:
         candles = _fake_candles([float(i) for i in range(1, 20)])

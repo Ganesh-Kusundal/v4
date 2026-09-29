@@ -67,6 +67,24 @@ class _RegistryState:
     primary_by_instrument: dict[InstrumentId, str] = field(default_factory=dict)
 
 
+def _alias_key(name: str) -> str:
+    """The one spelling an ALIAS is stored and looked up under.
+
+    Both sides of the alias table go through here. They drifted once already:
+    writes went through ``normalize_symbol`` with its default, which strips
+    ``-EQ``/``-BE``/``-FUT``, while reads used a bare ``strip().upper()`` — so
+    an alias added as ``RELIANCE-EQ`` was stored as ``RELIANCE`` and could
+    never be resolved. Provider suffixes are significant in an alias, so they
+    are preserved (``strip_provider_suffixes=False``), which reduces this to
+    the ``strip().upper()`` the read path always used.
+
+    Only aliases. ``by_key`` is written from provider-supplied keys verbatim
+    and read back with a bare strip, and normalising it would change which
+    provider keys resolve.
+    """
+    return normalize_symbol(name, strip_provider_suffixes=False)
+
+
 class InstrumentRegistry:
     """Deterministic, reversible, collision-rejecting instrument registry."""
 
@@ -121,7 +139,7 @@ class InstrumentRegistry:
         direct = state.by_key.get(stripped)
         if direct is not None:
             return direct
-        return state.aliases.get(stripped.upper())
+        return state.aliases.get(_alias_key(name))
 
     # -- writes (lock-guarded, mutate the live snapshot in place) -------------
 
@@ -156,7 +174,7 @@ class InstrumentRegistry:
 
     def add_alias(self, name: str, instrument_id: InstrumentId) -> None:
         with self._lock:
-            self._state.aliases[normalize_symbol(name)] = instrument_id
+            self._state.aliases[_alias_key(name)] = instrument_id
 
     def replace_all(self, other: InstrumentRegistry) -> None:
         """Atomically replace this registry's state with *other*'s.
