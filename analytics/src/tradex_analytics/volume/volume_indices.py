@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
+    REGISTRY,
     IndicatorSpec,
     _change,
     _ema_of_gapped,
@@ -502,10 +502,12 @@ SPEC_KLINGER_OSCILLATOR = IndicatorSpec(
     fn=_fn_klinger_oscillator,
 )
 
-LEGACY_PARAM_ALIASES["nvi"] = {"ma_length": "maLength"}
-LEGACY_PARAM_ALIASES["pvi"] = {"ma_length": "maLength"}
-LEGACY_PARAM_ALIASES["pvo"] = {
-    "fast_length": "fastLength",
-    "slow_length": "slowLength",
-    "signal_length": "signalLength",
-}
+REGISTRY.register_legacy_aliases({
+    "nvi": {"ma_length": "maLength"},
+    "pvi": {"ma_length": "maLength"},
+    "pvo": {
+        "fast_length": "fastLength",
+        "slow_length": "slowLength",
+        "signal_length": "signalLength",
+    },
+})

@@ -823,12 +823,12 @@ def test_every_acceptable_setting_the_golden_records_is_fed_to_the_backend():
     setting the backend has no parameter for (a colour, or a TS input it never
     implemented) is out of scope by fact and not by opinion.
     """
-    from tradex_analytics.indicators import LEGACY_PARAM_ALIASES
+    from tradex_analytics.registry import REGISTRY
 
     for ts_id in _golden_ids():
         golden = _load(ts_id)
         spec = get_indicator_spec(ts_id)
-        aliases = LEGACY_PARAM_ALIASES.get(ts_id, {})
+        aliases = REGISTRY.get_legacy_aliases(ts_id)
         declared = {p[0] for p in spec.params}
         fed = {aliases.get(v, v) for v in PARAM_MAP[ts_id].values()}
         for key, value in golden["settings"].items():

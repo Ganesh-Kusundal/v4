@@ -28,7 +28,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
+    REGISTRY,
     IndicatorSpec,
     _bars_since,
     _highest,
@@ -41,24 +41,26 @@ from tradex_analytics.indicators import (
     sma,
 )
 
-LEGACY_PARAM_ALIASES["alligator"] = {
-    "jaw_length": "jawLength",
-    "teeth_length": "teethLength",
-    "lips_length": "lipsLength",
-    "jaw_offset": "jawOffset",
-    "teeth_offset": "teethOffset",
-    "lips_offset": "lipsOffset",
-}
-LEGACY_PARAM_ALIASES["ichimoku"] = {
-    "conversion": "conversionPeriod",
-    "base": "basePeriod",
-    "lagging": "laggingSpanPeriod",
-}
-LEGACY_PARAM_ALIASES["halftrend"] = {
-    "channel_deviation": "channelDeviation",
-    "atr_period": "atrPeriod",
-}
-LEGACY_PARAM_ALIASES["alphatrend"] = {"ap": "AP"}
+REGISTRY.register_legacy_aliases({
+    "alligator": {
+        "jaw_length": "jawLength",
+        "teeth_length": "teethLength",
+        "lips_length": "lipsLength",
+        "jaw_offset": "jawOffset",
+        "teeth_offset": "teethOffset",
+        "lips_offset": "lipsOffset",
+    },
+    "ichimoku": {
+        "conversion": "conversionPeriod",
+        "base": "basePeriod",
+        "lagging": "laggingSpanPeriod",
+    },
+    "halftrend": {
+        "channel_deviation": "channelDeviation",
+        "atr_period": "atrPeriod",
+    },
+    "alphatrend": {"ap": "AP"},
+})
 
 # ---------------------------------------------------------------------------
 # Candle access — the golden harness feeds candle objects (``.ohlc.*.value``);

@@ -52,7 +52,7 @@ from typing import Any, cast
 from tradex_domain.timezones import IST_OFFSET_SECONDS
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
+    REGISTRY,
     IndicatorSpec,
     _change,
     _rma,
@@ -64,26 +64,28 @@ from tradex_analytics.indicators import (
 from tradex_analytics.studies.studies_simple import _src_val, _vwma
 from tradex_analytics.volume.volume_flow import _sma_skip_none
 
-LEGACY_PARAM_ALIASES["cpr"] = {
-    "pivot_mode": "pivotMode",
-    "show_daily": "showDaily",
-    "show_weekly": "showWeekly",
-    "show_monthly": "showMonthly",
-    "display_pivots": "displaypivots",
-    "display_support": "displaysupport",
-    "display_resistance": "displayresistance",
-    "display_cpr": "displaycpr",
-    "display_s1r1": "displayS1R1",
-}
-LEGACY_PARAM_ALIASES["range-analysis"] = {
-    "show_average": "showAverage",
-    "avg_length": "avgLength",
-}
-LEGACY_PARAM_ALIASES["relative-volatility-index"] = {
-    "ma_type": "maType",
-    "ma_length": "maLength",
-    "bb_mult": "bbMult",
-}
+REGISTRY.register_legacy_aliases({
+    "cpr": {
+        "pivot_mode": "pivotMode",
+        "show_daily": "showDaily",
+        "show_weekly": "showWeekly",
+        "show_monthly": "showMonthly",
+        "display_pivots": "displaypivots",
+        "display_support": "displaysupport",
+        "display_resistance": "displayresistance",
+        "display_cpr": "displaycpr",
+        "display_s1r1": "displayS1R1",
+    },
+    "range-analysis": {
+        "show_average": "showAverage",
+        "avg_length": "avgLength",
+    },
+    "relative-volatility-index": {
+        "ma_type": "maType",
+        "ma_length": "maLength",
+        "bb_mult": "bbMult",
+    },
+})
 
 # ---------------------------------------------------------------------------
 # Shared helpers

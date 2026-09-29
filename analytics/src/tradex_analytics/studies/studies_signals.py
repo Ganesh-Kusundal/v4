@@ -39,7 +39,7 @@ from collections.abc import Sequence
 from typing import cast
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
+    REGISTRY,
     IndicatorSpec,
     _bars_since,
     _ema_of_gapped,
@@ -49,8 +49,10 @@ from tradex_analytics.indicators import (
     rsi,
 )
 
-LEGACY_PARAM_ALIASES["rsi-divergence"] = {"lb_r": "lbR", "lb_l": "lbL"}
-LEGACY_PARAM_ALIASES["wavetrend"] = {"sig_len": "sigLen"}
+REGISTRY.register_legacy_aliases({
+    "rsi-divergence": {"lb_r": "lbR", "lb_l": "lbL"},
+    "wavetrend": {"sig_len": "sigLen"},
+})
 
 # ---------------------------------------------------------------------------
 # Reference calc.ts primitives (never exported; module-private by convention)

@@ -23,12 +23,12 @@ from __future__ import annotations
 import math
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
     IndicatorSpec,
     _to_float,
     atr,
     true_ranges,
 )
+from tradex_analytics.registry import REGISTRY
 
 
 def _source_values(candles: list, source: str) -> list[float]:
@@ -333,7 +333,9 @@ SPEC_CHANDE_KROLL_STOP = IndicatorSpec(
 )
 
 
-LEGACY_PARAM_ALIASES["chandelier-exit"] = {
-    "atr_length": "atrLength",
-    "atr_multiplier": "atrMultiplier",
-}
+REGISTRY.register_legacy_aliases({
+    "chandelier-exit": {
+        "atr_length": "atrLength",
+        "atr_multiplier": "atrMultiplier",
+    },
+})

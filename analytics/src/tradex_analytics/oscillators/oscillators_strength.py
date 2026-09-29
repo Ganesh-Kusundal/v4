@@ -12,42 +12,44 @@ import math
 from typing import Any, cast
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
     IndicatorSpec,
     _change,
     _ema_of_gapped,
     _highest,
     _lowest,
 )
+from tradex_analytics.registry import REGISTRY
 
-LEGACY_PARAM_ALIASES["ppo"] = {
-    "fast_length": "fastLength",
-    "slow_length": "slowLength",
-    "signal_length": "signalLength",
-    "osc_type": "oscType",
-    "sig_type": "sigType",
-}
-LEGACY_PARAM_ALIASES["trix"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["tsi"] = {
-    "long_length": "long",
-    "short_length": "short",
-    "signal_length": "signal",
-}
-LEGACY_PARAM_ALIASES["smi"] = {
-    "length_k": "lengthK",
-    "length_d": "lengthD",
-    "length_ema": "lengthEMA",
-}
-LEGACY_PARAM_ALIASES["smi-ergodic-indicator"] = {
-    "long_length": "longlen",
-    "short_length": "shortlen",
-    "signal_length": "siglen",
-}
-LEGACY_PARAM_ALIASES["smi-ergodic-oscillator"] = {
-    "long_length": "longlen",
-    "short_length": "shortlen",
-    "signal_length": "siglen",
-}
+REGISTRY.register_legacy_aliases({
+    "ppo": {
+        "fast_length": "fastLength",
+        "slow_length": "slowLength",
+        "signal_length": "signalLength",
+        "osc_type": "oscType",
+        "sig_type": "sigType",
+    },
+    "trix": {"period": "length"},
+    "tsi": {
+        "long_length": "long",
+        "short_length": "short",
+        "signal_length": "signal",
+    },
+    "smi": {
+        "length_k": "lengthK",
+        "length_d": "lengthD",
+        "length_ema": "lengthEMA",
+    },
+    "smi-ergodic-indicator": {
+        "long_length": "longlen",
+        "short_length": "shortlen",
+        "signal_length": "siglen",
+    },
+    "smi-ergodic-oscillator": {
+        "long_length": "longlen",
+        "short_length": "shortlen",
+        "signal_length": "siglen",
+    },
+})
 
 def _f(v: Any) -> float:
     return float(v)

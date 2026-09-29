@@ -78,7 +78,7 @@ def ema(values: list, period: int) -> list:
     return out
 
 
-def rsi(values: list, period: int = 14) -> list:
+def rsi(values: list, period: int) -> list:
     """Relative Strength Index.
 
     Args:
@@ -128,7 +128,7 @@ def rsi(values: list, period: int = 14) -> list:
     return result
 
 
-def roc(values: list, period: int = 10) -> list:
+def roc(values: list, period: int) -> list:
     """Rate of Change — percentage change over *period* bars.
 
     Args:
@@ -369,7 +369,7 @@ def _generalized_double(
     ]
 
 
-def t3(values: list, length: int, factor: float = 0.7) -> list[float | None]:
+def t3(values: list, length: int, factor: float) -> list[float | None]:
     """Tillson T3 — three generalized-double layers (openalgo-charts parity).
 
     Matches ``T3`` (src/indicators/averages.ts): 6 chained averages, first
@@ -446,10 +446,10 @@ def _hull_series(values: list[float], mode: str, length: int) -> list[float | No
 
 def hull_suite(
     values: list,
-    mode: str = "Hma",
-    length: int = 55,
-    length_mult: float = 1.0,
-    visual_switch: bool = True,
+    mode: str,
+    length: int,
+    length_mult: float,
+    visual_switch: bool,
 ) -> dict[str, list]:
     """Hull Suite — Hull MA plus 2-bar displaced twin (openalgo-charts parity).
 
@@ -470,7 +470,7 @@ def hull_suite(
 
 
 def alma(
-    values: list, period: int, offset: float = 0.85, sigma: float = 6.0
+    values: list, period: int, offset: float, sigma: float
 ) -> list[float | None]:
     """Arnaud Legoux Moving Average (openalgo-charts parity).
 
@@ -498,7 +498,9 @@ def alma(
     return out
 
 
-def macd(values: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict[str, list]:
+def macd(
+    values: list, fast: int | None = None, slow: int | None = None, signal: int | None = None
+) -> dict[str, list]:
     """MACD: EMA(fast) − EMA(slow), plus signal EMA and histogram (parity with
     openalgo-charts ``momentum.ts``).
 
@@ -506,6 +508,9 @@ def macd(values: list, fast: int = 12, slow: int = 26, signal: int = 9) -> dict[
     signal smooths the MACD line starting at its first finite value
     (``fromFirstValue``), so outputs are None-padded through the warmup.
     """
+    fast = 12 if fast is None else fast
+    slow = 26 if slow is None else slow
+    signal = 9 if signal is None else signal
     if min(fast, slow, signal) < 1:
         raise ValueError("periods must be positive")
     floats = [_to_float(v) for v in values]
@@ -542,7 +547,7 @@ def true_ranges(candles: list) -> list[float]:
     return out
 
 
-def atr(candles: list, period: int = 14) -> list[float | None]:
+def atr(candles: list, period: int) -> list[float | None]:
     """Average True Range (Wilder smoothing).
 
     Matches openalgo-charts ``atr`` (src/indicators/atr.ts): the seed is the
@@ -1272,7 +1277,6 @@ def indicator_catalogue() -> list[dict[str, Any]]:
 # Family modules add entries as they migrate their specs to engine keys;
 # _resolve_indicator_params translates before validation so old callers
 # keep working while new callers use engine keys.
-LEGACY_PARAM_ALIASES: dict[str, dict[str, str]] = {}
 
 
 def _resolve_indicator_params(
@@ -1293,7 +1297,7 @@ def _resolve_indicator_params(
     # callers keep working after a spec migrates. Canonical names always win:
     # a supplied key already matching the spec is never rewritten.
     known = {p[0] for p in spec.params}
-    aliases = LEGACY_PARAM_ALIASES.get(indicator_id, {})
+    aliases = REGISTRY.get_legacy_aliases(indicator_id)
     supplied = {aliases.get(k, k) if k not in known else k: v for k, v in supplied.items()}
     unknown = set(supplied) - known
     if unknown:
@@ -1583,27 +1587,29 @@ def _builtin_specs() -> list[IndicatorSpec]:
     ]
 
 
-LEGACY_PARAM_ALIASES["sma"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["ema"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["wma"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["hma"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["dema"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["tema"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["alma"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["rsi"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["roc"] = {"period": "length"}
-LEGACY_PARAM_ALIASES["macd"] = {
-    "fast": "fastPeriod",
-    "slow": "slowPeriod",
-    "signal": "signalPeriod",
-}
-LEGACY_PARAM_ALIASES["bollinger"] = {"period": "length", "num_std": "stdDev"}
-LEGACY_PARAM_ALIASES["stochastic"] = {
-    "k_period": "kPeriod",
-    "smooth_k": "kSmoothing",
-    "d_period": "dPeriod",
-}
-LEGACY_PARAM_ALIASES["obv"] = {"ma_type": "maType", "ma_length": "maLength", "bb_mult": "bbMult"}
+REGISTRY.register_legacy_aliases({
+    "sma": {"period": "length"},
+    "ema": {"period": "length"},
+    "wma": {"period": "length"},
+    "hma": {"period": "length"},
+    "dema": {"period": "length"},
+    "tema": {"period": "length"},
+    "alma": {"period": "length"},
+    "rsi": {"period": "length"},
+    "roc": {"period": "length"},
+    "macd": {
+        "fast": "fastPeriod",
+        "slow": "slowPeriod",
+        "signal": "signalPeriod",
+    },
+    "bollinger": {"period": "length", "num_std": "stdDev"},
+    "stochastic": {
+        "k_period": "kPeriod",
+        "smooth_k": "kSmoothing",
+        "d_period": "dPeriod",
+    },
+    "obv": {"ma_type": "maType", "ma_length": "maLength", "bb_mult": "bbMult"},
+})
 
 
 for _spec in _builtin_specs():

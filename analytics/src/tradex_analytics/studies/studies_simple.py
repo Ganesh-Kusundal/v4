@@ -30,7 +30,7 @@ from collections.abc import Sequence
 from typing import Any, cast
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
+    REGISTRY,
     IndicatorSpec,
     _change,
     _rma,
@@ -41,25 +41,27 @@ from tradex_analytics.indicators import (
 )
 from tradex_analytics.volume.volume_flow import _sma_skip_none
 
-LEGACY_PARAM_ALIASES["ma-cross"] = {"short_length": "shortLength", "long_length": "longLength"}
-LEGACY_PARAM_ALIASES["ma-ribbon"] = {
-    "ma1_type": "ma1Type",
-    "ma1_source": "ma1Source",
-    "ma1_length": "ma1Length",
-    "ma2_type": "ma2Type",
-    "ma2_source": "ma2Source",
-    "ma2_length": "ma2Length",
-    "ma3_type": "ma3Type",
-    "ma3_source": "ma3Source",
-    "ma3_length": "ma3Length",
-    "ma4_type": "ma4Type",
-    "ma4_source": "ma4Source",
-    "ma4_length": "ma4Length",
-}
-LEGACY_PARAM_ALIASES["woodies-cci"] = {
-    "cci_turbo_length": "cciTurboLength",
-    "cci14_length": "cci14Length",
-}
+REGISTRY.register_legacy_aliases({
+    "ma-cross": {"short_length": "shortLength", "long_length": "longLength"},
+    "ma-ribbon": {
+        "ma1_type": "ma1Type",
+        "ma1_source": "ma1Source",
+        "ma1_length": "ma1Length",
+        "ma2_type": "ma2Type",
+        "ma2_source": "ma2Source",
+        "ma2_length": "ma2Length",
+        "ma3_type": "ma3Type",
+        "ma3_source": "ma3Source",
+        "ma3_length": "ma3Length",
+        "ma4_type": "ma4Type",
+        "ma4_source": "ma4Source",
+        "ma4_length": "ma4Length",
+    },
+    "woodies-cci": {
+        "cci_turbo_length": "cciTurboLength",
+        "cci14_length": "cci14Length",
+    },
+})
 
 # ---------------------------------------------------------------------------
 # Shared helpers

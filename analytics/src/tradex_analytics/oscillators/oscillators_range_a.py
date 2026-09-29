@@ -25,7 +25,6 @@ Parity notes:
 from __future__ import annotations
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
     IndicatorSpec,
     _rolling_sma,
     _to_float,
@@ -34,19 +33,22 @@ from tradex_analytics.indicators import (
     sma,
     wma,
 )
+from tradex_analytics.registry import REGISTRY
 
-LEGACY_PARAM_ALIASES["stochastic-rsi"] = {
-    "length_rsi": "lengthRSI",
-    "length_stoch": "lengthStoch",
-    "smooth_k": "smoothK",
-    "smooth_d": "smoothD",
-}
-LEGACY_PARAM_ALIASES["coppock-curve"] = {
-    "wma_length": "wmaLength",
-    "long_roc_length": "longRoCLength",
-    "short_roc_length": "shortRoCLength",
-}
-LEGACY_PARAM_ALIASES["dpo"] = {"is_centered": "isCentered"}
+REGISTRY.register_legacy_aliases({
+    "stochastic-rsi": {
+        "length_rsi": "lengthRSI",
+        "length_stoch": "lengthStoch",
+        "smooth_k": "smoothK",
+        "smooth_d": "smoothD",
+    },
+    "coppock-curve": {
+        "wma_length": "wmaLength",
+        "long_roc_length": "longRoCLength",
+        "short_roc_length": "shortRoCLength",
+    },
+    "dpo": {"is_centered": "isCentered"},
+})
 
 # ---------------------------------------------------------------------------
 # Local helpers mirroring calc.ts strict semantics

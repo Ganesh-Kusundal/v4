@@ -44,7 +44,6 @@ from __future__ import annotations
 import math
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
     IndicatorSpec,
     _change,
     _ema_of_gapped,
@@ -55,6 +54,7 @@ from tradex_analytics.indicators import (
     sma,
     wma,
 )
+from tradex_analytics.registry import REGISTRY
 
 
 def _extract(candles_or_values: list) -> list[float]:
@@ -555,17 +555,19 @@ SPEC_MA_CHANNEL = IndicatorSpec(
 )
 
 
-LEGACY_PARAM_ALIASES["bollinger-bandwidth"] = {
-    "expansion_length": "expansionLength",
-    "contraction_length": "contractionLength",
-}
-LEGACY_PARAM_ALIASES["bb-trend"] = {
-    "short_length": "shortLength",
-    "long_length": "longLength",
-    "std_dev_mult": "stdDevMult",
-}
-LEGACY_PARAM_ALIASES["kama"] = {
-    "er_length": "erLength",
-    "fast_length": "fastLength",
-    "slow_length": "slowLength",
-}
+REGISTRY.register_legacy_aliases({
+    "bollinger-bandwidth": {
+        "expansion_length": "expansionLength",
+        "contraction_length": "contractionLength",
+    },
+    "bb-trend": {
+        "short_length": "shortLength",
+        "long_length": "longLength",
+        "std_dev_mult": "stdDevMult",
+    },
+    "kama": {
+        "er_length": "erLength",
+        "fast_length": "fastLength",
+        "slow_length": "slowLength",
+    },
+})

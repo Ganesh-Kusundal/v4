@@ -27,7 +27,7 @@ Parity notes (openalgo-charts ``src/indicators/momentum.ts`` / ``oscillators.ts`
 from __future__ import annotations
 
 from tradex_analytics.indicators import (
-    LEGACY_PARAM_ALIASES,
+    REGISTRY,
     IndicatorSpec,
     _from_first_value,
     _smoothing_ma,
@@ -37,12 +37,14 @@ from tradex_analytics.indicators import (
     true_ranges,
 )
 
-LEGACY_PARAM_ALIASES["adx"] = {"adx_period": "adxPeriod"}
-LEGACY_PARAM_ALIASES["cci"] = {
-    "ma_type": "maType",
-    "ma_length": "maLength",
-    "bb_mult": "bbMult",
-}
+REGISTRY.register_legacy_aliases({
+    "adx": {"adx_period": "adxPeriod"},
+    "cci": {
+        "ma_type": "maType",
+        "ma_length": "maLength",
+        "bb_mult": "bbMult",
+    },
+})
 
 # ---------------------------------------------------------------------------
 # Local Wilder RMA — matches calc.ts::rma (NaN -> None, seed = SMA)

@@ -47,8 +47,6 @@ class IndicatorResult:
     values: dict[str, list] = field(default_factory=dict)
 
     def __getitem__(self, key: str) -> list:
-        # Convenience: ``result['value']`` reads like a dict without
-        # forcing callers to spell out ``.values['value']`` every time.
         return self.values[key]
 
     def __contains__(self, key: str) -> bool:
@@ -74,6 +72,7 @@ class IndicatorRegistry:
 
     def __init__(self) -> None:
         self._specs: dict[str, Any] = {}
+        self._legacy_aliases: dict[str, dict[str, str]] = {}
         self._lock = threading.Lock()
 
     def register(self, name: str, spec: Any) -> None:
@@ -83,8 +82,6 @@ class IndicatorRegistry:
 
     def get(self, name: str) -> Any:
         """Return the spec for *name*; raise ``KeyError`` if unknown."""
-        # Fast path: read without the lock; the dict swap is atomic in CPython
-        # and a stale miss is recovered on retry.
         spec = self._specs.get(name)
         if spec is not None:
             return spec
@@ -103,6 +100,16 @@ class IndicatorRegistry:
         """Remove *name* if present — used by tests to undo registrations."""
         with self._lock:
             self._specs.pop(name, None)
+
+    def register_legacy_aliases(self, aliases: dict[str, dict[str, str]]) -> None:
+        """Register legacy param name aliases for indicators."""
+        with self._lock:
+            self._legacy_aliases.update(aliases)
+
+    def get_legacy_aliases(self, indicator_id: str) -> dict[str, str]:
+        """Return legacy param aliases for *indicator_id*."""
+        with self._lock:
+            return dict(self._legacy_aliases.get(indicator_id, {}))
 
     def compute(
         self, name: str, series: Any, **params: Any
@@ -123,8 +130,6 @@ class IndicatorRegistry:
         return IndicatorResult(values={"value": raw})
 
 
-# Module-level default registry — most callers want a single, process-wide
-# instance populated by decorator-based self-registration at import time.
 REGISTRY = IndicatorRegistry()
 
 
@@ -135,6 +140,7 @@ def register_indicator(
     inputs: tuple[str, ...] = (),
     params: dict[str, ParamSpec] | None = None,
     outputs: tuple[str, ...] = ("value",),
+    registry: IndicatorRegistry | None = None,
 ) -> Any:
     """Decorator that registers a compute function under a name.
 
@@ -143,11 +149,14 @@ def register_indicator(
     1. ``@register_indicator("rsi", inputs=("close",), params={...}, outputs=("value",))``
        — the decorator builds the spec from the keyword arguments and binds
        the function as its ``compute`` callable.
-    2. ``REGISTRY.register("rsi", spec)`` — direct registration, when the
+    2. ``registry.register("rsi", spec)`` — direct registration, when the
        module already has a fully-formed :class:`IndicatorSpec`.
 
     The decorator is idempotent on re-import: re-registering the same name
     replaces the previous binding, which keeps module reloads safe.
+
+    Pass ``registry=`` to bind to a specific instance; defaults to the
+    module-level ``REGISTRY``.
     """
     def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         bound_name = name or fn.__name__
@@ -158,9 +167,8 @@ def register_indicator(
             outputs=tuple(outputs),
             compute=fn,
         )
-        REGISTRY.register(bound_name, bound_spec)
+        target = registry if registry is not None else REGISTRY
+        target.register(bound_name, bound_spec)
         return fn
 
     return _decorator
-
-
