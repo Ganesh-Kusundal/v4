@@ -212,22 +212,11 @@ class HistoricalSeries(Serializable):
 
 
 def _aggregate(chunk: list[Candle]) -> Candle:
-    from decimal import Decimal
+    # Lazy import: ohlcv.py imports Candle from this module, so a module-level
+    # import would cycle. By call time both are fully loaded.
+    from tradex_domain.ohlcv import aggregate_candles
 
-    first = chunk[0]
-    ohlc = first.ohlc
-    return Candle(
-        instrument=first.instrument,
-        timeframe=first.timeframe,
-        ohlc=type(ohlc)(
-            open=ohlc.open,
-            high=Price(value=max(c.ohlc.high.value for c in chunk)),
-            low=Price(value=min(c.ohlc.low.value for c in chunk)),
-            close=chunk[-1].ohlc.close,
-        ),
-        volume=Quantity(value=sum((c.volume.value for c in chunk), Decimal(0))),
-        timestamp=chunk[-1].timestamp,
-    )
+    return aggregate_candles(chunk)
 
 
 def _bucketize(candles: list[Candle], timeframe: Timeframe) -> dict[int, Candle]:

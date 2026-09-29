@@ -35,6 +35,7 @@ from enum import StrEnum
 from logging import getLogger
 from typing import Any
 
+from tradex_domain.constants import ADOPTION_TOLERANCE
 from tradex_execution.reconciliation import DriftItem
 
 log = getLogger(__name__)
@@ -872,7 +873,7 @@ def unsettled_local_instruments(orders: Sequence[Any]) -> frozenset[str]:
 #: untouched for those keeps the adoption log to the corrections an operator needs
 #: to see, and is what makes a re-derivation after a successful adoption report no
 #: change (idempotency) rather than a permanent paise-level churn.
-_ADOPTION_TOLERANCE: Decimal = Decimal("0.01")
+_ADOPTION_TOLERANCE: Decimal = ADOPTION_TOLERANCE
 
 
 def derive_venue_adoption(

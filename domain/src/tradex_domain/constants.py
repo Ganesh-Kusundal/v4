@@ -317,6 +317,13 @@ WS_MODE_KEY = "mode"
 WS_LAST_CLOSED_KEY = "lastClosed"
 WS_CURRENT_BUCKET_KEY = "currentBucket"
 
+WS_SUBSCRIBE_BARS = "subscribe_bars"
+WS_INDICATOR_SUB = "indicator-sub"
+WS_INDICATOR_UNSUB = "indicator-unsub"
+WS_REPLAY_START = "replay_start"
+WS_REPLAY_PAUSE = "replay_pause"
+WS_REPLAY_SEEK = "replay_seek"
+
 WORKSPACE_DATA_KEY = "data"
 WORKSPACE_REVISION_KEY = "revision"
 WORKSPACE_LAYOUT_ID_KEY = "layout_id"
@@ -901,6 +908,12 @@ __all__ = [
     "WS_MODE_KEY",
     "WS_LAST_CLOSED_KEY",
     "WS_CURRENT_BUCKET_KEY",
+    "WS_SUBSCRIBE_BARS",
+    "WS_INDICATOR_SUB",
+    "WS_INDICATOR_UNSUB",
+    "WS_REPLAY_START",
+    "WS_REPLAY_PAUSE",
+    "WS_REPLAY_SEEK",
     "WORKSPACE_DATA_KEY",
     "WORKSPACE_REVISION_KEY",
     "WORKSPACE_LAYOUT_ID_KEY",

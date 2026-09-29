@@ -24,6 +24,15 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import WebSocket, WebSocketDisconnect
+from tradex_domain.constants import (
+    PAPER_SNAPSHOT_SPREAD,
+    WS_INDICATOR_SUB,
+    WS_INDICATOR_UNSUB,
+    WS_REPLAY_PAUSE,
+    WS_REPLAY_SEEK,
+    WS_REPLAY_START,
+    WS_SUBSCRIBE_BARS,
+)
 from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.timezones import IST_ZONE
 
@@ -444,18 +453,18 @@ async def ws_stream(
             elif msg_type == "unsubscribe_orders":
                 _unsubscribe_orders()
                 _ack({"type": "unsubscribed_orders"})
-            elif msg_type == "subscribe_bars":
+            elif msg_type == WS_SUBSCRIBE_BARS:
                 await _subscribe_bars(msg)
             elif msg_type == "unsubscribe_bars":
                 _unsubscribe_bars(msg)
                 _ack({"type": "unsubscribed_bars"})
-            elif msg_type == "indicator-sub":
+            elif msg_type == WS_INDICATOR_SUB:
                 _indicator_sub(msg)
-            elif msg_type == "indicator-unsub":
+            elif msg_type == WS_INDICATOR_UNSUB:
                 _indicator_unsub(msg)
-            elif msg_type == "replay_start":
+            elif msg_type == WS_REPLAY_START:
                 await _replay_start(msg)
-            elif msg_type == "replay_pause":
+            elif msg_type == WS_REPLAY_PAUSE:
                 await _replay_pause()
             elif msg_type == "replay_resume":
                 await _replay_resume()
@@ -463,7 +472,7 @@ async def ws_stream(
                 await _replay_speed(msg)
             elif msg_type == "replay_step":
                 await _replay_step()
-            elif msg_type == "replay_seek":
+            elif msg_type == WS_REPLAY_SEEK:
                 await _replay_seek(msg)
             elif msg_type == "replay_stop":
                 await _replay_stop()
@@ -1421,8 +1430,8 @@ async def ws_stream(
                                     str(round(float(series.candles[-1].ohlc.close.value), 2))
                                 )
                                 p_ltp = Price(last_c)
-                                p_bid = Price(last_c - Decimal("0.05"))
-                                p_ask = Price(last_c + Decimal("0.05"))
+                                p_bid = Price(last_c - PAPER_SNAPSHOT_SPREAD)
+                                p_ask = Price(last_c + PAPER_SNAPSHOT_SPREAD)
                                 quote = Quote(
                                     instrument=inst,
                                     ltp=p_ltp,
