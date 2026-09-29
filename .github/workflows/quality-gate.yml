@@ -109,6 +109,12 @@ jobs:
       - name: Mypy (duckdb-analytics)
         run: uv run --no-sync mypy services/duckdb-analytics/src/tradex_duckdb
 
+      - name: Import-linter (boundary contracts)
+        run: uv run --no-sync --with import-linter lint-imports
+
+      - name: Complexity gate
+        run: uv run --no-sync python -m pytest tests/test_complexity_gate.py -q
+
       # Coverage names the 17 importable packages, not the 17 top-level
       # directories. The directory form (`--cov=trading`) matches no module and
       # coverage reported "No data to report" — so the step that looked like it
@@ -132,4 +138,7 @@ jobs:
           --cov=tradex_market_data --cov=tradex_interfaces
           --cov=tradex_runtime --cov=tradex_persistence
           --cov-fail-under=85
-          --cov-report=term-missing -q
+          --cov-report=term-missing --cov-report=json:coverage.json -q
+
+      - name: Per-package branch coverage floors
+        run: uv run --no-sync python scripts/coverage_floors.py --json coverage.json

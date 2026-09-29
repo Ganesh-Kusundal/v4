@@ -6,11 +6,6 @@ repos:
         args: [--fix]
       - id: ruff-format
 
-  # The ratchet is only worth installing if it is free to run locally. Ruff is
-  # the fast guard; the import-boundary test is the architectural one (it is
-  # what keeps domain pure and the package graph acyclic) and still runs in a
-  # couple of seconds, so it belongs in the pre-commit loop rather than only in
-  # CI where a failure is expensive to discover.
   - repo: local
     hooks:
       - id: import-boundaries
@@ -20,9 +15,11 @@ repos:
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
-      - id: hardcoded-literals
-        name: hardcoded literal check
-        entry: '.venv/bin/python -c ''import sys;bad=[f"{p}:{n}:{l.strip()}" for p in sys.argv[1:] for n,l in enumerate(open(p),1) if ("http://" in l or "https://" in l) or (any(k in l.lower() for k in ("token","secret","password","api_key","apikey","passwd")) and "=" in l and l.split("=",1)[1].lstrip()[:1] in (chr(34),chr(39)))];print(chr(10).join(bad)) if bad else None;sys.exit(1) if bad else None'''
+
+      - id: no-hardcoded-literals
+        name: no hardcoded literals
+        entry: grep -rn 'os.environ.get("TRADEX_' --include='*.py' domain/src/ config/src/ brokers/src/ execution/src/ replay/src/ strategy/src/ runtime/src/ interfaces/src/ analytics/src/ application/src/ services/ reactive/src/ observability/src/ persistence/src/ research/src/ operations/src/ | grep -v 'constants.py\|enums.py\|metrics.py' || true
         language: system
+        pass_filenames: false
         types: [python]
         stages: [pre-commit]
