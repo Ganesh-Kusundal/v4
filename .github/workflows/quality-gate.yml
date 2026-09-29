@@ -35,13 +35,13 @@ jobs:
       # of them installed. --no-sync keeps the frozen lock authoritative instead
       # of letting `uv run` silently re-resolve.
       #
-      # Ratchet, not a hard wall. `ruff check` currently reports 233 pre-existing
-      # violations of the E/F/W/I/UP set the root pyproject declares. Clearing
-      # them all is a cleanup project; what the gate must protect is that the
-      # number never grows. This step reads the committed baseline in
-      # `.ruff_baseline` and fails only if the count went UP, so the wall can
-      # only shrink. To lower the baseline on purpose after a cleanup:
-      # `python scripts/ruff_ratchet.py --set-baseline`.
+      # Ratchet, not a hard wall. `ruff check` currently reports pre-existing
+      # violations of the E/F/W/I/UP/C90/PLR0912/PLR0915/N/B/T20 set the root
+      # pyproject declares. Clearing them all is a cleanup project; what the
+      # gate must protect is that the number never grows. This step reads the
+      # committed baseline in `.ruff_baseline` and fails only if the count went
+      # UP, so the wall can only shrink. To lower the baseline on purpose after
+      # a cleanup: `python scripts/ruff_ratchet.py --set-baseline`.
       #
       # This replaces the previous hard `ruff check` step, which could never go
       # green and therefore made every step below it (mypy, pytest) unreachable
@@ -52,13 +52,15 @@ jobs:
       - name: Mypy (domain)
         run: uv run --no-sync mypy domain/src/tradex_domain
 
-      # A typing ratchet: each package is promoted to hard-fail the moment it
-      # reaches 0 errors, and never softened again. All 14 gated packages are
-      # now at 0 errors and hard-fail; the ratchet is complete. The two
-      # Upstox depth subscriptions are resolved with documented casts (the
-      # market backend is Upstox's depth backend at runtime, but 30-level depth
-      # is provider-specific); the cleaner provider-specific depth port is
-      # tracked in docs/specs/remediation-and-hardening.md.
+      # Every package hard-fails mypy under the root config's strict annotation
+      # flags (disallow_untyped_defs, disallow_incomplete_defs, warn_return_any,
+      # no_implicit_optional, check_untyped_defs, strict_optional). Packages
+      # currently sit at non-zero error counts; each is promoted to the
+      # zero-errors state by clearing its own debt, never by softening the
+      # flags. The two Upstox depth subscriptions are resolved with documented
+      # casts (the market backend is Upstox's depth backend at runtime, but
+      # 30-level depth is provider-specific); the cleaner provider-specific
+      # depth port is tracked in docs/specs/remediation-and-hardening.md.
       - name: Mypy (brokers)
         run: uv run --no-sync mypy brokers/src/tradex_brokers
 
@@ -88,6 +90,24 @@ jobs:
 
       - name: Mypy (reactive)
         run: uv run --no-sync mypy reactive/src/tradex_reactive
+
+      - name: Mypy (research)
+        run: uv run --no-sync mypy research/src/tradex_research
+
+      - name: Mypy (operations)
+        run: uv run --no-sync mypy operations/src/tradex_operations
+
+      - name: Mypy (observability)
+        run: uv run --no-sync mypy observability/src/tradex_observability
+
+      - name: Mypy (persistence)
+        run: uv run --no-sync mypy persistence/src/tradex_persistence
+
+      - name: Mypy (application)
+        run: uv run --no-sync mypy application/src/tradex_application
+
+      - name: Mypy (duckdb-analytics)
+        run: uv run --no-sync mypy services/duckdb-analytics/src/tradex_duckdb
 
       # Coverage names the 17 importable packages, not the 17 top-level
       # directories. The directory form (`--cov=trading`) matches no module and
