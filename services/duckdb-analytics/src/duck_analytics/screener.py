@@ -10,13 +10,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
+
+from tradex_domain.paths import REPO_ROOT
 
 from duck_analytics.catalog import DuckDBCatalog, default_config_for
 from duck_analytics.query import QueryService
 from duck_analytics.scanners import breadth, scan_screener
-
-_REPO_HINT = Path(__file__).resolve().parents[4]  # .../v4
 
 
 def _build_registry() -> dict:
@@ -37,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
 
     fn = registry[args.scanner][0]
     q = fn(args.as_of)
-    cfg = default_config_for(_REPO_HINT)
+    cfg = default_config_for(REPO_ROOT)
     cat = DuckDBCatalog(cfg)
     try:
         res = QueryService(cat, cfg).execute(q.sql, None, require_complete=True)

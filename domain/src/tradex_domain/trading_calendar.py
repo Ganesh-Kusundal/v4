@@ -7,7 +7,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 
-from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
+from tradex_domain.constants import SESSION_CLOSE, SESSION_OPEN
+
+_SESSION_OPEN = time.fromisoformat(SESSION_OPEN)
+_SESSION_CLOSE = time.fromisoformat(SESSION_CLOSE)
 
 
 class NSETradingCalendar:
@@ -22,8 +25,8 @@ class NSETradingCalendar:
     """
 
     # Standard market hours (IST) — single-sourced from domain/market_calendar.py
-    _MARKET_OPEN = MARKET_OPEN
-    _MARKET_CLOSE = MARKET_CLOSE
+    _MARKET_OPEN = _SESSION_OPEN
+    _MARKET_CLOSE = _SESSION_CLOSE
 
     def __init__(self, holidays: set[date] | None = None) -> None:
         """Create a calendar.

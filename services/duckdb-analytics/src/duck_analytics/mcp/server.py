@@ -20,10 +20,11 @@ Tools:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+
+from tradex_domain.paths import REPO_ROOT
 
 from duck_analytics.catalog import DuckDBCatalog, default_config_for
 from duck_analytics.patterns import find_similar
@@ -32,9 +33,7 @@ from duck_analytics.resample import TF_TO_INTERVAL, resample_sql
 from duck_analytics.rs_score import rs_score_sql
 from duck_analytics.scanners import breadth, scan_screener
 
-_REPO_HINT = Path(__file__).resolve().parents[5]  # .../v4
-
-_cfg = default_config_for(_REPO_HINT)
+_cfg = default_config_for(REPO_ROOT)
 _catalog = DuckDBCatalog(_cfg)
 _service = QueryService(_catalog, _cfg)
 
