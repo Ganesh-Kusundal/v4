@@ -254,6 +254,9 @@ class DhanBroker(BaseBroker):
             return self._ws_backend.subscribe_quotes(instruments, handler)
         return None
 
+    def _create_depth_backend(self) -> Any:
+        return self.depth_stream_backend()
+
     def subscribe_depth(self, instrument: object, handler: object) -> object:
         """Subscribe to depth stream via the dedicated depth-20 WebSocket backend.
 
@@ -266,7 +269,7 @@ class DhanBroker(BaseBroker):
                 return None
             with self._stream_lock:
                 if self._depth_backend is None:  # double-checked lazy init
-                    self._depth_backend = self.depth_stream_backend()
+                    self._depth_backend = self._create_depth_backend()
         return self._depth_backend.subscribe_depth(instrument, handler)
 
     def unsubscribe(self, subscription: object) -> None:
@@ -348,6 +351,9 @@ class DhanBroker(BaseBroker):
 
     # -- streaming --------------------------------------------------------
 
+    def _create_order_backend(self, *, ws_factory: Any | None = None) -> Any:
+        return self._transport.order_stream_backend(ws_factory=ws_factory)
+
     def stream_backend(self, *, ws_factory: Any | None = None) -> Any:
         """Order-update stream backend (cached; shared across subscribers)."""
         if self._transport is None:
@@ -355,9 +361,7 @@ class DhanBroker(BaseBroker):
         if self._order_backend is None:
             with self._stream_lock:
                 if self._order_backend is None:  # double-checked lazy init
-                    self._order_backend = self._transport.order_stream_backend(
-                        ws_factory=ws_factory
-                    )
+                    self._order_backend = self._create_order_backend(ws_factory=ws_factory)
         return self._order_backend
 
     def market_stream_backend(self, *, ws_factory: Any | None = None) -> Any:

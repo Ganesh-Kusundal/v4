@@ -312,6 +312,9 @@ class UpstoxBroker(BaseBroker):
 
     # -- streaming -------------------------------------------------------
 
+    def _create_order_backend(self, *, ws_factory: Any | None = None) -> Any:
+        return self._transport.portfolio_stream_backend(ws_factory=ws_factory)
+
     def stream_backend(self, *, ws_factory: Any | None = None) -> Any:
         """Order/position stream backend (cached; shared across subscribers)."""
         if self._transport is None:
@@ -319,9 +322,7 @@ class UpstoxBroker(BaseBroker):
         if self._order_backend is None:
             with self._stream_lock:
                 if self._order_backend is None:  # double-checked lazy init
-                    self._order_backend = self._transport.portfolio_stream_backend(
-                        ws_factory=ws_factory
-                    )
+                    self._order_backend = self._create_order_backend(ws_factory=ws_factory)
         return self._order_backend
 
     def market_stream_backend(self, *, ws_factory: Any | None = None) -> Any:
