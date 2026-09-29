@@ -10,40 +10,20 @@ from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.market import Candle, HistoricalSeries
 from tradex_domain.value_objects import Price
 
+from tradex_analytics.registry import IndicatorRegistry
 from tradex_analytics.reports import tearsheet as reports_tearsheet
 
 
 class AnalyticsEngine:
     """Coordinates analytics computations."""
 
-    def __init__(self, warmup_bars: int = 0) -> None:
+    def __init__(
+        self,
+        warmup_bars: int = 0,
+        registry: IndicatorRegistry | None = None,
+    ) -> None:
         self._warmup_bars = warmup_bars
-
-    def compute(self, series, indicators: list[str]) -> dict:
-        """Compute requested indicators on a series.
-
-        Args:
-            series: List of numeric values
-            indicators: List of indicator names ('sma', 'ema', 'rsi')
-
-        Returns:
-            Dictionary mapping indicator names to computed values
-        """
-        result = {}
-
-        for indicator in indicators:
-            if indicator == 'sma':
-                result['sma'] = sma(series, period=20)
-            elif indicator == 'ema':
-                result['ema'] = ema(series, period=20)
-            elif indicator == 'rsi':
-                result['rsi'] = rsi(series, period=14)
-            elif indicator == 'roc':
-                result['roc'] = roc(series, period=10)
-            else:
-                raise ValueError(f"Unknown indicator: {indicator}")
-
-        return result
+        self._registry = registry
 
     def indicator(
         self,
@@ -76,10 +56,9 @@ class AnalyticsEngine:
         through untouched — no Price validation on this surface.
 
         Resolution order:
-          1. The ``IndicatorRegistry`` (``REGISTRY``) — the single source of
-             truth. Every indicator registered there is automatically
-             available to scanners and callers; the legacy ``_INDICATORS``
-             fast path is a no-op shortcut on top of the same registry.
+          1. The ``IndicatorRegistry`` — the single source of truth. Every
+             indicator registered there is automatically available to scanners
+             and callers.
           2. ``CapabilityNotSupportedError`` for truly unknown names.
         """
         key = name.lower()
@@ -88,11 +67,13 @@ class AnalyticsEngine:
             get_indicator_spec,
         )
 
-        if get_indicator_spec(key) is None:
+        if get_indicator_spec(key, self._registry) is None:
             raise CapabilityNotSupportedError(
                 f"indicator {name!r} is not implemented"
             )
-        result = compute_indicator(key, series.candles, params or {})
+        result = compute_indicator(
+            key, series.candles, params or {}, self._registry
+        )
         # compute_indicator always returns a dict of per-plot lists.
         if "value" in result:
             raw_values = result["value"]
@@ -134,36 +115,6 @@ class AnalyticsEngine:
         for name in names:
             result = self.indicator(result, name, **params)
         return result
-
-    def report(self, name: str, series: HistoricalSeries, **params: Any) -> dict[str, Any]:
-        """Compute a named report over a HistoricalSeries."""
-        closes = [float(c.ohlc.close.value) for c in series.candles]
-        key = name.lower()
-        if key == "max_drawdown":
-            return {"max_drawdown": max_drawdown(closes)}
-        if key == "sharpe":
-            returns = _returns(closes)
-            return {
-                "sharpe": sharpe_ratio(
-                    returns,
-                    risk_free_rate=float(params.get("risk_free", 0.0)),
-                )
-            }
-        if key == "realized_vol":
-            return {
-                "realized_vol": realized_vol(
-                    closes,
-                    periods_per_year=int(
-                        params.get("periods_per_year", TRADING_DAYS_PER_YEAR)
-                    ),
-                )
-            }
-        if key == "win_rate":
-            return {"win_rate": win_rate(closes)}
-        if key == "advance_decline":
-            adv, dec, ratio = advance_decline(closes)
-            return {"advances": adv, "declines": dec, "adv_dec_ratio": ratio}
-        raise CapabilityNotSupportedError(f"report {name!r} is not implemented")
 
     @staticmethod
     def _with_close_nullable(

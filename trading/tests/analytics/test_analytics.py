@@ -31,6 +31,7 @@ from tradex_analytics import (
     win_rate,
 )
 from tradex_analytics.indicators import _ema_of_gapped, _sma_seeded_ema, compute_indicator
+from tradex_analytics.registry import REGISTRY
 from tradex_domain import OHLC, Price
 
 # Shared closes for standalone MACD checks (linear ramp).
@@ -54,51 +55,44 @@ def _fake_candles(closes: list[float]) -> list[_FakeCandle]:
 
 
 class TestAnalyticsEngine:
-    """AnalyticsEngine.compute(series, indicators) → dict."""
+    """AnalyticsEngine dispatches via the registry."""
 
     def test_compute_sma(self) -> None:
-        engine = AnalyticsEngine()
-        values = [float(i) for i in range(1, 25)]
-        result = engine.compute(values, ["sma"])
-        assert "sma" in result
-        assert len(result["sma"]) == len(values)
-        # First 19 values should be None (period=20)
-        assert result["sma"][0] is None
-        # Value at index 19 should be the average of 1..20
-        assert result["sma"][19] == pytest.approx(10.5)
+        candles = _fake_candles([float(i) for i in range(1, 25)])
+        result = compute_indicator("sma", candles, {"period": 20})
+        assert "value" in result
+        assert len(result["value"]) == 24
+        assert result["value"][0] is None
+        assert result["value"][19] == pytest.approx(10.5)
 
     def test_compute_ema(self) -> None:
-        engine = AnalyticsEngine()
-        values = [float(i) for i in range(1, 25)]
-        result = engine.compute(values, ["ema"])
-        assert "ema" in result
-        assert len(result["ema"]) == len(values)
-        # Emits from index 0, seeded from the first value
-        assert result["ema"][0] == pytest.approx(values[0])
-        # Rising ramp: EMA lags below the latest value
-        assert all(a < b for a, b in zip(result["ema"], result["ema"][1:]))
-        assert result["ema"][-1] < values[-1]
+        candles = _fake_candles([float(i) for i in range(1, 25)])
+        result = compute_indicator("ema", candles, {"period": 20})
+        assert "value" in result
+        assert len(result["value"]) == 24
+        assert result["value"][0] == pytest.approx(1.0)
+        assert all(a < b for a, b in zip(result["value"], result["value"][1:]))
+        assert result["value"][-1] < 24.0
 
     def test_compute_rsi(self) -> None:
-        engine = AnalyticsEngine()
-        values = [float(i) for i in range(1, 20)]
-        result = engine.compute(values, ["rsi"])
-        assert "rsi" in result
-        # Monotonic uptrend → RSI = 100
-        non_none = [v for v in result["rsi"] if v is not None]
+        candles = _fake_candles([float(i) for i in range(1, 20)])
+        result = compute_indicator("rsi", candles, {"period": 14})
+        assert "value" in result
+        non_none = [v for v in result["value"] if v is not None]
         assert non_none[-1] == pytest.approx(100.0)
 
     def test_compute_multiple_indicators(self) -> None:
-        engine = AnalyticsEngine()
-        values = [float(i) for i in range(1, 25)]
-        result = engine.compute(values, ["sma", "ema", "rsi"])
-        assert set(result.keys()) == {"sma", "ema", "rsi"}
+        candles = _fake_candles([float(i) for i in range(1, 25)])
+        for name in ("sma", "ema", "rsi"):
+            result = compute_indicator(
+                name, candles, {"period": {"sma": 20, "ema": 20, "rsi": 14}[name]}
+            )
+            assert "value" in result
 
     def test_compute_roc(self) -> None:
-        engine = AnalyticsEngine()
-        values = [100.0] * 10 + [110.0] * 4
-        result = engine.compute(values, ["roc"])
-        non_none = [v for v in result["roc"] if v is not None]
+        candles = _fake_candles([100.0] * 10 + [110.0] * 4)
+        result = compute_indicator("roc", candles, {"period": 10})
+        non_none = [v for v in result["value"] if v is not None]
         assert non_none
         assert non_none[-1] == pytest.approx(10.0)
 
@@ -142,9 +136,8 @@ class TestAnalyticsEngine:
         assert float(out.candles[-1].ohlc.close.value) == pytest.approx(10.0)
 
     def test_compute_unknown_indicator_raises(self) -> None:
-        engine = AnalyticsEngine()
-        with pytest.raises(ValueError, match="Unknown indicator"):
-            engine.compute([1.0, 2.0], ["bogus"])
+        with pytest.raises(ValueError, match="unknown indicator"):
+            compute_indicator("bogus", [])
 
 
 # ---------------------------------------------------------------------------

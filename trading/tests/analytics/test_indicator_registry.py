@@ -325,41 +325,50 @@ class TestRegistry:
         assert via_registry["value"][2] == pytest.approx((10 + 11 + 12) / 3)
 
     def test_registration_overrides_by_id(self):
+        from tradex_analytics.registry import IndicatorRegistry
+
+        reg = IndicatorRegistry()
         spec = IndicatorSpec(
             id="zzz-test-only", name="Z", category="T", placement="pane",
             params=(("period", "int", 2),), plots=(("value", "line", "V"),),
         )
-        before = {e["id"] for e in indicator_catalogue()}
-        try:
-            register_indicator(spec)
-            after = {e["id"] for e in indicator_catalogue()}
-            assert "zzz-test-only" in after and "zzz-test-only" not in before
-            # A second registration of the same id must replace, not duplicate.
-            count_before = sum(1 for e in indicator_catalogue() if e["id"] == "zzz-test-only")
-            register_indicator(spec)
-            count_after = sum(1 for e in indicator_catalogue() if e["id"] == "zzz-test-only")
-            assert count_before == count_after == 1
-        finally:
-            from tradex_analytics.registry import REGISTRY
-
-            REGISTRY.discard("zzz-test-only")
+        before = {e["id"] for e in indicator_catalogue(reg)}
+        register_indicator(spec, reg)
+        after = {e["id"] for e in indicator_catalogue(reg)}
+        assert "zzz-test-only" in after and "zzz-test-only" not in before
+        count_before = sum(1 for e in indicator_catalogue(reg) if e["id"] == "zzz-test-only")
+        register_indicator(spec, reg)
+        count_after = sum(1 for e in indicator_catalogue(reg) if e["id"] == "zzz-test-only")
+        assert count_before == count_after == 1
 
     def test_new_registry_entry_reaches_catalogue_with_zero_frontend_changes(self):
         """The seam proof: registering an id is enough for it to be served."""
-        marker = "aa-seam-proof"
-        try:
-            register_indicator(
-                IndicatorSpec(
-                    id=marker, name="Seam", category="Test", placement="pane",
-                    params=(), plots=(("value", "line", "S"),),
-                )
-            )
-            ids = {e["id"] for e in indicator_catalogue()}
-            assert marker in ids
-        finally:
-            from tradex_analytics.registry import REGISTRY as _REG
+        from tradex_analytics.registry import IndicatorRegistry
 
-            _REG.discard(marker)
+        reg = IndicatorRegistry()
+        marker = "aa-seam-proof"
+        register_indicator(
+            IndicatorSpec(
+                id=marker, name="Seam", category="Test", placement="pane",
+                params=(), plots=(("value", "line", "S"),),
+            ),
+            reg,
+        )
+        ids = {e["id"] for e in indicator_catalogue(reg)}
+        assert marker in ids
+
+    def test_di_registry_isolation(self):
+        """A DI registry is fully isolated from the default REGISTRY."""
+        from tradex_analytics.registry import IndicatorRegistry
+
+        reg = IndicatorRegistry()
+        spec = IndicatorSpec(
+            id="iso-test", name="Iso", category="T", placement="pane",
+            params=(), plots=(("value", "line", "I"),),
+        )
+        register_indicator(spec, reg)
+        assert "iso-test" in {e["id"] for e in indicator_catalogue(reg)}
+        assert "iso-test" not in {e["id"] for e in indicator_catalogue()}
 
 
 # ---------------------------------------------------------------------------

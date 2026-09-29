@@ -5,58 +5,24 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any, cast
 
-NumericValue = float | Decimal
-
-
-def _to_float(value: NumericValue) -> float:
-    """Convert Decimal or float to float."""
-    if isinstance(value, Decimal):
-        return float(value)
-    return value
-
-
-def _isfinite(v: float | None) -> bool:
-    """True when *v* is a finite float (not None, not NaN/inf)."""
-    return v is not None and math.isfinite(v)
-
-
-def sma(values: list, period: int) -> list:
-    """Simple Moving Average.
-
-    Args:
-        values: List of numeric values (Decimal or float)
-        period: Window size
-
-    Returns:
-        List of SMA values (same length as input, None-padded at start)
-    """
-    if period <= 0:
-        raise ValueError("period must be positive")
-    if len(values) < period:
-        return [None] * len(values)
-
-    floats = [_to_float(v) for v in values]
-    result: list[float | None] = [None] * (period - 1)
-
-    # Separate add/subtract matches JS running-sum micro-drift:
-    # ``sum += v[i]; sum -= v[i-period]`` (two IEEE-754 round-trips per
-    # step) differs from the combined ``sum += v[i] - v[i-period]`` (one
-    # round-trip) in the low bits.  The TS golden was generated with the
-    # JS two-step form, so we reproduce it here for bit-exact parity.
-    window_sum = 0.0
-    for _i in range(period):
-        window_sum += floats[_i]
-    result.append(window_sum / period)
-
-    for i in range(period, len(floats)):
-        window_sum += floats[i]
-        window_sum -= floats[i - period]
-        result.append(window_sum / period)
-
-    return result
+from tradex_analytics._math import (
+    _from_first_value,
+    _highest,
+    _isfinite,
+    _lowest,
+    _rma,
+    _rolling_sum,
+    _shift,
+    _sma_skip_none,
+    _smoothing_ma,
+    _source_values,
+    _stdev,
+    _to_float,
+    sma,
+    true_ranges,
+)
 
 
 def ema(values: list, period: int) -> list:
@@ -305,38 +271,6 @@ def tema(values: list, period: int) -> list[float | None]:
     ]
 
 
-def _source_values(candles: list, source: str = "close") -> list[float]:
-    """Extract an OHLC source series (openalgo-charts parity).
-
-    Matches ``sourceValues`` (src/model/indicator-registry.ts): open, high,
-    low, close direct; hl2, hlc3, ohlc4; volume (missing → 0); anything else
-    falls back to close.
-    """
-    out = []
-    for c in candles:
-        o = _to_float(c.ohlc.open.value)
-        h = _to_float(c.ohlc.high.value)
-        lo = _to_float(c.ohlc.low.value)
-        cl = _to_float(c.ohlc.close.value)
-        if source == "open":
-            out.append(o)
-        elif source == "high":
-            out.append(h)
-        elif source == "low":
-            out.append(lo)
-        elif source == "hl2":
-            out.append((h + lo) / 2.0)
-        elif source == "hlc3":
-            out.append((h + lo + cl) / 3.0)
-        elif source == "ohlc4":
-            out.append((o + h + lo + cl) / 4.0)
-        elif source == "volume":
-            out.append(float(c.volume.value))
-        else:
-            out.append(cl)
-    return out
-
-
 def smma(values: list, period: int) -> list[float | None]:
     """Smoothed MA — Wilder's RMA (openalgo-charts parity).
 
@@ -470,7 +404,7 @@ def hull_suite(
 
 
 def alma(
-    values: list, period: int, offset: float, sigma: float
+    values: list, period: int, offset: float | None = None, sigma: float | None = None
 ) -> list[float | None]:
     """Arnaud Legoux Moving Average (openalgo-charts parity).
 
@@ -479,6 +413,8 @@ def alma(
     ``s = period/sigma``, normalized by their sum; oldest bar in the window
     carries weight[0]. None before index ``period - 1``.
     """
+    offset = 0.85 if offset is None else offset
+    sigma = 6.0 if sigma is None else sigma
     if period <= 0:
         raise ValueError("period must be positive")
     if sigma <= 0:
@@ -528,25 +464,6 @@ def macd(
     return {"macd": line, "signal": sig, "histogram": hist}
 
 
-def true_ranges(candles: list) -> list[float]:
-    """True range per candle: TR[0]=H-L; thereafter max(H-L, |H-prevC|, |L-prevC|).
-
-    Matches openalgo-charts ``trueRange`` (src/indicators/atr.ts): the first
-    bar has no prior close, so its true range is just high-low.
-    """
-    if not candles:
-        return []
-    first_h = _to_float(candles[0].ohlc.high.value)
-    first_l = _to_float(candles[0].ohlc.low.value)
-    out: list[float] = [first_h - first_l]
-    for i in range(1, len(candles)):
-        h = _to_float(candles[i].ohlc.high.value)
-        low = _to_float(candles[i].ohlc.low.value)
-        pc = _to_float(candles[i - 1].ohlc.close.value)
-        out.append(max(h - low, abs(h - pc), abs(low - pc)))
-    return out
-
-
 def atr(candles: list, period: int) -> list[float | None]:
     """Average True Range (Wilder smoothing).
 
@@ -576,7 +493,7 @@ def atr(candles: list, period: int) -> list[float | None]:
     return out
 
 
-def bollinger(values: list, period: int = 20, num_std: float = 2.0) -> dict[str, list]:
+def bollinger(values: list, period: int, num_std: float) -> dict[str, list]:
     """Bollinger Bands: middle SMA with upper/lower at +-num_std deviations.
 
     Returns dict of parallel lists keyed 'upper'/'middle'/'lower', each
@@ -626,9 +543,9 @@ def obv(candles: list) -> list[float]:
 
 def _fn_obv(
     candles: list,
-    maType: str = "None",
-    maLength: int = 9,
-    bbMult: float = 2.0,
+    maType: str,
+    maLength: int,
+    bbMult: float,
 ) -> dict[str, list]:
     """OBV plus its engine smoothing companions (volume.ts ``OBV`` calc).
 
@@ -682,254 +599,6 @@ def _rolling_sma(values: Sequence[float | None], period: int) -> list[float | No
     return out
 
 
-# ---------------------------------------------------------------------------
-# Shared helpers — batch 4 (volume / flow indicators)
-# ---------------------------------------------------------------------------
-
-
-def _highest(values: Sequence[float | None], period: int) -> list[float | None]:
-    """Rolling max over *period* bars.  None for leading window."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0:
-        return out
-    for i in range(period - 1, n):
-        best = -float("inf")
-        ok = True
-        for k in range(period):
-            v = values[i - k]
-            if v is None:
-                ok = False
-                break
-            if v > best:
-                best = v
-        out[i] = best if ok else None
-    return out
-
-
-def _lowest(values: Sequence[float | None], period: int) -> list[float | None]:
-    """Rolling min over *period* bars; None in the window blanks it."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0:
-        return out
-    for i in range(period - 1, n):
-        window = values[i - period + 1 : i + 1]
-        if any(v is None for v in window):
-            continue
-        out[i] = min(window)  # type: ignore[type-var]
-    return out
-
-
-def _shift(values: Sequence[float | None], k: int) -> list[float | None]:
-    """Displace by k bars: positive draws each value k bars later (TS shift)."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    for i in range(n):
-        j = i + k
-        if 0 <= j < n:
-            out[j] = values[i]
-    return out
-
-
-def _rma(values: Sequence[float | None], period: int) -> list[float | None]:
-    """Wilder RMA: SMA-seeded, then (prev*(period-1)+v)/period. None before period-1."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    prev = sum(cast(float, v) for v in values[:period]) / period
-    out[period - 1] = prev
-    for i in range(period, n):
-        v = values[i]
-        if v is None:
-            continue
-        prev = (prev * (period - 1) + v) / period
-        out[i] = prev
-    return out
-
-
-def _sma_skip_none(values: Sequence[float | None], period: int) -> list[float | None]:
-    """SMA that returns None for any window containing a non-finite value."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    s = 0.0
-    bad = 0
-    for i in range(n):
-        v = values[i]
-        if v is not None and _isfinite(v):
-            s += v
-        else:
-            bad += 1
-        if i >= period:
-            gone = values[i - period]
-            if gone is not None and _isfinite(gone):
-                s -= gone
-            else:
-                bad -= 1
-        if i >= period - 1:
-            out[i] = s / period if bad == 0 else None
-    return out
-
-
-def _is_gap(v: float | None) -> bool:
-    """True when *v* is a warmup gap (None or non-finite, i.e. engine NaN)."""
-    return v is None or (isinstance(v, float) and not math.isfinite(v))
-
-
-def _from_first_value(values: list, fn: Callable) -> list[float | None]:
-    """Run ``fn`` over the tail from the first finite value, re-pad the front.
-
-    Matches openalgo-charts ``fromFirstValue`` (momentum.ts): a smoother
-    chained onto a gapped series starts counting at the series' first real
-    value instead of treating warmup holes as bars.
-    """
-    n = len(values)
-    out: list[float | None] = [None] * n
-    start = 0
-    while start < n and _is_gap(values[start]):
-        start += 1
-    if start >= n:
-        return out
-    for j, v in enumerate(fn(list(values[start:]), start)):
-        if start + j < n:
-            out[start + j] = v
-    return out
-
-
-def _stdev(values: list, period: int) -> list[float | None]:
-    """Rolling population standard deviation (openalgo-charts calc.ts parity).
-
-    Mean is the gap-aware SMA; any window containing a gap yields None.
-    """
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    clean = [None if v is None else _to_float(v) for v in values]
-    means = _sma_skip_none(clean, period)
-    for i in range(period - 1, n):
-        m = means[i]
-        window = clean[i - period + 1 : i + 1]
-        if m is None or any(v is None for v in window):
-            continue
-        out[i] = (sum((cast(float, x) - m) ** 2 for x in window) / period) ** 0.5
-    return out
-
-
-def _sma_seeded_ema_gapped(values: list, period: int) -> list[float | None]:
-    """SMA-seeded EMA with engine NaN propagation: a gap poisons it forward."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    head = values[:period]
-    if any(_is_gap(v) for v in head):
-        return out
-    prev = sum(_to_float(v) for v in head) / period
-    out[period - 1] = prev
-    k = 2.0 / (period + 1)
-    for i in range(period, n):
-        v = values[i]
-        if _is_gap(v):
-            break  # rest stays None, mirroring NaN carry-through
-        prev = _to_float(v) * k + prev * (1.0 - k)
-        out[i] = prev
-    return out
-
-
-def _rma_gapped(values: list, period: int) -> list[float | None]:
-    """Wilder RMA with engine NaN propagation (seed = SMA, gaps poison forward)."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    head = values[:period]
-    if any(_is_gap(v) for v in head):
-        return out
-    prev = sum(_to_float(v) for v in head) / period
-    out[period - 1] = prev
-    for i in range(period, n):
-        v = values[i]
-        if _is_gap(v):
-            break
-        prev = (prev * (period - 1) + _to_float(v)) / period
-        out[i] = prev
-    return out
-
-
-def _wma_gapped(values: list, period: int) -> list[float | None]:
-    """Gap-aware WMA (openalgo-charts calc.ts parity: recent bar weighs most)."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    denom = period * (period + 1) / 2
-    for i in range(period - 1, n):
-        window = values[i - period + 1 : i + 1]
-        if any(_is_gap(v) for v in window):
-            continue
-        acc = sum(_to_float(v) * (period - k) for k, v in enumerate(reversed(window)))
-        out[i] = acc / denom
-    return out
-
-
-def _vwma_series(values: list, volumes: list, length: int) -> list[float | None]:
-    """VWMA = sma(src*vol, len) / sma(vol, len) (openalgo-charts calc.ts parity).
-
-    Zero-volume windows yield None, matching the engine's ``den == 0 -> NaN``.
-    """
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if length <= 0 or n < length:
-        return out
-    pv = [
-        None if _is_gap(v) or w is None else _to_float(v) * float(w)
-        for v, w in zip(values, volumes, strict=False)
-    ]
-    num = _sma_skip_none(pv, length)
-    den = _sma_skip_none(
-        [None if w is None else float(w) for w in volumes], length
-    )
-    for i in range(n):
-        a, d = num[i], den[i]
-        if a is None or d is None or d == 0:
-            continue
-        out[i] = a / d
-    return out
-
-
-def _smoothing_ma(
-    kind: str, values: list, volumes: list, length: int
-) -> list[float | None]:
-    """The engine "Smoothing" block kernel switch (momentum.ts / volume.ts).
-
-    ``None`` disables smoothing (all-None); ``EMA`` / ``SMMA (RMA)`` /
-    ``WMA`` / ``VWMA`` run from the series' first finite value
-    (``fromFirstValue``); ``SMA``, ``SMA + Bollinger Bands`` and anything
-    else fall back to SMA.
-    """
-    length = max(1, int(length))
-    if kind == "EMA":
-        return _from_first_value(values, lambda tail, _s: _sma_seeded_ema_gapped(tail, length))
-    if kind == "SMMA (RMA)":
-        return _from_first_value(values, lambda tail, _s: _rma_gapped(tail, length))
-    if kind == "WMA":
-        return _from_first_value(values, lambda tail, _s: _wma_gapped(tail, length))
-    if kind == "VWMA":
-        return _from_first_value(
-            values, lambda tail, s: _vwma_series(tail, list(volumes[s:]), length)
-        )
-    return _from_first_value(
-        values,
-        lambda tail, _s: _sma_skip_none(
-            [None if v is None else _to_float(v) for v in tail], length
-        ),
-    )
-
-
 def _bars_since(cond: list[bool]) -> list[float | None]:
     """Bars elapsed since ``cond`` was last true; None before the first."""
     n = len(cond)
@@ -940,28 +609,6 @@ def _bars_since(cond: list[bool]) -> list[float | None]:
             last = i
         if last >= 0:
             out[i] = float(i - last)
-    return out
-
-
-def _rolling_sum(values: Sequence[float | None], period: int) -> list[float | None]:
-    """Rolling sum over *period* bars.  None for leading window."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0 or n < period:
-        return out
-    acc = 0.0
-    for i in range(n):
-        v = values[i]
-        if v is None:
-            return out  # None encountered → gap
-        acc += v
-        if i >= period:
-            pv = values[i - period]
-            if pv is None:
-                return out
-            acc -= pv
-        if i >= period - 1:
-            out[i] = acc
     return out
 
 
@@ -992,13 +639,19 @@ def _change(values: list, n: int = 1) -> list[float | None]:
 
 
 def stochastic(
-    candles: list, k_period: int = 14, smooth_k: int = 3, d_period: int = 3
+    candles: list,
+    k_period: int | None = None,
+    smooth_k: int | None = None,
+    d_period: int | None = None,
 ) -> dict[str, list]:
     """Stochastic Oscillator: %K smoothed by SMA(smooth_k), %D SMA(d_period).
 
     Raw %K is None where high==low over the window (TS: span<=0 -> NaN -> null).
     Returns dict keyed 'k'/'d'.
     """
+    k_period = 14 if k_period is None else k_period
+    smooth_k = 3 if smooth_k is None else smooth_k
+    d_period = 3 if d_period is None else d_period
     if k_period <= 0 or d_period <= 0:
         raise ValueError("periods must be positive")
     if smooth_k <= 0:
@@ -1017,7 +670,7 @@ def stochastic(
     return {"k": k, "d": d}
 
 
-def supertrend(candles: list, period: int = 10, multiplier: float = 3.0) -> dict[str, list]:
+def supertrend(candles: list, period: int, multiplier: float) -> dict[str, list]:
     """Supertrend line with its direction flag (+1 up / -1 down).
 
     Matches openalgo-charts ``supertrend`` (src/indicators/supertrend.ts):
@@ -1107,7 +760,7 @@ def _vwap_anchor_key(ts: Any, anchor: str) -> Any:
 
 
 def _vwap_columns(
-    candles: list, anchor: str = "session", source: str = "hlc3", percent_mode: bool = False
+    candles: list, anchor: str, source: str, percent_mode: bool
 ) -> tuple[list, list]:
     """VWAP accumulation plus the shared band half-width column.
 
@@ -1163,16 +816,16 @@ def _vwap_band(
 
 def _fn_vwap(
     candles: list,
-    anchor: str = "session",
-    source: str = "hlc3",
-    offset: int = 0,
-    calcMode: str = "stdev",
-    showBand1: bool = True,
-    bandMult1: float = 1.0,
-    showBand2: bool = False,
-    bandMult2: float = 2.0,
-    showBand3: bool = False,
-    bandMult3: float = 3.0,
+    anchor: str,
+    source: str,
+    offset: int,
+    calcMode: str,
+    showBand1: bool,
+    bandMult1: float,
+    showBand2: bool,
+    bandMult2: float,
+    showBand3: bool,
+    bandMult3: float,
 ) -> dict[str, list]:
     """Session-anchored VWAP plus engine stdev band pairs (trend.ts ``VWAP``).
 
@@ -1202,7 +855,7 @@ def vwap_session(candles: list) -> list[float | None]:
     Cumulative (typical price * volume) / cumulative volume, resetting at
     each new session day. Needs candles with volume; None where volume is 0.
     """
-    return _fn_vwap(candles)["value"]
+    return _fn_vwap(candles, "session", "hlc3", 0, "stdev", True, 1.0, False, 2.0, False, 3.0)["value"]
 
 
 # ---------------------------------------------------------------------------
@@ -1237,27 +890,35 @@ class IndicatorSpec:
 from tradex_analytics.registry import REGISTRY  # noqa: E402
 
 
-def register_indicator(spec: IndicatorSpec) -> None:
+def register_indicator(spec: IndicatorSpec, registry: Any = None) -> None:
     """Register an indicator spec by id. Last registration wins.
 
     Writes into the first-class :data:`REGISTRY` (the single source of
     truth). The whole-fidelity spec is stored as-is, so the catalogue,
     ``get_indicator_spec``, parameter resolution and ``compute_indicator``
     all read the same object the engine dispatches through.
+
+    Pass ``registry=`` to target a specific instance; defaults to the
+    module-level ``REGISTRY``.
     """
-    REGISTRY.register(spec.id, spec)
+    target = registry if registry is not None else REGISTRY
+    target.register(spec.id, spec)
 
 
-def get_indicator_spec(indicator_id: str) -> IndicatorSpec | None:
+def get_indicator_spec(
+    indicator_id: str, registry: Any = None
+) -> IndicatorSpec | None:
     """Look up a spec; None for unknown ids (callers decide fail-loudness)."""
+    target = registry if registry is not None else REGISTRY
     try:
-        return REGISTRY.get(indicator_id)
+        return target.get(indicator_id)
     except KeyError:
         return None
 
 
-def indicator_catalogue() -> list[dict[str, Any]]:
+def indicator_catalogue(registry: Any = None) -> list[dict[str, Any]]:
     """Serialisable catalogue for the chart frontend's menu."""
+    target = registry if registry is not None else REGISTRY
     return [
         {
             "id": s.id,
@@ -1268,7 +929,7 @@ def indicator_catalogue() -> list[dict[str, Any]]:
             "plots": [{"key": p[0], "kind": p[1], "title": p[2]} for p in s.plots],
             "levels": list(s.levels),
         }
-        for s in REGISTRY.all()
+        for s in target.all()
     ]
 
 
@@ -1280,7 +941,9 @@ def indicator_catalogue() -> list[dict[str, Any]]:
 
 
 def _resolve_indicator_params(
-    indicator_id: str, params: dict[str, Any] | None
+    indicator_id: str,
+    params: dict[str, Any] | None,
+    registry: Any = None,
 ) -> dict[str, Any]:
     """Validate ``params`` against the spec's schema and return a
     fully-merged dict (defaults filled, explicit ``None`` falling back to the
@@ -1288,8 +951,9 @@ def _resolve_indicator_params(
 
     Used by :func:`compute_indicator` so frontend typos fail loudly.
     """
+    target = registry if registry is not None else REGISTRY
     try:
-        spec = REGISTRY.get(indicator_id)
+        spec = target.get(indicator_id)
     except KeyError:
         raise ValueError(f"unknown indicator: {indicator_id!r}") from None
     supplied = dict(params or {})
@@ -1297,7 +961,7 @@ def _resolve_indicator_params(
     # callers keep working after a spec migrates. Canonical names always win:
     # a supplied key already matching the spec is never rewritten.
     known = {p[0] for p in spec.params}
-    aliases = REGISTRY.get_legacy_aliases(indicator_id)
+    aliases = target.get_legacy_aliases(indicator_id)
     supplied = {aliases.get(k, k) if k not in known else k: v for k, v in supplied.items()}
     unknown = set(supplied) - known
     if unknown:
@@ -1319,20 +983,25 @@ def compute_indicator(
     indicator_id: str,
     candles: list,
     params: dict[str, Any] | None = None,
+    registry: Any = None,
 ) -> dict[str, list]:
     """Compute a registered indicator over candles; returns per-plot lists.
 
     Params are validated against the spec: unknown names are rejected rather
     than silently ignored, so a frontend typo fails loudly instead of
     computing defaults that look right.
+
+    Pass ``registry=`` to target a specific instance; defaults to the
+    module-level ``REGISTRY``.
     """
+    target = registry if registry is not None else REGISTRY
     try:
-        spec = REGISTRY.get(indicator_id)
+        spec = target.get(indicator_id)
     except KeyError:
         raise ValueError(f"unknown indicator: {indicator_id!r}") from None
     if spec.fn is None:
         raise ValueError(f"unknown indicator: {indicator_id!r}")
-    merged = _resolve_indicator_params(indicator_id, params)
+    merged = _resolve_indicator_params(indicator_id, params, registry)
     result = spec.fn(candles, **merged)
     if isinstance(result, dict):
         return result
@@ -1342,16 +1011,16 @@ def compute_indicator(
 def _builtin_specs() -> list[IndicatorSpec]:
     closes_only = lambda candles: [_to_float(c.ohlc.close.value) for c in candles]  # noqa: E731
 
-    def _fn_sma(candles, length, source="close"):
+    def _fn_sma(candles, length, source):
         return sma(_source_values(candles, source), int(length))
 
-    def _fn_ema(candles, length, source="close"):
+    def _fn_ema(candles, length, source):
         return _sma_seeded_ema(_source_values(candles, source), int(length))
 
     def _fn_wma(candles, length):
         return wma(closes_only(candles), int(length))
 
-    def _fn_hma(candles, length, source="close"):
+    def _fn_hma(candles, length, source):
         return hma(_source_values(candles, source), int(length))
 
     def _fn_dema(candles, length):
@@ -1366,7 +1035,7 @@ def _builtin_specs() -> list[IndicatorSpec]:
     def _fn_smma(candles, length, source):
         return {"smma": smma(_source_values(candles, source), int(length))}
 
-    def _fn_t3(candles, length, factor, source, highlightMovements=True):
+    def _fn_t3(candles, length, factor, source, highlightMovements):
         return {"t3": t3(_source_values(candles, source), int(length), float(factor))}
 
     def _fn_linreg_slope(candles, periods):
@@ -1374,25 +1043,25 @@ def _builtin_specs() -> list[IndicatorSpec]:
 
     def _fn_hull_suite(
         candles, source, mode, length, lengthMult, visualSwitch,
-        switchColor=True, candleCol=False,
+        switchColor, candleCol,
     ):
         return hull_suite(
             _source_values(candles, source), str(mode), int(length),
             float(lengthMult), bool(visualSwitch),
         )
 
-    def _fn_rsi(candles, length, source="close"):
+    def _fn_rsi(candles, length, source):
         return rsi(_source_values(candles, source), int(length))
 
     def _fn_roc(candles, length):
         return roc(closes_only(candles), int(length))
 
-    def _fn_macd(candles, fastPeriod, slowPeriod, signalPeriod, source="close"):
+    def _fn_macd(candles, fastPeriod, slowPeriod, signalPeriod, source):
         return macd(
             _source_values(candles, source), int(fastPeriod), int(slowPeriod), int(signalPeriod)
         )
 
-    def _fn_stochastic(candles, kPeriod=14, kSmoothing=3, dPeriod=3):
+    def _fn_stochastic(candles, kPeriod, kSmoothing, dPeriod):
         return stochastic(candles, int(kPeriod), int(kSmoothing), int(dPeriod))
 
     return [
@@ -1515,7 +1184,7 @@ def _builtin_specs() -> list[IndicatorSpec]:
                 ("middle", "line", "Middle"),
                 ("lower", "line", "Lower"),
             ),
-            fn=lambda candles, length, stdDev, source="close": bollinger(
+            fn=lambda candles, length, stdDev, source: bollinger(
                 _source_values(candles, source), int(length), float(stdDev)
             ),
         ),

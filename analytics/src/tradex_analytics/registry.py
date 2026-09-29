@@ -122,7 +122,8 @@ class IndicatorRegistry:
         output; a dict becomes a 1:1 mapping of output names to value-lists).
         """
         spec = self.get(name)
-        raw = spec.compute(series, **params)
+        fn = getattr(spec, "compute", None) or spec.fn
+        raw = fn(series, **params)
         if isinstance(raw, IndicatorResult):
             return raw
         if isinstance(raw, dict):
