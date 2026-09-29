@@ -958,8 +958,8 @@ class TestAPIResponseKeys:
     def test_invalid_api_key_key(self):
         assert C.INVALID_API_KEY_KEY == "Invalid API key"
 
-    def test_error_codes_key(self):
-        assert C.ERROR_CODES_KEY == {
+    def test_error_codes(self):
+        assert C.ERROR_CODES == {
             "bad_request": 400,
             "unauthorized": 401,
             "not_found": 404,
