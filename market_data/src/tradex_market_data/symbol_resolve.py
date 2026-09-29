@@ -13,10 +13,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from tradex_domain.instruments import Equity
+from tradex_domain.universe import CASH_SERIES
 
 log = logging.getLogger(__name__)
-
-_CASH = frozenset({"EQ", "BE"})
 
 
 @dataclass
@@ -60,7 +59,7 @@ def _isin_index(broker: Any) -> dict[str, tuple[Any, str, str]]:
             continue
         meta = registry.meta(iid)
         series = _series_of(meta)
-        if series and series not in _CASH:
+        if series and series not in CASH_SERIES:
             continue
         isin = _isin_of(meta, key)
         if not isin:
@@ -87,10 +86,10 @@ def resolve_universe_symbols(broker: Any, instruments: list[Any]) -> ResolveResu
         meta = registry.meta(iid) if key else {}
         series = _series_of(meta)
 
-        if key and (not series or series in _CASH):
+        if key and (not series or series in CASH_SERIES):
             result.ok.append(inst)
             continue
-        if key and series and series not in _CASH:
+        if key and series and series not in CASH_SERIES:
             result.quarantine.append(symbol)
             log.warning(
                 "symbol_resolve: %s primary is series %s — quarantined",

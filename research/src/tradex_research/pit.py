@@ -60,6 +60,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from tradex_domain.universe import CASH_SERIES
+
 from .manifests import DatasetManifest, UniverseManifest
 
 #: Repo root is 4 levels up from this module
@@ -72,11 +74,6 @@ _DEFAULT_DELISTINGS = Path(__file__).resolve().parents[3] / "Dependencies" / "ns
 #: maintainer which security a row is about, and the reader below refuses to
 #: apply a row outside the cash series.
 _DELISTINGS_COLUMNS = ("symbol", "delist_date", "series")
-
-#: The cash series ``tradex_domain.universe.load_universe`` keeps. A delisting
-#: outside them is a different security under the same trading symbol.
-_CASH_SERIES = frozenset({"EQ", "BE"})
-
 
 class PitViolation(ValueError):
     """Raised when a point-in-time contract is violated."""
@@ -167,7 +164,7 @@ def load_delistings(path: Path | str | None = None) -> dict[str, date | None]:
             if not symbol:
                 continue
             series = (row.get("series") or "").strip().upper()
-            if series and series not in _CASH_SERIES:
+            if series and series not in CASH_SERIES:
                 continue
             raw = (row.get("delist_date") or "").strip()
             if not raw:

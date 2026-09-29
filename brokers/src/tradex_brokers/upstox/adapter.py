@@ -20,6 +20,7 @@ from tradex_domain.enums import OrderSide, ProductType, Timeframe
 from tradex_domain.errors import BrokerUnavailableError, CapabilityNotSupportedError
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import OHLC, HistoricalSeries
+from tradex_domain.universe import CASH_SERIES
 from tradex_domain.options import OptionChain
 from tradex_domain.protocols import DepthStreamPort
 from tradex_domain.value_objects import InstrumentId, Price
@@ -181,7 +182,7 @@ class UpstoxBroker(BaseBroker):
     #: carry an equity's trading symbol — ``CHOLAFIN`` is both the equity
     #: ``NSE_EQ|INE121A01024`` (series ``EQ``) and the debenture
     #: ``NSE_EQ|INE121A08PJ0`` (series ``D1``) — and must never own its key.
-    _CASH_EQUITY_SERIES = frozenset({"EQ", "BE"})
+    _CASH_EQUITY_SERIES = CASH_SERIES
 
     def _row_claim_priority(self, row: Mapping[str, Any]) -> int:
         """Cash-equity rows outrank the other securities sharing their symbol.

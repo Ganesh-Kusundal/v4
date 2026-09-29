@@ -24,6 +24,7 @@ from tradex_domain.errors import (
 )
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Future, Instrument
+from tradex_domain.universe import CASH_SERIES
 from tradex_domain.options import OptionChain
 from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
@@ -212,7 +213,7 @@ class DhanBroker(BaseBroker):
     #: equity (series ``EQ``, security id 685) and a debenture (series ``D1``,
     #: security id 19257) — and must never own its key. Dhan's own row order puts
     #: the equity last today, so it wins by luck; that luck is not guaranteed.
-    _CASH_EQUITY_SERIES = frozenset({"EQ", "BE"})
+    _CASH_EQUITY_SERIES = CASH_SERIES
 
     def _row_claim_priority(self, row: Mapping[str, Any]) -> int:
         """Cash-equity rows outrank the other securities sharing their symbol."""

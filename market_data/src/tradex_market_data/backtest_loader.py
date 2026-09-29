@@ -61,13 +61,14 @@ import warnings
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Candle
+from tradex_domain.paths import REPO_ROOT
 from tradex_domain.trading_calendar import NSETradingCalendar
+from tradex_domain.universe import CASH_SERIES
 from tradex_research.manifests import UniverseManifest
 from tradex_research.pit import assert_historical_universe, load_delistings
 
@@ -78,11 +79,10 @@ from tradex_market_data.universe import load_universe
 
 log = logging.getLogger(__name__)
 
-#: The checked-in universe artifacts, package-anchored the way
-#: ``tradex_domain.universe`` anchors its own CSV directory (market_data → src →
-#: market_data → repo). Naming the ledger is what lets a report say which file
-#: it measured rather than printing a bare number.
-DEPENDENCIES_DIR = Path(__file__).resolve().parents[3] / "Dependencies"
+#: The checked-in universe artifacts, anchored at the repo root from
+#: ``tradex_domain.paths``. Naming the ledger is what lets a report say which
+#: file it measured rather than printing a bare number.
+DEPENDENCIES_DIR = REPO_ROOT / "Dependencies"
 
 #: The delisting ledger, transcribed from NSE's own published "List of
 #: delisted Companies" (sheet ``delisted``). It records *exchange* delisting,
@@ -94,14 +94,6 @@ DELISTINGS_LEDGER = DEPENDENCIES_DIR / "nse_delistings.csv"
 #: guard uses it to date the membership it has, never to date a window it does
 #: not.
 _MEMBERSHIP_COLUMN = "membership_asof"
-
-#: The cash series the universe CSVs and the delisting ledger both key on.
-#: Mirrors ``tradex_domain.universe._CASH_SERIES`` and ``pit._CASH_SERIES``:
-#: the same two values, spelled out three times rather than exported through a
-#: public constant, because each of the three is a reader of a *different*
-#: artifact and none of them should import another's private name.
-_CASH_SERIES = frozenset({"EQ", "BE"})
-
 
 def universe_snapshot(name: str) -> tuple[tuple[str, ...], date]:
     """``(cash members, snapshot date)`` for a constituent CSV — the PIT record.
@@ -136,7 +128,7 @@ def universe_snapshot(name: str) -> tuple[tuple[str, ...], date]:
     members = tuple(
         row["Symbol"].strip().upper()
         for row in rows
-        if (row.get("Series") or "").strip().upper() in _CASH_SERIES
+        if (row.get("Series") or "").strip().upper() in CASH_SERIES
     )
     stamps = {(row.get(_MEMBERSHIP_COLUMN) or "").strip() for row in rows}
     stamps.discard("")
