@@ -62,6 +62,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
+from tradex_execution._sqlite import configure_sqlite
+
 _log = logging.getLogger(__name__)
 
 #: The report's fields, in the order they are declared.  ``oos_round_trips``
@@ -244,9 +246,7 @@ class ValidationReportStore:
         self._conn = sqlite3.connect(self._path, check_same_thread=False)
         # Rows by name: a column added later cannot shift a metric sideways.
         self._conn.row_factory = sqlite3.Row
-        if db_path != ":memory:":
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA busy_timeout=5000")
+        configure_sqlite(self._conn)
         self._conn.executescript(self._DDL)
         self._conn.commit()
         self._lock = threading.Lock()

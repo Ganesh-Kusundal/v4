@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
+from tradex_execution._sqlite import configure_sqlite
+
 log = logging.getLogger(__name__)
 
 
@@ -69,9 +71,7 @@ class SQLiteRiskBaselineStore:
             check_same_thread=False,
         )
         self._write_lock = threading.Lock()
-        if db_path != ":memory:":
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA busy_timeout=5000")
+        configure_sqlite(self._conn)
         self._conn.execute(self._CREATE_TABLE)
         self._conn.commit()
 

@@ -28,6 +28,12 @@ from tradex_domain.events import (
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
+from tradex_execution._sqlite import configure_sqlite
+
+from tradex_execution.sqlite_event_store import (
+    ALLOWED_PICKLE_CLASSES,
+    _restricted_unpickle,
+)
 
 #: Marker prefix for pickle-encoded idempotency results (Order objects).
 _PICKLE_PREFIX = "__tradex_pickle__:"
@@ -37,6 +43,44 @@ _PICKLE_PREFIX = "__tradex_pickle__:"
 #: SQLite keeps its identity and engine cancel/modify still dispatch to the
 #: venue's super-order endpoints (see ``engine._is_bracket_order``).
 _ORDER_LEG_COLUMNS = ("stop_loss_price", "target_price", "trailing_jump")
+
+
+# ---------------------------------------------------------------------------
+# Restricted unpickling of idempotency results (C3)
+# ---------------------------------------------------------------------------
+# ``record_result`` pickles an ``Order`` so a restart replays the exact
+# post-mutation record. That made the ``result`` column a second pickle sink:
+# ``pickle.loads`` there resolved whatever the column named, so anyone able to
+# write a row got code execution the next time a correlation id was replayed.
+#
+# The allowlist is deliberately NARROWER than the event store's. This column
+# only ever holds the one type :meth:`SQLiteIdempotencyGuard.record_result`
+# chooses to pickle — an ``Order`` — plus the value objects, enums and
+# instrument dataclasses that ride inside one. It reuses the event store's
+# restricted unpickler rather than a second implementation, so there is one
+# allowlist to audit and one place to widen deliberately.
+#: Classes an idempotency result may legitimately name: an Order's closure.
+#: The stdlib leaves (``datetime``/``date``/``Decimal``) and the domain
+#: instruments/enums/value-objects are shared with the event store and are
+#: listed there; the set below is what is added on top of it.
+_IDEMPOTENCY_EXTRA_CLASSES: frozenset[tuple[str, str]] = frozenset({
+    ("tradex_domain.execution", "Order"),
+})
+
+
+def _unpickle_idempotency_result(raw: bytes) -> object:
+    """Decode a stored idempotency result through the allowlist.
+
+    Raises :class:`UnpickleSecurityError` for a class the build does not
+    recognise, which the caller turns into a refusal to replay — the same
+    outcome as an undecodable result, and for the same reason: replaying an
+    attacker-chosen object into a modify/cancel path is exactly the case where
+    guessing is expensive.
+    """
+    return _restricted_unpickle(
+        raw,
+        ALLOWED_PICKLE_CLASSES | _IDEMPOTENCY_EXTRA_CLASSES,
+    )
 
 
 def _order_to_row(order: Order) -> tuple:
@@ -158,9 +202,7 @@ class SQLiteOrderStore:
         self._write_lock = threading.Lock()
         # WAL = concurrent readers don't block the writer (live tick ingestion
         # vs. API queries) and survives unclean shutdown on persistent stores.
-        if db_path != ":memory:":
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA busy_timeout=5000")
+        configure_sqlite(self._conn)
         self._conn.execute(self._CREATE_TABLE)
         # In-place migration: databases created before the leg columns existed
         # get them added as nullable TEXT (NULL = no bracket legs).
@@ -356,9 +398,7 @@ class SQLiteIdempotencyGuard:
             str(db_path) if db_path != ":memory:" else ":memory:",
             check_same_thread=False,
         )
-        if db_path != ":memory:":
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA busy_timeout=5000")
+        configure_sqlite(self._conn)
         self._write_lock = threading.Lock()
         self._conn.execute(self._CREATE_TABLE)
         columns = {
@@ -442,7 +482,7 @@ class SQLiteIdempotencyGuard:
                         # are pickled with a marker; anything else is legacy
                         # JSON (a scalar, a dict, or an OrderId marker).
                         try:
-                            decoded = pickle.loads(
+                            decoded = _unpickle_idempotency_result(
                                 base64.b64decode(row[1][len(_PICKLE_PREFIX):])
                             )
                         except Exception as exc:  # noqa: BLE001

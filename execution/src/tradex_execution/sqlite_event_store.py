@@ -84,6 +84,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import logging
 import pickle
@@ -96,6 +97,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tradex_domain.events import DomainEvent
+from tradex_execution._sqlite import configure_sqlite
 
 _log = logging.getLogger(__name__)
 
@@ -193,6 +195,23 @@ class EventChainError(EventDecodeError):
     payload, an unknown version, and a broken chain are all ways that happens.
     A caller that must distinguish "I have no decoder for this shape" from
     "someone edited the log" can still catch each class on its own.
+    """
+
+
+class UnpickleSecurityError(EventDecodeError):
+    """A stored payload named a class this build refuses to reconstruct.
+
+    Raised by the restricted :class:`_AllowlistUnpickler` the moment a pickle
+    asks for a global that is not in :data:`ALLOWED_PICKLE_CLASSES`. It is a
+    distinct class rather than a message inside :class:`EventDecodeError`
+    because it is the one decode failure that means something adversarial
+    rather than something damaged: an unknown class in an otherwise intact
+    log is a payload that was written to run code, and a caller that wants to
+    count those separately from a corrupt row needs them apart.
+
+    It subclasses :class:`EventDecodeError` so every existing caller that
+    already handles "this row cannot be read" keeps handling it — refusing to
+    start is the correct behaviour for both.
     """
 
 
@@ -354,8 +373,182 @@ def registered_versions() -> tuple[int, ...]:
     return tuple(sorted(_DECODERS))
 
 
+# ---------------------------------------------------------------------------
+# Restricted unpickling (C3)
+# ---------------------------------------------------------------------------
+# The payload column is pickle, and pickle is not a data format — it is a
+# small interpreter that will call whatever a payload names. Anyone who can
+# write a row therefore had arbitrary code execution on the next replay() the
+# moment this store was opened by anything.
+#
+# The hash chain does not change that. :func:`_hash_input` is unkeyed SHA-256
+# over the row's own fields, so a writer who can insert a row can also
+# recompute that row's digest and the next one's prev_hash: the chain proves
+# the log was not edited AFTER it was written, which is not the threat here.
+# The threat is the writer, and the chain is not a defence against the writer.
+#
+# So decoding goes through an Unpickler whose find_class consults an EXPLICIT
+# set of ``(module, qualname)`` pairs. An unlisted name raises rather than
+# being resolved, and there is deliberately no fallback to unrestricted
+# unpickling: a fallback would make the allowlist a speed bump that any
+# payload could switch off by naming one unusual class.
+#
+# The set below is the transitive closure of what a legitimately written event
+# can contain — not just the event class, but everything pickle reaches on the
+# way down (the value objects, enums, and instrument dataclasses that ride
+# inside an Order, a Fill, a Position, or a Quote). It was derived
+# EMPIRICALLY: every class in :mod:`tradex_domain.events` was constructed with
+# representative field values and the globals its pickle actually names were
+# recorded. `test_the_allowlist_covers_every_domain_event` re-derives that
+# closure and fails if a future event type introduces a class this list does
+# not carry, so the list cannot silently fall behind the domain.
+#
+# Membership is by exact (module, qualname), never by prefix: a prefix rule
+# would re-admit `tradex_domain.events.<anything>`, which is the whole
+# surface. "Any DomainEvent subclass" is the OCP property the module docstring
+# promises, and it is preserved — but OCP now costs one line in a frozenset,
+# and an unreviewed line in a list cannot run code.
+ALLOWED_PICKLE_CLASSES: frozenset[tuple[str, str]] = frozenset({
+    # -- standard library value types the domain stores ------------------------
+    # datetime/timedelta/timezone: DomainEvent.timestamp is an aware datetime
+    # and its tzinfo rides along by name. date: Instrument.expiry for
+    # futures and options. ValueError: the type carried by ErrorOccurred.
+    # Nothing here is a namespace or a callable with side effects — these are
+    # all leaf constructors that either return an argument or raise.
+    ("builtins", "ValueError"),
+    ("datetime", "date"),
+    ("datetime", "datetime"),
+    ("datetime", "timedelta"),
+    ("datetime", "timezone"),
+    ("decimal", "Decimal"),
+
+    # -- tradex_domain.enums ---------------------------------------------------
+    # Every enum reachable from an event: order lifecycle fields on Order and
+    # OrderRequest, and exchange/asset-class on any Instrument.
+    ("tradex_domain.enums", "AssetClass"),
+    ("tradex_domain.enums", "ExchangeId"),
+    ("tradex_domain.enums", "OrderSide"),
+    ("tradex_domain.enums", "OrderStatus"),
+    ("tradex_domain.enums", "OrderType"),
+    ("tradex_domain.enums", "ProductType"),
+    ("tradex_domain.enums", "TimeInForce"),
+
+    # -- tradex_domain.events --------------------------------------------------
+    # ALL twenty DomainEvent types, not just the ones the current OMS emits.
+    # The log outlives the build that wrote it, so a future event type will
+    # arrive here first as a row an older build must still read; refusing to
+    # decode it would make a schema addition look like data loss.
+    ("tradex_domain.events", "BrokerOrderAcknowledged"),
+    ("tradex_domain.events", "BrokerOrderRequested"),
+    ("tradex_domain.events", "CancelRequested"),
+    ("tradex_domain.events", "CashAccountInitialized"),
+    ("tradex_domain.events", "CashReconciled"),
+    ("tradex_domain.events", "DomainEvent"),
+    ("tradex_domain.events", "ErrorOccurred"),
+    ("tradex_domain.events", "FeedGapDetected"),
+    ("tradex_domain.events", "FeedRecovered"),
+    ("tradex_domain.events", "OrderCancelled"),
+    ("tradex_domain.events", "OrderFilled"),
+    ("tradex_domain.events", "OrderModified"),
+    ("tradex_domain.events", "OrderPlaced"),
+    ("tradex_domain.events", "OrderRejected"),
+    ("tradex_domain.events", "PlaceOrderCommand"),
+    ("tradex_domain.events", "PositionUpdated"),
+    ("tradex_domain.events", "ReconciliationResult"),
+    ("tradex_domain.events", "RiskDecision"),
+    ("tradex_domain.events", "StaleFeed"),
+    ("tradex_domain.events", "UnknownSubmission"),
+
+    # -- tradex_domain.execution ----------------------------------------------
+    # Order: the payload of the whole order lifecycle. OrderRequest: the
+    # payload of the request-intent events (RiskDecision, PlaceOrderCommand,
+    # BrokerOrderRequested, UnknownSubmission). Fill / Position: OrderFilled
+    # and PositionUpdated.
+    ("tradex_domain.execution", "Fill"),
+    ("tradex_domain.execution", "Order"),
+    ("tradex_domain.execution", "OrderRequest"),
+    ("tradex_domain.execution", "Position"),
+
+    # -- tradex_domain.instruments --------------------------------------------
+    # The base plus every concrete subclass, because an Order's instrument is
+    # the concrete type that was constructed — pickling stores what the
+    # instance is, not what the field's annotation permits. Admitting only
+    # Equity would make a single futures order unreadable.
+    ("tradex_domain.instruments", "Commodity"),
+    ("tradex_domain.instruments", "Currency"),
+    ("tradex_domain.instruments", "Equity"),
+    ("tradex_domain.instruments", "Future"),
+    ("tradex_domain.instruments", "Index"),
+    ("tradex_domain.instruments", "Instrument"),
+    ("tradex_domain.instruments", "InstrumentMeta"),
+    ("tradex_domain.instruments", "Option"),
+
+    # -- tradex_domain.market --------------------------------------------------
+    # Quote: the optional second payload of PositionUpdated.
+    ("tradex_domain.market", "Quote"),
+
+    # -- tradex_domain.value_objects -------------------------------------------
+    # The scalar wrappers every instrument and order field is built from.
+    ("tradex_domain.value_objects", "CorrelationId"),
+    ("tradex_domain.value_objects", "InstrumentId"),
+    ("tradex_domain.value_objects", "OrderId"),
+    ("tradex_domain.value_objects", "Price"),
+    ("tradex_domain.value_objects", "Quantity"),
+})
+
+
+class _AllowlistUnpickler(pickle.Unpickler):
+    """An ``Unpickler`` that resolves only an explicit set of classes.
+
+    ``find_class`` is the single choke point: every ``GLOBAL`` / ``STACK_GLOBAL``
+    opcode in a pickle — including the one buried inside a ``REDUCE`` that an
+    attacker uses to call ``os.system`` or ``builtins.exec`` — resolves through
+    it. Refusing here means the callable is never returned, so the ``REDUCE``
+    that would have invoked it never runs and no argument is ever evaluated.
+
+    The refusal is raised rather than logged so it propagates: a decode that
+    could not be completed must not yield a partial event, because
+    :meth:`SQLiteEventStore.replay` rebuilds the trading book from what it
+    yields and a silently missing fill is a wrong balance rather than a
+    missing one.
+    """
+
+    def __init__(self, file: io.BufferedIOBase, allowed: frozenset[tuple[str, str]]) -> None:
+        super().__init__(file)
+        self._allowed = allowed
+
+    def find_class(self, module: str, name: str) -> type:
+        key = (module, name)
+        if key not in self._allowed:
+            raise UnpickleSecurityError(
+                f"refusing to unpickle {module}.{name}: it is not in the "
+                f"allowlist of classes this build will reconstruct. A stored "
+                f"payload may only name a domain event, a domain value object, "
+                f"or a standard-library leaf type — anything else means the "
+                f"log contains a payload that was written to execute code."
+            )
+        return super().find_class(module, name)
+
+
+def _restricted_unpickle(raw: bytes, allowed: frozenset[tuple[str, str]]) -> object:
+    """Unpickle *raw*, resolving nothing outside *allowed*.
+
+    The shared entry point for every pickle sink in the persistence layer, so
+    there is ONE place where a stored payload decides what may be constructed.
+    ``sqlite_store`` calls it with a narrower set for its idempotency results
+    rather than defining a second unpickler of its own.
+    """
+    return _AllowlistUnpickler(io.BytesIO(raw), allowed).load()
+
+
 def _unpickle(raw: bytes) -> DomainEvent:
-    return pickle.loads(raw)  # noqa: S301 — local trusted store
+    """Decode a stored event payload through :data:`ALLOWED_PICKLE_CLASSES`.
+
+    ``pickle.loads`` resolves whatever the payload names, so this function used
+    to be an arbitrary-code-execution primitive pointed at a file on disk. The
+    restricted unpickler in its place fails closed on an unlisted class.
+    """
+    return _restricted_unpickle(raw, ALLOWED_PICKLE_CLASSES)  # type: ignore[return-value]
 
 
 #: The schema versions this build can VERIFY. A registered decoder implies a
@@ -678,11 +871,7 @@ class SQLiteEventStore:
             self._path,
             check_same_thread=False,
         )
-        if self._path != ":memory:":
-            # WAL survives unclean shutdown; busy_timeout avoids SQLITE_BUSY
-            # under concurrent readers during live trading.
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA busy_timeout=5000")
+        configure_sqlite(self._conn)
         self._conn.executescript(self._DDL)
         self._conn.commit()
         self._lock = threading.Lock()
@@ -946,25 +1135,40 @@ class SQLiteEventStore:
             if want_all or self._matches_stream(stream_id, stream):
                 yield sequence, payload, schema_version
 
-    def replay(self, stream: str = "orders") -> Iterator[DomainEvent]:
-        """Yield all events in *stream*, in sequence order.
+    def replay(
+        self, stream: str = "orders", after_sequence: int | None = None,
+    ) -> Iterator[DomainEvent]:
+        """Yield events in *stream*, in sequence order.
 
         *stream* may be given bare (``"orders"``) or account-scoped
         (``"PAPER:acc1:orders"``); a bare name matches every account's rows in
         that stream, and a scoped name only its own. An empty string or
         ``"*"`` returns every stream.
 
+        *after_sequence* yields only rows strictly above it, which is what makes
+        a snapshot fold cheap: recovery passes the snapshot's
+        ``through_sequence`` and the store reads the tail instead of the whole
+        log, so restart cost stops growing with uptime. It is a keyword with a
+        ``None`` default, so every existing call site is unchanged.
+
         The hash chain is verified as the log is read, so a row that has been
         edited, reordered, or removed from the middle stops the replay with
         :class:`EventChainError`. A rebuild from a log that cannot be proven
         faithful is not a rebuild worth trusting.
+
+        **The chain is still verified from the head.** Seeking must not become
+        a hole in the integrity check: :meth:`_verify_chain` walks the whole
+        stream, so a row edited *below* the resume point still fails the replay.
+        Only the decode of already-verified rows is skipped.
 
         Raises :class:`EventDecodeError` on the first row this build cannot
         read. A corrupt or unrecognised row is NOT skipped: the caller is
         rebuilding the authoritative book, and a silently dropped fill is a
         wrong balance rather than a missing one.
         """
-        for _sequence, payload, schema_version in self._verify_chain(stream):
+        for sequence, payload, schema_version in self._verify_chain(stream):
+            if after_sequence is not None and sequence <= after_sequence:
+                continue
             yield _decode(payload, schema_version)
 
     # ------------------------------------------------------------------
