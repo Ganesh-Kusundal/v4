@@ -1282,7 +1282,7 @@ class TestProductTypes:
 
 class TestHTTPStatusMap:
     def test_http_status_map(self):
-        assert C.HTTP_STATUS_MAP == {
+        assert C.ERROR_CODES == {
             "bad_request": 400,
             "unauthorized": 401,
             "not_found": 404,
