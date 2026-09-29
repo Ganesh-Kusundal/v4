@@ -42,6 +42,7 @@ from tradex_domain.value_objects import AccountId, InstrumentId, Money, OrderId,
 
 from tradex_brokers.common.base import BaseBroker
 from tradex_brokers.common.capabilities import paper_capabilities
+from tradex_brokers.common.market_builders import build_depth
 
 
 class _PaperCache(TradingCacheProtocol):
@@ -404,10 +405,10 @@ class PaperBroker(BaseBroker):
         """
         with self._state_lock:
             self._register(instrument)
-            depth = Depth(
-                instrument=instrument,
-                bids=tuple(bids),
-                asks=tuple(asks),
+            depth = build_depth(
+                instrument,
+                bids_raw=[{"price": p.value, "quantity": q.value} for p, q in bids],
+                asks_raw=[{"price": p.value, "quantity": q.value} for p, q in asks],
                 timestamp=datetime.now(UTC),
             )
             self._depths[str(instrument.instrument_id)] = depth
@@ -486,10 +487,15 @@ class PaperBroker(BaseBroker):
         with self._state_lock:
             quote = self._quotes.get(str(instrument.instrument_id))
         if quote is None:
-            return Depth(instrument=instrument, bids=(), asks=())
+            return build_depth(instrument)
         bids = () if quote.bid is None else ((quote.bid, _DEPTH_SIZE),)
         asks = () if quote.ask is None else ((quote.ask, _DEPTH_SIZE),)
-        return Depth(instrument=instrument, bids=bids, asks=asks, timestamp=datetime.now(UTC))
+        return build_depth(
+            instrument,
+            bids_raw=[{"price": p.value, "quantity": q.value} for p, q in bids],
+            asks_raw=[{"price": p.value, "quantity": q.value} for p, q in asks],
+            timestamp=datetime.now(UTC),
+        )
 
     def history(
         self,
@@ -689,17 +695,17 @@ class PaperBroker(BaseBroker):
 
         # Update the book
         if order.side is OrderSide.BUY:
-            new_depth = Depth(
-                instrument=depth.instrument,
-                bids=depth.bids,
-                asks=tuple(levels_to_keep),
+            new_depth = build_depth(
+                depth.instrument,
+                bids_raw=[{"price": p.value, "quantity": q.value} for p, q in depth.bids],
+                asks_raw=[{"price": p.value, "quantity": q.value} for p, q in levels_to_keep],
                 timestamp=depth.timestamp,
             )
         else:
-            new_depth = Depth(
-                instrument=depth.instrument,
-                bids=tuple(levels_to_keep),
-                asks=depth.asks,
+            new_depth = build_depth(
+                depth.instrument,
+                bids_raw=[{"price": p.value, "quantity": q.value} for p, q in levels_to_keep],
+                asks_raw=[{"price": p.value, "quantity": q.value} for p, q in depth.asks],
                 timestamp=depth.timestamp,
             )
         self._depths[inst_key] = new_depth

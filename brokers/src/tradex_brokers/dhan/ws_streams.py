@@ -26,6 +26,7 @@ from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote
 from tradex_domain.value_objects import InstrumentId
 
+from tradex_brokers.common.market_builders import build_depth
 from tradex_brokers.common.provider_common import instrument_from_id
 from tradex_brokers.common.ws_reconnect import AutoReconnectMixin
 from tradex_brokers.common.ws_shared import (
@@ -744,12 +745,10 @@ class DhanDepthStreamBackend(AutoReconnectMixin):
             instrument = self._cached_instrument(str(sec_id))
             if instrument is None:
                 continue
-            depth = Depth(
-                instrument=instrument,
-                bids=tuple(
-                    sorted(sides["bids"], key=lambda level: level[0].value, reverse=True)
-                ),
-                asks=tuple(sorted(sides["asks"], key=lambda level: level[0].value)),
+            depth = build_depth(
+                instrument,
+                bids_raw=[{"price": p.value, "quantity": q.value} for p, q in sides["bids"]],
+                asks_raw=[{"price": p.value, "quantity": q.value} for p, q in sides["asks"]],
             )
             for handler in tuple(self._depth_handlers.values()):
                 try:

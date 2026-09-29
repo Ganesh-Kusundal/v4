@@ -12,8 +12,9 @@ from decimal import Decimal
 from typing import Any
 
 from tradex_domain.instruments import Instrument
-from tradex_domain.market import Depth
 from tradex_domain.value_objects import Price, Quantity
+
+from tradex_brokers.common.market_builders import build_depth
 
 # Wire layout constants
 HEADER_SIZE = 12
@@ -109,10 +110,10 @@ def depth_frame_to_depth(
         target = bids if pkt["side"] == "bids" else asks
         target.extend(pkt["levels"])
 
-    return Depth(
-        instrument=instrument,
-        bids=tuple(bids),
-        asks=tuple(asks),
+    return build_depth(
+        instrument,
+        bids_raw=[{"price": p.value, "quantity": q.value} for p, q in bids],
+        asks_raw=[{"price": p.value, "quantity": q.value} for p, q in asks],
         timestamp=datetime.now(UTC),
     )
 
