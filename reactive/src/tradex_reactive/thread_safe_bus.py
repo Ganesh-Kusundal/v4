@@ -8,6 +8,7 @@ from typing import Any
 
 import rx
 
+from tradex_domain.constants import MAX_LOG_SIZE
 from tradex_reactive.bus import ReactiveBus
 
 
@@ -22,7 +23,7 @@ class ThreadSafeReactiveBus:
       the default for backward compatibility.
     """
 
-    _DEFAULT_MAX_LOG = 10_000
+    _DEFAULT_MAX_LOG = MAX_LOG_SIZE
 
     def __init__(
         self,

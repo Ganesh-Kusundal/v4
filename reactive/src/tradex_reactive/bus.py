@@ -22,6 +22,8 @@ from rx import operators as ops
 from rx.disposable import CompositeDisposable
 from rx.subject import Subject
 
+from tradex_domain.constants import MAX_LOG_SIZE
+
 log = logging.getLogger(__name__)
 SubscriberType = str
 
@@ -33,7 +35,7 @@ def _ts(m: object) -> time | None:  # type: ignore[type-arg]
 
 #: ponytail: nested-delivery cap — a buggy subscriber that republishes forever
 #: must fail visibly (like the old RecursionError), not hang the bus silently.
-_MAX_NESTED_DELIVERIES = 10_000
+_MAX_NESTED_DELIVERIES = MAX_LOG_SIZE
 # ponytail: per-subscriber buffering removed — Subject is synchronous and
 # live concurrency uses ThreadSafeReactiveBus; add BoundedReactiveBus when measured.
 # Kept for backward compat with test import (deprecated stub):
