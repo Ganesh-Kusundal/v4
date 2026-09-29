@@ -20,6 +20,8 @@ configurable) — this is a fresh indicator definition, so no parity claim to
 
 from __future__ import annotations
 
+from duck_analytics._sql import quote_literal
+
 # ln(4) == 2 * ln(2); W_i = 4 ** (j / bars) with j in [1..bars]
 _W_BASE = "exp(ln(4.0) * ({}::DOUBLE / {}))"
 
@@ -121,7 +123,7 @@ def rs_score_sql(
     elif not symbols:
         sym_filter = "AND false"
     else:
-        quoted = ", ".join("'" + x.replace("'", "''") + "'" for x in symbols)
+        quoted = ", ".join(quote_literal(x) for x in symbols)
         sym_filter = f"AND symbol IN ({quoted})"
     return f"""
 WITH {ctes}

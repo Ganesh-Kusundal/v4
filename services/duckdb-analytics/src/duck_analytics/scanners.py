@@ -28,14 +28,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from duck_analytics._sql import symbol_in_list
 from duck_analytics.resample import resample_sql
 from duck_analytics.rs_score import rs_score_ctes
-
-
-def _in_list(symbols: list[str]) -> str:
-    if not symbols:
-        return "AND false"
-    return "AND symbol IN (" + ", ".join("'" + s.replace("'", "''") + "'" for s in symbols) + ")"
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,7 +188,7 @@ def scan_screener(
     )
     n = int(adx_len)
     lb = int(vol_lookback_days)
-    symbols_clause = _in_list(symbols) if symbols is not None else ""
+    symbols_clause = symbol_in_list(symbols) if symbols is not None else ""
     sql = f"""
 WITH {rs_ctes},
 rs_final AS (

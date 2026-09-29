@@ -27,15 +27,43 @@ from mcp.server.fastmcp import FastMCP
 from tradex_domain.paths import REPO_ROOT
 
 from duck_analytics.catalog import DuckDBCatalog, default_config_for
+from duck_analytics.config import AnalyticsConfig
 from duck_analytics.patterns import find_similar
 from duck_analytics.query import QueryNotAllowedError, QueryService
 from duck_analytics.resample import TF_TO_INTERVAL, resample_sql
 from duck_analytics.rs_score import rs_score_sql
 from duck_analytics.scanners import breadth, scan_screener
 
-_cfg = default_config_for(REPO_ROOT)
-_catalog = DuckDBCatalog(_cfg)
-_service = QueryService(_catalog, _cfg)
+
+def create_service(config: AnalyticsConfig | None = None) -> QueryService:
+    cfg = config or default_config_for(REPO_ROOT)
+    catalog = DuckDBCatalog(cfg)
+    return QueryService(catalog, cfg)
+
+
+_service_override: QueryService | None = None
+_catalog_override: DuckDBCatalog | None = None
+
+
+def set_service(
+    service: QueryService | None,
+    catalog: DuckDBCatalog | None = None,
+) -> None:
+    global _service_override, _catalog_override
+    _service_override = service
+    _catalog_override = catalog
+
+
+def _get_service() -> QueryService:
+    if _service_override is not None:
+        return _service_override
+    return create_service()
+
+
+def _get_catalog() -> DuckDBCatalog:
+    if _catalog_override is not None:
+        return _catalog_override
+    return DuckDBCatalog(default_config_for(REPO_ROOT))
 
 mcp = FastMCP("duck-analytics", instructions=(
     "Read-only analytics over the TradeX OHLCV parquet datalake. "
@@ -69,7 +97,7 @@ def query(sql: str, limit: int | None = None) -> str:
     ATTACH/COPY/INSTALL and multiple statements are rejected.
     """
     try:
-        return _payload(_rows_payload(_service.execute(sql, None, limit=limit)))
+        return _payload(_rows_payload(_get_service().execute(sql, None, limit=limit)))
     except QueryNotAllowedError as e:
         return _payload({"error": str(e)})
 
@@ -78,7 +106,7 @@ def query(sql: str, limit: int | None = None) -> str:
 def schema(view: str = "ohlcv") -> str:
     """Column names/types for `ohlcv` or `ohlcv_raw`."""
     try:
-        return _payload({"view": view, "columns": _catalog.schema_of(view)})
+        return _payload({"view": view, "columns": _get_catalog().schema_of(view)})
     except ValueError as e:
         return _payload({"error": str(e)})
 
@@ -86,13 +114,13 @@ def schema(view: str = "ohlcv") -> str:
 @mcp.tool()
 def list_symbols() -> str:
     """All symbols present in the datalake, sorted."""
-    return _payload({"symbols": _catalog.list_symbols()})
+    return _payload({"symbols": _get_catalog().list_symbols()})
 
 
 @mcp.tool()
 def date_range(symbol: str) -> str:
     """Min/max stored timestamp for one symbol."""
-    dr = _catalog.date_range(symbol)
+    dr = _get_catalog().date_range(symbol)
     if dr is None:
         return _payload({"symbol": symbol, "error": "no data"})
     return _payload({"symbol": symbol, "start": str(dr[0]), "end": str(dr[1])})
@@ -109,7 +137,7 @@ def resample(timeframe: str, start: str, end: str, symbols_json: str | None = No
         return _payload({"error": f"timeframe must be one of {sorted(TF_TO_INTERVAL)}"})
     symbols = json.loads(symbols_json) if symbols_json else None
     sql = resample_sql(timeframe, start, end, symbols)
-    return _payload(_rows_payload(_service.execute(sql, None)))
+    return _payload(_rows_payload(_get_service().execute(sql, None)))
 
 
 @mcp.tool()
@@ -142,7 +170,7 @@ def run_screener(
         strict=strict,
     )
     out = _rows_payload(
-        _service.execute(q.sql, None, require_complete=True)
+        _get_service().execute(q.sql, None, require_complete=True)
     )
     out["scan"] = q.description
     out["point_in_time_safe"] = True
@@ -154,7 +182,7 @@ def run_breadth(as_of: str, dma: int = 20, timeframe: str = "1d") -> str:
     """Per-day market breadth: % of symbols above N-bar DMA, advances/declines."""
     q = breadth(as_of, dma=dma, timeframe=timeframe)
     out = _rows_payload(
-        _service.execute(q.sql, None, require_complete=True)
+        _get_service().execute(q.sql, None, require_complete=True)
     )
     out["scan"] = q.description
     out["point_in_time_safe"] = True
@@ -180,7 +208,7 @@ def run_rs_score(
     bpd = bars_per_day if bars_per_day is not None else 25
     sql = rs_score_sql(end=as_of, days=days, bars_per_day=bpd,
                        interval=TF_TO_INTERVAL[timeframe])
-    out = _rows_payload(_service.execute(sql, None, require_complete=True))
+    out = _rows_payload(_get_service().execute(sql, None, require_complete=True))
     out["point_in_time_safe"] = True
     out["params"] = {"days": days, "timeframe": timeframe, "bars_per_day": bpd}
     return _payload(out)
@@ -204,7 +232,7 @@ def find_similar_patterns(
     """
     try:
         res = find_similar(
-            _service,
+            _get_service(),
             query_symbol=symbol,
             end=as_of,
             window=window_days,

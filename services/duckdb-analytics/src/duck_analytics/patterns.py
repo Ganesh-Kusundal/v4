@@ -21,6 +21,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from duck_analytics._sql import quote_literal
+
 
 def znorm(x: np.ndarray) -> np.ndarray:
     """Z-normalize; constant series map to zeros (never NaN)."""
@@ -83,7 +85,7 @@ def load_daily_closes(
     """Per-symbol daily close series ending at ``end`` (point-in-time safe)."""
     sym_clause = ""
     if symbols is not None:
-        quoted = ", ".join("'" + s.replace("'", "''") + "'" for s in symbols)
+        quoted = ", ".join(quote_literal(s) for s in symbols)
         sym_clause = f"AND symbol IN ({quoted})"
     res = svc.execute(
         f"""
