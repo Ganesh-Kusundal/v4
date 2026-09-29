@@ -31,7 +31,6 @@ from tradex_analytics import (
     win_rate,
 )
 from tradex_analytics.indicators import _ema_of_gapped, _sma_seeded_ema, compute_indicator
-from tradex_analytics.registry import REGISTRY
 from tradex_domain import OHLC, Price
 
 # Shared closes for standalone MACD checks (linear ramp).

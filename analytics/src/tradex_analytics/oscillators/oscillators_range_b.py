@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import math
 
-from tradex_analytics.indicators import (
-    IndicatorSpec,
-    _change,
+from tradex_analytics._math import (
     _highest,
     _lowest,
     _rolling_sum,
     _to_float,
+)
+from tradex_analytics.indicators import (
+    IndicatorSpec,
+    _change,
     roc,
     rsi,
 )

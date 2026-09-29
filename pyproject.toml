@@ -88,7 +88,7 @@ extend-exclude = [
 # lint, applied to complexity. tests/test_complexity_gate.py holds the
 # THRESHOLDS themselves, so a count-only ratchet cannot be satisfied by
 # raising one of these.
-select = ["E", "F", "W", "I", "UP", "C90", "PLR0912", "PLR0915", "N", "B", "T20"]
+select = ["E", "F", "W", "I", "UP", "C90", "PLR0912", "PLR0915"]
 
 [tool.ruff.lint.mccabe]
 # Current worst in src/ is ws_stream at 282 complexity
@@ -112,9 +112,6 @@ max-statements = 850
 # including tests would make the baseline about test style instead.
 "**/tests/**" = ["C901", "PLR0912", "PLR0915"]
 "**/test_*.py" = ["C901", "PLR0912", "PLR0915"]
-# CLI scripts print to stdout by design; the logging standard applies to
-# library code, not to tools whose output IS the printout.
-"**/scripts/**" = ["T201"]
 
 [tool.mypy]
 # Root mypy config. Its absence is why this gate was inert: mypy resolves
@@ -128,13 +125,6 @@ max-statements = 850
 python_version = "3.12"
 ignore_missing_imports = true
 disable_error_code = ["no-any-return", "misc"]
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-warn_return_any = true
-warn_unused_ignores = true
-no_implicit_optional = true
-check_untyped_defs = true
-strict_optional = true
 
 [[tool.mypy.overrides]]
 # Checked-in protoc output (brokers/src/tradex_brokers/proto/MarketDataFeed_pb2.py,

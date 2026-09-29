@@ -28,8 +28,8 @@ from tradex_domain.events import (
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
-from tradex_execution._sqlite import configure_sqlite
 
+from tradex_execution._sqlite import configure_sqlite
 from tradex_execution.sqlite_event_store import (
     ALLOWED_PICKLE_CLASSES,
     _restricted_unpickle,

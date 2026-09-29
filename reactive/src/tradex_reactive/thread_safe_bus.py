@@ -7,8 +7,8 @@ from collections import deque
 from typing import Any
 
 import rx
-
 from tradex_domain.constants import MAX_LOG_SIZE
+
 from tradex_reactive.bus import ReactiveBus
 
 

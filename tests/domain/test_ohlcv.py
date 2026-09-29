@@ -1,9 +1,10 @@
 """Tests for ohlcv."""
 from datetime import UTC, datetime
 from decimal import Decimal
+
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
-from tradex_domain.market import Candle, OHLC
+from tradex_domain.market import OHLC, Candle
 from tradex_domain.ohlcv import aggregate_candles
 from tradex_domain.value_objects import Price, Quantity
 

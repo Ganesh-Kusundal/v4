@@ -24,13 +24,15 @@ Parity notes:
 
 from __future__ import annotations
 
+from tradex_analytics._math import (
+    _to_float,
+    sma,
+)
 from tradex_analytics.indicators import (
     IndicatorSpec,
     _rolling_sma,
-    _to_float,
     roc,
     rsi,
-    sma,
     wma,
 )
 from tradex_analytics.registry import REGISTRY

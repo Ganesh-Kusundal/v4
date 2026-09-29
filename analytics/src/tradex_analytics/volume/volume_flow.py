@@ -28,16 +28,18 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from tradex_analytics.indicators import (
-    IndicatorSpec,
-    _change,
-    _cumulative,
-    _ema_of_gapped,
+from tradex_analytics._math import (
     _highest,
     _isfinite,
     _rolling_sum,
     _sma_skip_none,
     _to_float,
+)
+from tradex_analytics.indicators import (
+    IndicatorSpec,
+    _change,
+    _cumulative,
+    _ema_of_gapped,
 )
 
 # ---------------------------------------------------------------------------

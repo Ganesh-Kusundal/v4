@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import math
 
+from tradex_analytics._math import (
+    _to_float,
+)
 from tradex_analytics.indicators import (
     IndicatorSpec,
     _ema_of_gapped,
-    _to_float,
     atr,
 )
 

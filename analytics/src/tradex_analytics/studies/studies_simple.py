@@ -29,14 +29,16 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, cast
 
+from tradex_analytics._math import (
+    _rma,
+    _to_float,
+    sma,
+)
 from tradex_analytics.indicators import (
     REGISTRY,
     IndicatorSpec,
     _change,
-    _rma,
     _sma_seeded_ema,
-    _to_float,
-    sma,
     wma,
 )
 from tradex_analytics.volume.volume_flow import _sma_skip_none

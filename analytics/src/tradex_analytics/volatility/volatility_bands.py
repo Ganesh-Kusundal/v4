@@ -43,15 +43,17 @@ from __future__ import annotations
 
 import math
 
-from tradex_analytics.indicators import (
-    IndicatorSpec,
-    _change,
-    _ema_of_gapped,
+from tradex_analytics._math import (
     _rolling_sum,
     _shift,
     _sma_skip_none,
     _to_float,
     sma,
+)
+from tradex_analytics.indicators import (
+    IndicatorSpec,
+    _change,
+    _ema_of_gapped,
     wma,
 )
 from tradex_analytics.registry import REGISTRY

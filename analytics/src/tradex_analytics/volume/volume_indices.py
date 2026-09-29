@@ -14,15 +14,17 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+from tradex_analytics._math import (
+    _isfinite,
+    _rolling_sum,
+    _to_float,
+)
 from tradex_analytics.indicators import (
     REGISTRY,
     IndicatorSpec,
     _change,
     _ema_of_gapped,
-    _isfinite,
-    _rolling_sum,
     _sma_seeded_ema,
-    _to_float,
     roc,
 )
 

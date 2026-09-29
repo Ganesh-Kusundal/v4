@@ -1,9 +1,10 @@
 """Tests for protective."""
 from datetime import UTC, datetime
 from decimal import Decimal
+
 from tradex_domain.enums import OrderSide, Timeframe
 from tradex_domain.instruments import Equity
-from tradex_domain.market import Candle, OHLC
+from tradex_domain.market import OHLC, Candle
 from tradex_domain.protective import stop_hit, target_hit
 from tradex_domain.value_objects import Price, Quantity
 

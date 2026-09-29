@@ -1,4 +1,5 @@
 """Single OHLCV aggregation path."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -8,7 +9,10 @@ from tradex_domain.value_objects import Price, Quantity
 
 
 def aggregate_candles(candles: list[Candle]) -> Candle:
-    """Aggregate *candles* into one candle: open=first, high=max, low=min, close=last, volume=sum."""
+    """Aggregate *candles* into one candle.
+
+    open=first, high=max, low=min, close=last, volume=sum.
+    """
     if not candles:
         raise ValueError("cannot aggregate an empty candle list")
     first = candles[0]

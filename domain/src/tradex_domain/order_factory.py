@@ -3,8 +3,8 @@
 Eliminates 8+ duplicate Order() construction sites across the codebase.
 """
 from decimal import Decimal
-from typing import Optional
-from tradex_domain.enums import OrderStatus, TimeInForce
+
+from tradex_domain.enums import OrderStatus
 from tradex_domain.execution import Order, OrderRequest
 from tradex_domain.value_objects import OrderId, Price, Quantity
 
@@ -14,7 +14,7 @@ def create_order(
     order_id: str,
     *,
     filled: Decimal = Decimal("0"),
-    avg_price: Optional[Decimal] = None,
+    avg_price: Decimal | None = None,
     status: OrderStatus = OrderStatus.NEW,
 ) -> Order:
     """Create an Order from an OrderRequest.

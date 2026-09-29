@@ -106,8 +106,8 @@ def __getattr__(name: str) -> object:
 
 
 __all__ = [
-    "dhan_capabilities",
+    "dhan_capabilities",  # noqa: F822 - provided by __getattr__ (breaks import cycle)
     "get_capabilities",
-    "paper_capabilities",
-    "upstox_capabilities",
+    "paper_capabilities",  # noqa: F822 - provided by __getattr__ (breaks import cycle)
+    "upstox_capabilities",  # noqa: F822 - provided by __getattr__ (breaks import cycle)
 ]

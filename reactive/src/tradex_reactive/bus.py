@@ -21,7 +21,6 @@ import rx.core
 from rx import operators as ops
 from rx.disposable import CompositeDisposable
 from rx.subject import Subject
-
 from tradex_domain.constants import MAX_LOG_SIZE
 
 log = logging.getLogger(__name__)

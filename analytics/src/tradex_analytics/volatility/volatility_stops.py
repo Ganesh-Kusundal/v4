@@ -22,11 +22,13 @@ from __future__ import annotations
 
 import math
 
+from tradex_analytics._math import (
+    _to_float,
+    true_ranges,
+)
 from tradex_analytics.indicators import (
     IndicatorSpec,
-    _to_float,
     atr,
-    true_ranges,
 )
 from tradex_analytics.registry import REGISTRY
 

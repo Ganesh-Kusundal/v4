@@ -14,11 +14,13 @@ Parity notes
 
 from __future__ import annotations
 
+from tradex_analytics._math import (
+    _isfinite,
+    _to_float,
+)
 from tradex_analytics.indicators import (
     IndicatorSpec,
     _cumulative,
-    _isfinite,
-    _to_float,
 )
 
 

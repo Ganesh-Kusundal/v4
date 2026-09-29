@@ -26,15 +26,17 @@ Parity notes (openalgo-charts ``src/indicators/momentum.ts`` / ``oscillators.ts`
 
 from __future__ import annotations
 
-from tradex_analytics.indicators import (
-    REGISTRY,
-    IndicatorSpec,
+from tradex_analytics._math import (
     _from_first_value,
     _smoothing_ma,
     _stdev,
     _to_float,
     sma,
     true_ranges,
+)
+from tradex_analytics.indicators import (
+    REGISTRY,
+    IndicatorSpec,
 )
 
 REGISTRY.register_legacy_aliases({

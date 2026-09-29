@@ -24,8 +24,8 @@ from tradex_domain.errors import (
 )
 from tradex_domain.execution import Order
 from tradex_domain.instruments import Future, Instrument
-from tradex_domain.universe import CASH_SERIES
 from tradex_domain.options import OptionChain
+from tradex_domain.universe import CASH_SERIES
 from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
 

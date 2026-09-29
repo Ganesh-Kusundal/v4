@@ -27,10 +27,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from tradex_analytics.indicators import (
-    REGISTRY,
-    IndicatorSpec,
-    _bars_since,
+from tradex_analytics._math import (
     _highest,
     _isfinite,
     _lowest,
@@ -39,6 +36,11 @@ from tradex_analytics.indicators import (
     _shift,
     _to_float,
     sma,
+)
+from tradex_analytics.indicators import (
+    REGISTRY,
+    IndicatorSpec,
+    _bars_since,
 )
 
 REGISTRY.register_legacy_aliases({

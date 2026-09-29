@@ -26,15 +26,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from tradex_analytics.indicators import (
-    IndicatorSpec,
+from tradex_analytics._math import (
     _highest,
     _lowest,
     _shift,
-    _sma_seeded_ema,
     _to_float,
-    atr,
     sma,
+)
+from tradex_analytics.indicators import (
+    IndicatorSpec,
+    _sma_seeded_ema,
+    atr,
 )
 
 

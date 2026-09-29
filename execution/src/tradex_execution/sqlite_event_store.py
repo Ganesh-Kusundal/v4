@@ -97,6 +97,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from tradex_domain.events import DomainEvent
+
 from tradex_execution._sqlite import configure_sqlite
 
 _log = logging.getLogger(__name__)

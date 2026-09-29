@@ -8,14 +8,9 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from tradex_analytics._math import (
-    _from_first_value,
-    _highest,
     _isfinite,
-    _lowest,
     _rma,
-    _rolling_sum,
     _shift,
-    _sma_skip_none,
     _smoothing_ma,
     _source_values,
     _stdev,
@@ -855,7 +850,9 @@ def vwap_session(candles: list) -> list[float | None]:
     Cumulative (typical price * volume) / cumulative volume, resetting at
     each new session day. Needs candles with volume; None where volume is 0.
     """
-    return _fn_vwap(candles, "session", "hlc3", 0, "stdev", True, 1.0, False, 2.0, False, 3.0)["value"]
+    return _fn_vwap(
+        candles, "session", "hlc3", 0, "stdev", True, 1.0, False, 2.0, False, 3.0
+    )["value"]
 
 
 # ---------------------------------------------------------------------------

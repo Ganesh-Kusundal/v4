@@ -38,14 +38,16 @@ import math
 from collections.abc import Sequence
 from typing import cast
 
+from tradex_analytics._math import (
+    _shift,
+    _sma_skip_none,
+    _to_float,
+)
 from tradex_analytics.indicators import (
     REGISTRY,
     IndicatorSpec,
     _bars_since,
     _ema_of_gapped,
-    _shift,
-    _sma_skip_none,
-    _to_float,
     rsi,
 )
 
@@ -608,7 +610,7 @@ def consolidation_breakout(candles: list) -> dict[str, list]:
     bars only (None on breakout bars so the renderer breaks the line); bar 0
     seeds its own range. Hidden ``insideAge`` supports the tint hook.
     """
-    from tradex_analytics.indicators import _to_float
+    from tradex_analytics._math import _to_float
 
     n = len(candles)
     opens = [_to_float(c.ohlc.open.value) for c in candles]

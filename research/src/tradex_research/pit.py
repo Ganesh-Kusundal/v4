@@ -59,7 +59,6 @@ from datetime import date
 from pathlib import Path
 
 import pandas as pd
-
 from tradex_domain.universe import CASH_SERIES
 
 from .manifests import DatasetManifest, UniverseManifest

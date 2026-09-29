@@ -61,6 +61,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 from tradex_domain.enums import Timeframe

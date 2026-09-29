@@ -877,7 +877,9 @@ class BacktestEngine:
                 signal=signal,
                 entry=open_price,
                 quantity=decision.quantity,
-                correlation_id=CorrelationId(value=mint_correlation_id("backtest-bridge", bridge_seq)),
+                correlation_id=CorrelationId(
+                    value=mint_correlation_id("backtest-bridge", bridge_seq)
+                ),
                 tag=f"{getattr(strategy, 'strategy_id', 'strategy')}@{version}",
                 reference_timestamp=candle.timestamp,
             )

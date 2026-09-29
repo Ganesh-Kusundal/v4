@@ -2,8 +2,6 @@ from datetime import timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-import pytest
-
 from tradex_domain import constants as C
 
 
@@ -889,16 +887,24 @@ class TestAPIResponseKeys:
         assert C.UNKNOWN_MESSAGE_TYPE_KEY == "unknown message type"
 
     def test_subscribe_bars_format_key(self):
-        assert C.SUBSCRIBE_BARS_FORMAT_KEY == "subscribe_bars needs 'bars': [{instrument, interval}]"
+        assert (
+            C.SUBSCRIBE_BARS_FORMAT_KEY == "subscribe_bars needs 'bars': [{instrument, interval}]"
+        )
 
     def test_bad_bar_subscription_key(self):
         assert C.BAD_BAR_SUBSCRIPTION_KEY == "bad bar subscription"
 
     def test_indicator_sub_format_key(self):
-        assert C.INDICATOR_SUB_FORMAT_KEY == "indicator-sub needs 'indicators': [{instrument, interval, ids, mode?}]"
+        assert (
+            C.INDICATOR_SUB_FORMAT_KEY
+            == "indicator-sub needs 'indicators': [{instrument, interval, ids, mode?}]"
+        )
 
     def test_indicator_unsub_format_key(self):
-        assert C.INDICATOR_UNSUB_FORMAT_KEY == "indicator-unsub needs 'indicators': [{instrument, interval, ids?}]"
+        assert (
+            C.INDICATOR_UNSUB_FORMAT_KEY
+            == "indicator-unsub needs 'indicators': [{instrument, interval, ids?}]"
+        )
 
     def test_replay_start_instrument_key(self):
         assert C.REPLAY_START_INSTRUMENT_KEY == "replay_start needs 'instrument'"
@@ -928,7 +934,10 @@ class TestAPIResponseKeys:
         assert C.ORDER_STREAM_UNAVAILABLE_KEY == "order stream unavailable"
 
     def test_control_queue_overflow_close_reason_key(self):
-        assert C.CONTROL_QUEUE_OVERFLOW_CLOSE_REASON_KEY == "control queue overflow; reconnect to resync"
+        assert (
+            C.CONTROL_QUEUE_OVERFLOW_CLOSE_REASON_KEY
+            == "control queue overflow; reconnect to resync"
+        )
 
     def test_invalid_api_key_close_reason_key(self):
         assert C.INVALID_API_KEY_CLOSE_REASON_KEY == "invalid api key"
@@ -985,7 +994,12 @@ class TestAPIResponseKeys:
 
 class TestTradeFields:
     def test_trade_fields(self):
-        assert C.TRADE_FIELDS == {"record": "record", "rejected": "rejected", "stop": "stop", "target": "target"}
+        assert C.TRADE_FIELDS == {
+            "record": "record",
+            "rejected": "rejected",
+            "stop": "stop",
+            "target": "target",
+        }
 
     def test_metric_keys(self):
         assert C.METRIC_KEYS == {
@@ -1247,10 +1261,20 @@ class TestProductTypes:
         assert C.PRODUCT_BY_WIRE == {"MIS": "MIS", "CNC": "CNC", "NRML": "NRML", "MTF": "MTF"}
 
     def test_product_types(self):
-        assert C.PRODUCT_TYPES == {"INTRADAY": "INTRADAY", "DELIVERY": "DELIVERY", "MARGIN": "MARGIN", "MTF": "MTF"}
+        assert C.PRODUCT_TYPES == {
+            "INTRADAY": "INTRADAY",
+            "DELIVERY": "DELIVERY",
+            "MARGIN": "MARGIN",
+            "MTF": "MTF",
+        }
 
     def test_order_types(self):
-        assert C.ORDER_TYPES == {"MARKET": "MARKET", "LIMIT": "LIMIT", "STOP": "STOP", "STOP_LIMIT": "STOP_LIMIT"}
+        assert C.ORDER_TYPES == {
+            "MARKET": "MARKET",
+            "LIMIT": "LIMIT",
+            "STOP": "STOP",
+            "STOP_LIMIT": "STOP_LIMIT",
+        }
 
     def test_order_statuses(self):
         assert C.ORDER_STATUSES == {
@@ -1279,10 +1303,22 @@ class TestProductTypes:
         }
 
     def test_chart_order_types(self):
-        assert C.CHART_ORDER_TYPES == {"MARKET": "MARKET", "LIMIT": "LIMIT", "STOP": "SL", "STOP_LIMIT": "SL-M"}
+        assert C.CHART_ORDER_TYPES == {
+            "MARKET": "MARKET",
+            "LIMIT": "LIMIT",
+            "STOP": "SL",
+            "STOP_LIMIT": "SL-M",
+        }
 
     def test_unsettled_order_statuses(self):
-        assert C.UNSETTLED_ORDER_STATUSES == {"NEW", "PENDING", "ACK", "SUBMITTED", "PARTIALLY_FILLED", "UNKNOWN"}
+        assert C.UNSETTLED_ORDER_STATUSES == {
+            "NEW",
+            "PENDING",
+            "ACK",
+            "SUBMITTED",
+            "PARTIALLY_FILLED",
+            "UNKNOWN",
+        }
 
 
 class TestHTTPStatusMap:

@@ -19,17 +19,18 @@ import math
 from collections.abc import Sequence
 from typing import cast
 
-from tradex_analytics.indicators import (  # noqa: F401
-    IndicatorSpec,
+from tradex_analytics._math import (
     _highest,
     _lowest,
     _rolling_sum,
     _shift,
-    _sma_seeded_ema,
     _to_float,
-    atr,
     sma,
     true_ranges,
+)
+from tradex_analytics.indicators import (
+    IndicatorSpec,
+    _sma_seeded_ema,
 )
 
 

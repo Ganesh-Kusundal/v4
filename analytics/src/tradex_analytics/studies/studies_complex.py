@@ -51,14 +51,16 @@ from typing import Any, cast
 
 from tradex_domain.timezones import IST_OFFSET_SECONDS
 
-from tradex_analytics.indicators import (
-    REGISTRY,
-    IndicatorSpec,
-    _change,
+from tradex_analytics._math import (
     _rma,
     _rolling_sum,
     _to_float,
     sma,
+)
+from tradex_analytics.indicators import (
+    REGISTRY,
+    IndicatorSpec,
+    _change,
     wma,
 )
 from tradex_analytics.studies.studies_simple import _src_val, _vwma
