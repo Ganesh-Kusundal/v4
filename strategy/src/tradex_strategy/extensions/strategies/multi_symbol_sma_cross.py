@@ -21,6 +21,8 @@ from __future__ import annotations
 from tradex_domain import OrderSide, Signal
 from tradex_domain.strategy import StrategyContext
 
+from tradex_strategy.core.signal_builder import build_signal, register_strategy
+
 
 class MultiSymbolSmaCross:
     """Portfolio SMA crossover — one instance trades every instrument.
@@ -119,15 +121,15 @@ class MultiSymbolSmaCross:
         return sum(closes[-period:]) / period
 
     def _signal(self, instrument, direction: OrderSide, reason: str) -> Signal:
-        signal = Signal(
-            instrument=instrument,
-            direction=direction,
-            strength=1.0,
-            reason=reason,
+        signal = build_signal(
+            instrument,
+            direction,
+            reason,
         )
         self._signals.append(signal)
         return signal
 
 
 multi_symbol_sma_cross = MultiSymbolSmaCross()
+register_strategy("multi_symbol_sma_cross", multi_symbol_sma_cross)
 

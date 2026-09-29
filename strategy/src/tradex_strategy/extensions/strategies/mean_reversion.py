@@ -14,6 +14,8 @@ from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
 from tradex_domain.strategy import StrategyContext
 
+from tradex_strategy.core.signal_builder import build_signal, register_strategy
+
 
 class MeanReversionStrategy:
     """Mean reversion on RSI: fade overbought/oversold extremes.
@@ -140,12 +142,11 @@ class MeanReversionStrategy:
     def _signal(
         self, direction: OrderSide, reason: str, timestamp=None,
     ) -> Signal:
-        signal = Signal(
-            instrument=self._instrument,
-            direction=direction,
-            strength=1.0,
-            reason=reason,
-            timestamp=timestamp,
+        signal = build_signal(
+            self._instrument,
+            direction,
+            reason,
+            timestamp,
         )
         self._signals.append(signal)
         return signal
@@ -155,4 +156,5 @@ mean_reversion_strategy = MeanReversionStrategy(
     strategy_id="mean_reversion_example",
     instrument=Equity.of(ExchangeId.NSE, "TCS"),
 )
+register_strategy("mean_reversion", mean_reversion_strategy)
 

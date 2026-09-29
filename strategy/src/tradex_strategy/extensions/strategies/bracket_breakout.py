@@ -22,12 +22,18 @@ order of two unknowable events reports a return it never earned.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Any
 
 from tradex_domain import OrderSide, Signal
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
+from tradex_domain.protective import stop_hit as domain_stop_hit
+from tradex_domain.protective import target_hit as domain_target_hit
 from tradex_domain.strategy import StrategyContext
+from tradex_domain.value_objects import Price
+
+from tradex_strategy.core.signal_builder import build_signal, register_strategy
 
 
 class BracketBreakoutStrategy:
@@ -113,7 +119,7 @@ class BracketBreakoutStrategy:
         low = float(candle.ohlc.low.value)
         close = float(candle.ohlc.close.value)
 
-        exit_signal = self._exit_for_bar(high, low, context.timestamp)
+        exit_signal = self._exit_for_bar(candle, context.timestamp)
         self._highs.append(high)
         self._lows.append(low)
         self._closes.append(close)
@@ -145,7 +151,7 @@ class BracketBreakoutStrategy:
 
     # -- internals ---------------------------------------------------------------
 
-    def _exit_for_bar(self, high: float, low: float, timestamp: Any) -> Signal | None:
+    def _exit_for_bar(self, candle: Any, timestamp: Any) -> Signal | None:
         """Close the open position if this bar reached either declared level.
 
         The stop is tested first: a bar spanning both levels leaves their order
@@ -157,17 +163,17 @@ class BracketBreakoutStrategy:
         position = self._position
         if position is None:
             return None
-        stop = position["stop"]
-        target = position["target"]
-        long = position["side"] is OrderSide.BUY
-        stop_hit = low <= stop if long else high >= stop
-        target_hit = high >= target if long else low <= target
-        if not stop_hit and not target_hit:
+        stop = Price(value=Decimal(str(position["stop"])))
+        target = Price(value=Decimal(str(position["target"])))
+        side = position["side"]
+        hit_stop = domain_stop_hit(candle, stop, side)
+        hit_target = domain_target_hit(candle, target, side)
+        if not hit_stop and not hit_target:
             return None
         self._position = None
         return self._signal(
-            OrderSide.SELL if long else OrderSide.BUY,
-            "stop_hit" if stop_hit else "target_hit",
+            OrderSide.SELL if side is OrderSide.BUY else OrderSide.BUY,
+            "stop_hit" if hit_stop else "target_hit",
             timestamp,
         )
 
@@ -237,17 +243,13 @@ class BracketBreakoutStrategy:
         target: float | None = None,
     ) -> Signal:
         """Record and return a signal, declaring levels only when entering."""
-        metadata: dict[str, Any] = {}
-        if stop is not None and target is not None:
-            metadata["stop_loss_price"] = stop
-            metadata["target_price"] = target
-        signal = Signal(
-            instrument=self._instrument,
-            direction=direction,
-            strength=1.0,
-            reason=reason,
-            metadata=metadata,
-            timestamp=timestamp,
+        signal = build_signal(
+            self._instrument,
+            direction,
+            reason,
+            timestamp,
+            stop=stop,
+            target=target,
         )
         self._signals.append(signal)
         return signal
@@ -257,4 +259,5 @@ bracket_breakout_strategy = BracketBreakoutStrategy(
     strategy_id="bracket_breakout_example",
     instrument=Equity.of(ExchangeId.NSE, "TCS"),
 )
+register_strategy("bracket_breakout", bracket_breakout_strategy)
 

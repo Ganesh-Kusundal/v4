@@ -21,6 +21,8 @@ from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity, Instrument
 from tradex_domain.strategy import Condition, ScannerDefinition
 
+from tradex_strategy.core.signal_builder import register_strategy
+
 log = logging.getLogger(__name__)
 
 try:
@@ -46,4 +48,5 @@ nifty500_technical_scanner = ScannerDefinition(
     rank_by="score",
     limit=20,
 )
+register_strategy("nifty500_technical", nifty500_technical_scanner)
 

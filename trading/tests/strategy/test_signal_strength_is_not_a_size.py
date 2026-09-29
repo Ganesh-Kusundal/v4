@@ -69,11 +69,7 @@ RETIRED_STRENGTH_AS_SIZE: str = "replay/src/tradex_replay/backtest.py"
 #: A new entry is a deliberate act, not a side effect of adding a strategy.
 STRENGTH_EMITTERS = {
     "strategy/src/tradex_strategy/core/buy_and_hold.py",
-    "strategy/src/tradex_strategy/extensions/strategies/bracket_breakout.py",
-    "strategy/src/tradex_strategy/extensions/strategies/mean_reversion.py",
-    "strategy/src/tradex_strategy/extensions/strategies/multi_symbol_sma_cross.py",
-    "strategy/src/tradex_strategy/extensions/strategies/sma_cross.py",
-    "strategy/src/tradex_strategy/extensions/strategies/study_base.py",
+    "strategy/src/tradex_strategy/core/signal_builder.py",
 }
 
 _INSTRUMENT = Equity(

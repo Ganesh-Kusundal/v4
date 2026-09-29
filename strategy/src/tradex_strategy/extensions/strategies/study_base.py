@@ -12,6 +12,8 @@ from typing import Any
 
 from tradex_domain import OrderSide, Signal
 
+from tradex_strategy.core.signal_builder import build_signal
+
 
 class CandleShim:
     """Minimal candle for analytics duck-typing (``c.ohlc.high.value``...)."""
@@ -117,12 +119,11 @@ class StudyStrategyBase:
     # -- shared helpers ----------------------------------------------------
 
     def _emit(self, direction: OrderSide, reason: str, timestamp=None) -> Signal:
-        signal = Signal(
-            instrument=self._instrument,
-            direction=direction,
-            strength=1.0,
-            reason=reason,
-            timestamp=timestamp,
+        signal = build_signal(
+            self._instrument,
+            direction,
+            reason,
+            timestamp,
         )
         self._signals.append(signal)
         return signal
