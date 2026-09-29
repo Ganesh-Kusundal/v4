@@ -42,6 +42,10 @@ def create_order(
         stop_loss_price=request.stop_loss_price,
         target_price=request.target_price,
         product_type=request.product_type,
-        time_in_force=TimeInForce.DAY,
+        time_in_force=request.time_in_force,
         status=status,
+        correlation_id=request.correlation_id,
+        tag=request.tag,
+        strategy_id=request.strategy_id,
+        trailing_jump=request.trailing_jump,
     )

@@ -63,6 +63,7 @@ from tradex_domain.instruments import (
     Option,
 )
 from tradex_domain.market import OHLC, Candle, Depth, HistoricalSeries, Quote
+from tradex_domain.order_factory import create_order
 from tradex_domain.options import Expiry, OptionChain, OptionPair
 from tradex_domain.protocols import (
     BrokerAdapter,
@@ -139,6 +140,8 @@ __all__ = [
     "HistoricalSeries",
     "OHLC",
     "Quote",
+    # order factory
+    "create_order",
     # options
     "Expiry",
     "OptionChain",

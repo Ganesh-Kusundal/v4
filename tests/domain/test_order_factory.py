@@ -4,7 +4,7 @@ from tradex_domain.order_factory import create_order
 from tradex_domain.enums import OrderSide, OrderType, OrderStatus, TimeInForce
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
-from tradex_domain.value_objects import Price, Quantity
+from tradex_domain.value_objects import CorrelationId, Price, Quantity
 
 
 def test_create_order_basic():
@@ -51,3 +51,23 @@ def test_create_order_filled():
     assert order.filled_quantity.value == Decimal("10")
     assert order.avg_price_traded.value == Decimal("100.00")
     assert order.status == OrderStatus.FILLED
+
+
+def test_create_order_propagates_all_fields():
+    req = OrderRequest(
+        instrument=Equity.of("NSE", "RELIANCE"),
+        side=OrderSide.BUY,
+        quantity=Quantity(value=Decimal("10")),
+        order_type=OrderType.MARKET,
+        time_in_force=TimeInForce.DAY,
+        correlation_id=CorrelationId(value="corr-42"),
+        tag="breakout",
+        strategy_id="strat-1",
+        trailing_jump=Price(value=Decimal("2.50")),
+    )
+    order = create_order(req, order_id="ord-4")
+    assert order.time_in_force == TimeInForce.DAY
+    assert order.correlation_id == CorrelationId(value="corr-42")
+    assert order.tag == "breakout"
+    assert order.strategy_id == "strat-1"
+    assert order.trailing_jump == Price(value=Decimal("2.50"))
