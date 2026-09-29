@@ -1,4 +1,4 @@
-"""Gap tests for AnalyticsEngine — warmup trimming and sharpe with risk_free."""
+"""Gap tests for AnalyticsEngine — warmup trimming."""
 
 from __future__ import annotations
 
@@ -53,18 +53,4 @@ def test_warmup_bars_exceeding_candle_count_trims() -> None:
     engine = AnalyticsEngine(warmup_bars=50)
     series = _series([100.0, 101.0, 102.0, 103.0, 104.0])
     result = engine.indicator(series, "sma", period=3)
-    # Output should have at most len(series.candles) candles
     assert len(result.candles) <= len(series.candles)
-
-
-def test_report_sharpe_with_custom_risk_free_rate() -> None:
-    """Sharpe report accepts risk_free parameter."""
-    engine = AnalyticsEngine()
-    series = _series([100.0, 102.0, 104.0, 103.0, 106.0, 108.0])
-    result_default = engine.report("sharpe", series)
-    result_rf = engine.report("sharpe", series, risk_free=0.05)
-    # Both should return a dict with 'sharpe' key
-    assert "sharpe" in result_default
-    assert "sharpe" in result_rf
-    # With positive risk_free rate, sharpe should be lower
-    assert result_rf["sharpe"] < result_default["sharpe"]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 
@@ -10,25 +10,16 @@ from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.market import Candle, HistoricalSeries
 from tradex_domain.value_objects import Price
 
-from tradex_analytics.breadth import advance_decline
-from tradex_analytics.indicators import ema, roc, rsi, sma
-from tradex_analytics.probability import win_rate
 from tradex_analytics.reports import (
     TRADING_DAYS_PER_YEAR,
     max_drawdown,
     sharpe_ratio,
     total_return,
 )
-from tradex_analytics.volatility.volatility import realized_vol
 
 
 class AnalyticsEngine:
     """Coordinates analytics computations."""
-
-    _INDICATORS: dict[str, Callable[[list, int], list]] = {
-        "sma": sma, "ema": ema, "rsi": rsi, "roc": roc,
-    }
-    _DEFAULTS = {"sma": 20, "ema": 20, "rsi": 14, "roc": 10}
 
     def __init__(self, warmup_bars: int = 0) -> None:
         self._warmup_bars = warmup_bars

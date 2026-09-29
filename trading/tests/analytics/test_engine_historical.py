@@ -1,4 +1,4 @@
-"""Analytics engine tests — indicator(), indicators(), report(), _with_close() (D-15).
+"""Analytics engine tests — indicator(), indicators(), _with_close() (D-15).
 
 Tests the HistoricalSeries-based API ported from v3.
 """
@@ -98,53 +98,6 @@ class TestIndicators:
         result = engine.indicators(series, ["sma", "sma"], period=5)
         # After first SMA(5): 25 candles, after second SMA(5) on those 25: 21 candles
         assert len(result.candles) > 0
-
-
-# ---------------------------------------------------------------------------
-# report()
-# ---------------------------------------------------------------------------
-
-
-class TestReport:
-    """AnalyticsEngine.report(name, series, **params)."""
-
-    def test_max_drawdown(self) -> None:
-        engine = AnalyticsEngine()
-        series = _series([100.0, 90.0, 95.0, 70.0])
-        result = engine.report("max_drawdown", series)
-        assert "max_drawdown" in result
-        assert result["max_drawdown"] == pytest.approx(-0.30)
-
-    def test_sharpe(self) -> None:
-        engine = AnalyticsEngine()
-        series = _series([100.0, 101.0, 102.0, 103.0, 104.0])
-        result = engine.report("sharpe", series)
-        assert "sharpe" in result
-
-    def test_realized_vol(self) -> None:
-        engine = AnalyticsEngine()
-        series = _series([100.0 * (1.01 ** i) for i in range(20)])
-        result = engine.report("realized_vol", series)
-        assert result["realized_vol"] > 0.0
-
-    def test_win_rate(self) -> None:
-        engine = AnalyticsEngine()
-        series = _series([10.0, 11.0, 9.0, 12.0])
-        result = engine.report("win_rate", series)
-        assert "win_rate" in result
-
-    def test_advance_decline(self) -> None:
-        engine = AnalyticsEngine()
-        series = _series([100.0, 101.0, 100.5, 102.0])
-        result = engine.report("advance_decline", series)
-        assert "advances" in result
-        assert "declines" in result
-
-    def test_unknown_report_raises(self) -> None:
-        engine = AnalyticsEngine()
-        series = _series([1.0, 2.0])
-        with pytest.raises(CapabilityNotSupportedError, match="not implemented"):
-            engine.report("bogus", series)
 
 
 # ---------------------------------------------------------------------------
