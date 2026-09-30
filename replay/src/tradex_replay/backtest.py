@@ -273,6 +273,7 @@ class BacktestEngine:
         sizer: PositionSizer | None = None,
         max_order_value: Decimal | float | str = DEFAULT_MAX_ORDER_VALUE,
         risk_fraction: Decimal | float | str | None = DEFAULT_BACKTEST_RISK_FRACTION,
+        engine: ExecutionEngine | None = None,
     ) -> None:
         """Initialize backtest engine.
 
@@ -345,6 +346,7 @@ class BacktestEngine:
         self._slippage_model = slippage_model
         self._corporate_actions = corporate_actions
         self._risk_manager = risk_manager
+        self._engine = engine
         self._initial_capital = Decimal(str(initial_capital))
         self._sharpe_frequency = sharpe_frequency
         gap_bps = Decimal(str(stop_gap_bps))
@@ -511,7 +513,7 @@ class BacktestEngine:
             FillSource,
             self._fill_source or SimulatedFillSource(slippage_model=self._slippage_model),
         )
-        engine = ExecutionEngine(
+        engine = self._engine or ExecutionEngine(
             bus,
             fill_source,
             risk_manager=self._risk_manager,

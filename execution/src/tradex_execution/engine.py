@@ -223,6 +223,8 @@ class ExecutionEngine:
         require_risk: bool = False,
         require_feed: bool = False,
         require_durable_events: bool = False,
+        reconciler: ReconciliationEngine | None = None,
+        fill_dedup: FillDedup | None = None,
     ) -> None:
         """
         fee_calculator:
@@ -263,13 +265,13 @@ class ExecutionEngine:
         self._order_manager = OrderManager(self._cache)
         self._position_manager = PositionManager(self._cache)
         self._kill_switch = KillSwitch(metrics=metrics, risk=risk_manager, cache=self._cache)
-        self._reconciler = ReconciliationEngine()
+        self._reconciler = reconciler if reconciler is not None else ReconciliationEngine()
         self._brokerage_accrued: dict[str, Decimal] = {}
         self._brokerage_lock = threading.Lock()  # ponytail: unbounded, LRU 50k if needed
         #: Bounded LRU dedup for applied fill events — re-published broker
         #: fills are skipped, distinct partial fills are each applied in full.
         #: Eviction is observable via the ``bus.applied_fills.evicted`` counter.
-        self._fill_dedup = FillDedup(
+        self._fill_dedup = fill_dedup if fill_dedup is not None else FillDedup(
             max_size=applied_fills_max,
             on_evict=lambda: (
                 self._metrics.counter("bus.applied_fills.evicted").inc()
