@@ -18,7 +18,7 @@ from typing import Any
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth
 from tradex_domain.value_objects import Price, Quantity
-from tradex_market_data.market_builder import candles_from_dataframe, make_candle
+from tradex_shared import candles_from_dataframe, make_candle
 
 from tradex_brokers.common.provider_common import as_decimal, as_price
 
