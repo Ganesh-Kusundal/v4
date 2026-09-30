@@ -5,6 +5,8 @@ from tradex_shared.rate_limiting import (
     RateLimitConfig,
     RollingWindowCounter,
     TokenBucketRateLimiter,
+    as_decimal,
+    as_price,
     bucket_for_path,
     limiter_from_table,
 )
@@ -14,6 +16,8 @@ __all__ = [
     "RateLimitConfig",
     "RollingWindowCounter",
     "TokenBucketRateLimiter",
+    "as_decimal",
+    "as_price",
     "bucket_for_path",
     "limiter_from_table",
 ]

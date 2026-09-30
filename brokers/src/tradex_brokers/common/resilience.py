@@ -45,7 +45,6 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
@@ -59,7 +58,6 @@ from tradex_shared.rate_limiting import (
     bucket_for_path,
     limiter_from_table,
 )
-
 
 if TYPE_CHECKING:
     # The per-provider rate tables are re-exported lazily by the module-level

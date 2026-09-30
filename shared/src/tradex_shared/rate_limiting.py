@@ -11,7 +11,9 @@ import time
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import cast
+from decimal import Decimal, InvalidOperation
+
+from tradex_domain.value_objects import Price
 
 
 @dataclass(frozen=True, slots=True)
@@ -296,3 +298,35 @@ __all__ = [
     "bucket_for_path",
     "limiter_from_table",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Value coercion helpers (moved from brokers.common.instruments)
+# ---------------------------------------------------------------------------
+
+
+def as_decimal(value: str | float | int) -> Decimal:
+    """Convert a value to ``Decimal`` safely.
+
+    Handles strings with commas, currency symbols, and whitespace.
+    """
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)):
+        return Decimal(str(value))
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "").replace("₹", "").replace("$", "")
+        if not cleaned:
+            return Decimal("0")
+        try:
+            return Decimal(cleaned)
+        except InvalidOperation as exc:
+            raise ValueError(f"Cannot convert {value!r} to Decimal") from exc
+    raise ValueError(f"Cannot convert {type(value).__name__} to Decimal")
+
+
+def as_price(value: object, default: str = "0") -> Price:
+    """Convert a value to ``Price`` safely."""
+    if value is None or value == "":
+        return Price(value=Decimal(default))
+    return Price(value=as_decimal(str(value)))

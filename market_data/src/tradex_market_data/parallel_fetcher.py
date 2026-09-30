@@ -15,14 +15,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
 
-from tradex_brokers.common.resilience import (
-    MultiBucketRateLimiter,
-    limiter_for_provider,
-)
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.timeframe import _TIMEFRAMES
+from tradex_shared import MultiBucketRateLimiter, RateLimitConfig
 
 log = logging.getLogger(__name__)
 
@@ -204,7 +201,7 @@ class ParallelHistoryFetcher:
                 self._limiters[name] = shared
                 self._prefetch_gate[name] = False
             else:
-                self._limiters[name] = limiter_for_provider(_provider_for(name))
+                self._limiters[name] = MultiBucketRateLimiter(default=RateLimitConfig())
                 self._prefetch_gate[name] = True
 
     def _maybe_acquire(self, inst_id: str) -> None:
