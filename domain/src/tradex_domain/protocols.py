@@ -264,6 +264,7 @@ class MasterRefreshProvider(Protocol):
     def ensure_master_fresh(self, *, force_refresh: bool = False) -> None: ...
 
 
+@runtime_checkable
 class OrderRepository(Protocol):
     """Persistence contract for orders.
 

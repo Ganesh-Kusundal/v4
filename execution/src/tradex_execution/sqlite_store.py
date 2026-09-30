@@ -14,6 +14,7 @@ import logging
 import pickle
 import sqlite3
 import threading
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -267,6 +268,14 @@ class SQLiteOrderStore:
             "trailing_jump FROM orders"
         )
         return [_row_to_order(row) for row in cursor.fetchall()]
+
+    def save(self, order: Order) -> None:
+        """OrderRepository protocol conformance (alias for save_order)."""
+        self.save_order(order)
+
+    def all(self) -> Sequence[Order]:
+        """OrderRepository protocol conformance (alias for all_orders)."""
+        return self.all_orders()
 
     def get_recent(self, limit: int = 1000) -> list[Order]:
         """Return the most-recent *limit* orders, ordered by ``order_id`` desc.
