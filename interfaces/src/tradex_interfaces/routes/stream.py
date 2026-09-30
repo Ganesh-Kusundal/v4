@@ -24,6 +24,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import WebSocket, WebSocketDisconnect
+from tradex_domain.bar_source import BarSource
 from tradex_domain.constants import (
     PAPER_SNAPSHOT_SPREAD,
     WS_INDICATOR_SUB,
@@ -338,7 +339,7 @@ async def ws_stream(
                     break
                 if (
                     frame.get("type") != "bar"
-                    or frame.get("source") != "sim"
+                    or frame.get("source") != BarSource.SIM.value
                     or frame.get("run_id") != run_id
                 ):
                     retained.append(frame)
@@ -563,7 +564,7 @@ async def ws_stream(
             nonlocal step_closed, last_closed_bar_index
             if (
                 getattr(frame, "closed", False) is True
-                and getattr(frame, "source", None) == "sim"
+                and getattr(frame, "source", None) == BarSource.SIM.value
                 and replay_run is not None
                 and getattr(frame, "run_id", None) == replay_run.run_id
                 and frame.instrument == replay_run.instrument
