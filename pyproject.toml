@@ -136,6 +136,7 @@ ignore_errors = true
 
 [tool.importlinter]
 root_packages = [
+    "tradex_shared",
     "tradex_domain",
     "tradex_config",
     "tradex_market_data",
