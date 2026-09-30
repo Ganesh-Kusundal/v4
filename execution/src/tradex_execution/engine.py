@@ -27,7 +27,6 @@ from tradex_domain.events import (
     BrokerOrderAcknowledged,
     BrokerOrderRequested,
     CancelRequested,
-    CashAccountInitialized,
     DomainEvent,
     ErrorOccurred,
     OrderCancelled,
@@ -58,6 +57,7 @@ from tradex_reactive.bus import ReactiveBus
 from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 
 from tradex_execution.cash_ledger import CashLedger, CashSnapshot
+from tradex_execution.cash_manager import CashManager
 from tradex_execution.fees import (
     FeeCalculator,
     UnsupportedProductTypeError,
@@ -257,11 +257,11 @@ class ExecutionEngine:
         #: applies, or the engine's cash gate is armed in the backtest and
         #: disarmed in production — see ``restore_cash``.
         self._allow_negative_cash = allow_negative_cash
-        self._cash_ledger = (
-            CashLedger(initial=cash, allow_negative=allow_negative_cash)
-            if cash is not None
-            else None
+        self._cash_manager = CashManager(
+            append=self._append, allow_negative=allow_negative_cash,
         )
+        if cash is not None:
+            self._cash_manager.restore(cash)
         self._order_manager = OrderManager(self._cache)
         self._position_manager = PositionManager(self._cache)
         self._kill_switch = KillSwitch(metrics=metrics, risk=risk_manager, cache=self._cache)
@@ -292,7 +292,7 @@ class ExecutionEngine:
         # constructed with an explicit ``cash=`` already knows its opening
         # balance, so it anchors here; one whose funds arrive later in boot
         # anchors from ``restore_cash``.
-        self._cash_anchor_appended = False
+        self._cash_manager.reset_anchor()
         if self._cash_ledger is not None:
             # An explicit ``cash=`` IS a new opening balance, so it anchors.
             self.restore_cash(self._cash_ledger.cash, re_anchor=True)
@@ -850,80 +850,24 @@ class ExecutionEngine:
     ) -> None:
         """Set the cash ledger's balance to an absolute figure.
 
-        A restarted process starts with an empty ledger, so without this it
-        reports ``0`` and the fail-closed cash gate denies every BUY against a
-        balance the process actually holds.
-
-        **This is a setter, and it is a setter because of who calls it.** Every
-        production caller passes a balance it is authoritative about, and
-        adopts it whole:
-
-        - ``startup.py`` cold boot, ``re_anchor=True`` — the opening balance
-          read from broker funds. A **seed**.
-        - ``startup.py`` recovery — the balance and fee total folded out of the
-          event log. A **fold**, adopted whole, re-deriving nothing.
-        - ``BacktestEngine``'s corporate-action path, which reads
-          ``cash_snapshot``, adds the basis delta, and writes the sum back. A
-          **setter used as a delta by its caller** — the delta is the caller's
-          arithmetic, not this method's argument.
-        - this constructor, re-anchoring a ledger it already holds.
-
-        So it is neither cleanly a seed nor cleanly a delta, and the difference
-        decides the fix. It must **not** be a debit: an opening balance is not
-        something an account has to be able to afford, and implementing the
-        seed as one lands the balance at ``-cash`` and refuses every legitimate
-        boot. The floor belongs to the ledger's *policy*, and the only thing to
-        decide is which policy a ledger born here is given.
-
-        It is the engine's configured ``allow_negative_cash``, the same value
-        the constructor applies — which is what makes the live and paper paths
-        enforce the same floor the backtest enforces (AC-2). Creating that
-        ledger with ``allow_negative=True`` instead made ``require_debit`` and
-        ``_debit`` no-ops, so in live and paper every pre-check passed and a
-        fill the account could not pay for booked its position and drove cash
-        below zero with nothing raised, refused or published.
-
-        *re_anchor* appends a fresh ``CashAccountInitialized``. That is only
-        correct for a genuinely NEW opening balance (a cold boot reading broker
-        funds). A restart restoring a fold must leave it False: the anchor is
-        already in the log, and appending the folded balance again would both
-        grow the log and make the next fold re-apply the fills on top of a
-        balance that already includes them.
+        Delegates to :class:`CashManager`, which owns the ledger and anchor
+        state. See ``CashManager.restore`` for the full contract.
         """
-        if self._cash_ledger is None:
-            self._cash_ledger = CashLedger(
-                initial=cash, allow_negative=self._allow_negative_cash,
-            )
-        else:
-            self._cash_ledger.restore(cash, total_fees)
-        if re_anchor:
-            if not self._cash_anchor_appended:
-                # Only a *successful* write proves the log carries an anchor. If
-                # this fails, the flag stays False and a later boot knows the
-                # account is still unanchored instead of trusting a phantom one.
-                self._cash_anchor_appended = self._append(
-                    CashAccountInitialized(amount=cash),
-                )
-                return
-        # A restore proves an anchor already exists in the log, so record that
-        # even when this call did not write one. Without it a restarted process
-        # would still look like a cold boot and anchor a second time.
-        self._cash_anchor_appended = True
+        self._cash_manager.restore(cash, total_fees, re_anchor=re_anchor)
+
+    @property
+    def _cash_ledger(self) -> CashLedger | None:
+        """The cash ledger, owned by the CashManager."""
+        return self._cash_manager._ledger
 
     @property
     def cash_anchor_missing(self) -> bool:
-        """True when no opening anchor has been written for this ledger.
-
-        Startup uses it to tell a cold boot (a new opening balance must be
-        anchored) from a restart (the log already has one).
-        """
-        return not self._cash_anchor_appended
+        """True when no opening anchor has been written for this ledger."""
+        return self._cash_manager.anchor_missing
 
     def cash_snapshot(self) -> CashSnapshot:
         """Return reactive cash state, or a disabled zero snapshot."""
-        if self._cash_ledger is None:
-            return CashSnapshot(cash=Decimal(0), total_fees=Decimal(0))
-        return self._cash_ledger.snapshot()
+        return self._cash_manager.snapshot()
 
     def _apply_fill_to_book(
         self, order: Order, fill: Fill, charged_fee: Decimal, cid: CorrelationId | None
