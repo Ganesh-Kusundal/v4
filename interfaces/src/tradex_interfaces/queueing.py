@@ -20,12 +20,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-#: Per-connection outbound queue bounds for /ws/stream. Producers (broker
-#: threads via ``call_soon_threadsafe``) never await the socket; a single
-#: writer task drains the queues, so a slow client cannot grow memory
-#: unboundedly or stall the event loop.
-OUTBOUND_QUEUE_MAX = 1024
-CONTROL_QUEUE_MAX = 4096
+from tradex_domain.constants import (
+    CONTROL_QUEUE_MAX,
+    OUTBOUND_QUEUE_MAX,
+    WS_CLOSE_CONTROL_OVERFLOW,
+)
 
 
 def _enqueue_drop_oldest(
@@ -45,13 +44,6 @@ def _enqueue_drop_oldest(
             return 1
         except (asyncio.QueueEmpty, asyncio.QueueFull):
             return 0
-
-
-#: RFC 6455 application close code used when a client cannot keep up with
-#: order events. The socket is closed rather than fed lossy data, so the
-#: client reconnects and re-syncs a fresh snapshot instead of silently
-#: drifting away from OMS truth.
-WS_CLOSE_CONTROL_OVERFLOW = 1013
 
 
 def _enqueue_control(

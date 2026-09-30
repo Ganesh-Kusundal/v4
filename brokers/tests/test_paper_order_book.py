@@ -2,11 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 
 from tradex_domain import Equity, OrderRequest, OrderSide, OrderStatus, OrderType, Price, Quantity
 
 from tradex_brokers.paper.adapter import PaperBroker
+
+
+def _session_clock() -> datetime:
+    """A pinned in-session instant (Wed 2026-07-15 10:30 IST).
+
+    ``PaperBroker``'s session gate refuses fills outside 09:15-15:30 IST, so a
+    fill test that inherits the host clock passes in the morning and fails
+    every evening.
+    """
+    return datetime(2026, 7, 15, 10, 30)
 
 
 def _eq() -> Equity:
@@ -17,7 +28,7 @@ class TestPaperOrderBook:
     """Order-book mode: multi-level matching, partial fills, price improvement."""
 
     def test_limit_buy_fills_against_ask(self) -> None:
-        broker = PaperBroker(auto_fill=True, order_book=True)
+        broker = PaperBroker(auto_fill=True, order_book=True, clock=_session_clock)
         eq = _eq()
         broker.set_depth(
             eq,
@@ -38,7 +49,7 @@ class TestPaperOrderBook:
         assert order.price.value == Decimal("100.10")
 
     def test_limit_buy_rests_when_price_not_met(self) -> None:
-        broker = PaperBroker(auto_fill=True, order_book=True)
+        broker = PaperBroker(auto_fill=True, order_book=True, clock=_session_clock)
         eq = _eq()
         broker.set_depth(
             eq,
@@ -57,7 +68,7 @@ class TestPaperOrderBook:
         assert order.status is OrderStatus.ACK
 
     def test_partial_fill_across_levels(self) -> None:
-        broker = PaperBroker(auto_fill=True, order_book=True)
+        broker = PaperBroker(auto_fill=True, order_book=True, clock=_session_clock)
         eq = _eq()
         broker.set_depth(
             eq,
@@ -86,7 +97,7 @@ class TestPaperOrderBook:
         assert order.avg_price_traded.value == Decimal("100.05")
 
     def test_market_buy_walks_book(self) -> None:
-        broker = PaperBroker(auto_fill=True, order_book=True)
+        broker = PaperBroker(auto_fill=True, order_book=True, clock=_session_clock)
         eq = _eq()
         broker.set_depth(
             eq,
@@ -110,7 +121,7 @@ class TestPaperOrderBook:
         assert order.price.value > Decimal("100.00")
 
     def test_set_depth_triggers_resting_order(self) -> None:
-        broker = PaperBroker(auto_fill=True, order_book=True)
+        broker = PaperBroker(auto_fill=True, order_book=True, clock=_session_clock)
         eq = _eq()
         # Set initial depth with asks above the limit price
         broker.set_depth(

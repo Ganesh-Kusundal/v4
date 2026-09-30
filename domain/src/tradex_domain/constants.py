@@ -293,6 +293,15 @@ WS_DEPTH_LEVELS_KEY = "depth_levels"
 WS_MAX_STREAM_INSTRUMENTS_KEY = "max_stream_instruments"
 WS_FEED_STATE_KEY = "feed_state"
 WS_FEED_READY_KEY = "feed_ready"
+#: The top-level ``feed_status`` frame and the nested ``feed`` object on the
+#: ``subscribed`` ack are two different shapes and are not interchangeable: the
+#: frame carries ``state``/``ready``, the nested object carries
+#: ``feed_state``/``feed_ready``. These two name the frame's keys, which had been
+#: spelled as the nested pair's constants — a substitution that reads as a
+#: harmless de-literalisation and instead renames the wire field, breaking every
+#: reader of ``feed_status_payload()["state"]``.
+WS_FEED_STATUS_STATE_KEY = "state"
+WS_FEED_STATUS_READY_KEY = "ready"
 WS_INSTRUMENTS_KEY = "instruments"
 WS_DEPTH_KEY = "depth"
 WS_MESSAGE_KEY = "message"
@@ -885,6 +894,8 @@ __all__ = [
     "WS_MAX_STREAM_INSTRUMENTS_KEY",
     "WS_FEED_STATE_KEY",
     "WS_FEED_READY_KEY",
+    "WS_FEED_STATUS_STATE_KEY",
+    "WS_FEED_STATUS_READY_KEY",
     "WS_INSTRUMENTS_KEY",
     "WS_DEPTH_KEY",
     "WS_MESSAGE_KEY",

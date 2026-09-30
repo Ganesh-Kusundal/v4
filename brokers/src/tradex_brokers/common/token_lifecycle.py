@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import stat
 import threading
 import time
 from collections.abc import Callable
@@ -64,6 +65,131 @@ SECRET_FILE_MODE = 0o600
 #: primary control (the directory only needs to be traversable by its owner,
 #: since everything secret inside it is already 0600).
 SECRET_DIR_MODE = 0o700
+
+
+class InsecureCredentialPermissions(PermissionError):
+    """A credential file on disk is readable by group or other.
+
+    Raised only when ``strict=True``; the default is to tighten the file and
+    continue, because refusing to boot is a worse outcome than a repaired
+    mode.  The type exists so a caller that *does* want to fail closed can
+    catch exactly this and nothing else.
+    """
+
+
+def assert_secret_file_mode(
+    path: Path | str,
+    *,
+    strict: bool = False,
+) -> bool:
+    """Tighten ``path`` to ``SECRET_FILE_MODE`` if it is too permissive.
+
+    The writer is already correct — :func:`_atomic_write_text` creates every
+    secret file at ``SECRET_FILE_MODE`` via ``os.open`` and re-chmods the
+    temp before ``os.replace``, so nothing it *writes* can be world-readable.
+    That leaves the other direction unguarded: a credential file that already
+    existed, or that some earlier writer created under a permissive umask, is
+    never re-examined.  This is a real, observed artefact — a
+    ``token_state.json`` holding a live access *and* refresh token sat at
+    0644 while the sibling file written by the same helper was 0600.
+
+    This function is the boot-time backstop for exactly that case.
+
+    Parameters
+    ----------
+    path:
+        File to check.  A missing file is not a failure: nothing has been
+        persisted yet, and the writer will create it at 0600 when it does.
+    strict:
+        ``True`` raises :class:`InsecureCredentialPermissions` instead of
+        chmodding, for a caller that must fail closed.
+
+    Returns
+    -------
+    bool
+        ``True`` if the file was found and is (now) owner-only, ``False`` if
+        it does not exist or its mode cannot be read.
+
+    Notes
+    -----
+    A permissive mode is *repaired* and logged, never merely reported: a
+    world-readable credential is a present, ongoing exposure, and warning
+    about it while leaving the bits set is not a fix.  The chmod narrows the
+    file to its owner, which is a no-op for any legitimate reader — only the
+    process owner can read a file it owns.
+    """
+    target = Path(path)
+    try:
+        mode = stat.S_IMODE(os.stat(target).st_mode)
+    except OSError:
+        # Missing (nothing persisted yet) or unreadable (not our problem to
+        # solve here) — the writer handles the first, and the OS error will
+        # surface again at the point of use for the second.
+        return False
+
+    if not (mode & (stat.S_IRWXG | stat.S_IRWXO)):
+        return True
+
+    if strict:
+        raise InsecureCredentialPermissions(
+            f"{target} is mode {mode:04o} but must be {SECRET_FILE_MODE:04o}: "
+            f"it holds a live broker credential and must not be readable by "
+            f"group or other"
+        )
+    os.chmod(target, SECRET_FILE_MODE)
+    log.warning(
+        "tightened %s from %04o to %04o: it held broker credential material "
+        "readable by group or other",
+        target,
+        mode,
+        SECRET_FILE_MODE,
+    )
+    return True
+
+
+def assert_runtime_secret_permissions(
+    runtime_dir: Path | str | None = None,
+    *,
+    strict: bool = False,
+) -> list[Path]:
+    """Check every credential file under the broker runtime state directory.
+
+    Boot-time sweep for the C6 finding.  Scans ``<runtime_dir>/*/*.json`` —
+    the layout :func:`tradex_brokers.common.paths.default_token_state_path`
+    produces (``<runtime>/<broker>/token_state.json``) — and tightens
+    anything that is world-readable.
+
+    Parameters
+    ----------
+    runtime_dir:
+        Root of the local broker state tree.  Defaults to the configured
+        runtime root (``TRADEX_RUNTIME_DIR``).
+    strict:
+        Propagate :class:`InsecureCredentialPermissions` on the first
+        offending file instead of repairing it.
+
+    Returns
+    -------
+    list[Path]
+        The files that were found and are now owner-only.  Empty when the
+        runtime directory does not exist yet (a fresh checkout has never
+        authenticated, so there is nothing to check).
+    """
+    from tradex_brokers.common.paths import default_runtime_dir
+
+    root = Path(runtime_dir) if runtime_dir is not None else default_runtime_dir()
+    checked: list[Path] = []
+    if not root.is_dir():
+        return checked
+    for broker_dir in sorted(p for p in root.iterdir() if p.is_dir()):
+        # The layout ``default_token_state_path`` produces is
+        # ``<runtime>/<broker>/token_state.json``.  The path is built here
+        # rather than by calling that helper, which mkdirs as a side effect —
+        # a read-only permission sweep must not create state directories.
+        candidate = broker_dir / "token_state.json"
+        if assert_secret_file_mode(candidate, strict=strict):
+            checked.append(candidate)
+    return checked
 
 
 def _create_secret_file(temp: Path) -> int:
@@ -802,4 +928,7 @@ __all__ = [
     "TokenMintResult",
     "TokenRefreshScheduler",
     "DurableTokenManager",  # deprecated — kept for backward compatibility
+    "InsecureCredentialPermissions",
+    "assert_secret_file_mode",
+    "assert_runtime_secret_permissions",
 ]

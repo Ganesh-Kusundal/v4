@@ -23,11 +23,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tradex_domain.constants import MASTER_CLEANUP_DAYS, MASTER_TTL_HOURS, SCHEDULER_INTERVAL
 from tradex_domain.errors import SDKError
 
-DEFAULT_MASTER_TTL_HOURS = 6.0
-DEFAULT_MASTER_CLEANUP_DAYS = 7
-_SCHEDULER_DEFAULT_INTERVAL = 86_400.0
+DEFAULT_MASTER_TTL_HOURS = MASTER_TTL_HOURS
+DEFAULT_MASTER_CLEANUP_DAYS = MASTER_CLEANUP_DAYS
+_SCHEDULER_DEFAULT_INTERVAL = SCHEDULER_INTERVAL
 
 ParseRaw = Callable[[Any], list[dict[str, Any]]]
 Download = Callable[[], Any]

@@ -46,6 +46,7 @@ from tradex_domain.execution import (
     OrderRequest,
     Position,
 )
+from tradex_domain.order_factory import create_order
 from tradex_domain.protocols import Clock
 from tradex_domain.value_objects import CorrelationId, Money, OrderId
 from tradex_observability.tracing import (
@@ -75,7 +76,7 @@ from tradex_execution.idempotency import (
 )
 from tradex_execution.kill_switch import TERMINAL_STATUSES, KillSwitch
 from tradex_execution.order_manager import OrderManager
-from tradex_execution.position_manager import PositionManager
+from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.reconciliation import DriftItem, ReconciliationEngine
 from tradex_execution.risk import (
     RiskCheckResult,  # noqa: F401 — re-exported for callers of engine
@@ -265,7 +266,7 @@ class ExecutionEngine:
         if cash is not None:
             self._cash_manager.restore(cash)
         self._order_manager = OrderManager(self._cache)
-        self._position_manager = PositionManager(self._cache)
+        self._position_manager = PositionAccountant(self._cache)
         self._kill_switch = KillSwitch(metrics=metrics, risk=risk_manager, cache=self._cache)
         self._reconciler = reconciler if reconciler is not None else ReconciliationEngine()
         #: Bounded LRU dedup for applied fill events — re-published broker
@@ -1051,29 +1052,7 @@ class ExecutionEngine:
 
     def _make_order(self, request: OrderRequest, status: OrderStatus) -> Order:
         """Create an Order from a request with the given status."""
-        return Order(
-            order_id=OrderId(value=str(uuid.uuid4())),
-            instrument=request.instrument,
-            side=request.side,
-            order_type=request.order_type,
-            quantity=request.quantity,
-            price=request.price,
-            time_in_force=request.time_in_force,
-            status=status,
-            correlation_id=request.correlation_id,
-            trigger_price=request.trigger_price,
-            product_type=request.product_type,
-            tag=request.tag,
-            # The strategy that produced this order, copied verbatim so a
-            # null stays null: an ad-hoc order is never attributed to a
-            # strategy it did not come from.
-            strategy_id=request.strategy_id,
-            # Preserve protective legs so bracket identity survives on
-            # rejected/OMS records (see ``_is_bracket_order``).
-            target_price=request.target_price,
-            stop_loss_price=request.stop_loss_price,
-            trailing_jump=request.trailing_jump,
-        )
+        return create_order(request, str(uuid.uuid4()), status=status)
 
     def _record_applied_fill(self, fill: Any) -> bool:
         """Insert the fill's fingerprint into the dedup LRU.
@@ -1206,18 +1185,20 @@ class ExecutionEngine:
             # Unknown order — record a minimal FILLED order so reconciliation
             # sees the fill (e.g. fills for orders placed outside this engine).
             self._cache.update_order(
-                Order(
-                    order_id=fill.order_id,
-                    instrument=fill.instrument,
-                    side=fill.side,
-                    order_type=OrderType.MARKET,
-                    quantity=fill.quantity,
-                    price=fill.price,
-                    time_in_force=TimeInForce.DAY,
+                create_order(
+                    OrderRequest(
+                        instrument=fill.instrument,
+                        side=fill.side,
+                        order_type=OrderType.MARKET,
+                        quantity=fill.quantity,
+                        price=fill.price,
+                        time_in_force=TimeInForce.DAY,
+                        correlation_id=getattr(fill, "correlation_id", None),
+                        tag=getattr(fill, "tag", None),
+                    ),
+                    fill.order_id.value,
+                    filled=fill.quantity.value,
                     status=OrderStatus.FILLED,
-                    filled_quantity=fill.quantity,
-                    correlation_id=getattr(fill, "correlation_id", None),
-                    tag=getattr(fill, "tag", None),
                 )
             )
         log.info(
@@ -1282,8 +1263,25 @@ class ExecutionEngine:
         broker_orders: list[Order] | None = None,
         broker_positions: list[Position] | None = None,
         local_positions: list[Position] | None = None,
+        record: bool = True,
     ) -> list[DriftItem]:
-        """Compare local state vs broker snapshots. Side-effect free."""
+        """Compare local state vs broker snapshots. Side-effect free.
+
+        ``record=False`` compares without appending a
+        :class:`ReconciliationResult`. The compare itself was always
+        side-effect free; the append is bookkeeping, and a caller that runs a
+        comparison on a timer (the lane 5e reconciliation monitor, every 30
+        seconds) does not want one durable marker per poll forever — 2,880
+        rows a day that all say "nothing was found".
+
+        The default stays ``True``, and *unconditionally*: the marker is what
+        the safety surface's ``last_checked_at`` is derived from, so a clean
+        run that appended nothing would leave a healthy session reporting
+        "never reconciled" — a worse lie than a redundant row. A caller that
+        suppresses it must record the check itself (the monitor seam calls
+        ``session.record_reconciliation``, and the safety surface falls back to
+        that timestamp), so a suppressed run is still visible.
+        """
         drifts: list[DriftItem] = []
         if broker_positions is not None:
             local = local_positions
@@ -1311,8 +1309,12 @@ class ExecutionEngine:
                 self._metrics.counter(
                     f"reconciliation_drift_total.{severity.lower()}.{kind}"
                 ).inc()
-        # Wave C1: persist reconciliation outcome
-        self._append(ReconciliationResult(drift_count=len(drifts)))
+        # Wave C1: persist reconciliation outcome. Unconditional by default:
+        # this marker is the safety surface's "last checked" evidence, and a
+        # clean run that leaves no trace reads as "never reconciled". A timer
+        # caller that opts out with record=False records the check itself.
+        if record:
+            self._append(ReconciliationResult(drift_count=len(drifts)))
         return drifts
 
     def cancel(

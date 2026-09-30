@@ -1,4 +1,5 @@
 """Single mark-to-market path: mark selection and unrealized PnL."""
+
 from __future__ import annotations
 
 from decimal import Decimal

@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import struct
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from unittest.mock import MagicMock
@@ -30,6 +30,17 @@ from tradex_domain.value_objects import (
     Quantity,
 )
 from tradex_domain.wire import InstrumentRegistry
+
+
+def _session_clock() -> datetime:
+    """A pinned in-session instant (Wed 2026-07-15 10:30 IST).
+
+    ``PaperBroker``'s session gate refuses fills outside 09:15-15:30 IST, so a
+    fill test that inherits the host clock passes in the morning and fails
+    every evening.
+    """
+    return datetime(2026, 7, 15, 10, 30)
+
 
 # ---------------------------------------------------------------------------
 # Task 2: dhan/depth_parser
@@ -605,13 +616,13 @@ class TestPaperBroker:
     def test_connect_on_init(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         assert broker._connected is True
 
     def test_submit_order_market(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker(auto_fill=True)
+        broker = PaperBroker(auto_fill=True, clock=_session_clock)
         inst = Equity.of("NSE", "RELIANCE")
         broker.set_quote(inst, ltp=Price(value=Decimal("100")))
         oid = broker.submit_order(self._make_request(inst))
@@ -621,7 +632,7 @@ class TestPaperBroker:
     def test_submit_order_limit_fills_at_limit(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker(auto_fill=True)
+        broker = PaperBroker(auto_fill=True, clock=_session_clock)
         req = OrderRequest(
             instrument=Equity.of("NSE", "RELIANCE"),
             side=OrderSide.BUY,
@@ -638,7 +649,7 @@ class TestPaperBroker:
     def test_set_quote_triggers_fill(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         inst = Equity.of("NSE", "RELIANCE")
         # Use a STOP order that needs a trigger price to be reached
         req = OrderRequest(
@@ -657,7 +668,7 @@ class TestPaperBroker:
     def test_cancel_order(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         inst = Equity.of("NSE", "RELIANCE")
         # Use a STOP order with high trigger so it stays in ACK
         req = OrderRequest(
@@ -674,7 +685,9 @@ class TestPaperBroker:
     def test_cash_ledger_buy(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker(starting_cash=Decimal("100000"), auto_fill=True)
+        broker = PaperBroker(
+            starting_cash=Decimal("100000"), auto_fill=True, clock=_session_clock
+        )
         inst = Equity.of("NSE", "RELIANCE")
         broker.set_quote(inst, ltp=Price(value=Decimal("100")))
         broker.submit_order(self._make_request(inst))
@@ -685,7 +698,9 @@ class TestPaperBroker:
     def test_cash_ledger_sell(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker(starting_cash=Decimal("100000"), auto_fill=True)
+        broker = PaperBroker(
+            starting_cash=Decimal("100000"), auto_fill=True, clock=_session_clock
+        )
         inst = Equity.of("NSE", "RELIANCE")
         broker.set_quote(inst, ltp=Price(value=Decimal("100")))
         req = OrderRequest(
@@ -702,7 +717,7 @@ class TestPaperBroker:
     def test_stop_order_trigger(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         inst = Equity.of("NSE", "RELIANCE")
         broker.set_quote(inst, ltp=Price(value=Decimal("100")))
         req = OrderRequest(
@@ -724,7 +739,7 @@ class TestPaperBroker:
 
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         broker.close()
         with pytest.raises(BrokerUnavailableError, match="not connected"):
             broker.submit_order(self._make_request())
@@ -732,13 +747,13 @@ class TestPaperBroker:
     def test_synchronous_fill(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         assert broker.synchronous_fill is True
 
     def test_get_quote_unseeded(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         inst = Equity.of("NSE", "RELIANCE")
         # Unseeded instruments get a synthetic default quote
         quote = broker.get_quote(inst)
@@ -748,7 +763,7 @@ class TestPaperBroker:
     def test_set_quote_bid_ask_mid(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         inst = Equity.of("NSE", "RELIANCE")
         broker.set_quote(inst, bid=Price(value=Decimal("99")), ask=Price(value=Decimal("101")))
         quote = broker.get_quote(inst)
@@ -757,7 +772,7 @@ class TestPaperBroker:
     def test_search(self) -> None:
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         inst = Equity.of("NSE", "RELIANCE")
         broker.set_quote(inst, ltp=Price(value=Decimal("100")))
         results = broker.search("REL")
@@ -1155,19 +1170,19 @@ class TestPaperBrokerUtilities:
     def test_owns_position_projection_default(self):
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         assert broker.owns_position_projection is True
 
     def test_owns_position_projection_disabled(self):
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker(project_positions=False)
+        broker = PaperBroker(project_positions=False, clock=_session_clock)
         assert broker.owns_position_projection is False
 
     def test_trading_cache_exists(self):
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         cache = broker.trading_cache
         # May be None if TradingCache import fails, or a TradingCache instance
         assert cache is None or hasattr(cache, "snapshot")
@@ -1175,7 +1190,7 @@ class TestPaperBrokerUtilities:
     def test_configure_runtime_cache_same_cache(self):
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         if broker.trading_cache is None:
             return  # skip if TradingCache not available
         cache = broker.trading_cache
@@ -1185,7 +1200,7 @@ class TestPaperBrokerUtilities:
     def test_configure_runtime_cache_new_cache(self):
         from tradex_brokers.paper.adapter import PaperBroker
 
-        broker = PaperBroker()
+        broker = PaperBroker(clock=_session_clock)
         if broker.trading_cache is None:
             return  # skip if TradingCache not available
         try:

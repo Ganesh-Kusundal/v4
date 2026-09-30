@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
@@ -494,6 +494,7 @@ class TradingSession:
         bus: ReactiveBus | None = None,
         config: AppConfig | None = None,
         reconciliation_monitor: object | None = None,
+        paper_clock: Callable[[], datetime] | None = None,
     ) -> TradingSession:
         """Create a paper trading session with a simulated broker.
 
@@ -506,6 +507,10 @@ class TradingSession:
         config : AppConfig | None
             Optional config honoring ``execution`` fees/slippage (HIGH-6b
             parity with ``runtime.startup.boot``). Defaults to zero-cost.
+        paper_clock : Callable[[], datetime] | None
+            Pins the simulated session time. ``PaperBroker``'s session gate
+            refuses a fill outside 09:15-15:30 IST, so a run that does not pin
+            this inherits the host clock and stops filling after the close.
 
         Returns
         -------
@@ -533,9 +538,14 @@ class TradingSession:
             broker_id=BrokerId(broker_id) if broker_id else BrokerId.PAPER,
         )
         # Historical minimal component set: no reactive strategy/scanner wiring.
+        # ``paper_clock`` reaches both the session's own broker and the
+        # book-matching fill source, so a run that pins a simulated session time
+        # pins every gate that reads the clock.
         return boot(
-            cfg, bus=bus, broker=PaperBroker(), wire_strategies=False,
+            cfg, bus=bus, broker=PaperBroker(clock=paper_clock),
+            wire_strategies=False,
             reconciliation_monitor=reconciliation_monitor,
+            paper_clock=paper_clock,
         )
 
     @property

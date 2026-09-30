@@ -1,4 +1,5 @@
 """Single fill reference path."""
+
 from enum import Enum
 
 

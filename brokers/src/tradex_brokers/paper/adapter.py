@@ -6,14 +6,38 @@ unit / integration tests and paper-trading sessions.
 
 Supports auto-fill against a seeded tape, position projection, and cash
 ledger management.
+
+Realism gates (C5, 2026-09-29)
+------------------------------
+Paper mode is where strategies get *approved*.  A paper broker that is more
+optimistic than live approves strategies that lose money, so this adapter
+now refuses the three things a live venue refuses:
+
+* **Order book by default.**  ``order_book=True`` is the constructor default
+  (:attr:`PaperBroker.__init__`).  The old default was an unconditional 100%
+  fill, which is the single most optimistic assumption a simulator can make.
+* **A margin gate.**  :meth:`PaperBroker._apply_fill` refuses a buy it cannot
+  pay for (:class:`~tradex_domain.errors.OrderRejectedError`) instead of
+  letting the cash scalar walk negative.  The engine's ``CashLedger`` is a
+  separate, engine-owned check; the broker's internal scalar is not covered
+  by it, and an unguarded scalar approves unaffordable strategies.
+* **A session gate.**  :meth:`PaperBroker._market_session_open` refuses fills
+  outside the NSE/BSE cash session, using the shared
+  :class:`tradex_domain.trading_calendar.NSETradingCalendar` rather than an
+  invented local calendar.
+
+The clock is injectable (``clock=``) precisely so the session gate is
+testable and so a replay/backtest run can pin a simulated session time
+instead of inheriting the host's wall clock.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -35,14 +59,17 @@ from tradex_domain.execution import (
 )
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, HistoricalSeries, Quote, require_depth_supported
+from tradex_domain.market_calendar import NSE_HOLIDAYS_2026, to_ist_naive
 from tradex_domain.options import OptionChain
 from tradex_domain.position_math import apply_fill as _domain_apply_fill
 from tradex_domain.protocols import TradingCacheProtocol
+from tradex_domain.trading_calendar import NSETradingCalendar
 from tradex_domain.value_objects import AccountId, InstrumentId, Money, OrderId, Price, Quantity
 
 from tradex_brokers.common.base import BaseBroker
 from tradex_brokers.common.capabilities import paper_capabilities
-from tradex_brokers.common.market_builders import build_depth
+
+log = logging.getLogger(__name__)
 
 
 class _PaperCache(TradingCacheProtocol):
@@ -115,6 +142,42 @@ _DEFAULT_LTP = Price(value=Decimal("100"))
 _DEFAULT_BID = Price(value=Decimal("99.95"))
 _DEFAULT_ASK = Price(value=Decimal("100.05"))
 
+#: Notional cushion the margin gate requires on top of the exact cost of a
+#: buy, as a fraction of that cost.  A live venue reserves margin and charges
+#: brokerage / GST / stamp duty on top of the traded value, so a gate that
+#: checks ``cash >= notional`` exactly is still marginally more optimistic
+#: than the broker it is simulating.  5% of notional is a rounded stand-in
+#: for those charges.  It is a named constant so the assumption is greppable
+#: and tunable rather than buried in the arithmetic.
+_MARGIN_BUFFER = Decimal("0.05")
+
+#: The clock the session gate reads when the caller injects none.  It is a
+#: module-level name rather than an inline lambda so a test harness can pin
+#: paper's notion of "now" to an in-session moment without monkeypatching the
+#: constructor or reaching into private methods — see ``brokers/tests/conftest.py``.
+def _default_clock() -> datetime:
+    return datetime.now(UTC)
+
+
+_DEFAULT_CLOCK: Callable[[], datetime] = _default_clock
+
+
+class PaperHistoryNotImplemented(NotImplementedError):
+    """Paper has no historical data source — ``history()`` is unimplemented.
+
+    The old implementation returned a :class:`HistoricalSeries` with an empty
+    ``candles`` tuple inside a valid-looking ``start``/``end`` window.  That
+    made "this simulator has no tape" indistinguishable from "the market was
+    shut and nothing traded in this window", so any caller that sliced or
+    counted the result — a chart, a backtest loader, an indicator warm-up —
+    silently read it as real data.
+
+    Raising keeps the two apart.  A caller that genuinely wants a
+    best-effort empty series has to say so by catching this, which is the
+    decision the raise surfaces.  :attr:`PaperBroker.supports_history` lets
+    that caller branch without a try/except.
+    """
+
 
 class PaperBroker(BaseBroker):
     """In-memory simulation broker, extending the same seam as the live ones.
@@ -135,12 +198,58 @@ class PaperBroker(BaseBroker):
         starting_cash: Decimal | None = None,
         auto_fill: bool = False,
         project_positions: bool = True,
-        order_book: bool = False,
+        order_book: bool = True,
+        *,
+        enforce_margin: bool = True,
+        enforce_session: bool = True,
+        calendar: NSETradingCalendar | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
+        """Build a paper broker.
+
+        Parameters
+        ----------
+        starting_cash:
+            Paper cash balance.  Defaults to 100,000.
+        auto_fill:
+            Fill resting orders as soon as a matching quote/depth arrives.
+        project_positions:
+            Maintain this adapter's own position book from its fills.
+        order_book:
+            Walk a multi-level book for fills (partial fills, weighted-average
+            price, per-level cash impact).  **Defaults to ``True``** (C5a):
+            the previous default of ``False`` took the unconditional-100%-fill
+            path, so the default configuration of a paper broker was the one
+            that could never produce a partial fill.  Pass ``False`` only to
+            deliberately restore that old behaviour.
+        enforce_margin:
+            Refuse a buy the paper cash balance cannot pay for.  ``True`` by
+            default; ``False`` restores the unguarded scalar.
+        enforce_session:
+            Refuse fills outside the NSE/BSE cash session.  ``True`` by
+            default; ``False`` restores 24x7 filling.
+        calendar:
+            Session calendar.  Defaults to
+            :class:`~tradex_domain.trading_calendar.NSETradingCalendar` with
+            the published 2026 NSE holiday list, so weekends and exchange
+            holidays are both refused.  Inject your own for a different
+            venue or a pinned holiday set.
+        clock:
+            Zero-argument callable returning the current time.  Defaults to
+            ``datetime.now``.  The session gate reads it, which is what makes
+            "3am on a Sunday" reproducible in a test and lets a replay pin a
+            simulated session time instead of inheriting the host clock.
+        """
         super().__init__(capabilities=paper_capabilities())
         self._auto_fill = auto_fill
         self._project_positions = project_positions
         self._order_book_enabled = order_book
+        self._enforce_margin = enforce_margin
+        self._enforce_session = enforce_session
+        self._calendar = calendar if calendar is not None else NSETradingCalendar(
+            holidays=set(NSE_HOLIDAYS_2026)
+        )
+        self._clock = clock if clock is not None else _DEFAULT_CLOCK
         self._cash = starting_cash if starting_cash is not None else _PAPER_STARTING_CASH
         self._quotes: dict[str, Quote] = {}
         self._depths: dict[str, Depth] = {}
@@ -206,16 +315,45 @@ class PaperBroker(BaseBroker):
         order = order.transition_to(OrderStatus.ACK)
         self._register(request.instrument)
         if self._auto_fill:
-            if self._order_book_enabled:
-                self._try_fill_against_book(order)
-            elif self._can_fill(order):
-                self._fill_order(order)
+            self._attempt_fill(order)
         # Check if the order was filled (status changed from ACK)
         stored = self._orders.get(order_id.value)
         if stored is None or stored.status is OrderStatus.ACK:
             # Not filled — store the ACK order
             self._orders[order_id.value] = order
         return order_id
+
+    def _attempt_fill(self, order: Order) -> None:
+        """Try to fill ``order``, turning a gate refusal into "not filled".
+
+        A paper fill is *driven* by three very different callers: an order
+        submission, a quote tick, and a depth update.  A refusal from the
+        session or margin gate is a normal market outcome, not a programming
+        error, so it must not escape as an exception out of any of them —
+        least of all ``set_quote``, which is a market-data call that a caller
+        has no reason to expect can fail because an order could not be
+        funded.
+
+        The order is left resting (ACK) and a warning is logged, which is
+        what a live venue does with an order it will not fill yet: keep it
+        on the book, fill it when the obstacle clears.  Genuine bugs still
+        propagate; only :class:`OrderRejectedError` — the gates' own signal —
+        is absorbed.
+        """
+        try:
+            if self._order_book_enabled:
+                self._try_fill_against_book(order)
+            elif self._can_fill(order):
+                self._fill_order(order)
+        except OrderRejectedError as exc:
+            log.warning(
+                "paper refused to fill %s (%s %s x %s): %s",
+                order.order_id.value,
+                order.side.value,
+                order.filled_quantity.value or order.quantity.value,
+                order.price.value if order.price is not None else "MKT",
+                exc,
+            )
 
     def cancel_order(self, order_id: OrderId) -> Order:
         with self._state_lock:
@@ -405,10 +543,10 @@ class PaperBroker(BaseBroker):
         """
         with self._state_lock:
             self._register(instrument)
-            depth = build_depth(
-                instrument,
-                bids_raw=[{"price": p.value, "quantity": q.value} for p, q in bids],
-                asks_raw=[{"price": p.value, "quantity": q.value} for p, q in asks],
+            depth = Depth(
+                instrument=instrument,
+                bids=tuple(bids),
+                asks=tuple(asks),
                 timestamp=datetime.now(UTC),
             )
             self._depths[str(instrument.instrument_id)] = depth
@@ -425,7 +563,7 @@ class PaperBroker(BaseBroker):
                     order.instrument.instrument_id == instrument.instrument_id
                     and order.status is OrderStatus.ACK
                 ):
-                    self._try_fill_against_book(order)
+                    self._attempt_fill(order)
 
     def _set_quote_locked(
         self,
@@ -455,10 +593,7 @@ class PaperBroker(BaseBroker):
                 order.instrument.instrument_id == instrument.instrument_id
                 and order.status is OrderStatus.ACK
             ):
-                if self._order_book_enabled:
-                    self._try_fill_against_book(order)
-                elif self._can_fill(order):
-                    self._fill_order(order)
+                self._attempt_fill(order)
 
     def _synthetic_quote(self, instrument: Instrument) -> Quote:
         """Return a default synthetic quote for an unseeded instrument."""
@@ -487,15 +622,10 @@ class PaperBroker(BaseBroker):
         with self._state_lock:
             quote = self._quotes.get(str(instrument.instrument_id))
         if quote is None:
-            return build_depth(instrument)
+            return Depth(instrument=instrument, bids=(), asks=())
         bids = () if quote.bid is None else ((quote.bid, _DEPTH_SIZE),)
         asks = () if quote.ask is None else ((quote.ask, _DEPTH_SIZE),)
-        return build_depth(
-            instrument,
-            bids_raw=[{"price": p.value, "quantity": q.value} for p, q in bids],
-            asks_raw=[{"price": p.value, "quantity": q.value} for p, q in asks],
-            timestamp=datetime.now(UTC),
-        )
+        return Depth(instrument=instrument, bids=bids, asks=asks, timestamp=datetime.now(UTC))
 
     def history(
         self,
@@ -507,27 +637,39 @@ class PaperBroker(BaseBroker):
         interval: str | None = None,
         lookback_days: int | None = None,
     ) -> HistoricalSeries:
-        """Historical data — canonical + convenience signatures matching
-        ``BaseBroker`` so the REST API and cross-provider callers can use the
-        same 2-arg/``interval`` form on every adapter."""
+        """Always raises :class:`PaperHistoryNotImplemented` (C5d).
+
+        Paper has no historical data source — no datalake, no vendor, no
+        recorded tape.  The signature is kept so the adapter stays
+        substitutable for :class:`~tradex_brokers.common.base.BaseBroker` and
+        so the *argument* validation still runs before the raise, which keeps
+        the cross-provider contract tests meaningful.
+
+        It used to return ``HistoricalSeries(candles=[])`` with a plausible
+        ``start``/``end`` window.  That answer is a lie in both directions:
+        it reads as "the market was shut for 30 days" to a chart, and as a
+        legitimate zero-row result to a backtest loader that then computes
+        indicators over nothing.  Distinguishing *no data* from *not
+        implemented* requires not fabricating a window, so the raise is the
+        fix.  Callers that want best-effort behaviour should branch on
+        :attr:`supports_history` or catch the error explicitly.
+        """
         if interval is not None:
             timeframe = Timeframe(interval)
         if timeframe is None:
             raise ValueError("history requires a timeframe or interval")
         if not isinstance(timeframe, Timeframe):
             timeframe = Timeframe(timeframe)
-        if start is None or end is None:
-            if lookback_days is None:
-                lookback_days = 30
-            end = end or datetime.now(UTC)
-            start = start or (end - timedelta(days=lookback_days))
-        return HistoricalSeries(
-            instrument=instrument,
-            timeframe=timeframe,
-            candles=[],
-            start=start,
-            end=end,
+        raise PaperHistoryNotImplemented(
+            f"paper broker has no historical data source "
+            f"({instrument.instrument_id} {timeframe.value}); "
+            f"guard with PaperBroker.supports_history or catch this explicitly"
         )
+
+    @property
+    def supports_history(self) -> bool:
+        """Always ``False`` — lets a caller branch without a try/except."""
+        return False
 
     def get_option_chain(
         self,
@@ -693,23 +835,6 @@ class PaperBroker(BaseBroker):
         if filled_qty <= Decimal("0"):
             return
 
-        # Update the book
-        if order.side is OrderSide.BUY:
-            new_depth = build_depth(
-                depth.instrument,
-                bids_raw=[{"price": p.value, "quantity": q.value} for p, q in depth.bids],
-                asks_raw=[{"price": p.value, "quantity": q.value} for p, q in levels_to_keep],
-                timestamp=depth.timestamp,
-            )
-        else:
-            new_depth = build_depth(
-                depth.instrument,
-                bids_raw=[{"price": p.value, "quantity": q.value} for p, q in levels_to_keep],
-                asks_raw=[{"price": p.value, "quantity": q.value} for p, q in depth.asks],
-                timestamp=depth.timestamp,
-            )
-        self._depths[inst_key] = new_depth
-
         # Marginal fill price for THIS increment (correct cash impact — C1 fix).
         # The overall weighted average (across all fills) is tracked separately
         # for position bookkeeping and stored in avg_price_traded.
@@ -732,6 +857,35 @@ class PaperBroker(BaseBroker):
             )
         else:
             overall_avg = marginal_price
+
+        # The gates run *before* the book is touched.  A refused fill never
+        # traded, so it must not have taken liquidity off the book either;
+        # checking after the mutation would need a rollback, and getting that
+        # rollback wrong silently thins the book and makes every later order
+        # look partially filled for no reason.  ``depth`` is the untouched
+        # pre-fill snapshot, so ordering this ahead of the mutation is both
+        # simpler and exact.
+        self._require_market_session()
+        incremental_notional = total_cost
+        if order.side is OrderSide.BUY:
+            self._require_buying_power(incremental_notional, order)
+
+        # Update the book
+        if order.side is OrderSide.BUY:
+            new_depth = Depth(
+                instrument=depth.instrument,
+                bids=depth.bids,
+                asks=tuple(levels_to_keep),
+                timestamp=depth.timestamp,
+            )
+        else:
+            new_depth = Depth(
+                instrument=depth.instrument,
+                bids=tuple(levels_to_keep),
+                asks=depth.asks,
+                timestamp=depth.timestamp,
+            )
+        self._depths[inst_key] = new_depth
 
         # Apply the fill
         if filled_qty >= order.quantity.value:
@@ -811,16 +965,90 @@ class PaperBroker(BaseBroker):
         self._orders[order.order_id.value] = filled
 
     def _apply_fill(self, order: Order) -> None:
-        """Update the cash ledger and optionally project the position."""
+        """Update the cash ledger and optionally project the position.
+
+        Both realism gates live here rather than in the fill paths, because
+        this is the single choke point every fill funnels through — the
+        unconditional path (:meth:`_fill_order`) and the book-walking path
+        (:meth:`_try_fill_against_book`) both land on it, full and partial
+        alike.  A gate added to one path only is how the other path leaks.
+
+        Ordering matters: **both gates run before any state is mutated**, so
+        a refusal leaves cash and positions exactly as they were.  The
+        callers still wrap this in a cash rollback for defence in depth, but
+        the gates no longer depend on it.
+        """
         if order.price is None:
             raise ValueError("filled paper order requires a price")
+        self._require_market_session()
         notional = order.price.value * order.filled_quantity.value
         if order.side is OrderSide.BUY:
+            self._require_buying_power(notional, order)
             self._cash -= notional
         else:
             self._cash += notional
         if self._project_positions:
             self._update_position(order)
+
+    def _require_market_session(self) -> None:
+        """Refuse a fill outside the NSE/BSE cash session (C5c).
+
+        A live venue does not fill a resting order at 3am on a Sunday, so a
+        simulator that does will book fills — and therefore approve
+        strategies — that could never have happened.  The calendar is the
+        shared :class:`~tradex_domain.trading_calendar.NSETradingCalendar`
+        (09:15-15:30 IST, weekdays, minus the 2026 NSE holiday list), not a
+        local literal, so paper and live agree on when the market is shut.
+
+        Refused means **not filled**: the fill is skipped, not turned into a
+        rejection the caller must handle.  A caller replaying a recorded
+        tape outside session hours gets a resting order that fills when the
+        next in-session tick arrives, which is what a live venue does.
+        """
+        if not self._enforce_session:
+            return
+        now = self._now_ist()
+        if not self._calendar.is_market_open(now):
+            raise OrderRejectedError(
+                f"market closed at {now.isoformat()}: paper refuses to fill "
+                f"outside the NSE/BSE cash session "
+                f"(pass enforce_session=False to simulate 24x7)"
+            )
+
+    def _require_buying_power(self, notional: Decimal, order: Order) -> None:
+        """Refuse a buy the paper cash balance cannot cover (C5b).
+
+        The old code subtracted unconditionally, so 100 lots at 100 on a
+        1,000 balance "filled" and drove the balance to -9,000 — an
+        unaffordable order booked as a success, which is exactly the kind of
+        optimism paper mode must not have.  The engine's ``CashLedger`` is a
+        separate, engine-owned check on a separate balance; it does not
+        cover this scalar.
+
+        Sells are not gated: a sell adds to cash, and blocking it would stop
+        an exit, which is the one thing a risk layer should never do.
+        """
+        if not self._enforce_margin:
+            return
+        required = notional * (Decimal("1") + _MARGIN_BUFFER)
+        if required > self._cash:
+            raise OrderRejectedError(
+                f"insufficient buying power: {order.side.value} "
+                f"{order.filled_quantity.value} x {order.price.value} needs "
+                f"{required} (incl. {_MARGIN_BUFFER:.0%} margin), "
+                f"cash is {self._cash} (order {order.order_id.value})"
+            )
+
+    def _now_ist(self) -> datetime:
+        """Return the current time as a tz-naive IST datetime.
+
+        :meth:`NSETradingCalendar.is_market_open` compares wall-clock bounds
+        (09:15/15:30) and derives the trading day from ``dt.date()``, so it
+        needs IST and no tzinfo.  A naive value from an injected clock is
+        treated as already-IST rather than reinterpreted, which keeps a
+        pinned test clock from shifting across the session boundary.
+        """
+        return to_ist_naive(self._clock())
 
     def _update_position(self, order: Order) -> None:
         """Update position for an instrument after a fill.
@@ -855,7 +1083,38 @@ class PaperBroker(BaseBroker):
 
     @property
     def synchronous_fill(self) -> bool:
-        """Paper fills are deterministic; live adapters must not use read-after-write."""
+        """Whether a fill is observable by the time a mutation call returns.
+
+        Always ``True`` for paper, and the guarantee is narrow and
+        mechanical (C5e).  **What it means:** when ``submit_order`` /
+        ``set_quote`` / ``set_depth`` returns, any fill that was going to
+        happen against the state they installed has already been applied to
+        ``self._orders``, ``self._positions`` and the cash balance.  There is
+        no background thread, no queue and no network hop, so a read of
+        ``get_order`` immediately afterwards cannot miss a fill that paper
+        had already decided on.  That is what makes paper's determinism
+        usable in a test.
+
+        **What it does NOT mean — do not read this as a live guarantee:**
+
+        * It is **not** a statement that a fill *will* occur.  A fill also
+          requires a matching quote/depth (``auto_fill``), an open market
+          session, and enough buying power.  "Synchronous" describes *when*
+          a decided fill lands, never *whether* one happens.
+        * It is **not** latency modelling.  Paper has zero modelled
+          round-trip: no order-ack delay, no exchange latency, no partial
+          fill over time, no rejects that arrive a second later.  A strategy
+          tuned against paper therefore has not been stress-tested against
+          any of those, and "synchronous" must not be read as "fast enough
+          that latency does not matter".
+        * It does **not** make read-after-write safe in the live sense.  A
+          live venue ACKs an order with no fill, then delivers the fill
+          later over a stream that can be reordered, duplicated or lost.
+          Code that skips its fill subscription because the paper flag said
+          ``True`` will silently book nothing live.  Consume fills from the
+          fill stream regardless of this flag; treat it as a paper-only
+          testing affordance.
+        """
         return True
 
     @property
@@ -881,4 +1140,4 @@ class PaperBroker(BaseBroker):
         self._project_positions = False
 
 
-__all__ = ["PaperBroker"]
+__all__ = ["PaperBroker", "PaperHistoryNotImplemented"]

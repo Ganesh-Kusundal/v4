@@ -41,6 +41,16 @@ from tradex_runtime.tape_recorder import (
 IST = ZoneInfo("Asia/Kolkata")
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 
+
+def _session_clock() -> datetime:
+    """A pinned in-session instant (Wed 2026-07-15 10:30 IST).
+
+    ``PaperBroker``'s session gate refuses fills outside 09:15-15:30 IST, so a
+    fill test that inherits the host clock passes in the morning and fails
+    every evening.
+    """
+    return datetime(2026, 7, 15, 10, 30)
+
 #: A session with a duplicate print and one tick that arrives out of order, so
 #: a reader that normalised the sequence is caught here rather than in the
 #: consuming lane's assertion.
@@ -122,7 +132,15 @@ def test_one_tape_drives_both_paper_fill_paths_to_the_same_prices(tape: Path) ->
         assert fill is not None
         pipeline_fills.append(fill.price.value)
 
-    broker = PaperBroker(auto_fill=True)
+    # Enough cash to fund every fill in the session at the new margin gate:
+    # 5 x 10 shares at ~2,500 is ~125,000 notional, and the default 100,000
+    # account is correctly refused from the fourth fill on. The gate refusing
+    # an under-funded order is the C5b behaviour; this test is about the two
+    # paper paths agreeing on PRICE, so it funds the book properly rather than
+    # relying on the broker extending credit it would not extend live.
+    broker = PaperBroker(
+        auto_fill=True, starting_cash=Decimal("10000000"), clock=_session_clock
+    )
     book_fills: list[Decimal] = []
     for tick in read_tape(tape):
         quote = tick.to_quote()
@@ -150,7 +168,7 @@ def test_a_sell_drives_both_paths_at_the_recorded_price(
     cache = TradingCache()
     cache.update_quote(tick.to_quote())
     _, fill = PaperFillSource(cache=cache).submit(_request(OrderSide.SELL))
-    broker = PaperBroker(auto_fill=True)
+    broker = PaperBroker(auto_fill=True, clock=_session_clock)
     quote = tick.to_quote()
     broker.set_quote(quote.instrument, ltp=quote.ltp)
     order = broker.get_order(broker.submit_order(_request(OrderSide.SELL)))

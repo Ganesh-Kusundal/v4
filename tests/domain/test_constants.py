@@ -691,6 +691,16 @@ class TestWebSocketConstants:
     def test_ws_feed_ready_key(self):
         assert C.WS_FEED_READY_KEY == "feed_ready"
 
+    def test_ws_feed_status_state_key(self):
+        # The frame's key, deliberately distinct from the nested object's
+        # WS_FEED_STATE_KEY ("feed_state").
+        assert C.WS_FEED_STATUS_STATE_KEY == "state"
+        assert C.WS_FEED_STATUS_STATE_KEY != C.WS_FEED_STATE_KEY
+
+    def test_ws_feed_status_ready_key(self):
+        assert C.WS_FEED_STATUS_READY_KEY == "ready"
+        assert C.WS_FEED_STATUS_READY_KEY != C.WS_FEED_READY_KEY
+
     def test_ws_instruments_key(self):
         assert C.WS_INSTRUMENTS_KEY == "instruments"
 

@@ -1,4 +1,5 @@
 """Single CorrelationId minting path."""
+
 import hashlib
 
 

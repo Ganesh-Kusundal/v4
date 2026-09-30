@@ -40,6 +40,13 @@ from tradex_brokers.dhan.master import dhan_master_download, parse_dhan_master
 from tradex_brokers.upstox.master import parse_upstox_master, upstox_master_download
 from tradex_config.env import load_env_file  # noqa: F401 — re-exported for v3 parity
 from tradex_domain import AuthenticationError, SDKError
+from tradex_domain.constants import (
+    DHAN_REFRESH_BUFFER_MINUTES,
+    FETCH_TIMEOUT,
+    IMPERSONATE,
+    REDIRECT_URI,
+    REFRESH_BUFFER_SECONDS,
+)
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_runtime.master_lifecycle import MasterFileCache, MasterLoader
@@ -79,7 +86,7 @@ def _env_with_deprecated_fallback(new_name: str, deprecated_name: str, default: 
 _environment = provider_environment
 
 
-def _urllib_fetch(timeout: float = 30.0) -> Fetch:
+def _urllib_fetch(timeout: float = FETCH_TIMEOUT) -> Fetch:
     """Create a JSON HTTP fetch callable; response bodies are decoded only.
 
     This stdlib fallback is Cloudflare-blocked by ``api.upstox.com`` (error
@@ -138,7 +145,7 @@ def _curl_cffi_available() -> bool:
     return True
 
 
-def _curl_cffi_fetch(timeout: float = 30.0) -> Fetch:
+def _curl_cffi_fetch(timeout: float = FETCH_TIMEOUT) -> Fetch:
     """JSON fetch that impersonates a real Chrome TLS fingerprint (Cloudflare fix).
 
     ``api.upstox.com`` bans plain urllib with Cloudflare ``error code: 1010``;
@@ -161,7 +168,7 @@ def _curl_cffi_fetch(timeout: float = 30.0) -> Fetch:
                 params=params,
                 json=payload,
                 data=raw_data,
-                impersonate="chrome131",
+                impersonate=IMPERSONATE,
                 timeout=timeout,
             )
         except Exception as exc:  # noqa: BLE001 — surface as SDKError, never leak
@@ -225,7 +232,7 @@ def _master_cache(
     return MasterFileCache(root, prefix=f"{provider}-instruments-", suffix=suffix)
 
 
-def resolve_fetch(timeout: float = 30.0) -> Fetch:
+def resolve_fetch(timeout: float = FETCH_TIMEOUT) -> Fetch:
     """Return a live fetch, preferring curl_cffi (browser impersonation) when the
     optional dependency is installed and falling back to stdlib urllib."""
     if _curl_cffi_available():
@@ -298,9 +305,11 @@ def _dhan_token_manager(
     if not (client_id and pin and totp_secret):
         return None
     try:
-        buffer_minutes = float(os.environ.get("DHAN_REFRESH_BUFFER_MINUTES", "10"))
+        buffer_minutes = float(
+            os.environ.get("DHAN_REFRESH_BUFFER_MINUTES", str(DHAN_REFRESH_BUFFER_MINUTES))
+        )
     except ValueError:
-        buffer_minutes = 10.0
+        buffer_minutes = float(DHAN_REFRESH_BUFFER_MINUTES)
     token_path = os.environ.get("DHAN_TOKEN_PATH") or str(default_token_state_path("dhan"))
     # Real stdlib TOTP mint (v3 parity): POSTs client id + pin + TOTP to mint a
     # fresh access token on demand. The factory is cheap (no network); the POST
@@ -348,7 +357,7 @@ def _upstox_token_manager(
         os.environ.get(f"{prefix}API_SECRET") or os.environ.get(f"{prefix}CLIENT_SECRET") or ""
     ).strip()
     _redirect_uri = os.environ.get(
-        f"{prefix}REDIRECT_URI", "http://127.0.0.1:18080/callback"
+        f"{prefix}REDIRECT_URI", REDIRECT_URI
     ).strip()
     env_refresh = os.environ.get(f"{prefix}REFRESH_TOKEN", "").strip()
 
@@ -376,7 +385,7 @@ def _upstox_token_manager(
                     refresh_token=refresh,
                     clock=clock,
                 ),
-                refresh_buffer_seconds=1800.0,
+                refresh_buffer_seconds=REFRESH_BUFFER_SECONDS,
                 clock=clock,
                 cooldown=guard,
             )
@@ -400,7 +409,7 @@ def _upstox_token_manager(
                 redirect_uri=_redirect_uri,
                 clock=clock,
             ),
-            refresh_buffer_seconds=1800.0,
+            refresh_buffer_seconds=REFRESH_BUFFER_SECONDS,
             clock=clock,
             cooldown=guard,
         )
@@ -415,7 +424,7 @@ def build_dhan_from_env(
     registry: InstrumentRegistry | None = None,
     expected_environment: str | None = None,
     allow_order_operations: bool = False,
-    timeout: float = 30.0,
+    timeout: float = FETCH_TIMEOUT,
     cache_ttl_seconds: float = 0.0,
     cooldown: TotpCooldownGuard | None = None,
     load_instruments: bool | None = None,
@@ -494,7 +503,7 @@ def build_upstox_from_env(
     registry: InstrumentRegistry | None = None,
     expected_environment: str | None = None,
     allow_order_operations: bool = False,
-    timeout: float = 30.0,
+    timeout: float = FETCH_TIMEOUT,
     cache_ttl_seconds: float = 0.0,
     cooldown: TotpCooldownGuard | None = None,
     load_instruments: bool | None = None,
@@ -569,7 +578,7 @@ def build_broker_from_env(
     registry: InstrumentRegistry | None = None,
     expected_environment: str | None = None,
     allow_order_operations: bool = False,
-    timeout: float = 30.0,
+    timeout: float = FETCH_TIMEOUT,
     cache_ttl_seconds: float = 0.0,
     cooldown: TotpCooldownGuard | None = None,
     load_instruments: bool | None = None,

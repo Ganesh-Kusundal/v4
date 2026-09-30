@@ -25,13 +25,15 @@ import time
 from collections import deque
 
 from fastapi import HTTPException, Request
-
-# ---------------------------------------------------------------------------
-# Tunables (defaults; callers may construct InMemoryRateLimiter with overrides)
-# ---------------------------------------------------------------------------
-
-_DEFAULT_MAX = 20           # mutations per window per identity
-_DEFAULT_WINDOW = 60        # seconds
+from tradex_domain.constants import (
+    RATE_LIMIT_EXCEEDED_KEY,
+)
+from tradex_domain.constants import (
+    RATE_LIMIT_MAX as _DEFAULT_MAX,
+)
+from tradex_domain.constants import (
+    RATE_LIMIT_WINDOW as _DEFAULT_WINDOW,
+)
 
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
 
@@ -154,7 +156,7 @@ def rate_limit_money(request: Request) -> None:
     if retry_after is not None:
         raise HTTPException(
             status_code=429,
-            detail="rate limit exceeded; too many order mutations",
+            detail=RATE_LIMIT_EXCEEDED_KEY,
             headers={"Retry-After": str(retry_after)},
         )
 

@@ -52,6 +52,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from tradex_domain.constants import DEPTH_MODES, RECOVERY_TRIGGERS
 from tradex_domain.errors import SDKError
 from tradex_domain.events import FeedGapDetected, StaleFeed
 from tradex_domain.instruments import Instrument
@@ -64,9 +65,6 @@ from tradex_runtime.feed_supervisor import FeedState, FeedSupervisor
 from tradex_runtime.tape_recorder import TapeRecorder
 
 log = logging.getLogger(__name__)
-
-
-_DEPTH_MODES = {"off", "20", "30"}
 
 #: Reason recorded when a recovery attempt reported no cause of its own.
 _UNPROVEN_CONTINUITY = "feed recovery did not prove tape continuity"
@@ -93,7 +91,7 @@ def normalize_depth(depth: object) -> str:
     ``MarketFeed``/``FeedRegistry`` and the FastAPI ``/ws/stream`` bridge.
     """
     value = str(depth or "").strip().lower()
-    return value if value in _DEPTH_MODES else "off"
+    return value if value in DEPTH_MODES else "off"
 
 
 class MarketFeed:
@@ -532,7 +530,6 @@ class MarketFeed:
         (bar-level gap) both indicate tape discontinuity and trigger the
         fail-closed recovery coordinator in a daemon thread.
         """
-        _RECOVERY_TRIGGERS = frozenset({"large_jump", "missing_bar"})
         trigger_recovery = False
         for kind in violations:
             kind_str = str(getattr(kind, "value", kind))
@@ -542,7 +539,7 @@ class MarketFeed:
                     kind=kind_str,
                 )
             )
-            if kind_str in _RECOVERY_TRIGGERS:
+            if kind_str in RECOVERY_TRIGGERS:
                 trigger_recovery = True
         if trigger_recovery:
             self._trigger_recovery()

@@ -23,6 +23,7 @@ parity.
 
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -49,6 +50,16 @@ _TRADED = Decimal("2500.5")
 # ---------------------------------------------------------------------------
 # Recorded-shape tapes (provider-native field names)
 # ---------------------------------------------------------------------------
+
+def _session_clock() -> datetime:
+    """A pinned in-session instant (Wed 2026-07-15 10:30 IST).
+
+    ``PaperBroker``'s session gate refuses fills outside 09:15-15:30 IST, so a
+    fill test that inherits the host clock passes in the morning and fails
+    every evening.
+    """
+    return datetime(2026, 7, 15, 10, 30)
+
 
 _DHAN_ACK = {
     "orderId": "prov-1", "securityId": "2885", "transactionType": "BUY",
@@ -233,7 +244,7 @@ def test_live_tape_position_matches_paper_spine() -> None:
     engine, _ = _replay_tape(_dhan_mapped_tape())
     live_pos = engine.cache.all_positions()[0]
 
-    paper = PaperBroker(auto_fill=True)
+    paper = PaperBroker(auto_fill=True, clock=_session_clock)
     paper.set_quote(_RELIANCE, ltp=Price(value=_TRADED))
     from tradex_domain.execution import OrderRequest
 

@@ -12,6 +12,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from tradex_domain.constants import VALUE_AREA_PERCENT
 from tradex_domain.timezones import IST_NAME as DEFAULT_TIMEZONE
 from tradex_domain.timezones import IST_OFFSET_SECONDS
 
@@ -124,7 +125,7 @@ def _session_key(utc_seconds: int, mode: str, zone: str, w: dict[str, Any] | Non
 # --- volume-profile ---------------------------------------------------------
 
 def compute_volume_profile(
-    bars: list[dict[str, Any]], tick_size: float, value_area_percent: float = 0.7
+    bars: list[dict[str, Any]], tick_size: float, value_area_percent: float = VALUE_AREA_PERCENT
 ) -> dict[str, Any]:
     """Volume at price, distributing each bar's volume across its range."""
     vol: dict[float, float] = {}
@@ -171,7 +172,9 @@ def compute_volume_profile(
 # --- tpo --------------------------------------------------------------------
 
 def compute_tpo(bars: list[dict[str, Any]], period_bars: int, tick_size: float,
-                value_area_percent: float = 0.7, ib_periods: int = 2) -> dict[str, Any]:
+                value_area_percent: float = VALUE_AREA_PERCENT,
+                ib_periods: int = 2,
+            ) -> dict[str, Any]:
     """Time Price Opportunity: count periods that traded at each price."""
     period = max(1, period_bars)
     count: dict[float, int] = {}
@@ -332,7 +335,7 @@ def compute_market_profile(
     row_ticks: int = 1,
     session: str = "day",
     block_minutes: float = 30,
-    value_area_percent: float = 0.7,
+    value_area_percent: float = VALUE_AREA_PERCENT,
     initial_balance_periods: int = 2,
     composite_sessions: int = 1,
     tail_edges: int = 0,
@@ -664,13 +667,18 @@ PROFILE_SPECS: dict[str, dict[str, Any]] = {
         "id": "volume-profile",
         "name": "Volume Profile",
         "function": compute_volume_profile,
-        "params": {"tick_size": 0.1, "value_area_percent": 0.7},
+        "params": {"tick_size": 0.1, "value_area_percent": VALUE_AREA_PERCENT},
     },
     "tpo": {
         "id": "tpo",
         "name": "Time Price Opportunity",
         "function": compute_tpo,
-        "params": {"period_bars": 30, "tick_size": 0.1, "value_area_percent": 0.7, "ib_periods": 2},
+        "params": {
+            "period_bars": 30,
+            "tick_size": 0.1,
+            "value_area_percent": VALUE_AREA_PERCENT,
+            "ib_periods": 2,
+        },
     },
     "market-profile": {
         "id": "market-profile",
@@ -681,7 +689,7 @@ PROFILE_SPECS: dict[str, dict[str, Any]] = {
             "row_ticks": 1,
             "session": "day",
             "block_minutes": 30,
-            "value_area_percent": 0.7,
+            "value_area_percent": VALUE_AREA_PERCENT,
             "initial_balance_periods": 2,
             "composite_sessions": 1,
             "tail_edges": 0,

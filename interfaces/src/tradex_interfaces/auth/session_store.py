@@ -16,9 +16,18 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-SESSION_ABSOLUTE_TTL = timedelta(hours=12)
-SESSION_IDLE_TTL = timedelta(hours=2)
-_SESSION_ID_BYTES = 32  # 256 bits of entropy
+from tradex_domain.constants import (
+    SESSION_ABSOLUTE_TTL as _SESSION_ABSOLUTE_TTL_HOURS,
+)
+from tradex_domain.constants import (
+    SESSION_ID_BYTES as _SESSION_ID_BYTES,
+)
+from tradex_domain.constants import (
+    SESSION_IDLE_TTL as _SESSION_IDLE_TTL_HOURS,
+)
+
+SESSION_ABSOLUTE_TTL = timedelta(hours=_SESSION_ABSOLUTE_TTL_HOURS)
+SESSION_IDLE_TTL = timedelta(hours=_SESSION_IDLE_TTL_HOURS)
 
 
 @dataclass

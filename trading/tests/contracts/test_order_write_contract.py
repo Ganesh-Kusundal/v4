@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 
 import pytest
@@ -43,6 +44,16 @@ from tradex_domain.value_objects import (
 )
 
 _RELIANCE = Equity.of("NSE", "RELIANCE")
+
+
+def _session_clock() -> datetime:
+    """A pinned in-session instant (Wed 2026-07-15 10:30 IST).
+
+    ``PaperBroker``'s session gate refuses fills outside 09:15-15:30 IST, so a
+    fill test that inherits the host clock passes in the morning and fails
+    every evening.
+    """
+    return datetime(2026, 7, 15, 10, 30)
 
 
 def _request(**overrides: object) -> OrderRequest:
@@ -224,7 +235,7 @@ def test_unsupported_write_fails_loud_without_touching_transport(provider: str) 
 
 
 def test_paper_market_order_fills_and_projects_position() -> None:
-    broker = PaperBroker(auto_fill=True)
+    broker = PaperBroker(auto_fill=True, clock=_session_clock)
     broker.set_quote(_RELIANCE, ltp=Price(value=Decimal("2500.00")))
     oid = broker.submit_order(_request(order_type=OrderType.MARKET, price=None))
     # Fills evaluate on tape events — push one more tick after submit.
@@ -240,7 +251,7 @@ def test_paper_market_order_fills_and_projects_position() -> None:
 def test_paper_filled_order_refuses_cancel() -> None:
     from tradex_domain.errors import SessionStateError
 
-    broker = PaperBroker(auto_fill=True)
+    broker = PaperBroker(auto_fill=True, clock=_session_clock)
     broker.set_quote(_RELIANCE, ltp=Price(value=Decimal("2500.00")))
     oid = broker.submit_order(_request(order_type=OrderType.MARKET, price=None))
     broker.set_quote(_RELIANCE, ltp=Price(value=Decimal("2500.00")))
@@ -269,17 +280,21 @@ def test_history_convenience_signature_uniform(broker_cls: type) -> None:
 
 
 def test_history_kwarg_only_form_uniform() -> None:
-    """history(inst, interval=..., lookback_days=...) must work on every
-    adapter, and omitting both timeframe and interval is a ValueError."""
-    from tradex_domain.enums import Timeframe
-    from tradex_domain.errors import BrokerUnavailableError
-    from tradex_domain.market import HistoricalSeries
+    """history(inst, interval=..., lookback_days=...) must be accepted by every
+    adapter, and omitting both timeframe and interval is a ValueError.
 
-    # Paper serves the form directly; transport-less live brokers pass
-    # signature validation and gate afterwards (BrokerUnavailableError).
-    series = PaperBroker().history(_RELIANCE, interval="5m", lookback_days=1)
-    assert isinstance(series, HistoricalSeries)
-    assert series.timeframe is Timeframe.M5
+    Acceptance, not return, is what this pins. Paper has no historical source
+    and refuses with a typed error (C5d), but it refuses *after* consuming the
+    kwargs — so a TypeError (signature does not take the form) or a ValueError
+    (no timeframe) would have come first. Transport-less live brokers pass
+    signature validation and gate afterwards (BrokerUnavailableError).
+    """
+    from tradex_brokers.paper.adapter import PaperHistoryNotImplemented
+    from tradex_domain.errors import BrokerUnavailableError
+
+    with pytest.raises(PaperHistoryNotImplemented):
+        PaperBroker().history(_RELIANCE, interval="5m", lookback_days=1)
+
     for cls in (DhanBroker, UpstoxBroker):
         try:
             cls().history(_RELIANCE, interval="5m", lookback_days=1)

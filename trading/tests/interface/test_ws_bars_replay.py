@@ -322,8 +322,8 @@ class TestReplayControl:
         from decimal import Decimal
         from zoneinfo import ZoneInfo
 
-        import tradex_brokers.common.market_builders as market_builders
         import tradex_market_data.parquet_storage as parquet_storage
+        import tradex_shared
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import OHLC, Candle
@@ -377,7 +377,7 @@ class TestReplayControl:
 
         monkeypatch.setattr(parquet_storage, "ParquetStorage", _FakeStore)
         monkeypatch.setattr(
-            market_builders, "candles_from_dataframe", _candles_from_dataframe
+            tradex_shared, "candles_from_dataframe", _candles_from_dataframe
         )
 
         client = TestClient(_app())
@@ -481,8 +481,8 @@ class TestReplayControl:
         from datetime import datetime
         from decimal import Decimal
 
-        import tradex_brokers.common.market_builders as market_builders
         import tradex_market_data.parquet_storage as parquet_storage
+        import tradex_shared
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import OHLC, Candle
@@ -511,7 +511,7 @@ class TestReplayControl:
 
         monkeypatch.setattr(parquet_storage, "ParquetStorage", _FakeStore)
         monkeypatch.setattr(
-            market_builders, "candles_from_dataframe",
+            tradex_shared, "candles_from_dataframe",
             lambda *_a, **_k: [_candle],
         )
 
@@ -566,8 +566,8 @@ class TestReplayControl:
         from decimal import Decimal
         from zoneinfo import ZoneInfo
 
-        import tradex_brokers.common.market_builders as market_builders
         import tradex_market_data.parquet_storage as parquet_storage
+        import tradex_shared
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import OHLC, Candle, Quote
@@ -596,7 +596,7 @@ class TestReplayControl:
 
         monkeypatch.setattr(parquet_storage, "ParquetStorage", _FakeStore)
         monkeypatch.setattr(
-            market_builders, "candles_from_dataframe",
+            tradex_shared, "candles_from_dataframe",
             lambda *_a, **_k: [_candle],
         )
 
@@ -708,8 +708,8 @@ class TestReplayCursorContract:
 
     @staticmethod
     def _patch_lake(monkeypatch, candles):
-        import tradex_brokers.common.market_builders as market_builders
         import tradex_market_data.parquet_storage as parquet_storage
+        import tradex_shared
 
         class _DataFrame:
             empty = False
@@ -726,7 +726,7 @@ class TestReplayCursorContract:
 
         monkeypatch.setattr(parquet_storage, "ParquetStorage", _FakeStore)
         monkeypatch.setattr(
-            market_builders,
+            tradex_shared,
             "candles_from_dataframe",
             lambda *_a, **_k: list(candles),
         )
@@ -926,8 +926,8 @@ class _ReplayFixture:
         self._patch_lake(monkeypatch)
 
     def _patch_lake(self, monkeypatch):
-        import tradex_brokers.common.market_builders as market_builders
         import tradex_market_data.parquet_storage as parquet_storage
+        import tradex_shared
         from tradex_market_data.market_provider import ParquetMarketProvider
 
         candles = self.candles
@@ -950,7 +950,7 @@ class _ReplayFixture:
 
         monkeypatch.setattr(parquet_storage, "ParquetStorage", _Store)
         monkeypatch.setattr(
-            market_builders,
+            tradex_shared,
             "candles_from_dataframe",
             lambda *_a, **_k: list(candles),
         )
@@ -1178,8 +1178,8 @@ def _make_session(bus=None):
 
 
 def _patch_store(monkeypatch, candles):
-    import tradex_brokers.common.market_builders as market_builders
     import tradex_market_data.parquet_storage as parquet_storage
+    import tradex_shared
 
     class _Frame:
         empty = not candles
@@ -1191,7 +1191,7 @@ def _patch_store(monkeypatch, candles):
             return (candles[0].timestamp, candles[-1].timestamp) if candles else None
 
     monkeypatch.setattr(parquet_storage, "ParquetStorage", _Store)
-    monkeypatch.setattr(market_builders, "candles_from_dataframe", lambda *a, **k: list(candles))
+    monkeypatch.setattr(tradex_shared, "candles_from_dataframe", lambda *a, **k: list(candles))
 
 
 class TestOnBarFrameIntegrityHook:
@@ -1565,8 +1565,8 @@ class TestReplayContractFixes:
         return candles
 
     def _patch_lake(self, monkeypatch, candles):
-        import tradex_brokers.common.market_builders as market_builders
         import tradex_market_data.parquet_storage as parquet_storage
+        import tradex_shared
 
         class _Frame:
             empty = not candles
@@ -1585,7 +1585,7 @@ class TestReplayContractFixes:
 
         monkeypatch.setattr(parquet_storage, "ParquetStorage", _Store)
         monkeypatch.setattr(
-            market_builders,
+            tradex_shared,
             "candles_from_dataframe",
             lambda *_a, **_k: list(candles),
         )

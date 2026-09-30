@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 
-_PURPOSE = b"csrf-v1"
+from tradex_domain.constants import CSRF_PURPOSE as _PURPOSE
 
 
 def make_csrf_token(csrf_secret: str) -> str:

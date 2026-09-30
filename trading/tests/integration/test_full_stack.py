@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import pytest
+from tradex_brokers.paper.adapter import PaperHistoryNotImplemented
 from tradex_domain import (
     OHLC,
     Candle,
@@ -110,18 +112,25 @@ class TestMarketDataFlow:
             session.stop()
 
     def test_history(self):
-        """Get historical data."""
+        """Paper has no historical source, and says so.
+
+        This used to assert that paper returned an "empty but valid"
+        HistoricalSeries — which reads as "the market was shut for 30 days" to
+        a chart and as a legitimate zero-row result to a loader that then runs
+        indicators over nothing. C5d replaced the fabrication with a typed
+        refusal plus a ``supports_history`` flag, so the honest assertion is
+        that the refusal is loud and the capability is discoverable.
+        """
         session = TradingSession.paper(config=_CFG)
         session.start()
         try:
             reliance = _eq()
             now = _now()
-            history = session.broker.history(
-                reliance, Timeframe.D1, now - timedelta(days=30), now
-            )
-            # Paper broker returns empty but valid HistoricalSeries
-            assert history is not None
-            assert hasattr(history, "candles")
+            assert getattr(session.broker, "supports_history", False) is False
+            with pytest.raises(PaperHistoryNotImplemented):
+                session.broker.history(
+                    reliance, Timeframe.D1, now - timedelta(days=30), now
+                )
         finally:
             session.stop()
 

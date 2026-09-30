@@ -27,6 +27,7 @@ without an app, which is what makes the severity rule unit-testable per branch.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -1335,6 +1336,7 @@ def adopt_venue_positions(
     last_read_at: datetime | None = None,
     now: datetime | None = None,
     adopt: bool = True,
+    read: VenueRead | None = None,
 ) -> AdoptionOutcome:
     """Adopt the venue's positions into the book, or refuse with a reason.
 
@@ -1359,7 +1361,7 @@ def adopt_venue_positions(
     that arrives *older* than it is refused, because a retry that lands out of
     order would overwrite a fresher book with a staler one.
     """
-    read = read_venue_positions(
+    read = read if read is not None else read_venue_positions(
         broker, known_instruments=known_instruments, now=now,
     )
     refusal = read.refused
@@ -1544,6 +1546,77 @@ def build_reconciliation_monitor_seams(
             log.warning("could not read local positions for adoption")
             return []
 
+    #: The venue snapshot for the current poll, and the thread that took it.
+    #: ``get_positions`` is rate-limited and the two seams must see the same
+    #: snapshot, so it is read once and replayed (P0-F1).
+    _read_cache: dict[str, Any] = {}
+    _read_owner: dict[str, Any] = {}
+
+    def _read_clock() -> datetime:
+        return clock() if clock is not None else datetime.now(UTC)
+
+    def _record_check(drifts: Sequence[Any]) -> None:
+        """Retain *drifts* on the session, if there is one to retain them on.
+
+        The engine's durable ``ReconciliationResult`` is now appended only when
+        drift was found (see :meth:`ExecutionEngine.reconcile`), so the safety
+        surface's "last checked at" would otherwise mean "last time something
+        was found" and a quiet session would report as never reconciled. The
+        session's own record carries the check, and its type already separates
+        "never reconciled" (``None``) from "reconciled, found nothing" (``()``).
+        """
+        recorder = getattr(engine, "record_reconciliation", None)
+        if not callable(recorder):
+            return
+        try:
+            recorder(drifts)
+        except Exception:  # noqa: BLE001 - reporting must not break reconciling
+            log.warning("could not record the reconciliation check")
+
+    def _shared_read() -> VenueRead:
+        """This poll's venue read, taken once and replayed for the second seam.
+
+        The read is scoped to the calling *thread* and is good for exactly one
+        pair of seam calls: :meth:`ReconciliationMonitor.poll_once` calls
+        ``reconcile()`` then ``adopt()`` back to back on its own thread, so
+        both see one read. A third call, or a call from another thread, takes a
+        fresh one — so a second poll (30s later, same thread) never adopts from
+        a 30-second-old snapshot, which is exactly the staleness the
+        ``last_read_at`` guard exists to catch.
+
+        The stored read is only handed out *again* once the owner thread has
+        advanced the clock past it, which is what the freshness baseline
+        measures: reusing a read is only ever a de-duplication, never a
+        silent freeze of the snapshot.
+        """
+        owner = threading.current_thread()
+        stamp = _read_clock() if clock is not None else None
+        cached = _read_cache.get("read")
+        if (
+            cached is not None
+            and _read_owner.get("owner") is owner
+            and (stamp is None or _read_owner.get("at") == stamp)
+        ):
+            # Consume it: the pair is complete, so the next call re-reads.
+            _read_cache["read"] = None
+            return cached
+        local_positions = _local()
+        read = read_venue_positions(
+            broker,
+            known_instruments=[
+                iid
+                for iid in (
+                    _position_instrument_id(p) for p in local_positions
+                )
+                if iid is not None
+            ],
+            now=stamp,
+        )
+        _read_cache["read"] = read
+        _read_owner["owner"] = owner
+        _read_owner["at"] = stamp
+        return read
+
     def _adopt() -> AdoptionOutcome:
         nonlocal last_read_at
         unsettled = _unsettled()
@@ -1562,6 +1635,12 @@ def build_reconciliation_monitor_seams(
                 applied=False,
                 refusal=REFUSAL_UNSETTLED_GUARD_UNAVAILABLE,
             )
+        # Share the poll's venue read with the reconcile seam (P0-F1): the two
+        # halves of a poll must describe the SAME snapshot, and get_positions is
+        # a rate-limited endpoint. The read is taken at most once per poll and
+        # replayed for the second seam, so the two cannot disagree about what
+        # the venue said and the request rate does not double.
+        read = _shared_read()
         local_positions = _local()
         outcome = adopt_venue_positions(
             broker=broker,
@@ -1578,6 +1657,7 @@ def build_reconciliation_monitor_seams(
             last_read_at=last_read_at,
             now=clock() if clock is not None else None,
             adopt=adopt,
+            read=read,
         )
         # The freshness baseline advances only on a usable read. A failed or
         # partial read must not become the bar a later read is judged stale
@@ -1588,10 +1668,53 @@ def build_reconciliation_monitor_seams(
         return outcome
 
     def _reconcile() -> Sequence[Any]:
+        """Compare the local book against the venue, and report what was found.
+
+        The compare is what the monitor is for, so it must actually run
+        (P0-F1). :meth:`ExecutionEngine.reconcile` is keyword-only and each of
+        its two compare blocks is gated on the matching argument being
+        supplied, so a no-argument call compares nothing and returns ``[]`` —
+        which is what this seam used to do, leaving ``last_drifts`` permanently
+        empty while the adoption half did its work. The snapshots are passed
+        explicitly, from the same venue read the adoption uses.
+
+        An engine whose ``reconcile`` takes no keyword arguments at all (a
+        paper or test engine that owns its own comparison) is still called
+        with no arguments rather than skipped: its own compare is the
+        authoritative one, and refusing to call it would be a *different*
+        silent hole in the reporting.
+        """
         if engine is None:
             return ()
+        reconcile = getattr(engine, "reconcile", None)
+        if not callable(reconcile):
+            return ()
         try:
-            return tuple(engine.reconcile())
+            read = _shared_read()
+            if read.ok:
+                try:
+                    drifts = tuple(
+                        reconcile(
+                            broker_positions=list(read.positions),
+                            local_positions=_local(),
+                            # The monitor polls on a timer: a durable event
+                            # per poll would be ~2,880 rows a day saying
+                            # "nothing found". Drift is still recorded by the
+                            # engine; the check itself is recorded below.
+                            record=False,
+                        ),
+                    )
+                except TypeError:
+                    # The engine does not accept snapshots (see docstring):
+                    # call its own no-argument comparison instead.
+                    drifts = tuple(reconcile())
+                _record_check(drifts)
+                return drifts
+            # A failed or partial read is not drift. Comparing half a book
+            # against the whole book is noise, and "we could not check" must
+            # never be reported as "we checked and found nothing" - the
+            # adoption half carries the refusal that distinguishes them.
+            return ()
         except Exception:  # noqa: BLE001 - a monitor that dies stops reconciling
             log.warning("reconciliation comparison failed", exc_info=True)
             return ()

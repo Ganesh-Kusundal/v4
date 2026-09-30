@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 ROUTES = Path(__file__).parents[1] / "interfaces" / "src" / "tradex_interfaces" / "routes"
 MIGRATED = ("chart.py", "stream.py", "stream_indicators.py")
@@ -34,3 +35,36 @@ def test_migrated_routes_call_the_shared_provider():
     assert "ParquetMarketProvider" in sources["chart.py"]
     assert "ParquetMarketProvider" in sources["stream.py"]
     assert "ParquetMarketProvider" in sources["stream_indicators.py"]
+
+
+def test_the_lake_converter_is_patchable_at_the_seam_production_reads(monkeypatch):
+    """Doubles for ``candles_from_dataframe`` must patch ``tradex_shared``.
+
+    ``_to_candles`` resolves the helper off the ``tradex_shared`` package at
+    call time, so a double installed on any other module is dead code: the real
+    converter runs, raises on the test's fake frame, and the route answers with
+    an error frame the test is not waiting for. That is not hypothetical —
+    when the helper left ``tradex_brokers.common.market_builders`` (3747a86),
+    seven replay doubles silently stopped intercepting and 18 tests blocked in
+    ``receive_json`` for 353s instead of failing. This asserts the seam, so the
+    next move breaks one test here rather than hanging a whole file.
+    """
+    # Import the brokers shim FIRST, deliberately. It does a module-level
+    # ``from tradex_shared import candles_from_dataframe``, so if it is imported
+    # after the patch below it would bind the double and this assertion would
+    # pass even against a call site that reads the shim instead of the seam.
+    import tradex_brokers.common.market_builders as _shim
+    import tradex_shared
+    from tradex_market_data.market_provider import ParquetMarketProvider
+
+    seen: list[Any] = []
+
+    def _double(instrument: Any, _frame: Any, **_kwargs: Any) -> list[str]:
+        seen.append(instrument)
+        return ["sentinel"]
+
+    assert _shim.candles_from_dataframe is not _double
+    monkeypatch.setattr(tradex_shared, "candles_from_dataframe", _double)
+
+    assert ParquetMarketProvider._to_candles("NSE:TEST", object()) == ["sentinel"]
+    assert seen == ["NSE:TEST"]

@@ -50,6 +50,8 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from tradex_domain.constants import RECONCILIATION_INTERVAL
+
 log = logging.getLogger(__name__)
 
 #: Reconcile this often. The venue's own position stream pushes updates, so this
@@ -57,7 +59,7 @@ log = logging.getLogger(__name__)
 #: drift a missed push left behind. Twice a minute is fast enough that a fill the
 #: book missed is corrected within one bar, and slow enough that it does not
 #: interrogate the venue's rate-limited positions endpoint on every tick.
-RECONCILIATION_INTERVAL_SECONDS = 30.0
+RECONCILIATION_INTERVAL_SECONDS = RECONCILIATION_INTERVAL
 
 #: Metrics emitted per poll. The drift counter follows the existing convention
 #: (``reconciliation_drift_total.<severity>.<kind>`` in

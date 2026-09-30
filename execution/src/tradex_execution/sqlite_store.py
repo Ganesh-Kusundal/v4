@@ -26,8 +26,9 @@ from tradex_domain.events import (
     OrderPlaced,
     OrderRejected,
 )
-from tradex_domain.execution import Order
+from tradex_domain.execution import Order, OrderRequest
 from tradex_domain.instruments import Instrument
+from tradex_domain.order_factory import create_order
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
 from tradex_execution._sqlite import configure_sqlite
@@ -140,22 +141,24 @@ def _row_to_order(row: tuple) -> Order:
             asset_class=AssetClass(asset_class),
         )
 
-    return Order(
-        order_id=OrderId(value=order_id),
-        instrument=instrument,
-        side=OrderSide(side),
-        order_type=OrderType(order_type),
-        quantity=Quantity(value=Decimal(quantity)),
-        price=Price(value=Decimal(price)) if price else None,
-        time_in_force=TimeInForce(time_in_force),
+    return create_order(
+        OrderRequest(
+            instrument=instrument,
+            side=OrderSide(side),
+            order_type=OrderType(order_type),
+            quantity=Quantity(value=Decimal(quantity)),
+            price=Price(value=Decimal(price)) if price else None,
+            time_in_force=TimeInForce(time_in_force),
+            product_type=ProductType(product_type),
+            correlation_id=CorrelationId(value=correlation_id) if correlation_id else None,
+            tag=tag,
+            stop_loss_price=Price(value=Decimal(stop_loss_price)) if stop_loss_price else None,
+            target_price=Price(value=Decimal(target_price)) if target_price else None,
+            trailing_jump=Price(value=Decimal(trailing_jump)) if trailing_jump else None,
+        ),
+        order_id,
+        filled=Decimal(filled_qty),
         status=OrderStatus(status),
-        filled_quantity=Quantity(value=Decimal(filled_qty)),
-        product_type=ProductType(product_type),
-        tag=tag,
-        correlation_id=CorrelationId(value=correlation_id) if correlation_id else None,
-        stop_loss_price=Price(value=Decimal(stop_loss_price)) if stop_loss_price else None,
-        target_price=Price(value=Decimal(target_price)) if target_price else None,
-        trailing_jump=Price(value=Decimal(trailing_jump)) if trailing_jump else None,
     )
 
 
@@ -325,17 +328,19 @@ class SQLiteOrderStore:
             # ponytail: minimum stub. We only have the fill data, so build
             # the smallest Order that satisfies the schema. Tag and
             # correlation_id are unknown — leave them None.
-            order = Order(
-                order_id=fill.order_id,
-                instrument=fill.instrument,
-                side=fill.side,
-                order_type=OrderType.MARKET,
-                quantity=Quantity(value=fill.quantity.value),
-                price=Price(value=fill.price.value),
-                time_in_force=TimeInForce.DAY,
+            order = create_order(
+                OrderRequest(
+                    instrument=fill.instrument,
+                    side=fill.side,
+                    order_type=OrderType.MARKET,
+                    quantity=fill.quantity,
+                    price=fill.price,
+                    time_in_force=TimeInForce.DAY,
+                    product_type=ProductType.INTRADAY,
+                ),
+                fill.order_id.value,
+                filled=fill.quantity.value,
                 status=OrderStatus.FILLED,
-                filled_quantity=Quantity(value=fill.quantity.value),
-                product_type=ProductType.INTRADAY,
             )
         else:
             new_filled = min(
@@ -347,25 +352,24 @@ class SQLiteOrderStore:
                 if new_filled >= existing.quantity.value
                 else OrderStatus.PARTIALLY_FILLED
             )
-            order = Order(
-                order_id=existing.order_id,
-                instrument=existing.instrument,
-                side=existing.side,
-                order_type=existing.order_type,
-                quantity=existing.quantity,
-                price=existing.price,
-                time_in_force=existing.time_in_force,
+            order = create_order(
+                OrderRequest(
+                    instrument=existing.instrument,
+                    side=existing.side,
+                    order_type=existing.order_type,
+                    quantity=existing.quantity,
+                    price=existing.price,
+                    time_in_force=existing.time_in_force,
+                    product_type=existing.product_type,
+                    correlation_id=existing.correlation_id,
+                    tag=existing.tag,
+                    stop_loss_price=existing.stop_loss_price,
+                    target_price=existing.target_price,
+                    trailing_jump=existing.trailing_jump,
+                ),
+                existing.order_id.value,
+                filled=new_filled,
                 status=new_status,
-                filled_quantity=Quantity(value=new_filled),
-                product_type=existing.product_type,
-                tag=existing.tag,
-                correlation_id=existing.correlation_id,
-                # Keep the bracket's protective legs when a fill lands on an
-                # existing bracket — losing them would turn the recovered
-                # order into a plain order.
-                stop_loss_price=existing.stop_loss_price,
-                target_price=existing.target_price,
-                trailing_jump=existing.trailing_jump,
             )
         self.upsert(order)
 

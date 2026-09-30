@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from tradex_domain.constants import NO_SESSION_BOUND
 
 from tradex_interfaces.auth.deps import require_auth
 from tradex_interfaces.routes._market_helpers import (
@@ -24,7 +25,7 @@ async def get_quote(
     session: Any | None = Depends(get_session),
 ) -> dict[str, Any]:
     if session is None:
-        raise HTTPException(status_code=404, detail="No session bound")
+        raise HTTPException(status_code=404, detail=NO_SESSION_BOUND)
     try:
         from tradex_brokers.common.provider_common import instrument_from_id
         from tradex_domain.value_objects import InstrumentId
@@ -60,7 +61,7 @@ async def get_history(
 ) -> list[dict]:
     """Get historical bars for an instrument."""
     if session is None:
-        raise HTTPException(status_code=400, detail="no session bound")
+        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         from tradex_brokers.common.provider_common import instrument_from_id
         from tradex_domain.enums import Timeframe
@@ -103,7 +104,7 @@ async def get_option_chain(
     LTP / OI / volume (best-effort batch quotes for the ATM region).
     """
     if session is None:
-        raise HTTPException(status_code=400, detail="no session bound")
+        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         inst = resolve_underlying_instrument(session, underlying)
         chain = session.broker.get_option_chain(inst, expiry)
@@ -125,7 +126,7 @@ async def get_future_chain(
 ) -> dict:
     """Future contracts on an underlying, derived from the loaded master."""
     if session is None:
-        raise HTTPException(status_code=400, detail="no session bound")
+        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         inst = resolve_underlying_instrument(session, underlying)
         futures = session.broker.future_chain(inst)

@@ -34,7 +34,7 @@ from tradex_domain.execution import (
     PortfolioSnapshot,
 )
 from tradex_domain.instruments import Equity, Instrument
-from tradex_domain.market import Depth, HistoricalSeries, Quote
+from tradex_domain.market import Depth, Quote
 from tradex_domain.protocols import BrokerAdapter
 from tradex_domain.value_objects import AccountId, OrderId, Price, Quantity
 
@@ -278,12 +278,23 @@ class TestOrderLifecycleParity:
         assert isinstance(depth, Depth)
 
     def test_paper_history(self) -> None:
+        """Paper's history contract is a typed refusal, not a fake series.
+
+        This is the cross-provider substitutability check, so it still has to
+        prove the adapter satisfies the interface — it now does so by proving
+        the refusal is typed and discoverable rather than by receiving an
+        "empty but valid" series. Paper has no datalake, no vendor and no
+        recorded tape, so the old assertion was asserting a fabrication.
+        """
+        from tradex_brokers.paper.adapter import PaperHistoryNotImplemented
+
         broker = _create_broker(BrokerId.PAPER)
         broker.connect()
         inst = _make_equity()
         now = datetime.now()
-        series = broker.history(inst, Timeframe.D1, now - timedelta(days=30), now)
-        assert isinstance(series, HistoricalSeries)
+        assert getattr(broker, "supports_history", False) is False
+        with pytest.raises(PaperHistoryNotImplemented):
+            broker.history(inst, Timeframe.D1, now - timedelta(days=30), now)
 
 
 # ---------------------------------------------------------------------------

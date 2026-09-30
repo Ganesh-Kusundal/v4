@@ -27,6 +27,25 @@ from tradex_application.orders import (
 from tradex_application.orders import (
     submit_order as app_submit_order,
 )
+from tradex_domain.constants import (
+    BROKER_UNAVAILABLE_MESSAGE,
+    CANCELLED_STATUS,
+    DEFAULT_LIMIT,
+    IDEMPOTENCY_IN_FLIGHT,
+    IDEMPOTENCY_KEY_HEADER,
+    IDEMPOTENCY_KEY_REQUIRED_MESSAGE,
+    IDEMPOTENCY_KEY_TOO_LONG_MESSAGE,
+    IDEMPOTENCY_REPLAY,
+    INSTRUMENT_ID_FORMAT_MESSAGE,
+    INSTRUMENT_ID_OR_EXCHANGE_SYMBOL_MESSAGE,
+    MISSING_REQUIRED_FIELD_MESSAGE,
+    MODIFIED_STATUS,
+    NO_SESSION_BOUND,
+    ORDER_NOT_FOUND_MESSAGE,
+    ORDERS_DISABLED_DURING_REPLAY_MESSAGE,
+    SUBMITTED_STATUS,
+    UNKNOWN_SYMBOL_MESSAGE,
+)
 from tradex_domain.enums import ProductType
 from tradex_domain.value_objects import CorrelationId, OrderId
 from tradex_execution.engine import (
@@ -86,10 +105,10 @@ def _map_receipt(receipt: Any) -> OrderResponse:
     if isinstance(receipt, OrderId):
         return OrderResponse(
             order_id=receipt.value,
-            status="SUBMITTED",
-            message="idempotency_replay",
+            status=SUBMITTED_STATUS,
+            message=IDEMPOTENCY_REPLAY,
         )
-    if getattr(receipt, "message", None) == "idempotency_in_flight":
+    if getattr(receipt, "message", None) == IDEMPOTENCY_IN_FLIGHT:
         raise HTTPException(status_code=409, detail="idempotency key is being processed")
     return OrderResponse(
         order_id=receipt.order_id.value,
@@ -104,10 +123,10 @@ def _require_idempotency_key(value: str | None) -> CorrelationId:
     if value is None or not value.strip():
         raise HTTPException(
             status_code=422,
-            detail="Idempotency-Key header is required for order mutations",
+            detail=IDEMPOTENCY_KEY_REQUIRED_MESSAGE,
         )
     if len(value.strip()) > 255:
-        raise HTTPException(status_code=422, detail="Idempotency-Key is too long")
+        raise HTTPException(status_code=422, detail=IDEMPOTENCY_KEY_TOO_LONG_MESSAGE)
     return CorrelationId(value=value.strip())
 
 
@@ -120,12 +139,12 @@ def _require_trading_mode(
     if mode == "replay":
         raise HTTPException(
             status_code=422,
-            detail="orders are disabled during replay",
+            detail=ORDERS_DISABLED_DURING_REPLAY_MESSAGE,
         )
     if replay_guard is not None and replay_guard.active:
         raise HTTPException(
             status_code=422,
-            detail="orders are disabled during replay",
+            detail=ORDERS_DISABLED_DURING_REPLAY_MESSAGE,
         )
 
 
@@ -165,7 +184,7 @@ def _build_order_request(
         if len(parts) != 2:
             raise HTTPException(
                 status_code=422,
-                detail="instrument_id must be in 'EXCHANGE:SYMBOL' format",
+                detail=INSTRUMENT_ID_FORMAT_MESSAGE,
             )
         instrument = Equity.of(parts[0], parts[1])
     else:
@@ -174,7 +193,7 @@ def _build_order_request(
         if not exchange or not symbol:
             raise HTTPException(
                 status_code=422,
-                detail="provide either 'instrument_id' or both 'exchange' and 'symbol'",
+                detail=INSTRUMENT_ID_OR_EXCHANGE_SYMBOL_MESSAGE,
             )
         instrument = Equity.of(exchange, symbol)
 
@@ -227,7 +246,7 @@ def _build_bracket_request(
         if len(parts) != 2:
             raise HTTPException(
                 status_code=422,
-                detail="instrument_id must be in 'EXCHANGE:SYMBOL' format",
+                detail=INSTRUMENT_ID_FORMAT_MESSAGE,
             )
         instrument = Equity.of(parts[0], parts[1])
     else:
@@ -236,7 +255,7 @@ def _build_bracket_request(
         if not exchange or not symbol:
             raise HTTPException(
                 status_code=422,
-                detail="provide either 'instrument_id' or both 'exchange' and 'symbol'",
+                detail=INSTRUMENT_ID_OR_EXCHANGE_SYMBOL_MESSAGE,
             )
         instrument = Equity.of(exchange, symbol)
 
@@ -336,7 +355,7 @@ def _build_bracket_modify_request(
 )
 async def list_orders(
     status: str | None = None,
-    limit: int = 50,
+    limit: int = DEFAULT_LIMIT,
     offset: int = 0,
     session: Any | None = Depends(get_session),
 ) -> list[OrderResponse]:
@@ -360,7 +379,7 @@ async def get_order(
     session: Any | None = Depends(get_session),
 ) -> OrderResponse:
     if session is None:
-        raise HTTPException(status_code=404, detail="No session bound")
+        raise HTTPException(status_code=404, detail=NO_SESSION_BOUND)
     try:
         oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
         order = session.engine.get_order(oid)
@@ -376,13 +395,13 @@ async def get_order(
 async def place_order(
     body: dict,
     session: Any | None = Depends(get_session),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(default=None, alias=IDEMPOTENCY_KEY_HEADER),
     request: Request = cast(Request, None),
 ) -> OrderResponse:
     correlation_id = _require_idempotency_key(idempotency_key)
     _require_trading_mode(session, _request_replay_guard(request))
     if session is None:
-        raise HTTPException(status_code=503, detail="no session bound")
+        raise HTTPException(status_code=503, detail=NO_SESSION_BOUND)
     try:
         order_request = _build_order_request(body, session, correlation_id)
         receipt = app_submit_order(session.engine, order_request)
@@ -390,7 +409,9 @@ async def place_order(
     except HTTPException:
         raise
     except KeyError as exc:
-        raise HTTPException(status_code=422, detail=f"missing required field: {exc}") from exc
+        raise HTTPException(
+            status_code=422, detail=f"{MISSING_REQUIRED_FIELD_MESSAGE}: {exc}"
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except IdempotencyKeyReuseMismatch as exc:
@@ -405,7 +426,7 @@ async def place_order(
 async def place_bracket_order(
     body: dict,
     session: Any | None = Depends(get_session),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(default=None, alias=IDEMPOTENCY_KEY_HEADER),
     request: Request = cast(Request, None),
 ) -> OrderResponse:
     """Place a bracket (super) order — entry + protective stop/target legs.
@@ -420,10 +441,10 @@ async def place_bracket_order(
     correlation_id = _require_idempotency_key(idempotency_key)
     _require_trading_mode(session, _request_replay_guard(request))
     if session is None:
-        raise HTTPException(status_code=503, detail="no session bound")
+        raise HTTPException(status_code=503, detail=NO_SESSION_BOUND)
     broker = getattr(session, "_broker", None) or getattr(session, "broker", None)
     if broker is None:
-        raise HTTPException(status_code=503, detail="broker unavailable")
+        raise HTTPException(status_code=503, detail=BROKER_UNAVAILABLE_MESSAGE)
     try:
         order_request = _build_bracket_request(body, correlation_id)
         receipt = app_submit_bracket_order(session.engine, broker, order_request)
@@ -445,13 +466,13 @@ async def modify_order(
     order_id: str,
     body: dict,
     session: Any | None = Depends(get_session),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(default=None, alias=IDEMPOTENCY_KEY_HEADER),
     request: Request = cast(Request, None),
 ) -> OrderResponse:
     correlation_id = _require_idempotency_key(idempotency_key)
     _require_trading_mode(session, _request_replay_guard(request))
     if session is None:
-        raise HTTPException(status_code=400, detail="no session bound")
+        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         from tradex_domain.enums import OrderSide, OrderType, TimeInForce
         from tradex_domain.execution import OrderRequest
@@ -461,7 +482,7 @@ async def modify_order(
         correlation_id = _require_idempotency_key(idempotency_key)
         existing = session.engine.get_order(oid)
         if existing is None:
-            raise HTTPException(status_code=422, detail="order not found")
+            raise HTTPException(status_code=422, detail=ORDER_NOT_FOUND_MESSAGE)
 
         symbol = body.get("symbol")
         if symbol is not None:
@@ -501,7 +522,7 @@ async def modify_order(
                 correlation_id=correlation_id,
             )
         order = app_modify_order(session.engine, oid, order_request)
-        return OrderResponse(order_id=str(order.order_id), status="modified")
+        return OrderResponse(order_id=str(order.order_id), status=MODIFIED_STATUS)
     except HTTPException:
         raise
     except IdempotencyKeyReuseMismatch as exc:
@@ -509,9 +530,11 @@ async def modify_order(
     except IdempotencyInflight as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except KeyError as exc:
-        raise HTTPException(status_code=422, detail=f"missing required field: {exc}") from exc
+        raise HTTPException(
+            status_code=422, detail=f"{MISSING_REQUIRED_FIELD_MESSAGE}: {exc}"
+        ) from exc
     except IndexError as exc:
-        raise HTTPException(status_code=422, detail="unknown symbol") from exc
+        raise HTTPException(status_code=422, detail=UNKNOWN_SYMBOL_MESSAGE) from exc
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
@@ -519,7 +542,7 @@ async def modify_order(
 async def cancel_order(
     order_id: str,
     session: Any | None = Depends(get_session),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = Header(default=None, alias=IDEMPOTENCY_KEY_HEADER),
     request: Request = cast(Request, None),
 ) -> OrderResponse:
 
@@ -528,11 +551,11 @@ async def cancel_order(
     correlation_id = _require_idempotency_key(idempotency_key)
     _require_trading_mode(session, _request_replay_guard(request))
     if session is None:
-        raise HTTPException(status_code=400, detail="no session bound")
+        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
         order = app_cancel_order(session.engine, oid, correlation_id)
-        return OrderResponse(order_id=str(order.order_id), status="cancelled")
+        return OrderResponse(order_id=str(order.order_id), status=CANCELLED_STATUS)
     except HTTPException:
         raise
     except IdempotencyKeyReuseMismatch as exc:

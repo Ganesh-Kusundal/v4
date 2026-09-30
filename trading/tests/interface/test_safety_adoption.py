@@ -47,6 +47,8 @@ from tradex_interfaces.safety import (
     ReconciliationMonitorSeams,
     VenueAdoption,
     VenueRead,
+    _position_instrument_id,
+    _venue_quantity,
     adopt_venue_positions,
     build_reconciliation_monitor_seams,
     derive_venue_adoption,
@@ -834,6 +836,176 @@ def test_seams_reconcile_runs_the_engines_comparison() -> None:
     )
     assert seams.reconcile() == ("drift",)
     assert engine.calls == 1
+
+
+# -- the reconcile seam actually compares (P0-F1) ------------------------------
+
+
+class _ComparingEngine:
+    """An engine that only compares when given snapshots to compare.
+
+    This mirrors :meth:`ExecutionEngine.reconcile`, whose signature is
+    keyword-only and whose two compare blocks are each gated on the matching
+    argument being supplied — so a no-argument call skips both and returns
+    ``[]``. Before the fix the seam called it that way, and drift never
+    reached the monitor from the daemon.
+
+    The comparison is real (it keys by instrument id and compares quantities)
+    so a test can distinguish "the book disagrees" from "the book agrees".
+    """
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def reconcile(self, **kwargs: object) -> list[object]:
+        self.calls.append(dict(kwargs))
+        venue = kwargs.get("broker_positions")
+        if venue is None:
+            return []
+        local = kwargs.get("local_positions") or []
+        local_qty = {
+            str(_position_instrument_id(p)): _venue_quantity(p) for p in local
+        }
+        drifts: list[object] = []
+        for row in venue:  # type: ignore[union-attr]
+            iid = str(_position_instrument_id(row))
+            if local_qty.get(iid) != _venue_quantity(row):
+                drifts.append(f"position-drift:{iid}")
+        return drifts
+
+    def all_orders(self) -> list[object]:
+        return []
+
+
+def test_seams_reconcile_passes_the_venue_and_local_snapshots() -> None:
+    engine = _ComparingEngine()
+    seams = build_reconciliation_monitor_seams(
+        broker=_Broker([_position(_RELIANCE, Decimal("7"))]),
+        cache=_Cache([_position(_RELIANCE, Decimal("3"))]),
+        engine=engine,
+    )
+    drifts = seams.reconcile()
+    assert drifts == ("position-drift:NSE:RELIANCE",), (
+        "the daemon must report drift; a no-argument engine.reconcile() "
+        "compares nothing and always returns []"
+    )
+    assert engine.calls, "the engine was never asked to compare"
+    assert engine.calls[0].get("broker_positions") is not None
+    assert engine.calls[0].get("local_positions") is not None
+
+
+def test_seams_reconcile_reports_nothing_when_the_book_agrees() -> None:
+    engine = _ComparingEngine()
+    seams = build_reconciliation_monitor_seams(
+        broker=_Broker([_position(_RELIANCE, Decimal("3"))]),
+        cache=_Cache([_position(_RELIANCE, Decimal("3"))]),
+        engine=engine,
+    )
+    assert seams.reconcile() == ()
+
+
+def test_seams_reconcile_survives_a_raising_venue_read() -> None:
+    class _Boom:
+        def get_positions(self) -> list[object]:
+            raise RuntimeError("venue down")
+
+        def all_orders(self) -> list[object]:
+            return []
+
+    seams = build_reconciliation_monitor_seams(
+        broker=_Boom(), cache=_Cache(), engine=_ComparingEngine(),
+    )
+    assert seams.reconcile() == (), "a failed read is no drift, not a crash"
+
+
+def test_seams_reconcile_is_empty_without_an_engine() -> None:
+    seams = build_reconciliation_monitor_seams(
+        broker=_Broker([_position(_RELIANCE, Decimal("7"))]),
+        cache=_Cache([_position(_RELIANCE, Decimal("3"))]),
+    )
+    assert seams.reconcile() == ()
+
+
+def test_seams_read_the_venue_once_per_poll() -> None:
+    """One rate-limited endpoint read per poll, shared by both seams.
+
+    ``get_positions`` is the venue's rate-limited positions endpoint; calling
+    it twice per poll doubles the request rate against a limit that exists for
+    a reason, and lets the two halves of a poll disagree about the venue.
+    """
+    broker = _Broker([_position(_RELIANCE, Decimal("7"))])
+    seams = build_reconciliation_monitor_seams(
+        broker=broker,
+        cache=_Cache([_position(_RELIANCE, Decimal("3"))]),
+        engine=_ComparingEngine(),
+    )
+    seams.reconcile()
+    seams.adopt()
+    assert broker.calls == 1, (
+        f"expected one venue read shared across the poll, got {broker.calls}"
+    )
+
+
+def test_seams_reconcile_records_the_check_on_the_session() -> None:
+    """The safety surface's "last checked" must survive a quiet session.
+
+    The durable ``ReconciliationResult`` is now appended only when drift was
+    found, so a session whose book agrees with the venue appends nothing. The
+    seam records the check on the session instead, which is what keeps
+    ``reconciliation_checked`` true and ``last_checked_at`` populated for a
+    healthy session — the difference between "checked, found nothing" and
+    "never checked".
+    """
+
+    class _RecordingEngine(_ComparingEngine):
+        def __init__(self) -> None:
+            super().__init__()
+            self.recorded: list[object] | None = None
+
+        def record_reconciliation(self, drifts: object) -> None:
+            self.recorded = drifts
+
+    engine = _RecordingEngine()
+    seams = build_reconciliation_monitor_seams(
+        broker=_Broker([_position(_RELIANCE, Decimal("3"))]),
+        cache=_Cache([_position(_RELIANCE, Decimal("3"))]),
+        engine=engine,
+    )
+    assert seams.reconcile() == (), "the book agrees"
+    assert engine.recorded is not None, "the check itself must be recorded"
+    assert tuple(engine.recorded) == (), (
+        "an empty record means checked-and-found-nothing, which is what "
+        "separates a quiet session from a never-checked one"
+    )
+
+
+def test_seams_reconcile_does_not_record_when_the_read_failed() -> None:
+    """A read we could not perform is not a check that found nothing."""
+
+    class _Boom:
+        def get_positions(self) -> list[object]:
+            raise RuntimeError("venue down")
+
+        def all_orders(self) -> list[object]:
+            return []
+
+    class _RecordingEngine(_ComparingEngine):
+        def __init__(self) -> None:
+            super().__init__()
+            self.recorded: object = "untouched"
+
+        def record_reconciliation(self, drifts: object) -> None:
+            self.recorded = drifts
+
+    engine = _RecordingEngine()
+    seams = build_reconciliation_monitor_seams(
+        broker=_Boom(), cache=_Cache(), engine=engine,
+    )
+    assert seams.reconcile() == ()
+    assert engine.recorded == "untouched", (
+        "we could not check; recording that as a clean check would tell an "
+        "operator the book was verified when it never was"
+    )
 
 
 def test_seams_advance_the_freshness_baseline_only_on_a_usable_read() -> None:

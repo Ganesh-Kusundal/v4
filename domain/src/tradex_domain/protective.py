@@ -1,4 +1,5 @@
 """Protective trigger checks against a single candle."""
+
 from tradex_domain.enums import OrderSide
 from tradex_domain.market import Candle
 from tradex_domain.value_objects import Price

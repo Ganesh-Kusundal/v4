@@ -78,16 +78,11 @@ from types import MappingProxyType
 from typing import TextIO
 
 from tradex_brokers.common.instruments import instrument_from_id
-from tradex_domain.constants import IST_TIMEZONE
+from tradex_domain.constants import IST_TIMEZONE, MAX_TAPE_BYTES, TAPE_RECORD_ENV_VAR
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Quote
 from tradex_domain.paths import default_runtime_dir
 from tradex_domain.value_objects import InstrumentId, Price, Quantity
-
-#: Environment variable that enables recording. The only accepted value is
-#: ``"1"``: ``bool(os.environ.get(...))`` reads ``"0"`` and ``"false"`` as on,
-#: which is how a gated feature ends up writing in production.
-TAPE_RECORD_ENV_VAR = "TRADEX_RECORD_TAPE"
 
 #: The one value of :data:`TAPE_RECORD_ENV_VAR` that turns recording on.
 TAPE_RECORD_ON = "1"
@@ -96,7 +91,7 @@ TAPE_RECORD_ON = "1"
 TAPE_DIR_NAME = "tapes"
 
 #: Rotate once the current segment reaches this many bytes.
-DEFAULT_MAX_BYTES = 64 * 1024 * 1024
+DEFAULT_MAX_BYTES = MAX_TAPE_BYTES
 
 #: The record's own keys. Anything else in a line is a later wave's field and
 #: rides along in ``extra``.

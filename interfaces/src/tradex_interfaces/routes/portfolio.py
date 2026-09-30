@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException
+from tradex_domain.constants import NO_SESSION_BOUND
 from tradex_execution.projection import execution_projection
 
 from tradex_interfaces._helpers import serialize_position
@@ -58,7 +59,7 @@ async def get_positions(
 async def get_holdings(session: Any | None = Depends(get_session)) -> list[dict]:
     """Get holdings (long-term positions)."""
     if session is None:
-        raise HTTPException(status_code=400, detail="no session bound")
+        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     # The same live book as ``/positions``. The broker's own holdings read is
     # deliberately NOT the source here: for paper the session's fill path
     # never writes the broker's position dict (``PaperFillSource`` owns no

@@ -37,6 +37,7 @@ rather than silently falling back to a flat quote.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -173,6 +174,7 @@ class PaperBookFillSource:
         tick: Decimal = Decimal("0.05"),
         cash: Decimal = Decimal("1000000000"),
         audit: BookAudit | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         if spread_bps < 0:
             raise ValueError(f"spread_bps must be >= 0, got {spread_bps}")
@@ -188,8 +190,16 @@ class PaperBookFillSource:
         self._tick = tick
         #: The existing book. ``project_positions=False`` because the engine is
         #: the book of record; ``auto_fill=True`` so a submit matches immediately.
+        #: ``clock`` is forwarded to the broker's session gate, which refuses a
+        #: fill outside 09:15-15:30 IST: a consumer that pins a simulated session
+        #: time (a parity run, a replay) must pin it here rather than inherit the
+        #: host clock, or the book silently stops matching after the close.
         self._broker: PaperBroker = PaperBroker(
-            starting_cash=cash, auto_fill=True, project_positions=False, order_book=True,
+            starting_cash=cash,
+            auto_fill=True,
+            project_positions=False,
+            order_book=True,
+            clock=clock,
         )
         #: The reactive cache, bound by the composition root after the engine
         #: exists, exactly as the slippage path's ``PaperFillSource`` is. It is

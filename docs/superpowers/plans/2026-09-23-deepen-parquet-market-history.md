@@ -174,7 +174,6 @@
 - [ ] Run frontend typecheck only as a sanity check because frontend source is not changed.
 - [ ] Inspect `git diff --stat` and `git diff --check`.
 - [ ] Run `git grep` to confirm no migrated history function rebuilt the direct pipeline.
-- [ ] Run the kanban update command if the repository skill path is available. The checked in `.qoder` path is currently absent, so do not fabricate or modify the kanban digest manually.
 - [ ] Request a fresh code review before merge, using the spec, this plan, the base commit `1b3c2b0`, and the final implementation commit.
 
 ## Rollback

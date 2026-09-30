@@ -44,6 +44,23 @@ the sizer would; it can never make it larger than ``max_order_value``.
 sizer could read a stop the order does not carry, the position would be sized
 against a risk that is not protected.
 
+**One source of truth, two modes** (C2, lane A)
+-------------------------------------------------
+``backtest.py`` builds a risk-budget sizer from ``(max_order_value,
+risk_fraction, equity=initial_capital)`` and hands it to its
+``ReactiveStrategyEngine``, while the live/paper composition root passed no
+``sizer=`` at all — so ``ReactiveStrategyEngine`` fell back to
+:func:`unconfigured_sizer`, which has no risk fraction, no equity, and a
+hardcoded notional. The same signal was therefore sized two different ways in
+the two modes, and **a backtest that sizes differently from live is not
+evidence about live behaviour**. :func:`account_sizer` is the one construction
+both modes now use: the composition root builds it once from the account's
+inputs and hands *that object* to both the live and the backtest engine, so the
+two cannot drift. It mirrors ``BacktestEngine._resolve_sizer`` field for field
+(including ``fallback_notional=max_order_value``), which is what makes the
+parity control in ``trading/tests/strategy/test_sizing_parity.py`` assert
+equality of the produced quantities rather than of the configuration.
+
 **Where lot and tick actually live.** The Dhan and Upstox master loaders park
 them in the registry's row meta as *strings* and never populate the typed
 ``Instrument.lot_size`` / ``Instrument.tick_size`` fields, so a sizer that
@@ -150,6 +167,71 @@ DEFAULT_MAX_ORDER_VALUE: Final = Decimal("100000")
 #: order it does place is comfortably fundable, and it is still a real order
 #: rather than a token one.
 UNCONFIGURED_FALLBACK_FRACTION: Final = Decimal("0.95")
+
+
+def account_sizer(
+    *,
+    equity: Any,
+    max_order_value: Any,
+    risk_fraction: Any | None,
+    equity_source: Callable[[], Decimal] | None = None,
+    contracts: Callable[[Any], ContractSpec | None] | None = None,
+    tick_size: Any | None = None,
+    label: str = "account",
+) -> PositionSizer:
+    """Build **the** account ``PositionSizer`` — one source of truth for sizing.
+
+    This is the fix for the parity break: ``backtest.py`` constructs a
+    risk-budget sizer from ``(max_order_value, risk_fraction,
+    equity=initial_capital)`` and hands it to its ``ReactiveStrategyEngine``,
+    while ``startup.py`` passed no ``sizer=`` at all, so the live/paper engine
+    fell back to :func:`unconfigured_sizer` — no risk fraction, no equity, a
+    hardcoded notional. The same signal was therefore sized two different ways
+    in the two modes, and a backtest that sizes differently from live is not
+    evidence about live behaviour. (Measured on the shipped ``sma_cross``:
+    8,333 shares backtest vs 7,916 live.)
+
+    The fix is not a second formula here, it is **this one factory** so both
+    engines are handed the *same object*, built from the same account inputs.
+    Wave 2 constructs it once at the composition root and passes it to both
+    ``ReactiveStrategyEngine(sizer=...)`` and ``BacktestEngine(sizer=...)``.
+
+    The parameters deliberately mirror :meth:`BacktestEngine._resolve_sizer`
+    field for field — ``max_order_value`` the notional ceiling, ``risk_fraction``
+    the risk budget, ``equity`` the account balance — so a sizer built here and
+    one built by the backtest from the same three numbers are the same sizer.
+    ``fallback_notional`` is wired to ``max_order_value``, matching the
+    backtest, so a signal with no knowable risk denominator takes the same
+    notional ceiling in both modes.
+
+    Args:
+        equity: account equity in rupees, or a live reading. For **backtest**
+            this is the run's *opening* capital (sizing against a balance the
+            run's own P&L produced is a feedback loop). For **live/paper** pass
+            the account's current balance via ``equity_source`` so each signal is
+            sized against the balance the session actually holds.
+        max_order_value: per-order notional ceiling in rupees; required.
+        risk_fraction: fraction of equity one trade may lose. ``None``
+            disables the risk formula (the sizer falls back to the notional).
+        equity_source: live balance reader, read at sizing time; takes
+            precedence over ``equity``. Omit for backtest.
+        contracts, tick_size: passed through to ``PositionSizer`` unchanged.
+        label: names this sizer in log lines.
+
+    Returns:
+        A configured ``PositionSizer`` identical to what the backtest builds
+        from the same inputs.
+    """
+    return PositionSizer(
+        max_order_value=max_order_value,
+        risk_fraction=risk_fraction,
+        equity=equity,
+        equity_source=equity_source,
+        fallback_notional=max_order_value,
+        contracts=contracts,
+        tick_size=tick_size,
+        label=label,
+    )
 
 
 def unconfigured_sizer() -> PositionSizer:
@@ -600,5 +682,6 @@ __all__ = [
     "ContractSpec",
     "PositionSizer",
     "SizingDecision",
+    "account_sizer",
     "unconfigured_sizer",
 ]

@@ -54,7 +54,7 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Any
 
-from tradex_domain.constants import IST_TIMEZONE
+from tradex_domain.constants import AVG_PRICE_FALLBACK_PREFIX, IST_TIMEZONE
 from tradex_domain.enums import OrderStatus
 from tradex_domain.events import OrderCancelled, OrderFilled, OrderPlaced
 from tradex_domain.execution import Fill, Order
@@ -71,11 +71,6 @@ _FILL_STATUSES = frozenset({OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED})
 #: mixed into one position would make ``fill.timestamp - lot_time`` in the
 #: analytics raise TypeError.
 IST = IST_TIMEZONE
-
-#: ``Fill.fill_id`` marker for a fill booked from the cumulative average
-#: because per-trade detail was unavailable. A per-trade fill always carries
-#: the venue's own trade id, so this prefix tells the two apart in the data.
-AVG_PRICE_FALLBACK_PREFIX = "avg-price:"
 
 #: Metric name for the fallback counter (so the platform can report how often
 #: it had no per-trade detail).

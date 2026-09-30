@@ -13,14 +13,22 @@ from __future__ import annotations
 
 import atexit
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
 from tradex_domain import BrokerId, OrderRejectedError
+from tradex_domain.constants import (
+    BOOK_MATCHING,
+    DEFAULT_BPS_DIVISOR,
+    MODES,
+    SERVICE_NAME,
+    VERSION_DEFAULT,
+)
 from tradex_domain.instruments import Instrument
 from tradex_domain.protocols import BrokerAdapter
 
@@ -165,6 +173,7 @@ def boot(
     validation_report_store: Any = None,
     reconciliation_monitor: Any = None,
     reconciliation_monitor_factory: Any = None,
+    paper_clock: Callable[[], datetime] | None = None,
 ) -> TradingSession:
     """Fail-closed boot: compose all components into a ready TradingSession.
 
@@ -261,17 +270,16 @@ def boot(
     # other format, and a root logger configured once cannot be un-configured
     # by anything that follows.
     setup_structured_logging(
-        "tradex",
+        SERVICE_NAME,
         json_format=cfg.logging.json_format,
         level=cfg.logging.level_value(),
     )
     log.info("Booting runtime context...")
 
     # 0. Safety gates
-    valid_modes = {"paper", "backtest", "replay", "live"}
-    if cfg.mode not in valid_modes:
+    if cfg.mode not in MODES:
         raise ValueError(
-            f"unknown mode: {cfg.mode!r}, must be one of {sorted(valid_modes)}"
+            f"unknown mode: {cfg.mode!r}, must be one of {sorted(MODES)}"
         )
     # AC-10 / lane 2f: in paper as well as live, no risk limit is optional. A
     # limit left at None refuses the boot; an operator who genuinely wants one
@@ -335,7 +343,7 @@ def boot(
     slippage_model: Any = None
     if cfg.execution.slippage_bps is not None:
         slippage_model = PercentageSlippageModel(
-            pct=cfg.execution.slippage_bps / Decimal(10000),
+            pct=cfg.execution.slippage_bps / DEFAULT_BPS_DIVISOR,
         )
     fee_calculator: FeeCalculator | None = (
         FeeCalculator() if cfg.execution.fees_enabled else None
@@ -350,13 +358,13 @@ def boot(
     fill_source: Any
     if cfg.mode == "paper":
         from tradex_runtime.paper_book_fill_source import (
-            BOOK_MATCHING,
             PaperBookFillSource,
         )
 
         if cfg.execution.fill_path == BOOK_MATCHING:
             fill_source = PaperBookFillSource(
                 spread_bps=cfg.execution.book_spread_bps,
+                clock=paper_clock,
             )
         else:
             fill_source = PaperFillSource(slippage_model=slippage_model)
@@ -684,7 +692,7 @@ def _boot_tail(
         for strategy in strategies:
             artifact = StrategyArtifact(
                 strategy_id=strategy.strategy_id,
-                version=str(getattr(strategy, "version", "1.0.0")),
+                version=str(getattr(strategy, "version", VERSION_DEFAULT)),
             )
             sid = strategy.strategy_id
 

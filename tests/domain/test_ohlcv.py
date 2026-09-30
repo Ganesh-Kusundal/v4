@@ -1,4 +1,5 @@
 """Tests for ohlcv."""
+
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -87,5 +88,6 @@ def test_aggregate_candles_preserves_instrument_timeframe_timestamp():
 
 def test_aggregate_candles_empty_raises():
     import pytest
+
     with pytest.raises(ValueError):
         aggregate_candles([])

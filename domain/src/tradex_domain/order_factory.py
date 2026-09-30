@@ -2,6 +2,7 @@
 
 Eliminates 8+ duplicate Order() construction sites across the codebase.
 """
+
 from decimal import Decimal
 
 from tradex_domain.enums import OrderStatus

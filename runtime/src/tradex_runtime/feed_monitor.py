@@ -34,6 +34,7 @@ from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
 from typing import Any
 
+from tradex_domain.constants import CADENCE_WINDOW, ORDER_FEED_STALE_AFTER
 from tradex_domain.instrument_lifecycle import (
     EXEMPT_STATES,
     normalize_status,
@@ -267,7 +268,6 @@ class FeedStaleMonitor:
 #: because order updates are event-driven and legitimately rare, but it must
 #: still be bounded — a socket that goes permanently quiet leaves a resting
 #: order believed live, which is the more expensive failure of the two.
-ORDER_FEED_STALE_AFTER = 60.0
 
 
 class OrderStreamWatchdog:
@@ -386,7 +386,7 @@ class OrderStreamWatchdog:
 #: an alarm that cries wolf on the illiquid is no alarm at all. Three minutes is
 #: the window the programme names, and it is short enough that a genuinely dead
 #: symbol is caught inside a single NIFTY bar.
-CADENCE_WINDOW_SECONDS = 180.0
+CADENCE_WINDOW_SECONDS = CADENCE_WINDOW
 
 #: How long a symbol must have been on the *wanted* set before a window with no
 #: tick at all in it counts against it.

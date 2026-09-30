@@ -34,6 +34,16 @@ from tradex_execution.trading_cache import TradingCache
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 
 
+def _session_clock() -> datetime:
+    """A pinned in-session instant (Wed 2026-07-15 10:30 IST).
+
+    ``PaperBroker``'s session gate refuses fills outside 09:15-15:30 IST, so a
+    fill test that inherits the host clock passes in the morning and fails
+    every evening.
+    """
+    return datetime(2026, 7, 15, 10, 30)
+
+
 class TestPaperFillConvergence:
     """PaperFillSource and PaperBroker fill at the same price for MARKET
     orders with seeded LTP quotes."""
@@ -65,7 +75,7 @@ class TestPaperFillConvergence:
         price_a = fill_a.price.value
 
         # Path B: PaperBroker (standalone adapter)
-        broker = PaperBroker(auto_fill=True)
+        broker = PaperBroker(auto_fill=True, clock=_session_clock)
         broker.set_quote(INSTRUMENT, ltp=ltp)
         broker.submit_order(request)
         positions = broker.get_positions()
@@ -104,7 +114,7 @@ class TestPaperFillConvergence:
         price_a = fill_a.price.value
 
         # Path B: PaperBroker
-        broker = PaperBroker(auto_fill=True)
+        broker = PaperBroker(auto_fill=True, clock=_session_clock)
         broker.set_quote(INSTRUMENT, ltp=ltp)
         broker.submit_order(request)
         positions = broker.get_positions()
@@ -145,7 +155,7 @@ class TestPaperFillConvergence:
         assert fill.price.value == ltp.value
 
         # PaperBroker: fills at limit price (100) for LIMIT orders
-        broker = PaperBroker(auto_fill=True)
+        broker = PaperBroker(auto_fill=True, clock=_session_clock)
         broker.set_quote(INSTRUMENT, ltp=ltp)
         broker.submit_order(request)
         positions = broker.get_positions()

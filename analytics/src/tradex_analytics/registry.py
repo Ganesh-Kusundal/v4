@@ -47,6 +47,8 @@ class IndicatorResult:
     values: dict[str, list] = field(default_factory=dict)
 
     def __getitem__(self, key: str) -> list:
+        # Convenience: ``result['value']`` reads like a dict without
+        # forcing callers to spell out ``.values['value']`` every time.
         return self.values[key]
 
     def __contains__(self, key: str) -> bool:
@@ -82,6 +84,8 @@ class IndicatorRegistry:
 
     def get(self, name: str) -> Any:
         """Return the spec for *name*; raise ``KeyError`` if unknown."""
+        # Fast path: read without the lock; the dict swap is atomic in CPython
+        # and a stale miss is recovered on retry.
         spec = self._specs.get(name)
         if spec is not None:
             return spec
@@ -102,12 +106,10 @@ class IndicatorRegistry:
             self._specs.pop(name, None)
 
     def register_legacy_aliases(self, aliases: dict[str, dict[str, str]]) -> None:
-        """Register legacy param name aliases for indicators."""
         with self._lock:
             self._legacy_aliases.update(aliases)
 
     def get_legacy_aliases(self, indicator_id: str) -> dict[str, str]:
-        """Return legacy param aliases for *indicator_id*."""
         with self._lock:
             return dict(self._legacy_aliases.get(indicator_id, {}))
 
@@ -120,9 +122,21 @@ class IndicatorRegistry:
         result is already an :class:`IndicatorResult`, it is returned as-is;
         otherwise it is normalised into one (a list becomes the ``'value'``
         output; a dict becomes a 1:1 mapping of output names to value-lists).
+
+        The registry holds two spec shapes on purpose. The decorator form
+        (this module's :class:`IndicatorSpec`) binds the function as
+        ``.compute``; the production catalog spec declared in
+        ``tradex_analytics.indicators`` binds it as ``.fn`` and carries the
+        plot/level metadata the chart needs. Both are registered here, so the
+        callable is resolved from whichever attribute is present rather than
+        assuming one shape.
         """
         spec = self.get(name)
-        fn = getattr(spec, "compute", None) or spec.fn
+        fn = getattr(spec, "compute", None) or getattr(spec, "fn", None)
+        if fn is None:
+            raise TypeError(
+                f"indicator {name!r} is registered without a compute function"
+            )
         raw = fn(series, **params)
         if isinstance(raw, IndicatorResult):
             return raw
@@ -131,6 +145,8 @@ class IndicatorRegistry:
         return IndicatorResult(values={"value": raw})
 
 
+# Module-level default registry — most callers want a single, process-wide
+# instance populated by decorator-based self-registration at import time.
 REGISTRY = IndicatorRegistry()
 
 
@@ -173,3 +189,5 @@ def register_indicator(
         return fn
 
     return _decorator
+
+

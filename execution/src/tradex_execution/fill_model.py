@@ -135,4 +135,19 @@ class FillModel:
             strategy_id=fill.strategy_id,
         )
 
+    @staticmethod
+    def reprice_fill(fill: Fill, new_price: Price) -> Fill:
+        """Rebuild a fill at a new price, preserving its recorded identity
+        (instrument/side/quantity/timestamp/product/strategy)."""
+        return Fill(
+            order_id=fill.order_id,
+            instrument=fill.instrument,
+            side=fill.side,
+            quantity=fill.quantity,
+            price=new_price,
+            timestamp=fill.timestamp,
+            product_type=fill.product_type,
+            strategy_id=fill.strategy_id,
+        )
+
 

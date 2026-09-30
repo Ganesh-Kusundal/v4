@@ -1,4 +1,5 @@
 """Single order ID minting path."""
+
 import uuid
 
 

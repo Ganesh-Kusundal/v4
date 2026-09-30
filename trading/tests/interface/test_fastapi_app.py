@@ -1646,11 +1646,16 @@ class TestPaperSessionEndToEnd:
         assert r.json()["balance"] is not None
 
     def test_history_endpoint_returns_bars(self, client):
-        """GET /history works end-to-end (2-arg market.history call → default
-        lookback) instead of 500ing on the missing window."""
+        """GET /history is capability-loud on paper, not empty-but-200.
+
+        The endpoint used to assert ``200`` with ``[]``, which a caller cannot
+        tell from "the market was shut". C5d made the broker refuse, and this
+        route now reports the refusal the same way ``/option-chain`` already
+        did one test below: 500 with a message naming the missing capability.
+        """
         r = client.get("/history/NSE:RELIANCE?timeframe=1d")
-        assert r.status_code == 200
-        assert r.json() == []
+        assert r.status_code == 500
+        assert "supports_history" in r.json()["error"]["message"]
 
     def test_option_chain_is_capability_loud_on_paper(self, client):
         """Paper declares no option-chain support — the API reflects the real

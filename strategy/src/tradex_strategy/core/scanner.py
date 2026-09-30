@@ -449,7 +449,16 @@ class ScannerEngine:
             self._limiter.acquire()
         try:
             return self._market.history(instrument, Timeframe.D1, start, end)
-        except SDKError:
+        except (SDKError, NotImplementedError):
+            # ``NotImplementedError`` is not an ``SDKError``: the paper broker
+            # raises ``PaperHistoryNotImplemented`` (C5d) rather than fabricate
+            # an empty series, which is right for a caller that would
+            # otherwise read "no data" as "the market was shut". A screener is
+            # a different kind of caller — it asks "does anything score here?"
+            # and an empty answer is a legitimate one, not a wrong window. So
+            # the refusal is absorbed here and degrades that one symbol to an
+            # empty series, which is the same contract the SDKError branch
+            # already had.
             return HistoricalSeries(
                 instrument=instrument,
                 timeframe=Timeframe.D1,

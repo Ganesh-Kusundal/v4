@@ -75,6 +75,7 @@ import pytest
 from tradex_analytics.trade_metrics import Trade, round_trip_trades
 from tradex_config.schema import AppConfig, ExecutionConfig
 from tradex_domain import OHLC, Candle, Fill, OrderSide, Signal, Timeframe
+from tradex_domain.constants import BOOK_MATCHING, SLIPPAGE_MODEL
 from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Position
 from tradex_domain.instruments import Equity
@@ -84,8 +85,6 @@ from tradex_execution.projection import execution_projection
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.bar_aggregator import BarAggregator, BarFrame
 from tradex_runtime.paper_book_fill_source import (
-    BOOK_MATCHING,
-    SLIPPAGE_MODEL,
     PaperBookFillSource,
 )
 from tradex_runtime.session_impl import TradingSession
@@ -330,6 +329,10 @@ def _run_path(
                 book_spread_bps=book_spread_bps,
             )
         ),
+        # The oracle walks PaperBroker's book, whose session gate refuses a
+        # fill outside 09:15-15:30 IST. Pinned so this comparison means the
+        # same thing in the morning and after the close.
+        paper_clock=_session_clock,
     )
     # AC-22: the strategy hands its sized request to the session's engine
     # directly. Constructed after the session so the callable exists.
@@ -424,6 +427,11 @@ def _unmatched_report(oracle: _Run, other: _Run) -> str:
             f"oracle orders={oracle.filled_orders} {other.label} orders={other.filled_orders})"
         )
     return "\n".join(lines)
+
+
+def _session_clock() -> datetime:
+    """A pinned in-session instant (Wed 2026-07-15 10:30 IST)."""
+    return datetime(2026, 7, 15, 10, 30)
 
 
 # ---------------------------------------------------------------------------

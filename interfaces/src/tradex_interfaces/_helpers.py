@@ -10,6 +10,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
+from tradex_domain.constants import (
+    LIVE_ORDERS_ENABLED_KEY,
+    READY_STATE,
+    WS_FEED_STATUS_READY_KEY,
+    WS_FEED_STATUS_STATE_KEY,
+    WS_MESSAGE_TYPE_KEY,
+)
+
 from tradex_interfaces.models import HealthResponse, PositionResponse
 
 
@@ -63,7 +71,7 @@ def is_ready(session: Any | None) -> bool:
     """True when the bound session (if any) is READY — the /health/ready gate."""
     if session is None:
         return True
-    if str(getattr(session, "state", None)) != "READY":
+    if str(getattr(session, "state", None)) != READY_STATE:
         return False
     supervisor = _feed_supervisor(session)
     return supervisor is None or bool(supervisor.ready)
@@ -81,13 +89,13 @@ def feed_status_payload(session: Any | None) -> dict[str, Any]:
     supervisor = _feed_supervisor(session) if session is not None else None
     if supervisor is None:
         return {
-            "type": "feed_status",
-            "state": None,
-            "ready": None,
+            WS_MESSAGE_TYPE_KEY: "feed_status",
+            WS_FEED_STATUS_STATE_KEY: None,
+            WS_FEED_STATUS_READY_KEY: None,
             "generation": None,
             "last_event_at": None,
             "age_seconds": None,
-            "live_orders_enabled": True,
+            LIVE_ORDERS_ENABLED_KEY: True,
         }
     last_event_at = getattr(supervisor, "last_event_at", None)
     age: float | None = None
@@ -96,9 +104,9 @@ def feed_status_payload(session: Any | None) -> dict[str, Any]:
         age = max(0.0, (datetime.now(UTC) - stamp).total_seconds())
     ready = bool(getattr(supervisor, "ready", False))
     return {
-        "type": "feed_status",
-        "state": str(getattr(supervisor, "state", "")) or None,
-        "ready": ready,
+        WS_MESSAGE_TYPE_KEY: "feed_status",
+        WS_FEED_STATUS_STATE_KEY: str(getattr(supervisor, "state", "")) or None,
+        WS_FEED_STATUS_READY_KEY: ready,
         "generation": int(getattr(supervisor, "generation", 0) or 0),
         "last_event_at": (
             last_event_at.isoformat()
@@ -106,7 +114,7 @@ def feed_status_payload(session: Any | None) -> dict[str, Any]:
             else None
         ),
         "age_seconds": age,
-        "live_orders_enabled": ready,
+        LIVE_ORDERS_ENABLED_KEY: ready,
     }
 
 

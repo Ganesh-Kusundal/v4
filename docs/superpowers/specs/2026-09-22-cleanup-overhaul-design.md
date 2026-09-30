@@ -45,7 +45,7 @@ state roots, collapse shallow order-persistence modules, consolidate operator
 scripts, and re-cut analytics files by concept. One commit per phase, each
 independently revertible.
 
-## Constraints (carried from `.kanban/CONTEXT.md`)
+## Constraints
 
 - **Never delete untracked files.** Every deletion target must be either
   (a) gitignored **and** rebuildable, or (b) tracked and verified by grep/audit +
@@ -232,9 +232,8 @@ wanted); any formula/behaviour change.
 ## Phase 6 — Golden-parity consolidation (candidate 6, opportunistic)
 
 - Execute **only if** Phases 1–5 disturb golden paths or generators.
-- Otherwise: recorded as a deferred follow-up in the kanban digest — one
-  `tests/goldens/` package (baseline vs crossimpl contracts) and one
-  parameterised generator script.
+- Otherwise: deferred follow-up — one `tests/goldens/` package (baseline vs
+  crossimpl contracts) and one parameterised generator script.
 
 ## Validation (every phase)
 

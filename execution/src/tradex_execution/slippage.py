@@ -13,6 +13,8 @@ from tradex_domain.enums import OrderSide
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.value_objects import OrderId, Price, Quantity
 
+from tradex_execution.fill_model import FillModel
+
 if TYPE_CHECKING:
     from tradex_execution.fill_sources import FillSource
 
@@ -78,18 +80,7 @@ class SlippageAwareFillSource:
         order, fill = self._inner.submit(request)
         if fill is not None:
             adjusted_price = self._slippage.apply(fill.price, fill.side, fill.quantity)
-            fill = Fill(
-                order_id=fill.order_id,
-                instrument=fill.instrument,
-                side=fill.side,
-                quantity=fill.quantity,
-                price=adjusted_price,
-                timestamp=fill.timestamp,
-                # This wrapper rebuilds the fill to re-price it, so the
-                # product has to travel with it — a re-priced DELIVERY fill
-                # that lost its label would be charged the intraday schedule.
-                product_type=fill.product_type,
-            )
+            fill = FillModel.reprice_fill(fill, adjusted_price)
         return order, fill
 
     def cancel(self, order_id: OrderId) -> None:

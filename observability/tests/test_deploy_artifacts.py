@@ -499,7 +499,13 @@ def test_readiness_refuses_a_session_that_is_not_ready() -> None:
     text = helpers.read_text(encoding="utf-8")
     assert "def is_ready(" in text, "is_ready is gone; nothing can gate readiness"
     is_ready_body = _function_body(text, "is_ready")
-    assert '"READY"' in is_ready_body, (
+    # The comparison may name the value directly or through the constant that
+    # carries it. The constant is pinned to the same value first, so accepting
+    # the second spelling cannot make this pass vacuously.
+    from tradex_domain.constants import READY_STATE
+
+    assert READY_STATE == "READY", "READY_STATE no longer holds the READY value"
+    assert '"READY"' in is_ready_body or "READY_STATE" in is_ready_body, (
         "is_ready no longer compares the session state against READY"
     )
     assert "supervisor" in is_ready_body, (
