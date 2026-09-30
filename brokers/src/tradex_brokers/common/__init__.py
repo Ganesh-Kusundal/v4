@@ -10,9 +10,11 @@ Re-exports the key types so that adapters can do::
 """
 
 from tradex_brokers.common.auth import (
-    dhan_totp_mint,
     jwt_expiry,
     totp_code,
+)
+from tradex_brokers.common.auth_flow import (
+    dhan_totp_mint,
     upstox_refresh_mint,
     upstox_totp_mint,
 )
