@@ -45,6 +45,7 @@ from tradex_interfaces.queueing import (
 )
 from tradex_interfaces.replay_guard import ReplayGuard
 from tradex_interfaces.replay_run import ReplayRun
+from tradex_interfaces.routes.indicator_stream import IndicatorStream
 from tradex_interfaces.routes.stream_indicators import IndicatorStreamRegistry
 
 log = logging.getLogger(__name__)
@@ -610,68 +611,13 @@ async def ws_stream(
         indicator_registry = IndicatorStreamRegistry(
             lambda frame_dict: _track_drop(_enqueue_drop_oldest(ticks, frame_dict))
         )
+        indicator_stream = IndicatorStream(indicator_registry, _ack)
 
         def _indicator_sub(msg: dict[str, Any]) -> None:
-            items = msg.get("indicators")
-            if not isinstance(items, list) or not items:
-                _ack({
-                    "type": "error",
-                    "message": (
-                        "indicator-sub needs 'indicators': "
-                        "[{instrument, interval, ids, mode?}]"
-                    ),
-                })
-                return
-            accepted = []
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                try:
-                    ids = indicator_registry.add(
-                        str(item.get("instrument", "")),
-                        str(item.get("interval", "1m")),
-                        [str(i) for i in (item.get("ids") or [])],
-                        str(item.get("mode", "bar-close")),
-                    )
-                except ValueError as exc:
-                    _ack({"type": "error", "message": str(exc)})
-                    return
-                accepted.append({
-                    "instrument": str(item.get("instrument", "")),
-                    "interval": str(item.get("interval", "1m")),
-                    "ids": ids,
-                    "mode": str(item.get("mode", "bar-close")),
-                })
-            _ack({"type": "indicator-subscribed", "indicators": accepted})
+            indicator_stream.sub(msg)
 
         def _indicator_unsub(msg: dict[str, Any]) -> None:
-            items = msg.get("indicators")
-            if not isinstance(items, list) or not items:
-                _ack({
-                    "type": "error",
-                    "message": (
-                        "indicator-unsub needs 'indicators': "
-                        "[{instrument, interval, ids?}]"
-                    ),
-                })
-                return
-            removed = []
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                ids = item.get("ids")
-                dropped_ids = indicator_registry.remove(
-                    str(item.get("instrument", "")),
-                    str(item.get("interval", "1m")),
-                    [str(i) for i in ids] if ids else None,
-                )
-                removed.append({
-                    "instrument": str(item.get("instrument", "")),
-                    "interval": str(item.get("interval", "1m")),
-                    "ids": dropped_ids,
-                })
-            _ack({"type": "indicator-unsubscribed", "indicators": removed})
-
+            indicator_stream.unsub(msg)
         def _make_aggregator(
             inst_id: str,
             interval: str,
