@@ -58,6 +58,7 @@ from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 
 from tradex_execution.cash_ledger import CashLedger, CashSnapshot
 from tradex_execution.cash_manager import CashManager
+from tradex_execution.fee_processor import FeeProcessor
 from tradex_execution.fees import (
     FeeCalculator,
     UnsupportedProductTypeError,
@@ -251,6 +252,7 @@ class ExecutionEngine:
         self._require_durable_events = require_durable_events
         self._guard_lock = threading.Lock()
         self._fee_calculator = fee_calculator
+        self._fee_processor = FeeProcessor(fee_calculator)
         #: The cash floor policy, retained because a ledger can also be created
         #: long after construction by ``restore_cash`` (the live/paper seed).
         #: That ledger has to be born under the same policy the constructor
@@ -266,8 +268,6 @@ class ExecutionEngine:
         self._position_manager = PositionManager(self._cache)
         self._kill_switch = KillSwitch(metrics=metrics, risk=risk_manager, cache=self._cache)
         self._reconciler = reconciler if reconciler is not None else ReconciliationEngine()
-        self._brokerage_accrued: dict[str, Decimal] = {}
-        self._brokerage_lock = threading.Lock()  # ponytail: unbounded, LRU 50k if needed
         #: Bounded LRU dedup for applied fill events — re-published broker
         #: fills are skipped, distinct partial fills are each applied in full.
         #: Eviction is observable via the ``bus.applied_fills.evicted`` counter.
@@ -856,6 +856,11 @@ class ExecutionEngine:
         self._cash_manager.restore(cash, total_fees, re_anchor=re_anchor)
 
     @property
+    def _brokerage_accrued(self) -> dict[str, Decimal]:
+        """Brokerage accrual state, owned by the FeeProcessor."""
+        return self._fee_processor._brokerage_accrued
+
+    @property
     def _cash_ledger(self) -> CashLedger | None:
         """The cash ledger, owned by the CashManager."""
         return self._cash_manager._ledger
@@ -957,36 +962,13 @@ class ExecutionEngine:
         self._cash_ledger.require_debit(debit + charged_fee, f"fill {fill.order_id}")
 
     def _compute_fee(self, fill: Fill) -> Decimal:
-        """Compute *fill*'s fee and advance the capped-brokerage accrual.
-
-        Separate from application so the charged amount is known *before* any
-        state moves and can be persisted with the event. The ₹20 per-order cap
-        accrues across a partial-fill sequence, so replay cannot re-derive this
-        from a single fill (H2).
-        """
-        if self._fee_calculator is None:
-            return Decimal(0)
-        oid = fill.order_id.value if hasattr(fill.order_id, "value") else str(fill.order_id)
-        with self._brokerage_lock:
-            accrued = self._brokerage_accrued.get(oid, Decimal(0))
-            fee, self._brokerage_accrued[oid] = self._fee_calculator.calculate_capped(
-                fill, accrued,
-            )
-        return fee.amount
+        """Compute *fill*'s fee. Delegates to :class:`FeeProcessor`."""
+        return self._fee_processor.compute_fee(fill)
 
     def _fee_for_fill(self, fill: Fill) -> Decimal:
-        """The fee to charge for *fill*: recorded if replaying, else computed.
-
-        A replay source carries the fee actually charged on the original run.
-        Using it keeps replayed history equal to the run it replays; recomputing
-        from today's rate table would silently rewrite past costs.
-        """
+        """The fee to charge for *fill*. Delegates to :class:`FeeProcessor`."""
         recorded = getattr(self._fill, "recorded_fee_for", None)
-        if recorded is not None:
-            fee = recorded(fill)
-            if fee is not None:
-                return fee
-        return self._compute_fee(fill)
+        return self._fee_processor.fee_for_fill(fill, recorded)
 
     def _apply_fee(self, fill: Fill, charged: Decimal | None = None) -> None:
         """Deduct *fill*'s fee from the position's realized P&L and cash.
