@@ -172,6 +172,7 @@ class PaperBookFillSource:
         levels: int = 5,
         tick: Decimal = Decimal("0.05"),
         cash: Decimal = Decimal("1000000000"),
+        audit: BookAudit | None = None,
     ) -> None:
         if spread_bps < 0:
             raise ValueError(f"spread_bps must be >= 0, got {spread_bps}")
@@ -199,7 +200,7 @@ class PaperBookFillSource:
         #: better than the cache. When absent the cache LTP, then the order's own
         #: price, is the reference.
         self._mid: dict[str, Price] = {}
-        self._audit = BookAudit()
+        self._audit = audit if audit is not None else BookAudit()
         #: Filled-quantity seen per broker order id, so re-reading an order never
         #: double-counts a walk.
         self._last_seen_filled: dict[str, Decimal] = {}

@@ -188,6 +188,7 @@ class ScannerEngine:
         min_call_interval: float | None = None,
         cache_ttl_seconds: float = _DEFAULT_CACHE_TTL_SECONDS,
         cache_max_entries: int = _DEFAULT_CACHE_MAX_ENTRIES,
+        limiter: ScanRateLimiter | None = None,
     ) -> None:
         self._market = market
         if analytics is None:
@@ -202,7 +203,7 @@ class ScannerEngine:
         self._buffers: dict[str, deque[Candle]] = defaultdict(self._new_buffer)
         # AC-13 rate limit.  ``None`` means "decide from the provider",
         # which is the wiring-aware answer; an explicit 0.0 opts out.
-        self._limiter = ScanRateLimiter(
+        self._limiter = limiter if limiter is not None else ScanRateLimiter(
             min_interval=(
                 scanner_call_interval(market)
                 if min_call_interval is None
