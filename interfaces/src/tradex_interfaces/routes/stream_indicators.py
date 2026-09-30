@@ -791,10 +791,13 @@ class IndicatorStreamRegistry:
 
         Runs on the event loop (``ReactiveBus`` delivers synchronously), so
         everything blocking is behind the process-level caches.
+
+        Zero parity: indicators compute on every bar for their subscribed
+        (instrument, timeframe), regardless of whether the bar came from a
+        live broker or the replay engine. The ``source`` field is metadata,
+        not a routing key — filtering on it here would make replay indicators
+        diverge from live ones.
         """
-        # Chart-replay sim bars must not rewrite live indicator state.
-        if getattr(frame, "source", None) == "sim":
-            return
         key_prefix = (frame.instrument, frame.timeframe)
         targets = [k for k in self._subs if k[:2] == key_prefix]
         if not targets:

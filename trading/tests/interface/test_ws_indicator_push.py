@@ -116,8 +116,13 @@ def test_unsub_silences_and_scopes():
     assert not reg.has_subs("NSE:RELIANCE", "1m")
 
 
-def test_sim_source_does_not_push_indicators():
-    """Chart-replay sim bars must not rewrite live indicator state."""
+def test_sim_source_pushes_indicators():
+    """Zero parity: sim bars push indicators exactly like live bars.
+
+    The source field is metadata, not a routing key. A replay bar for a
+    subscribed (instrument, timeframe) must trigger indicator computation
+    identically to a live bar.
+    """
     from tradex_runtime.bar_aggregator import BarFrame
 
     pushed: list[dict] = []
@@ -136,9 +141,9 @@ def test_sim_source_does_not_push_indicators():
         source="sim",
     )
     reg.handle_bar_frame(sim)
-    assert pushed == []
+    assert len(pushed) == 1, "sim bar must push indicators (zero parity)"
     reg.handle_bar_frame(_frame(closed=True))
-    assert len(pushed) == 1
+    assert len(pushed) == 2
 
 
 def test_ws_indicator_sub_ack_and_error():
