@@ -134,8 +134,25 @@ disable_error_code = ["no-any-return", "misc"]
 module = "tradex_brokers.proto.*_pb2"
 ignore_errors = true
 
+# Layering contracts below are a strict stack: each layer may import the ones
+# above it in this list, never the ones below.
+#
+# `tradex_reactive` and `tradex_observability` are deliberately ABSENT from every
+# layer's `forbidden_modules`, and that is not an oversight. Both import nothing
+# from the workspace (verified: zero tradex_* imports in either package), so they
+# are leaves in the strict sense — depending on them cannot create a cycle or an
+# upward edge, which is the only thing these contracts exist to prevent. The event
+# bus and the metric/tracing sinks are infrastructure every layer is *expected* to
+# use, exactly as `logging` is. Their own two contracts, at the end of this
+# section, still forbid them from importing anything, which is the constraint that
+# actually matters: the leaves must stay leaves, and must not reach each other.
+#
+# They were listed as forbidden in every layer until 2026-09-30, which reported 6
+# broken contracts while every one of those edges was architecturally correct.
 [tool.importlinter]
 root_packages = [
+    "tradex_reactive",
+    "tradex_observability",
     "tradex_shared",
     "tradex_domain",
     "tradex_config",
@@ -148,8 +165,6 @@ root_packages = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -171,8 +186,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -193,8 +206,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -204,6 +215,20 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "market_data layer"
 type = "forbidden"
+# `tradex_research` is deliberately absent here, and that is a recorded decision
+# rather than a gap. The point-in-time universe guard belongs in the loader,
+# because the loader is what every caller (the HTTP route and the CLI) actually
+# goes through: one call site means neither can forget it and a third caller
+# cannot bypass it. The alternative considered and rejected was putting the guard
+# in the route, which would have meant breaking a deliberate rule that interface
+# routes never import research. See `.superpowers/sdd/mk3.py` (lane c4) for the
+# reasoning, and `tests/test_import_boundaries.py::_ALLOWED`, which carries the
+# matching exception.
+#
+# What this costs: `market_data` sits below `research` in the stack, so it is an
+# upward edge, and upward edges are what these contracts exist to catch. It is
+# accepted because the edge is two import lines to stdlib-only validators and
+# frozen dataclasses, not a load-bearing dependency on research behaviour.
 source_modules = ["tradex_market_data"]
 forbidden_modules = [
     "tradex_brokers",
@@ -214,11 +239,8 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
-    "tradex_research",
     "tradex_operations",
 ]
 
@@ -234,8 +256,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -253,8 +273,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -271,8 +289,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -288,8 +304,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -304,8 +318,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -326,8 +338,6 @@ forbidden_modules = [
     "tradex_runtime",
     "tradex_interfaces",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -347,8 +357,6 @@ forbidden_modules = [
     "tradex_strategy",
     "tradex_runtime",
     "tradex_interfaces",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_application",
     "tradex_persistence",
     "tradex_research",
@@ -411,8 +419,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_reactive",
-    "tradex_observability",
     "tradex_persistence",
     "tradex_research",
     "tradex_operations",
