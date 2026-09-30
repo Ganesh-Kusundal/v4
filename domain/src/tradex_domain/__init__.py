@@ -4,6 +4,7 @@ Owns entities, value objects, enums, errors, protocols, capabilities,
 wire mapping, and domain events. Never imports broker or infrastructure code.
 """
 
+from tradex_domain.bar_source import BarSource
 from tradex_domain.capabilities import (
     BrokerCapabilities,
     require_capability,
@@ -102,6 +103,7 @@ from tradex_domain.wire import (
 )
 
 __all__ = [
+    "BarSource",
     "REQUIRED_RISK_LIMITS",
     "UNBOUNDED",
     # enums
