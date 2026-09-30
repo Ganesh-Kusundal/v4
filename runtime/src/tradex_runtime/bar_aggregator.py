@@ -85,6 +85,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from tradex_domain.bar_source import BarSource
 from tradex_domain.constants import IST_TIMEZONE
 from tradex_domain.enums import Timeframe
 from tradex_domain.market import OHLC, Candle, Quote
@@ -360,7 +361,7 @@ class BarAggregator:
         self._connection_generation = connection_generation
         self._quality_flags = tuple(quality_flags)
         self._bucket: _Bucket | None = None
-        self._source = "live"
+        self._source = BarSource.LIVE
         self._disposed = False
         self._provisional_default = bool(provisional)
         self._provisional = bool(provisional)
@@ -488,7 +489,7 @@ class BarAggregator:
         # Forming-bar updates are throttled for live broker quotes; simulation / replay
         # ticks must emit every intra-candle update so candle formation is visible on the chart.
         if (
-            source == "sim"
+            source is BarSource.SIM
             or starting_new
             or now - self._last_forming_emit >= FORMING_FRAME_MIN_INTERVAL
         ):
@@ -541,7 +542,7 @@ class BarAggregator:
         now: float,
         price: float,
         volume: float,
-        source: str,
+        source: BarSource | str,
     ) -> None:
         """Offer a late print that arrived at monotonic *now* to the bar at *start*.
 
