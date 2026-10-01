@@ -10,7 +10,8 @@ requires-python = ">=3.12"
 
 dependencies = [
     "tradex-domain>=0.1.0,<0.2",
-    "tradex-brokers>=0.1.0,<0.2",
+    # ``tradex-brokers`` was removed (REF-16): nothing under market_data/src
+    # (or its tests) imports tradex_brokers — verified by grep.
     # The datalake is a real runtime dependency, not an optional extra: the
     # Parquet store, sync, gap and provider paths import these at module level.
     # They used to arrive only through the removed tradex-trading[datalake]

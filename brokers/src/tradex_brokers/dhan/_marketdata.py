@@ -183,18 +183,16 @@ class MarketDataMixin(Protocol):
         end: datetime,
     ) -> HistoricalSeries:
         """Historical candles via POST /charts/intraday or /charts/historical."""
-        from tradex_domain.timeframe import bucket_seconds, dhan_interval
+        from tradex_domain.timeframe import (
+            INTERVAL_TO_TIMEFRAME,
+            bucket_seconds,
+            dhan_interval,
+        )
 
         interval = timeframe.value if isinstance(timeframe, Timeframe) else str(timeframe)
         # Single-sourced interval map (domain/timeframe.py) — None means unsupported (M30/W1)
         dhan_int = dhan_interval(interval)
-        requested_timeframe = {
-            "1m": Timeframe.M1,
-            "5m": Timeframe.M5,
-            "15m": Timeframe.M15,
-            "1h": Timeframe.H1,
-            "1d": Timeframe.D1,
-        }.get(interval)
+        requested_timeframe = INTERVAL_TO_TIMEFRAME.get(interval)
         if requested_timeframe is None or dhan_int is None and interval != "1d":
             raise ValueError(f"unsupported Dhan timeframe: {interval!r}")
         segment = self._segment(instrument)

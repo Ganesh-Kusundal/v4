@@ -8,10 +8,11 @@ if TYPE_CHECKING:
     from tradex_brokers.upstox._facade import UptoxFacade
 
 
+from tradex_brokers.common.mixins import SharedAdminMixin
 from tradex_brokers.common.provider_common import unwrap_data
 
 
-class AdminMixin(Protocol):
+class AdminMixin(SharedAdminMixin, Protocol):
     def kill_switch(self: UptoxFacade, enable: bool = True) -> dict[str, object]:
         """Broker-side kill switch via PUT /user/kill-switch."""
         status = "ENABLED" if enable else "DISABLED"
@@ -28,8 +29,4 @@ class AdminMixin(Protocol):
         )
         raw = unwrap_data(body)
         return raw if isinstance(raw, dict) else {}
-
-    def invalidate_read_cache(self: UptoxFacade) -> None:
-        """Drop cached read responses so a verification probe hits the wire."""
-        self._http.invalidate_cache()
 

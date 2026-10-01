@@ -90,7 +90,7 @@ from tradex_domain.constants import IST_TIMEZONE
 from tradex_domain.enums import Timeframe
 from tradex_domain.market import OHLC, Candle, Quote
 from tradex_domain.market_calendar import to_ist_naive
-from tradex_domain.timeframe import bucket_seconds, bucket_start
+from tradex_domain.timeframe import bucket_start, interval_seconds
 from tradex_domain.value_objects import Price, Quantity
 
 log = logging.getLogger(__name__)
@@ -144,13 +144,6 @@ class BarFrame:
     connection_generation: int | None = None
     quality_flags: tuple[str, ...] = ()
 
-
-def _tf_seconds(timeframe: Timeframe) -> int:
-    """Bucket width in seconds for *timeframe*, from the canonical registry."""
-    try:
-        return bucket_seconds(timeframe)
-    except KeyError:
-        raise ValueError(f"bar aggregation unsupported for timeframe {timeframe}") from None
 
 class _Bucket:
     """One accumulating bar."""
@@ -353,7 +346,7 @@ class BarAggregator:
     ) -> None:
         self._instrument_id = instrument_id
         self._timeframe = timeframe
-        self._seconds = _tf_seconds(timeframe)
+        self._seconds = interval_seconds(timeframe)
         self._on_frame = on_frame
         self._now = now
         self._run_id = run_id

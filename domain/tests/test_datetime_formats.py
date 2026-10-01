@@ -5,16 +5,22 @@ were previously spelled as bare literals inside broker adapters:
 
 * ``DASHED_DATETIME`` == ``"%Y-%m-%d %H:%M:%S"`` — the Dhan intraday chart
   ``fromDate``/``toDate`` request field, and the space-separated slot in the
-  provider fallback ladder.
+  canonical timestamp fallback ladder.
 * ``DASHED_DATE`` == ``"%Y-%m-%d"`` — the Dhan historical chart range and the
-  date-only slot in the provider fallback ladder.
+  date-only slot in the canonical timestamp fallback ladder.
 
 Naming them must change nothing observable, so these tests pin the *values*
-(not merely the names) and then re-derive the ``provider_common`` fallback
-ladder's behaviour from first principles, comparing it against a hardcoded
+(not merely the names) and then re-derive the canonical fallback ladder's
+behaviour from first principles, comparing it against a hardcoded
 BEFORE snapshot captured from the original all-literal ladder.  If a format
 string ever drifts by a character, or the ladder is reordered or collapsed,
 these fail.
+
+The canonical ladder itself lives in
+:func:`tradex_domain.serialization.parse_timestamp` (REF-11: the single
+timestamp parsing entry point; ``provider_common.parse_timestamp`` is now a
+thin wrapper).  These tests import it from domain — domain tests must never
+reach into ``tradex_brokers`` (F10 boundary).
 
 The compact ``"%Y%m%d"`` instrument-key expiry contract belongs to a different
 family and is guarded separately in ``test_instrument_key_expiry_format.py``;
@@ -26,10 +32,10 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from tradex_brokers.common.provider_common import parse_timestamp
 
 from tradex_domain import SDKError
 from tradex_domain.datetime_formats import DASHED_DATE, DASHED_DATETIME
+from tradex_domain.serialization import parse_timestamp
 from tradex_domain.value_objects import INSTRUMENT_KEY_EXPIRY_FORMAT
 
 #: The literals that were hardcoded at every call site before the constants

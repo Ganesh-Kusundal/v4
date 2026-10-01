@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
 from tradex_domain import (
     Equity,
     Fill,
@@ -104,11 +105,13 @@ class _NoMethodBroker:
     pass
 
 
-def test_broker_source_without_submit_still_returns_ack() -> None:
-    # v4 BrokerFillSource always creates an ACK order even without submit_order
-    source = BrokerFillSource(broker=_NoMethodBroker())
-    order, fill = source.submit(_request())
-    assert order.status is OrderStatus.ACK
+def test_broker_source_without_submit_fails_loudly() -> None:
+    """submit_order is a BrokerAdapter protocol member (defaulted on
+    BaseBroker) — a broker missing it is a protocol violation and must fail
+    loudly rather than returning an undispatched ACK order."""
+    source = BrokerFillSource(broker=_NoMethodBroker())  # type: ignore[arg-type]
+    with pytest.raises(AttributeError, match="submit_order"):
+        source.submit(_request())
 
 
 # ---------------------------------------------------------------------------

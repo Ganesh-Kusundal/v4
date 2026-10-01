@@ -100,8 +100,11 @@ def declared_levels(metadata: Any) -> tuple[Price | None, Price | None]:
     )
 
 
-def _brackets(side: OrderSide, entry: Price, stop: Price, target: Price) -> bool:
+def is_valid_bracket(side: OrderSide, entry: Price, stop: Price, target: Price) -> bool:
     """Whether the pair protects *entry* on the side being traded.
+
+    Public (REF-14): the replay backtest engine consumes this cross-package,
+    so it must not be reachable only under an underscore-private name.
 
     The domain's ``BracketOrderRequest`` enforces this too; checking here makes
     an invalid pair a logged drop instead of an exception thrown from a
@@ -133,7 +136,7 @@ def protective_request(
     stop, target = declared_levels(getattr(signal, "metadata", None))
     legs: _ProtectiveLegs = {}
     if stop is not None and target is not None:
-        if _brackets(signal.direction, entry, stop, target):
+        if is_valid_bracket(signal.direction, entry, stop, target):
             legs = {STOP_KEY: stop, TARGET_KEY: target}
         else:
             log.warning(

@@ -33,6 +33,7 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any
 
+from tradex_domain.timeframe import interval_seconds
 from tradex_domain.timezones import IST_ZONE
 
 log = logging.getLogger(__name__)
@@ -59,12 +60,6 @@ TAIL_CACHE_MAX_AGE_SECONDS = 900.0
 #: long enough that an ordinary read always lands inside it (measured in
 #: single-digit milliseconds).
 TAIL_LOAD_JOIN_SECONDS = 5.0
-
-
-def _tf_seconds(tf: Any) -> int:
-    from tradex_runtime.bar_aggregator import _tf_seconds as fn
-
-    return fn(tf)
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +143,7 @@ def _load_datalake_tail(instrument: str, timeframe: str, now: int) -> list[dict[
             instrument.split(":", 1) if ":" in instrument else ("NSE", instrument)
         )
         tf = Timeframe(timeframe)
-        end = datetime.fromtimestamp(now, tz=IST_ZONE) + timedelta(seconds=_tf_seconds(tf))
+        end = datetime.fromtimestamp(now, tz=IST_ZONE) + timedelta(seconds=interval_seconds(tf))
         parsed = Equity.of(exchange, symbol)
         series = ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
             parsed, tf, end - timedelta(days=30), end

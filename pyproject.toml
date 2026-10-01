@@ -8,7 +8,6 @@ testpaths = [
     "brokers/tests",
     "trading/tests",
     "research/tests",
-    "operations/tests",
     "observability/tests",
     "analytics/tests",
     "reactive/tests",
@@ -19,7 +18,6 @@ testpaths = [
     "market_data/tests",
     "interfaces/tests",
     "runtime/tests",
-    "persistence/tests",
     # These two suites existed and were green, but were absent from testpaths,
     # so `python -m pytest` at the root never collected them: 61 tests (7 in
     # config, 54 in duckdb-analytics) that no CI job and no local full run had
@@ -34,7 +32,6 @@ pythonpath = [
     "domain/src",
     "brokers/src",
     "research/src",
-    "operations/src",
     "observability/src",
     "analytics/src",
     "reactive/src",
@@ -45,7 +42,6 @@ pythonpath = [
     "market_data/src",
     "interfaces/src",
     "runtime/src",
-    "persistence/src",
     "services/duckdb-analytics/src",
     "brokers/tests",
 ]
@@ -166,9 +162,6 @@ root_packages = [
     "tradex_analytics",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -187,9 +180,6 @@ forbidden_modules = [
     "tradex_analytics",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -207,9 +197,6 @@ forbidden_modules = [
     "tradex_analytics",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -240,8 +227,6 @@ forbidden_modules = [
     "tradex_analytics",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -257,9 +242,6 @@ forbidden_modules = [
     "tradex_analytics",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -274,54 +256,50 @@ forbidden_modules = [
     "tradex_analytics",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
 name = "replay layer"
 type = "forbidden"
+# REF-14 sync: the landed architecture sanctions replay -> strategy (the
+# backtest engine drives strategy code) and replay -> analytics (reports,
+# trade metrics, validation reports) — the same edges
+# tests/test_import_boundaries.py::_ALLOWED permits. Upward edges into
+# runtime / interfaces / application (and the standalone duckdb service)
+# remain forbidden.
 source_modules = ["tradex_replay"]
 forbidden_modules = [
-    "tradex_strategy",
     "tradex_runtime",
     "tradex_interfaces",
-    "tradex_analytics",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
 name = "strategy layer"
 type = "forbidden"
+# REF-14 sync: strategy consumes analytics indicators (same edge _ALLOWED
+# permits); runtime / interfaces / application stay forbidden.
 source_modules = ["tradex_strategy"]
 forbidden_modules = [
     "tradex_runtime",
     "tradex_interfaces",
-    "tradex_analytics",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
 name = "runtime layer"
 type = "forbidden"
+# REF-14 sync: analytics is transitively reachable from runtime through the
+# sanctioned replay/strategy edges, so it cannot stay on a (transitive)
+# forbidden list here. The *direct* runtime -> analytics edge remains policed
+# by tests/test_import_boundaries.py::_ALLOWED, which does not admit it.
 source_modules = ["tradex_runtime"]
 forbidden_modules = [
     "tradex_interfaces",
-    "tradex_analytics",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -339,9 +317,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "duck_analytics",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -358,9 +333,6 @@ forbidden_modules = [
     "tradex_runtime",
     "tradex_interfaces",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -380,9 +352,6 @@ forbidden_modules = [
     "duck_analytics",
     "tradex_observability",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -402,9 +371,6 @@ forbidden_modules = [
     "duck_analytics",
     "tradex_reactive",
     "tradex_application",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [[tool.importlinter.contracts]]
@@ -419,9 +385,6 @@ forbidden_modules = [
     "tradex_interfaces",
     "tradex_analytics",
     "duck_analytics",
-    "tradex_persistence",
-    "tradex_research",
-    "tradex_operations",
 ]
 
 [tool.uv.workspace]
@@ -433,7 +396,9 @@ members = [
     # only tests/ and scripts/ (no installable src/), and its third-party runtime
     # deps moved onto the packages that actually import them (market_data).
     "research",
-    "operations",
+    # "operations" and "persistence" were removed with their packages (REF-15):
+    # zero production importers — tradex_operations was a docs-path index and
+    # tradex_persistence a re-export shim over tradex_execution.
     "observability",
     "analytics",
     "reactive",
@@ -444,7 +409,6 @@ members = [
     "market_data",
     "interfaces",
     "runtime",
-    "persistence",
     # Was a standalone project with its own uv.lock and .venv, invisible to the
     # root workspace: nothing installed it, so its 54 tests could not be part of
     # the root suite. It is now a member, so `uv sync` installs it (below) and its
@@ -458,7 +422,6 @@ tradex-brokers = { workspace = true }
 tradex-config = { workspace = true }
 # tradex-trading removed (package deleted; see the members comment above).
 tradex-research = { workspace = true }
-tradex-operations = { workspace = true }
 tradex-observability = { workspace = true }
 tradex-analytics = { workspace = true }
 tradex-reactive = { workspace = true }
@@ -469,7 +432,6 @@ tradex-application = { workspace = true }
 tradex-market-data = { workspace = true }
 tradex-interfaces = { workspace = true }
 tradex-runtime = { workspace = true }
-tradex-persistence = { workspace = true }
 tradex-duckdb = { workspace = true }
 
 [dependency-groups]
@@ -488,7 +450,6 @@ dev = [
     # extras carried (duckdb/pandas/pyarrow) now live on tradex-market-data, and
     # the API deps (fastapi/uvicorn/httpx/websockets) on tradex-interfaces.
     "tradex-research",
-    "tradex-operations",
     "tradex-observability",
     "tradex-analytics",
     "tradex-reactive",
@@ -499,7 +460,6 @@ dev = [
     "tradex-market-data",
     "tradex-interfaces",
     "tradex-runtime",
-    "tradex-persistence",
     # Read-only DuckDB analytics service over the parquet datalake (MCP too).
     # In the dev group so `uv sync` installs it and services/duckdb-analytics/tests
     # is runnable from the root suite rather than only from its own directory.

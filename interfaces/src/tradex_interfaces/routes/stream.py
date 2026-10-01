@@ -35,7 +35,15 @@ from tradex_domain.constants import (
     WS_SUBSCRIBE_BARS,
 )
 from tradex_domain.errors import CapabilityNotSupportedError
+from tradex_domain.intervals import normalize_interval
+from tradex_domain.timeframe import to_timeframe
 from tradex_domain.timezones import IST_ZONE
+from tradex_runtime.replay_controller import (
+    ReplayController,
+    ReplayStartParams,
+    ReplayTransitionError,
+    parse_replay_start,
+)
 
 from tradex_interfaces._helpers import feed_status_payload
 from tradex_interfaces.queueing import (
@@ -43,9 +51,9 @@ from tradex_interfaces.queueing import (
     WS_CLOSE_CONTROL_OVERFLOW,
     _enqueue_control,
     _enqueue_drop_oldest,
+    outbound_queue_stats,
 )
 from tradex_interfaces.replay_guard import ReplayGuard
-from tradex_interfaces.replay_run import ReplayRun
 from tradex_interfaces.routes.indicator_stream import IndicatorStream
 from tradex_interfaces.routes.stream_indicators import IndicatorStreamRegistry
 
@@ -143,6 +151,15 @@ async def ws_stream(
     # termination and the client reconnects and re-syncs a snapshot.
     ticks: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=outbound_max)
     control: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=CONTROL_QUEUE_MAX)
+    # Third lane, drained before BOTH others. Control has strict priority over
+    # ticks, which is right for a fill racing a quote — but it inverts a
+    # dependency the replay protocol states: a ``replay_stepped`` ack means
+    # "the bar you just stepped over is on the wire". With only two lanes the
+    # writer sorts the ack ahead of the bar that is still queued, so the client
+    # receives the ack first and can act on a bar it has not got. A barrier
+    # frame is therefore not a normal control frame: it is a control frame
+    # that additionally waits for the tick queue to be empty.
+    barrier: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     dropped: list[int] = [0]  # closure cell — incremented by producers
     # Set when a control frame could not be enqueued. The writer drains
     # what it can, then closes the socket rather than leaving the client
@@ -153,7 +170,6 @@ async def ws_stream(
     if replay_guard is None:
         replay_guard = ReplayGuard()
         app.state.replay_guard = replay_guard
-    replay_run: ReplayRun | None = None
 
     async def _writer() -> None:
         """Drain control first, then ticks; exit when the socket closes.
@@ -200,6 +216,18 @@ async def ws_stream(
                     batch.append((1, ticks.get_nowait()))
             except asyncio.QueueEmpty:
                 pass
+            # Barrier lane LAST, and only once the tick queue is empty. A
+            # barrier frame asserts something about bars already produced
+            # (``replay_stepped`` says "the bar you stepped over is out"), so
+            # sending it while a bar is still queued would put the ack on the
+            # wire before the fact it reports. Draining it here — after ticks,
+            # and only when ticks is empty — makes the ordering true on the
+            # wire rather than only inside the controller.
+            if not any(priority == 1 for priority, _ in batch):
+                try:
+                    batch.append((2, barrier.get_nowait()))
+                except asyncio.QueueEmpty:
+                    pass
             if not batch:
                 if control_overflow[0]:
                     # Nothing left to drain, but a control frame was already
@@ -209,17 +237,42 @@ async def ws_stream(
                     return
                 t_get = asyncio.create_task(_get_tagged(ticks, 1))
                 c_get = asyncio.create_task(_get_tagged(control, 0))
+                b_get = asyncio.create_task(_get_tagged(barrier, 2))
                 try:
                     done, _pending = await asyncio.wait(
-                        {t_get, c_get},
+                        {t_get, c_get, b_get},
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     for fut in done:
                         batch.append(fut.result())
                 finally:
-                    for fut in (t_get, c_get):
+                    for fut in (t_get, c_get, b_get):
                         if not fut.done():
                             fut.cancel()
+                # A barrier that woke us while ticks also arrived must not
+                # overtake them: put any barrier frame back and only keep
+                # control/ticks for this batch.
+                deferred: list[dict[str, Any]] = []
+                kept: list[tuple[int, dict[str, Any]]] = []
+                for priority, payload in batch:
+                    if priority == 2:
+                        deferred.append(payload)
+                    else:
+                        kept.append((priority, payload))
+                if deferred and kept:
+                    for payload in deferred:
+                        barrier.put_nowait(payload)
+                    batch = kept
+                elif deferred and not kept:
+                    # Barrier alone is fine only when ticks is empty — which
+                    # it is, or we would have woken on ticks too and kept
+                    # them. Re-check in case a race slipped a tick in.
+                    if not ticks.empty():
+                        for payload in deferred:
+                            barrier.put_nowait(payload)
+                        batch = []
+                        continue
+                    batch = [(2, p) for p in deferred]
             batch.sort(key=lambda item: item[0])
             for _, payload in batch:
                 try:
@@ -479,14 +532,18 @@ async def ws_stream(
             elif msg_type == "replay_stop":
                 await _replay_stop()
             elif msg_type == "stats":
-                # Surface backpressure stats so a client can observe how
-                # many ticks were dropped under overload (drop counter).
-                _ack({
-                    "type": "stats",
-                    "dropped": dropped[0],
-                    "queued_ticks": ticks.qsize(),
-                    "queued_control": control.qsize(),
-                })
+                # Surface backpressure + resync health so a client can
+                # observe tick drops, control pressure, and whether it
+                # must reconnect for a fresh OMS snapshot.
+                _ack(outbound_queue_stats(
+                    dropped=dropped[0],
+                    queued_ticks=ticks.qsize(),
+                    queued_control=control.qsize(),
+                    queued_barrier=barrier.qsize(),
+                    tick_cap=outbound_max,
+                    control_cap=CONTROL_QUEUE_MAX,
+                    resync_required=control_overflow[0],
+                ))
             elif msg_type == "feed_status":
                 # Pull path for the live-order gate (state/ready/generation/
                 # last_event_at/age). Pushed automatically on transition.
@@ -553,28 +610,27 @@ async def ws_stream(
         # synthetic ones — the source only changes what gets published.
         bar_aggregators: dict[tuple[str, str], Any] = {}
         bar_disposables: list[Any] = []
-        step_closed = False
-        last_closed_bar_index = 0
 
         def _normalize_ws_interval(interval: str) -> str:
-            """REST daily is ``D``; domain Timeframe / WS is ``1d``."""
-            return "1d" if interval in ("D", "1D", "d") else interval
+            """REST daily is ``D``; domain Timeframe / WS is ``1d``.
+
+            Both spellings go through the one domain path —
+            :func:`normalize_interval` folds every daily alias onto ``D`` and
+            :func:`to_timeframe` resolves that onto the canonical Timeframe,
+            whose ``.value`` is the wire form. Total on purpose: an
+            unresolvable interval passes through unchanged so the refusal
+            still happens where the aggregator is built (inside the subscribe
+            try), exactly as when this was a pure string mapping.
+            """
+            try:
+                return to_timeframe(normalize_interval(interval)).value
+            except ValueError:
+                return interval
 
         def _send_bar_frame(frame: Any) -> None:
-            nonlocal step_closed, last_closed_bar_index
-            if (
-                getattr(frame, "closed", False) is True
-                and getattr(frame, "source", None) == BarSource.SIM.value
-                and replay_run is not None
-                and getattr(frame, "run_id", None) == replay_run.run_id
-                and frame.instrument == replay_run.instrument
-                and frame.timeframe == replay_run.timeframe.value
-            ):
-                step_closed = True
-                try:
-                    last_closed_bar_index = replay_run.target_keys.index(int(frame.time))
-                except ValueError:
-                    pass
+            # Replay bars deliberately do NOT come through here: the
+            # controller frames its own SIM bars so it can track its own
+            # bucket closure. This path is live bars only.
             dropped[0] += _track_drop(_enqueue_drop_oldest(ticks, {
                 "type": "bar",
                 "instrument": frame.instrument,
@@ -831,11 +887,48 @@ async def ws_stream(
                     key = (iid, _normalize_ws_interval(interval))
                 bar_aggregators.pop(key, None)
 
-        replay_config: dict[str, Any] = {}
-        replay_cleaning: set[str] = set()
-        replay_finished: set[str] = set()
+        # Replay orchestration lives in the runtime (ReplayController); this
+        # closure is transport only -- it owns the socket and the queues, not
+        # the replay lifecycle. Lifecycle frames go to the CONTROL queue, which
+        # is never evicted: a dropped replay_stopped would leave the client
+        # believing a run ended when it did not. Bar frames stay on the lossy
+        # tick queue. Frames that assert something about bars already produced
+        # go through the barrier lane instead, so they cannot overtake a bar
+        # that is still queued.
         replay_cleanup_tasks: set[asyncio.Task[Any]] = set()
-        replay_stop_ack_sent = False
+
+        def _replay_control(frame: dict[str, Any]) -> None:
+            if not _enqueue_control(control, frame) and not control_overflow[0]:
+                control_overflow[0] = True
+                _track_drop(1)
+                log.error(
+                    "replay control frame dropped (cap=%d) type=%s; closing "
+                    "client to force resync",
+                    CONTROL_QUEUE_MAX,
+                    frame.get("type"),
+                )
+
+        def _replay_barrier(frame: dict[str, Any]) -> None:
+            """Enqueue a lifecycle frame that must not overtake queued bars.
+
+            Used for ``replay_stepped`` and the ``replay_paused`` that follows
+            it. The writer will not send one until the tick queue is empty,
+            which is what makes "the bar you stepped over has arrived" true on
+            the wire rather than only inside the controller.
+            """
+            barrier.put_nowait(frame)
+
+        async def _await_ticks_idle() -> None:
+            """Block until the tick queue is empty (writer has drained bars).
+
+            Bound so a wedged writer cannot hang a step forever.
+            """
+            for _ in range(200):
+                if ticks.empty():
+                    return
+                await asyncio.sleep(0.01)
+            log.warning("tick queue still non-empty after step drain wait")
+
 
         def _replay_error(message: str, run_id: str | None = None) -> None:
             frame: dict[str, Any] = {
@@ -846,491 +939,138 @@ async def ws_stream(
                 frame["run_id"] = run_id
             dropped[0] += _track_drop(_enqueue_drop_oldest(ticks, frame))
 
-        def _bounded_float(raw: Any, name: str, default: float, low: float, high: float) -> float:
-            if raw is None:
-                raw = default
-            if isinstance(raw, bool):
-                raise ValueError(f"{name} must be a number")
-            try:
-                value = float(raw)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"{name} must be a number") from exc
-            if not math.isfinite(value) or value < low or value > high:
-                raise ValueError(f"{name} must be between {low:g} and {high:g}")
-            return value
-
-        def _bounded_int(raw: Any, name: str, default: int, low: int, high: int) -> int:
-            if raw is None:
-                raw = default
-            if isinstance(raw, bool):
-                raise ValueError(f"{name} must be an integer")
-            try:
-                value = float(raw)
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"{name} must be an integer") from exc
-            if not math.isfinite(value) or value != int(value) or not low <= int(value) <= high:
-                raise ValueError(f"{name} must be between {low} and {high}")
-            return int(value)
-
-        def _replay_start_params(msg: dict[str, Any]) -> dict[str, Any]:
-            from tradex_domain.enums import Timeframe
-
-            raw_instrument = msg.get("instrument")
-            if not isinstance(raw_instrument, str) or not raw_instrument.strip():
-                raise ValueError("replay_start needs 'instrument'")
-            instrument = raw_instrument.strip()
-            if ":" not in instrument or any(not part for part in instrument.split(":", 1)):
-                raise ValueError("replay instrument must be EXCHANGE:SYMBOL")
-            interval_value = _normalize_ws_interval(str(msg.get("interval", "1m")))
-            try:
-                timeframe = Timeframe(interval_value)
-            except ValueError as exc:
-                raise ValueError(f"unsupported replay interval {interval_value!r}") from exc
-            if timeframe.value not in {"1m", "5m", "15m", "30m", "1h", "1d"}:
-                raise ValueError(f"unsupported replay interval {interval_value!r}")
-            method = msg.get("method", "ohlc")
-            if not isinstance(method, str) or method not in {"ohlc", "anchored", "bridge"}:
-                raise ValueError("method must be ohlc, anchored, or bridge")
-            seed = None
-            if msg.get("seed") is not None:
-                seed = _bounded_int(msg.get("seed"), "seed", 0, -(2**63), 2**63)
-            speed = _bounded_float(msg.get("speed"), "speed", 1.0, 0.01, 1000.0)
-            ticks_per_bar = _bounded_int(msg.get("ticks_per_bar"), "ticks_per_bar", 10, 2, 1000)
-            minutes = _bounded_int(msg.get("minutes"), "minutes", 390, 1, 10080)
-            start_time = None
-            if msg.get("start_time") is not None:
-                start_time = _bounded_int(msg.get("start_time"), "start_time", 0, 0, 10**12)
-            return {
-                "instrument": instrument,
-                "timeframe": timeframe,
-                "interval": timeframe.value,
-                "method": method,
-                "seed": seed,
-                "speed": speed,
-                "ticks_per_bar": ticks_per_bar,
-                "minutes": minutes,
-                "start_time": start_time,
+        def _replay_error(message: str, run_id: str | None = None) -> None:
+            frame: dict[str, Any] = {
+                "type": "replay_error",
+                "message": str(message),
             }
+            if run_id is not None:
+                frame["run_id"] = run_id
+            _replay_control(frame)
 
-        def _candle_seconds(candle: Any) -> int:
-            timestamp = candle.timestamp
-            if timestamp is None:
-                raise ValueError("replay candle has no timestamp")
-            ist = IST_ZONE
-            if timestamp.tzinfo is None:
-                timestamp = timestamp.replace(tzinfo=ist)
-            else:
-                timestamp = timestamp.astimezone(ist)
-            return int(timestamp.timestamp())
+        def _send_replay_bar(frame: dict[str, Any]) -> None:
+            """Replay bars stay on the lossy tick queue (market-data policy)."""
+            dropped[0] += _track_drop(_enqueue_drop_oldest(ticks, frame))
 
-        def _load_replay_candles(params: dict[str, Any]) -> tuple[Any, ...]:
-            from datetime import datetime, timedelta
+        def _replay_aggregator(
+            instrument: str, interval: str, run_id: str, on_frame: Any
+        ) -> Any:
+            """Replay bars are SIM-sourced, so they get their own aggregator.
 
+            Deliberately not the live ``_make_aggregator``: that one stamps
+            ``source="live"``, and the live missing-bar integrity tracker would
+            treat a synthetic tick path as real market data.
+            """
+            from tradex_domain.enums import Timeframe
+            from tradex_runtime.bar_aggregator import BarAggregator
+
+            return BarAggregator(
+                instrument,
+                Timeframe(_normalize_ws_interval(interval)),
+                on_frame=on_frame,
+                run_id=run_id,
+            )
+
+        def _load_replay_candles(params: ReplayStartParams) -> tuple[Any, ...]:
+            """Resolve the replay dataset via the shared MarketWindowLoader.
+
+            Same resolution path as chart history/backtest, so a window that
+            one path sees the other path sees — the data gate's whole point.
+
+            The store is constructed here (not inside the loader's default)
+            so a test that monkeypatches ``ParquetStorage`` still reaches the
+            fake: ``ParquetMarketProvider`` binds the class at import time.
+            """
             from tradex_domain.enums import Timeframe
             from tradex_domain.instruments import Equity
             from tradex_market_data.market_provider import ParquetMarketProvider
             from tradex_market_data.parquet_storage import ParquetStorage
             from tradex_market_data.paths import DATALAKE_ROOT
+            from tradex_market_data.window_loader import MarketSource, MarketWindowLoader
 
-            instrument = params["instrument"]
-            exchange, symbol = instrument.split(":", 1)
+            exchange, symbol = params.instrument.split(":", 1)
             equity = Equity.of(exchange, symbol)
-            store = ParquetStorage(
-                DATALAKE_ROOT, metrics=getattr(session, "metrics", None)
+            store = ParquetStorage(DATALAKE_ROOT, metrics=getattr(session, "metrics", None))
+            loader = MarketWindowLoader(
+                provider=ParquetMarketProvider(store=store),
             )
-            provider = ParquetMarketProvider(store=store)
-            now = datetime.now(IST_ZONE).replace(tzinfo=None)
-            start_time = params["start_time"]
-            ist = IST_ZONE
-            if start_time is None:
-                from_dt = now - timedelta(minutes=params["minutes"])
-            else:
-                from_dt = (
-                    datetime.fromtimestamp(start_time, tz=ist).replace(tzinfo=None)
-                    - timedelta(days=3)
+            window = loader.load_replay_m1(
+                equity,
+                minutes=params.minutes,
+                start_time=params.start_time,
+            )
+            if window.source is MarketSource.NONE or not window.candles:
+                raise ValueError(
+                    f"no datalake history in last {params.minutes}m for {symbol}"
+                    if params.start_time is None
+                    else f"no datalake history for {symbol}"
                 )
-            series = provider.history(equity, Timeframe.M1, from_dt, now)
-            if not series.candles:
-                date_range = store.date_range(symbol)
-                high = (
-                    date_range[1]
-                    if isinstance(date_range, (tuple, list)) and len(date_range) > 1
-                    else None
-                )
-                if high is None:
-                    raise ValueError(f"no datalake history for {symbol}")
-                now = high if getattr(high, "tzinfo", None) is None else high.replace(tzinfo=None)
-                if start_time is None:
-                    from_dt = now - timedelta(minutes=params["minutes"])
-                else:
-                    from_dt = (
-                        datetime.fromtimestamp(start_time, tz=ist).replace(tzinfo=None)
-                        - timedelta(days=3)
-                    )
-                series = provider.history(equity, Timeframe.M1, from_dt, now)
-            candles = tuple(series.candles)
-            if start_time is not None:
-                candles = tuple(c for c in candles if _candle_seconds(c) >= start_time)
-            if not candles:
-                raise ValueError(f"no datalake history in last {params['minutes']}m for {symbol}")
-            if any(candle.timeframe != Timeframe.M1 for candle in candles):
+            if any(candle.timeframe != Timeframe.M1 for candle in window.candles):
                 raise ValueError("replay dataset must contain M1 candles")
-            return tuple(sorted(candles, key=_candle_seconds))
-
-        def _target_keys(candles: tuple[Any, ...], timeframe: Any) -> tuple[int, ...]:
-            from tradex_runtime.bar_aggregator import _tf_seconds, bucket_start
-
-            seconds = _tf_seconds(timeframe)
-            keys: list[int] = []
-            ist = IST_ZONE
-            for candle in candles:
-                timestamp = candle.timestamp
-                if timestamp.tzinfo is not None:
-                    timestamp = timestamp.astimezone(ist).replace(tzinfo=None)
-                start = bucket_start(timestamp, seconds)
-                key = int(start.replace(tzinfo=ist).timestamp())
-                if not keys or key != keys[-1]:
-                    keys.append(key)
-            return tuple(keys)
-
-        def _socket_writable() -> bool:
-            state = getattr(ws, "client_state", None)
-            return state is None or "DISCONNECTED" not in str(state).upper()
-
-        async def _finish_run(
-            run: ReplayRun,
-            terminal_type: str,
-            message: str | None = None,
-            *,
-            emit: bool = True,
-        ) -> None:
-            nonlocal replay_run
-            if run.run_id in replay_cleaning or run.run_id in replay_finished:
-                return
-            replay_cleaning.add(run.run_id)
-            try:
-                try:
-                    await run.cancel_and_drain()
-                except Exception as exc:
-                    log.exception("replay cleanup failed for %s", run.run_id)
-                    if message is None:
-                        message = str(exc)
-                current_run = replay_run is run
-                if current_run:
-                    replay_run = None
-                try:
-                    replay_guard.release(run.run_id)
-                except Exception:
-                    log.exception("replay guard release failed for %s", run.run_id)
-                if not current_run:
-                    return
-                replay_config.clear()
-                if emit and _socket_writable():
-                    _drop_replay_frames(run.run_id)
-                    frame: dict[str, Any] = {"type": terminal_type, "run_id": run.run_id}
-                    if message is not None:
-                        frame["message"] = message
-                    _ack(frame)
-            finally:
-                replay_cleaning.discard(run.run_id)
-                replay_finished.add(run.run_id)
+            return window.candles
 
         async def _replay_start(
-            msg: dict[str, Any],
-            dataset: tuple[Any, ...] | None = None,
+            msg: dict[str, Any], dataset: tuple[Any, ...] | None = None
         ) -> None:
-            nonlocal replay_run, replay_stop_ack_sent, step_closed, last_closed_bar_index
             try:
-                params = _replay_start_params(msg)
+                params = parse_replay_start(msg)
             except ValueError as exc:
                 _replay_error(str(exc))
                 return
             try:
-                candles = tuple(dataset) if dataset is not None else _load_replay_candles(params)
-                if not candles:
-                    raise ValueError("replay dataset is empty")
-            except Exception as exc:
+                await replay_controller.start(params, dataset=dataset)
+            except ValueError as exc:
+                # A client-caused refusal (no datalake history, empty or
+                # non-M1 dataset). The controller has already emitted the
+                # ``replay_error`` frame; nothing more to do here.
+                log.debug("replay_start refused for %s: %s", params.instrument, exc)
+            except ReplayTransitionError as exc:
+                _replay_error(str(exc), replay_controller.run_id)
+            except RuntimeError as exc:
+                # Guard contention: another connection holds the one replay
+                # slot process-wide. Also a client-visible condition.
                 _replay_error(str(exc))
-                return
-            try:
-                target_keys = _target_keys(candles, params["timeframe"])
-                run = ReplayRun(
-                    run_id=secrets.token_hex(12),
-                    instrument=params["instrument"],
-                    timeframe=params["timeframe"],
-                    candles=candles,
-                    target_keys=target_keys,
-                    speed=params["speed"],
-                )
-            except Exception as exc:
-                _replay_error(str(exc))
-                return
-            try:
-                run.aggregator = _make_aggregator(
-                    run.instrument,
-                    run.timeframe.value,
-                    run_id=run.run_id,
-                )
-            except Exception as exc:
-                run.close()
-                _replay_error(f"cannot start replay bars: {exc}")
-                return
-            # Release the previous run (and its guard slot) before acquiring
-            # the new one — one active replay per process.
-            if replay_run is not None:
-                await _replay_stop(silent=True)
-            acquired = False
-            try:
-                replay_guard.acquire(run.run_id)
-                acquired = True
-            except Exception as exc:
-                if acquired:
-                    replay_guard.release(run.run_id)
-                run.close()
-                _replay_error(f"cannot start replay: {exc}")
-                return
-            replay_run = run
-            replay_finished.clear()
-            replay_stop_ack_sent = False
-            run.paused = bool(msg.get("paused", False))
-            replay_config.update(params)
-            step_closed = False
-            last_closed_bar_index = 0
-            wall_seconds_per_bar = 1.0 / max(run.speed, 0.01)
-            try:
-                _ack({
-                    "type": "replay_started",
-                    "run_id": run.run_id,
-                    "instrument": run.instrument,
-                    "interval": run.timeframe.value,
-                    "start_time": target_keys[0],
-                    "total_bars": len(target_keys),
-                    "simulated": True,
-                    "wall_seconds_per_bar": wall_seconds_per_bar,
-                })
-            except Exception as exc:
-                await _finish_run(run, "replay_error", str(exc))
-                return
-
-            async def _run() -> None:
-                nonlocal step_closed, last_closed_bar_index
-                from tradex_reactive.bus import ReactiveBus
-                from tradex_replay.synthetic_ticks import SyntheticTickGenerator
-
-                try:
-                    generator = SyntheticTickGenerator(
-                        ReactiveBus(),
-                        ticks_per_bar=params["ticks_per_bar"],
-                        seed=params["seed"],
-                        method=params["method"],
-                    )
-                except Exception as exc:
-                    await _finish_run(run, "replay_error", str(exc))
-                    return
-
-                async def _feed(candle: Any, *, wait: bool) -> None:
-                    quotes = generator.iter_ticks(candle)
-                    n_prints = max(len(quotes), 1)
-                    delay = (1.0 / max(run.speed, 0.01)) / n_prints if wait else 0.0
-                    for quote in quotes:
-                        # Pause only while playing. Step clears step_requested
-                        # before feeding and must not block on paused=True.
-                        if wait:
-                            while (
-                                run.paused
-                                and not run.step_requested
-                                and not run.terminal
-                            ):
-                                await asyncio.sleep(0.01)
-                        if run.terminal:
-                            return
-                        timestamp = quote.timestamp
-                        if timestamp is None:
-                            await _finish_run(
-                                run,
-                                "replay_error",
-                                "replay quote has no timestamp",
-                            )
-                            return
-                        if timestamp.tzinfo is not None:
-                            timestamp = (
-                                timestamp.astimezone(IST_ZONE)
-                                .replace(tzinfo=None)
-                            )
-                        # Aggregator only — never session bus, quote frames, or last_ltp.
-                        if run.aggregator is not None:
-                            run.aggregator.on_quote(
-                                timestamp,
-                                quote.ltp.value,
-                                quote.volume.value if quote.volume is not None else None,
-                                source="sim",
-                            )
-                        if wait and delay > 0.001:
-                            await asyncio.sleep(delay)
-
-                try:
-                    while run.cursor < len(run.candles) and not run.terminal:
-                        while run.paused and not run.step_requested and not run.terminal:
-                            await asyncio.sleep(0.01)
-                        if run.terminal:
-                            return
-                        stepping = run.step_requested
-                        if stepping:
-                            run.step_requested = False
-                            step_closed = False
-                        candle = run.candles[run.cursor]
-                        run.cursor += 1
-                        await _feed(candle, wait=not stepping)
-                        if stepping:
-                            if run.timeframe.value == "1m":
-                                # One M1 candle is one target bar — flush to
-                                # close without burning the next minute.
-                                if not step_closed and run.aggregator is not None:
-                                    run.aggregator.flush()
-                            else:
-                                # Higher TF: keep feeding M1s until the
-                                # target bucket closes, then flush if needed.
-                                while (
-                                    not step_closed
-                                    and run.cursor < len(run.candles)
-                                    and not run.terminal
-                                ):
-                                    await _feed(run.candles[run.cursor], wait=False)
-                                    run.cursor += 1
-                                if not step_closed and run.aggregator is not None:
-                                    run.aggregator.flush()
-                            if not run.terminal:
-                                run.paused = True
-                                # Let the single writer drain the closed bar
-                                # before publishing the step acknowledgement.
-                                # Both messages share the tick queue, but an
-                                # explicit yield makes the ordering contract
-                                # observable to the WebSocket writer.
-                                await asyncio.sleep(0)
-                                dropped[0] += _track_drop(_enqueue_drop_oldest(
-                                    ticks,
-                                    {
-                                        "type": "replay_stepped",
-                                        "run_id": run.run_id,
-                                        "bar_index": last_closed_bar_index,
-                                    },
-                                ))
-                                dropped[0] += _track_drop(_enqueue_drop_oldest(
-                                    ticks,
-                                    {"type": "replay_paused", "run_id": run.run_id},
-                                ))
-                    if not run.terminal:
-                        if run.aggregator is not None:
-                            run.aggregator.flush()
-                        await _finish_run(run, "replay_done")
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    log.exception("replay task failed for %s", run.run_id)
-                    await _finish_run(run, "replay_error", str(exc))
-
-            run.task = asyncio.create_task(_run())
-
-            def _task_done(task: asyncio.Task[None]) -> None:
-                if task.cancelled():
-                    return
-                try:
-                    error = task.exception()
-                except asyncio.CancelledError:
-                    return
-                if error is not None and replay_run is run and not run.terminal:
-                    cleanup_task = asyncio.create_task(
-                        _finish_run(run, "replay_error", str(error))
-                    )
-                    replay_cleanup_tasks.add(cleanup_task)
-                    cleanup_task.add_done_callback(replay_cleanup_tasks.discard)
-
-            run.task.add_done_callback(_task_done)
+            except Exception:
+                # A defect in this process, not a client problem. Log it loudly
+                # and re-raise so it is not laundered into a "replay did not
+                # start" reply: catching Exception here hid a NameError in
+                # this module behind that reply for a whole debugging pass.
+                log.exception("replay_start failed for %s", params.instrument)
+                raise
 
         async def _replay_pause() -> None:
-            payload: dict[str, Any] = {"type": "replay_paused"}
-            if replay_run is not None:
-                replay_run.paused = True
-                payload["run_id"] = replay_run.run_id
-            _ack(payload)
+            try:
+                await replay_controller.pause()
+            except ReplayTransitionError as exc:
+                _replay_error(str(exc), replay_controller.run_id)
 
         async def _replay_resume() -> None:
-            payload: dict[str, Any] = {"type": "replay_resumed"}
-            if replay_run is not None:
-                replay_run.paused = False
-                payload["run_id"] = replay_run.run_id
-            _ack(payload)
+            try:
+                await replay_controller.resume()
+            except ReplayTransitionError as exc:
+                _replay_error(str(exc), replay_controller.run_id)
 
         async def _replay_step() -> None:
-            if replay_run is not None:
-                replay_run.step_requested = True
+            try:
+                await replay_controller.step()
+            except ReplayTransitionError as exc:
+                _replay_error(str(exc), replay_controller.run_id)
 
         async def _replay_seek(msg: dict[str, Any]) -> None:
-            run = replay_run
-            if run is None:
-                _replay_error("replay_seek needs an active replay")
-                return
             try:
-                if msg.get("index") is not None or msg.get("target_index") is not None:
-                    raw_index = msg.get("index", msg.get("target_index"))
-                    index = _bounded_int(
-                        raw_index,
-                        "replay_seek index",
-                        0,
-                        0,
-                        len(run.target_keys) - 1,
-                    )
-                    start_time = run.target_keys[index]
-                else:
-                    start_time = _bounded_int(
-                        msg.get("start_time"),
-                        "replay_seek start_time",
-                        0,
-                        0,
-                        10**12,
-                    )
-                candle_index = run.target_index_for_key(start_time)
-                if candle_index >= len(run.candles):
-                    raise KeyError(start_time)
-            except (KeyError, ValueError) as exc:
-                _replay_error(str(exc), run.run_id)
-                await _replay_stop()
-                return
-            params = dict(replay_config)
-            params["start_time"] = start_time
-            params["paused"] = False
-            dataset = run.candles[candle_index:]
-            previous_run_id = run.run_id
-            await _replay_stop(silent=True)
-            await _replay_start(params, dataset=dataset)
-            if replay_run is None:
-                _replay_error("replay seek restart failed", previous_run_id)
+                await replay_controller.seek(msg)
+            except ReplayTransitionError as exc:
+                _replay_error(str(exc), replay_controller.run_id)
 
         async def _replay_speed(msg: dict[str, Any]) -> None:
             try:
-                speed = _bounded_float(msg.get("speed"), "speed", 1.0, 0.01, 1000.0)
-            except ValueError as exc:
-                _replay_error(str(exc), replay_run.run_id if replay_run is not None else None)
-                if replay_run is not None:
-                    await _replay_stop()
-                return
-            payload: dict[str, Any] = {"type": "replay_speed", "speed": speed}
-            if replay_run is not None:
-                replay_run.speed = speed
-                payload["run_id"] = replay_run.run_id
-            _ack(payload)
+                replay_controller.set_speed(msg.get("speed"))
+            except (ReplayTransitionError, ValueError) as exc:
+                _replay_error(str(exc), replay_controller.run_id)
+                await replay_controller.stop()
 
         async def _replay_stop(silent: bool = False) -> None:
-            nonlocal replay_run, replay_stop_ack_sent
-            run = replay_run
-            if run is None:
-                if not silent and not replay_stop_ack_sent:
-                    _ack({"type": "replay_stopped"})
-                    replay_stop_ack_sent = True
-                return
-            await _finish_run(run, "replay_stopped", emit=not silent)
-            if not silent:
-                replay_stop_ack_sent = True
+            await replay_controller.stop()
 
         async def _snapshot(instruments: list[Any]) -> None:
             """Push one-shot REST quotes (and depth when requested).
@@ -1423,6 +1163,22 @@ async def ws_stream(
         )
         disposables.extend([d_quote, d_depth, d_fill, d_position])
 
+        # Built here, not at the top of the closure, so every adapter it
+        # references is already bound. Constructing it earlier made the
+        # handler raise UnboundLocalError on the first frame — which the
+        # TestClient surfaces as a socket that closed before any ack.
+        replay_controller = ReplayController(
+            make_aggregator=_replay_aggregator,
+            emit_control=_replay_control,
+            emit_bar=_send_replay_bar,
+            emit_barrier=_replay_barrier,
+            await_ticks_idle=_await_ticks_idle,
+            load_candles=_load_replay_candles,
+            on_bar_frame=lambda frame: indicator_registry.handle_bar_frame(frame),
+            guard=replay_guard,
+            purge_run_frames=_drop_replay_frames,
+        )
+
         status_tasks.append(asyncio.create_task(_feed_status_watch()))
 
         while True:
@@ -1431,11 +1187,10 @@ async def ws_stream(
     except WebSocketDisconnect:
         pass
     finally:
-        if replay_run is not None:
-            try:
-                await _finish_run(replay_run, "replay_stopped", emit=_socket_writable())
-            except Exception:
-                log.exception("replay teardown failed")
+        try:
+            await replay_controller.close()
+        except Exception:
+            log.exception("replay teardown failed")
         # Cancel and drain the writer so no "task was destroyed but it is
         # pending" warning leaks on loop teardown (it may be parked in
         # ``outbound.get()`` when the client leaves).

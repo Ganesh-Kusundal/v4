@@ -25,6 +25,9 @@ class _FakeBroker:
     def unsubscribe_instruments(self, instruments: object) -> None:
         return None
 
+    def set_reconnect_hook(self, cb: object) -> None:
+        return None
+
 
 def _reliance() -> Instrument:
     return Equity.of("NSE", "RELIANCE")

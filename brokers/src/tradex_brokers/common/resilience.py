@@ -66,9 +66,15 @@ if TYPE_CHECKING:
     # them here — for the type checker only — gives it their real mapping
     # types. At runtime this block never executes and the lazy ``__getattr__``
     # resolves the names.
-    from tradex_brokers.dhan.rate_table import DHAN_RATE_LIMITS
-    from tradex_brokers.paper.rate_table import PAPER_RATE_LIMITS
-    from tradex_brokers.upstox.rate_table import UPSTOX_RATE_LIMITS
+    from tradex_brokers.common.rate_table import (
+        DHAN_RATE_TABLE as DHAN_RATE_LIMITS,
+    )
+    from tradex_brokers.common.rate_table import (
+        PAPER_RATE_TABLE as PAPER_RATE_LIMITS,
+    )
+    from tradex_brokers.common.rate_table import (
+        UPSTOX_RATE_TABLE as UPSTOX_RATE_LIMITS,
+    )
 
 log = logging.getLogger(__name__)
 
@@ -83,28 +89,33 @@ log = logging.getLogger(__name__)
 
 def _load_rate_tables() -> dict[str, Mapping[str, object]]:
     """Lazily import per-broker rate tables to avoid circular imports."""
-    from tradex_brokers.dhan.rate_table import DHAN_RATE_LIMITS
-    from tradex_brokers.paper.rate_table import PAPER_RATE_LIMITS
-    from tradex_brokers.upstox.rate_table import UPSTOX_RATE_LIMITS
+    from tradex_brokers.common.rate_table import (
+        DHAN_RATE_TABLE,
+        PAPER_RATE_TABLE,
+        UPSTOX_RATE_TABLE,
+    )
 
     return {
-        "dhan": DHAN_RATE_LIMITS,
-        "upstox": UPSTOX_RATE_LIMITS,
-        "paper": PAPER_RATE_LIMITS,
+        "dhan": DHAN_RATE_TABLE,
+        "upstox": UPSTOX_RATE_TABLE,
+        "paper": PAPER_RATE_TABLE,
     }
 
 
 def __getattr__(name: str) -> object:
-    """Backward-compat: re-export broker rate tables from their new homes."""
+    """Backward-compat: re-export broker rate tables under their legacy names."""
     if name == "DHAN_RATE_LIMITS":
-        from tradex_brokers.dhan.rate_table import DHAN_RATE_LIMITS
-        return DHAN_RATE_LIMITS
+        from tradex_brokers.common.rate_table import DHAN_RATE_TABLE
+
+        return DHAN_RATE_TABLE
     if name == "UPSTOX_RATE_LIMITS":
-        from tradex_brokers.upstox.rate_table import UPSTOX_RATE_LIMITS
-        return UPSTOX_RATE_LIMITS
+        from tradex_brokers.common.rate_table import UPSTOX_RATE_TABLE
+
+        return UPSTOX_RATE_TABLE
     if name == "PAPER_RATE_LIMITS":
-        from tradex_brokers.paper.rate_table import PAPER_RATE_LIMITS
-        return PAPER_RATE_LIMITS
+        from tradex_brokers.common.rate_table import PAPER_RATE_TABLE
+
+        return PAPER_RATE_TABLE
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 _RATE_TABLES_BY_PROVIDER: dict[str, Mapping[str, object]] | None = None

@@ -30,7 +30,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.events import FeedRecovered
-from tradex_domain.timeframe import bucket_seconds
+from tradex_domain.timeframe import bucket_seconds, interval_seconds
 
 from tradex_runtime.feed_supervisor import FeedSupervisor
 
@@ -39,6 +39,20 @@ log = logging.getLogger(__name__)
 #: Default cold-start recovery window when neither a last closed bar nor a last
 #: accepted event is known: one day of bars, from the canonical registry.
 _LOOKBACK_SECONDS = float(bucket_seconds(Timeframe.D1))
+
+#: Default tolerance, in bars, for a hole between the last accepted bar and the
+#: first replayed one. Non-zero so the fail-closed contract holds without
+#: configuration, and set above the largest hole a healthy venue produces: Dhan's
+#: NSE 1m series stops at 15:14, so the last 15 minutes of every session are
+#: structurally unavailable (CLAUDE.md, "Venue ceilings"). Below 15 the feed
+#: would HALT on the known tail and never recover.
+#:
+#: ponytail: one flat allowance for the whole session, so it cannot tell a
+#: structural session-edge hole from an interior one. That distinction is the
+#: upgrade path -- ``GapDetector.scan()`` already classifies edge-only
+#: shortfalls, and the ceiling here is that a 20-bar interior hole and a
+#: 20-bar tail hole are treated alike.
+_DEFAULT_MAX_MISSING_BARS = 20
 
 
 @runtime_checkable
@@ -74,14 +88,6 @@ class RecoveryOutcome:
     error: str | None = None
     duration_seconds: float = 0.0
 
-
-
-def _tf_seconds(timeframe: str) -> int | None:
-    """Bucket width in seconds for a canonical timeframe string."""
-    try:
-        return bucket_seconds(Timeframe(timeframe))
-    except (KeyError, ValueError):
-        return None
 
 
 def _bar_epoch(bar: Any) -> int | None:
@@ -133,6 +139,11 @@ class FeedRecoveryCoordinator:
     lookback_seconds:
         Window used when neither a last closed bar nor a last accepted event
         is known (cold start after a long outage).
+    max_missing_bars:
+        How many bars of hole recovery tolerates between the last accepted bar
+        and the replayed series before it fails closed. ``0`` means every hole
+        halts the feed; the default absorbs only holes smaller than a venue's
+        structural one (see :data:`_DEFAULT_MAX_MISSING_BARS`). Must be >= 0.
     """
 
     def __init__(
@@ -145,9 +156,14 @@ class FeedRecoveryCoordinator:
         bus: Any | None = None,
         timeframe: str = Timeframe.M1.value,
         lookback_seconds: float = _LOOKBACK_SECONDS,
+        max_missing_bars: int = _DEFAULT_MAX_MISSING_BARS,
         metrics: Any | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
+        if max_missing_bars < 0:
+            raise ValueError(
+                f"max_missing_bars must be >= 0, got {max_missing_bars!r}"
+            )
         self._feed = feed
         self._supervisor = supervisor
         self._history_provider = history_provider
@@ -155,6 +171,7 @@ class FeedRecoveryCoordinator:
         self._bus = bus
         self._timeframe = str(timeframe)
         self._lookback_seconds = float(lookback_seconds)
+        self._max_missing_bars = int(max_missing_bars)
         self._metrics = metrics
         self._clock = clock or (lambda: datetime.now(UTC))
         self._closed_bars: dict[str, Any] = {}
@@ -217,6 +234,16 @@ class FeedRecoveryCoordinator:
             return self._fail(supervisor, "; ".join(errors), started)
         if not recovered and last_event_at is None:
             return self._fail(supervisor, "history replay returned no bars", started)
+        # F-43: the count is the gate, not a metric. A hole this wide means the
+        # local view of the tape is discontinuous, and seeding the aggregator
+        # from a discontinuous series would trade bars that never happened.
+        if missing > self._max_missing_bars:
+            return self._fail(
+                supervisor,
+                f"history replay proved {missing} missing bars, over the "
+                f"allowance of {self._max_missing_bars}",
+                started,
+            )
         recovered.sort(key=lambda bar: _bar_epoch(bar) or 0)
         recovered_through = last_event_at
         for bar in recovered:
@@ -306,8 +333,12 @@ class FeedRecoveryCoordinator:
     ) -> int:
         if not bars:
             return 0
-        step = _tf_seconds(self._timeframe)
-        if not step:
+        # An unsupported timeframe means no grid to count gaps on — skip the
+        # count (the old private helper's ``None`` path) rather than fail a
+        # recovery that history itself may have made continuous.
+        try:
+            step = interval_seconds(self._timeframe)
+        except ValueError:
             return 0
         epochs = sorted({e for e in (_bar_epoch(b) for b in bars) if e is not None})
         if not epochs:

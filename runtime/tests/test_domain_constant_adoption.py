@@ -45,9 +45,10 @@ def test_bucket_seconds_answers_weekly() -> None:
 
 def test_runtime_bar_aggregation_resolves_weekly() -> None:
     """A weekly BarAggregator constructs instead of raising ValueError."""
-    from tradex_runtime.bar_aggregator import BarAggregator, _tf_seconds
+    from tradex_domain.timeframe import interval_seconds
+    from tradex_runtime.bar_aggregator import BarAggregator
 
-    assert _tf_seconds(Timeframe.W1) == 604_800
+    assert interval_seconds(Timeframe.W1) == 604_800
     aggregator = BarAggregator("NSE:RELIANCE", Timeframe.W1, on_frame=lambda frame: None)
     assert aggregator._seconds == 604_800
 

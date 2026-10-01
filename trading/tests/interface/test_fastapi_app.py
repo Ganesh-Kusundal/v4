@@ -893,6 +893,9 @@ def test_websocket_depth_gates_non_nse():
         def unsubscribe(self, subscription):
             return None
 
+        def set_reconnect_hook(self, cb):
+            return None
+
         @property
         def depth_levels(self):
             return 20
@@ -1109,6 +1112,10 @@ def test_websocket_stats_surfaces_drop_counter():
         assert msg["dropped"] == 0
         assert "queued_ticks" in msg
         assert "queued_control" in msg
+        assert "queued_barrier" in msg
+        assert msg["resync_required"] is False
+        assert msg["tick_pressure"] == "ok"
+        assert msg["control_pressure"] == "ok"
 
 
 def test_websocket_tiny_outbound_queue_still_forwards_quotes():
@@ -1209,6 +1216,9 @@ def test_websocket_subscribe_acks_feed_capabilities():
         def unsubscribe(self, sub):
             pass
 
+        def set_reconnect_hook(self, cb):
+            pass
+
     broker = _CapBroker()
     session = _make_feed_session(broker, capabilities=dhan_capabilities())
     app = create_app(session=session)
@@ -1248,6 +1258,9 @@ def test_websocket_subscribe_over_cap_errors_loudly():
             return "d"
 
         def unsubscribe(self, sub):
+            pass
+
+        def set_reconnect_hook(self, cb):
             pass
 
     broker = _CapBroker()
@@ -1300,6 +1313,9 @@ def test_websocket_subscribe_snapshot_pushes_current_quote():
             return "d"
 
         def unsubscribe(self, sub):
+            pass
+
+        def set_reconnect_hook(self, cb):
             pass
 
     broker = _QuoteBroker()

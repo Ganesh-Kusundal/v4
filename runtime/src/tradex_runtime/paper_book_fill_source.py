@@ -48,7 +48,7 @@ from tradex_domain.enums import OrderSide, OrderStatus, OrderType
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import OrderId, Price, Quantity
-from tradex_execution.fill_sources import _make_order
+from tradex_execution.fill_sources import make_order
 
 #: Book matching is the ORACLE (spec lane 2d): it walks a real book, so it is
 #: the reference the slippage path is measured against, not the other way round.
@@ -312,11 +312,11 @@ class PaperBookFillSource:
         if broker_order is None:  # pragma: no cover - the broker registers every submit
             raise RuntimeError(f"paper broker lost order {order_id}")
         # A FRESH OMS order, exactly as PaperFillSource/SimulatedFillSource
-        # return via ``_make_order``: the engine transitions it to FILLED and
+        # return via ``make_order``: the engine transitions it to FILLED and
         # sets filled_quantity itself. Returning the broker's already-filled
         # order would make on_order_filled see remaining=0 and clamp the fill
         # to zero — the engine, not the broker, owns the OMS projection here.
-        order = _make_order(request, status=OrderStatus.FILLED, order_id=order_id)
+        order = make_order(request, status=OrderStatus.FILLED, order_id=order_id)
 
         key = str(order_id.value)
         already = self._last_seen_filled.get(key, Decimal(0))

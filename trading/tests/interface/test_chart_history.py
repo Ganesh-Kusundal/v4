@@ -21,10 +21,15 @@ def _client() -> TestClient:
 
 class TestHistoryContract:
     def test_history_loads_parquet_through_market_provider(self):
-        from tradex_interfaces.fastapi_app import create_app
-        from tradex_market_data import market_provider
-
-        with patch.object(market_provider, "ParquetMarketProvider") as provider:
+        # Patch at the point of consumption (window_loader's own binding), not
+        # at the source module: patching ``market_provider`` leaks into
+        # ``window_loader``'s module-global ``from ... import`` binding when
+        # that module happens to be first imported inside this patch window,
+        # and then poisons every later datalake read in the process (the
+        # resample-parity gate below saw a mock with empty candles).
+        with patch(
+            "tradex_market_data.window_loader.ParquetMarketProvider"
+        ) as provider:
             provider.return_value.history.return_value.candles = []
             response = TestClient(create_app(session=None)).get(
                 "/api/charts/history/NSE:NOSUCHSTOCK",

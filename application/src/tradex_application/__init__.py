@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from tradex_application.orders import (
     BrokerCapabilityError,
+    build_bracket_request,
     cancel_order,
     modify_order,
     submit_bracket_order,
@@ -17,6 +18,7 @@ from tradex_application.orders import (
 
 __all__ = [
     "BrokerCapabilityError",
+    "build_bracket_request",
     "cancel_order",
     "modify_order",
     "submit_bracket_order",

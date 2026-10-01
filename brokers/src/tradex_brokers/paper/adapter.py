@@ -43,6 +43,7 @@ from typing import Any
 from uuid import uuid4
 
 from tradex_domain.capabilities import require_capability
+from tradex_domain.constants import DEFAULT_INITIAL_CAPITAL
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, Timeframe
 from tradex_domain.errors import (
     BrokerUnavailableError,
@@ -135,7 +136,7 @@ class _PaperCache(TradingCacheProtocol):
         self._quotes.clear()
 
 
-_PAPER_STARTING_CASH = Decimal("100000")
+_PAPER_STARTING_CASH = DEFAULT_INITIAL_CAPITAL
 _CURRENCY = "INR"
 _DEPTH_SIZE = Quantity(value=Decimal(100))
 _DEFAULT_LTP = Price(value=Decimal("100"))

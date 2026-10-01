@@ -63,7 +63,9 @@ class _HookCapableBroker:
 
 
 class _NoHookBroker:
-    """Fake broker that does NOT expose set_reconnect_hook (paper-like)."""
+    """Fake broker whose ``set_reconnect_hook`` is the inert BaseBroker-style
+    default: the hook is accepted and dropped (no live backends to fan out to),
+    so subscribing is safe exactly as it is for the paper broker."""
 
     def __init__(self) -> None:
         self.quote_subs: list[Any] = []
@@ -77,6 +79,9 @@ class _NoHookBroker:
 
     def unsubscribe_instruments(self, instruments: object) -> None:
         pass
+
+    def set_reconnect_hook(self, cb: Any) -> None:
+        return None  # BaseBroker default: no market backends, nothing to wire
 
 
 def _inst() -> Instrument:
@@ -123,7 +128,7 @@ class TestHookRegistration:
         assert broker._reconnect_hook is feed._reconnect_cb
 
     def test_no_hook_broker_does_not_raise(self) -> None:
-        """Brokers without set_reconnect_hook are handled silently."""
+        """Paper-like brokers (inert BaseBroker hook default) subscribe safely."""
         broker = _NoHookBroker()
         feed = _feed(broker)
         feed.subscribe([_inst()])  # must not raise

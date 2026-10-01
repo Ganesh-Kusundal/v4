@@ -86,6 +86,45 @@ DHAN_WIRE_CODE_EXCHANGE: dict[int, str] = dict(
 DEFAULT_DHAN_EXCHANGE = "NSE"
 DEFAULT_DHAN_SEGMENT = DHAN_EXCHANGE_SEGMENT[DEFAULT_DHAN_EXCHANGE]
 
+#: Domain exchange for option legs built from a Dhan REST chain, keyed by the
+#: underlying's exchange (moved from ``dhan/client.py`` so the REST client and
+#: any stream backend share one table). Equity/index underlyings follow the
+#: NFO/BFO product mapping; commodity/currency underlyings keep their own
+#: exchange — Dhan's /optionchain also serves MCX, NSE_COMM, CDS and BCD
+#: chains, and the legs must be built on the same exchange the instrument
+#: master uses or the registry / quote / order mapping for those contracts
+#: silently breaks. Note: ``IDX -> NFO`` is correct for NSE indices only; a
+#: future BSE-index (SENSEX) chain would need BFO — distinguish via registry
+#: meta then.
+OPTION_LEG_EXCHANGE: dict[str, str] = {
+    "NSE": "NFO",
+    "BSE": "BFO",
+    "NFO": "NFO",
+    "BFO": "BFO",
+    "IDX": "NFO",
+    "MCX": "MCX",
+    "NSE_COMM": "NSE_COMM",
+    "CDS": "CDS",
+    "BCD": "BCD",
+}
+
+#: Domain exchange assumed for an unmapped option-leg underlying. Kept here so
+#: the REST client and this lookup cannot drift on the fallback.
+DEFAULT_OPTION_LEG_EXCHANGE = "NFO"
+
+
+def option_leg_exchange_for(exchange: object) -> str:
+    """Return the domain exchange for option legs of a REST chain.
+
+    Accepts the exchange enum, a plain string, or anything ``str()``-able, and
+    normalises case exactly as ``dhan.client.DhanApiClient._option_exchange``
+    always has (``str().upper()``, no whitespace stripping). Unmapped values
+    fall back to :data:`DEFAULT_OPTION_LEG_EXCHANGE` — the historical
+    behaviour, preserved exactly.
+    """
+    value = getattr(exchange, "value", exchange)
+    return OPTION_LEG_EXCHANGE.get(str(value).upper(), DEFAULT_OPTION_LEG_EXCHANGE)
+
 
 def dhan_segment_for(exchange: object) -> str:
     """Map a domain exchange to a Dhan ``ExchangeSegment`` string.
@@ -102,8 +141,11 @@ def dhan_segment_for(exchange: object) -> str:
 __all__ = [
     "DEFAULT_DHAN_EXCHANGE",
     "DEFAULT_DHAN_SEGMENT",
+    "DEFAULT_OPTION_LEG_EXCHANGE",
     "DHAN_EXCHANGE_SEGMENT",
     "DHAN_SEGMENT_EXCHANGE",
     "DHAN_WIRE_CODE_EXCHANGE",
+    "OPTION_LEG_EXCHANGE",
     "dhan_segment_for",
+    "option_leg_exchange_for",
 ]

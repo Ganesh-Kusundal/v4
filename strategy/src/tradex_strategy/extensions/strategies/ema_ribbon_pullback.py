@@ -3,14 +3,14 @@
 BUY when price pulls back to touch the fastest EMA while the ribbon
 (4 EMAs, fast to slow) stays bullish (each above the next); SELL mirrored
 for the bearish ribbon (touch from below, each EMA below the next). Uses
-the same ``_sma_seeded_ema`` compute as the indicator path. Long-only gate
+the same ``sma_seeded_ema`` compute as the indicator path. Long-only gate
 is the caller's responsibility.
 """
 from __future__ import annotations
 
 from typing import Any, cast
 
-from tradex_analytics.indicators import _sma_seeded_ema
+from tradex_analytics.indicators import sma_seeded_ema
 from tradex_domain import OrderSide
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
@@ -36,7 +36,7 @@ class EmaRibbonPullbackStrategy(StudyStrategyBase):
 
     def _on_bar_ready(self, context, candles: list[Any]):
         closes = [float(c.ohlc.close.value) for c in candles]
-        emas = [_sma_seeded_ema(closes, length) for length in self._lengths]
+        emas = [sma_seeded_ema(closes, length) for length in self._lengths]
         fast = emas[0]
         if any(e[-1] is None for e in emas):
             return None

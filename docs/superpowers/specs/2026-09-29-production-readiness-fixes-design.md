@@ -1,7 +1,7 @@
 # Design: Production Readiness Fix Programme
 
 **Date** 2026-09-29 · **Status** approved in sections · **Pinned at** `c01fba5`
-**Source** `docs/reviews/principal-engineering-review-2026-09-29.md`
+**Source** [`docs/audits/2026-09/2026-09-29-runtime-findings-ledger.md`](../../audits/2026-09/2026-09-29-runtime-findings-ledger.md)
 
 ## Objective
 

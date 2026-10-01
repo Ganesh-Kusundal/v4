@@ -11,13 +11,14 @@ from typing import TYPE_CHECKING, Protocol
 from tradex_domain.execution import OrderRequest
 from tradex_domain.value_objects import OrderId
 
+from tradex_brokers.common.mixins import SharedAdminMixin
 from tradex_brokers.common.provider_common import unwrap_data
 
 if TYPE_CHECKING:
     from tradex_brokers.dhan._facade import DhanClientFacade
 
 
-class AdminMixin(Protocol):
+class AdminMixin(SharedAdminMixin, Protocol):
     def submit_edis(self: DhanClientFacade, request: OrderRequest) -> OrderId:
         """Authorize eDIS via POST /edis/authorize."""
         isin = request.instrument.meta.isin or request.instrument.symbol
@@ -70,9 +71,4 @@ class AdminMixin(Protocol):
         body = self._request("GET", "/killswitch", cache_read=False)
         raw = unwrap_data(body)
         return raw if isinstance(raw, dict) else {}
-
-
-    def invalidate_read_cache(self: DhanClientFacade) -> None:
-        """Drop cached read responses so a verification probe hits the wire."""
-        self._http.invalidate_cache()
 

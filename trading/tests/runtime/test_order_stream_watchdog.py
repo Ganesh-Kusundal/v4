@@ -332,6 +332,9 @@ def test_order_watchdog_is_driven_by_the_owned_poll_loop() -> None:
         def unsubscribe_instruments(self, instruments):
             return None
 
+        def set_reconnect_hook(self, cb):
+            return None
+
     supervisor = _ready_supervisor()
     feed = MarketFeed(broker=_Broker(), bus=ReactiveBus(), stale_after=30.0)
     # Real clock here: the point is the background thread ageing the frame in

@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from tradex_domain import (
     AuthenticationError,
     SDKError,
 )
-from tradex_domain.datetime_formats import DASHED_DATE, DASHED_DATETIME
+from tradex_domain.serialization import parse_timestamp as _domain_parse_timestamp
 
 from tradex_brokers.common.instruments import (
     as_decimal,
@@ -148,67 +148,17 @@ def require_success(response: dict) -> dict:
 def parse_timestamp(value: str | int | float) -> datetime:
     """Parse a timestamp from various formats into a timezone-aware datetime.
 
-    Supports:
-    - Unix epoch seconds (int/float)
-    - Unix epoch milliseconds (int > 1e12)
-    - ISO 8601 strings
-    - Common broker date formats
+    Thin wrapper over the canonical ladder in
+    :func:`tradex_domain.serialization.parse_timestamp` (REF-11: one timestamp
+    parsing entry point). Kept as a named wrapper so every broker call site and
+    the ``tradex_brokers.common`` re-export keep their public name, signature
+    and error contract unchanged.
 
-    Parameters
-    ----------
-    value:
-        The timestamp value.
-
-    Returns
-    -------
-    datetime
-        Timezone-aware datetime in UTC.
-
-    Raises
-    ------
-    SDKError
-        If the value cannot be parsed.
+    Supports Unix epoch seconds/milliseconds (int > 1e12), ISO 8601 strings,
+    and the common broker wire formats; naive string hits are pinned to UTC.
+    Raises ``SDKError`` if the value cannot be parsed.
     """
-    if isinstance(value, (int, float)):
-        # Distinguish seconds from milliseconds
-        if value > 1e12:
-            value = value / 1000.0
-        try:
-            return datetime.fromtimestamp(value, tz=UTC)
-        except (OSError, ValueError, OverflowError) as exc:
-            raise SDKError(f"Cannot parse timestamp {value!r}") from exc
-
-    if isinstance(value, str):
-        value = value.strip()
-        # Tolerant-parsing fallback ladder, tried in order. This is an ORDERED
-        # LIST OF DISTINCT WIRE SHAPES, not duplicated literals: brokers each
-        # emit their own spelling for the same instant, and an entry may only
-        # be dropped once that provider is proven never to send it. Collapsing
-        # entries (or reordering them) would reject valid-but-unusual
-        # responses. The first four are the ISO-8601 'T' variants; the
-        # space-separated and date-only entries reuse the domain format
-        # contracts so the wire shapes have exactly one spelling.
-        for fmt in (
-            "%Y-%m-%dT%H:%M:%S%z",  # ISO 8601, aware
-            "%Y-%m-%dT%H:%M:%S.%f%z",  # ISO 8601, aware, microseconds
-            "%Y-%m-%dT%H:%M:%S",  # ISO 8601, naive
-            "%Y-%m-%dT%H:%M:%S.%f",  # ISO 8601, naive, microseconds
-            DASHED_DATETIME,  # "%Y-%m-%d %H:%M:%S"  -- space-separated
-            "%Y-%m-%d %H:%M:%S%z",  # space-separated, aware (no domain constant)
-            DASHED_DATE,  # "%Y-%m-%d"  -- date only
-            "%d-%m-%Y",  # day-first, European (no domain constant)
-            "%d/%m/%Y",  # day-first, slashed (no domain constant)
-        ):
-            try:
-                dt = datetime.strptime(value, fmt)  # noqa: DTZ007
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=UTC)
-                return dt
-            except ValueError:
-                continue
-        raise SDKError(f"Cannot parse timestamp string {value!r}")
-
-    raise SDKError(f"Cannot parse timestamp of type {type(value).__name__}")
+    return _domain_parse_timestamp(value)
 
 
 def first_mapping(value: object) -> Mapping[str, Any]:

@@ -52,11 +52,13 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.constants import DEPTH_MODES, RECOVERY_TRIGGERS
 from tradex_domain.errors import SDKError
 from tradex_domain.events import FeedGapDetected, StaleFeed
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote, require_depth_supported
+from tradex_domain.protocols import BrokerAdapter
 from tradex_domain.value_objects import InstrumentId
 from tradex_observability.tracing import get_correlation_id
 
@@ -109,7 +111,7 @@ class MarketFeed:
 
     def __init__(
         self,
-        broker: Any,
+        broker: BrokerAdapter,
         bus: Any,
         capabilities: Any | None = None,
         stale_after: float = 30.0,
@@ -141,15 +143,18 @@ class MarketFeed:
         self._stale_after = float(stale_after)
         # Streaming capability surface: the broker's declared depth level and
         # per-connection instrument cap. Only a real BrokerCapabilities table
-        # is trusted (duck-typed fakes/mocks expose none); backends are still
-        # selected by getattr probing in ``_depth_method``.
-        from tradex_domain.capabilities import BrokerCapabilities
-
+        # is trusted (duck-typed fakes/mocks expose none); the depth backend
+        # is selected from the resolved table in ``_depth_method``, never by
+        # hasattr probing.
         caps = capabilities if isinstance(capabilities, BrokerCapabilities) else None
         if caps is None:
             broker_caps = getattr(broker, "capabilities", None)
             if isinstance(broker_caps, BrokerCapabilities):
                 caps = broker_caps
+        #: The resolved capability table (``None`` when neither the caller nor
+        #: the broker supplies a real one — duck-typed test fakes). Drives the
+        #: depth-30 backend selection without probing the broker's methods.
+        self._capabilities = caps
         self._depth_levels = int(caps.depth_levels) if caps is not None else 0
         raw_cap = caps.max_stream_instruments if caps is not None else None
         self._max_stream_instruments = int(raw_cap) if raw_cap else None
@@ -375,10 +380,9 @@ class MarketFeed:
                         raise
         # Wire notify_reconnect onto broker market backends (B0).
         # Idempotent: repeated calls overwrite with the same callable.
-        # Defensive getattr: paper broker and test fakes have no such method.
-        set_hook = getattr(self._broker, "set_reconnect_hook", None)
-        if callable(set_hook):
-            set_hook(self._reconnect_cb)
+        # Declared on the BrokerAdapter protocol (no-op default on BaseBroker
+        # for adapters without live sockets), so it is called directly.
+        self._broker.set_reconnect_hook(self._reconnect_cb)
 
     def unsubscribe(self, instruments: Sequence[Instrument]) -> None:
         """Remove *instruments* from the wanted set.
@@ -400,14 +404,15 @@ class MarketFeed:
                     removed_instruments.append(inst)
                 self._depth_instruments.discard(iid)
         if removed_instruments:
-            drop = getattr(self._broker, "unsubscribe_instruments", None)
-            if callable(drop):
-                try:
-                    drop(removed_instruments)
-                except Exception:  # noqa: BLE001 — best-effort wire cleanup
-                    log.warning(
-                        "market feed unsubscribe_instruments failed", exc_info=True
-                    )
+            # Protocol member (no-op default on BaseBroker); the try keeps the
+            # wire cleanup best-effort exactly as before — a backend failure
+            # must never fail the unsubscribe itself.
+            try:
+                self._broker.unsubscribe_instruments(removed_instruments)
+            except Exception:  # noqa: BLE001 — best-effort wire cleanup
+                log.warning(
+                    "market feed unsubscribe_instruments failed", exc_info=True
+                )
         # Re-check the wanted set under the lock for the empty-feed stop
         # decision; the earlier read might have raced with a concurrent
         # subscribe.
@@ -445,10 +450,15 @@ class MarketFeed:
 
     def _depth_method(self) -> Any | None:
         if self._depth_fn is None:
-            fn = getattr(self._broker, "subscribe_depth_30", None)
-            if fn is None:
-                fn = getattr(self._broker, "subscribe_depth", None)
-            self._depth_fn = fn
+            # Capability-selected, not hasattr-probed: Upstox is the only
+            # broker carrying a 30-level stream (depth_levels == 30 in its
+            # capabilities table); everyone else (Dhan 20, paper 0) uses
+            # ``subscribe_depth``. Both are BrokerAdapter members.
+            caps = self._capabilities
+            if caps is not None and caps.depth_levels >= 30:
+                self._depth_fn = self._broker.subscribe_depth_30
+            else:
+                self._depth_fn = self._broker.subscribe_depth
         return self._depth_fn
 
     def _ensure_depth(self, instruments: Sequence[Instrument]) -> None:

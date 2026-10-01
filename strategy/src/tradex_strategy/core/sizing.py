@@ -86,13 +86,16 @@ differently because the *cost of being wrong* is different:
   :data:`CASH_EQUITY_LOT_SIZE` is scoped to :data:`CASH_EQUITY_ASSET_CLASSES`
   rather than applied to anything with a missing field.
 * **Tick size** is not derivable for *any* instrument, so it comes from
-  configuration (:data:`DEFAULT_TICK_SIZE`, overridable per sizer) and the
+  configuration (:data:`SIZING_FALLBACK_TICK`, overridable per sizer) and the
   substitution is recorded on the decision (``tick_size``,
   ``tick_size_defaulted``) instead of passing for a real venue tick. The default
   is the smallest NSE cash tick, which bounds the error in the rounded stop
   distance to one paisa: the rounded distance is always at least the true
   distance, so a tick that is too small costs a paisa and a tick that is too
-  large would size the trade on risk the stop cannot reach.
+  large would size the trade on risk the stop cannot reach. The domain-wide
+  canonical tick is :data:`tradex_domain.constants.DEFAULT_TICK_SIZE` (0.05,
+  the NSE equity tick); :data:`SIZING_FALLBACK_TICK` is the sizer's own
+  fallback for when no master describes the instrument's tick.
 """
 
 from __future__ import annotations
@@ -129,7 +132,7 @@ CASH_EQUITY_ASSET_CLASSES: Final = frozenset({AssetClass.EQUITY})
 #: which is never below the true distance, and a tick that is too small bounds
 #: the overstatement at one tick of the security's real grid instead of
 #: understating risk by up to one tick of it.
-DEFAULT_TICK_SIZE: Final = Decimal("0.01")
+SIZING_FALLBACK_TICK: Final = Decimal("0.01")
 
 #: Where a size came from. Recorded on every decision so an order's size can be
 #: traced to the constraint that produced it in the audit trail.
@@ -174,7 +177,7 @@ def account_sizer(
     equity: Any,
     max_order_value: Any,
     risk_fraction: Any | None,
-    equity_source: Callable[[], Decimal] | None = None,
+    equity_source: Callable[[], Decimal | None] | None = None,
     contracts: Callable[[Any], ContractSpec | None] | None = None,
     tick_size: Any | None = None,
     label: str = "account",
@@ -214,7 +217,9 @@ def account_sizer(
         risk_fraction: fraction of equity one trade may lose. ``None``
             disables the risk formula (the sizer falls back to the notional).
         equity_source: live balance reader, read at sizing time; takes
-            precedence over ``equity``. Omit for backtest.
+            precedence over ``equity``. ``None`` means the balance could not
+            be read, which disables the risk formula rather than failing the
+            order. Omit for backtest.
         contracts, tick_size: passed through to ``PositionSizer`` unchanged.
         label: names this sizer in log lines.
 
@@ -347,7 +352,7 @@ class PositionSizer:
         max_order_value: Decimal,
         risk_fraction: Decimal | None = None,
         equity: Decimal | None = None,
-        equity_source: Callable[[], Decimal] | None = None,
+        equity_source: Callable[[], Decimal | None] | None = None,
         fallback_notional: Decimal | None = None,
         contracts: Callable[[Any], ContractSpec | None] | None = None,
         tick_size: Decimal | None = None,
@@ -365,13 +370,16 @@ class PositionSizer:
             equity_source: reads equity at sizing time, so a long-running live
                 session sizes against the balance it actually has rather than
                 the one it booted with. Takes precedence over ``equity``.
+                Returning ``None`` (an unreadable account) is not a crash: it
+                disables the risk formula and the sizer takes its configured
+                fallback notional, saying so in the log.
             fallback_notional: notional to use when the risk denominator is not
                 knowable. ``None`` (the default) means refuse instead.
             contracts: resolves an ``InstrumentId`` to its ``ContractSpec`` —
                 the registry's own answer, for instruments whose typed fields
                 the master loader never filled.
             tick_size: the tick to round a stop distance against for instruments
-                no master described. ``None`` means :data:`DEFAULT_TICK_SIZE`.
+                no master described. ``None`` means :data:`SIZING_FALLBACK_TICK`.
                 A non-positive value is an error rather than a silent fallback,
                 because a typo that reads as a policy is worse than a refusal.
             label: names this sizer in log lines.
@@ -383,7 +391,7 @@ class PositionSizer:
         if tick_size is not None and configured_tick is None:
             raise ValueError(f"tick_size is not a positive amount: {tick_size!r}")
         self._max_order_value: Decimal = ceiling
-        self._tick_size: Decimal = configured_tick or DEFAULT_TICK_SIZE
+        self._tick_size: Decimal = configured_tick or SIZING_FALLBACK_TICK
         self._risk_fraction = _positive(risk_fraction)
         self._equity = _positive(equity)
         self._equity_source = equity_source
@@ -673,7 +681,7 @@ __all__ = [
     "CLAMP_LOT_ROUND",
     "CLAMP_MAX_ORDER_VALUE",
     "DEFAULT_MAX_ORDER_VALUE",
-    "DEFAULT_TICK_SIZE",
+    "SIZING_FALLBACK_TICK",
     "SOURCE_FALLBACK_NOTIONAL",
     "SOURCE_REFUSED",
     "SOURCE_SIGNAL",

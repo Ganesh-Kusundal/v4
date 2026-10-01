@@ -17,7 +17,7 @@ from typing import Any, Protocol, runtime_checkable
 from tradex_domain.enums import OrderStatus
 from tradex_domain.errors import OrderSubmissionUnknownError
 from tradex_domain.execution import Fill, Order, OrderRequest
-from tradex_domain.protocols import TradingCacheProtocol
+from tradex_domain.protocols import BrokerAdapter, TradingCacheProtocol
 from tradex_domain.value_objects import OrderId, Price
 from tradex_observability.tracing import trace_id_of
 
@@ -110,6 +110,12 @@ def _make_order(
         stop_loss_price=request.stop_loss_price,
         trailing_jump=request.trailing_jump,
     )
+
+
+#: Public spelling (REF-14 guardrail): the runtime paper fill source consumes
+#: this cross-package, so it must not be reachable only under the
+#: underscore-private name.
+make_order = _make_order
 
 
 class SimulatedFillSource(FillModel):
@@ -270,9 +276,14 @@ class BrokerFillSource(FillModel):
 
     Exposes boundary/projection metadata so the execution engine can
     make safe idempotency and position-management decisions.
+
+    The adapter is typed as the domain ``BrokerAdapter`` protocol: every
+    member used below is declared (and defaulted on ``BaseBroker``), so the
+    former ``getattr``/``hasattr`` probes are gone — a broker missing a
+    member is a protocol violation that fails loudly, not a silent fallback.
     """
 
-    def __init__(self, broker: object) -> None:
+    def __init__(self, broker: BrokerAdapter) -> None:
         super().__init__()
         self._broker = broker
         self._submission_boundary_crossed = False
@@ -291,12 +302,12 @@ class BrokerFillSource(FillModel):
     @property
     def position_projection_owned(self) -> bool:
         """Whether the adapter already applies fills to its own OMS projection."""
-        return bool(getattr(self._broker, "owns_position_projection", False))
+        return bool(self._broker.owns_position_projection)
 
     @property
     def position_projection_cache(self) -> TradingCacheProtocol | None:
         """Return the adapter's projection cache when it exposes one."""
-        return getattr(self._broker, "trading_cache", None)
+        return self._broker.trading_cache
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
         from tradex_domain.execution import BracketOrderRequest
@@ -316,19 +327,12 @@ class BrokerFillSource(FillModel):
             # the capability before reaching the engine), and the returned
             # id is the venue's super-order id — the OMS records it as the
             # entry order so dedup/replay and later lifecycle events join.
-            submit = getattr(self._broker, "submit_super_order", None)
-            if submit is None:
-                raise ValueError("broker does not support super orders")
-            broker_order_id = self._dispatch(submit, request)
+            broker_order_id = self._dispatch(self._broker.submit_super_order, request)
             order = _make_order(request, status=OrderStatus.ACK, order_id=broker_order_id)
             return order, None
         # Delegate to broker adapter's submit_order method
-        if hasattr(self._broker, "submit_order"):
-            broker_order_id = self._dispatch(self._broker.submit_order, request)
-            order = _make_order(request, status=OrderStatus.ACK, order_id=broker_order_id)
-            return order, None
-        # Fallback: create a pending order (fill will come via WebSocket)
-        order = _make_order(request, status=OrderStatus.ACK)
+        broker_order_id = self._dispatch(self._broker.submit_order, request)
+        order = _make_order(request, status=OrderStatus.ACK, order_id=broker_order_id)
         return order, None
 
     def _dispatch(self, send: Any, request: OrderRequest) -> Any:
@@ -372,8 +376,7 @@ class BrokerFillSource(FillModel):
 
     def cancel(self, order_id: OrderId) -> None:
         """Cancel order at broker."""
-        if hasattr(self._broker, "cancel_order"):
-            self._broker.cancel_order(order_id)
+        self._broker.cancel_order(order_id)
 
     def cancel_super_order(self, order_id: OrderId) -> None:
         """Cancel a bracket (super) order at the broker.
@@ -381,16 +384,11 @@ class BrokerFillSource(FillModel):
         The venue cancels the whole composite — entry plus protective legs —
         via its super-order endpoint (``leg="ENTRY"`` default on the broker
         adapters). Reaching this method means the order is a bracket; a broker
-        without super-order cancellation must fail loudly, never silently
-        fall back to a plain cancel on the composite id.
+        without super-order cancellation fails loudly at its capability gate
+        (``supports_super_order``), never silently falling back to a plain
+        cancel on the composite id.
         """
-        if hasattr(self._broker, "cancel_super_order"):
-            self._broker.cancel_super_order(order_id)
-        else:
-            from tradex_domain.errors import OrderRejectedError
-            raise OrderRejectedError(
-                "broker does not support super-order cancellation"
-            )
+        self._broker.cancel_super_order(order_id)
 
     def modify(self, order_id: OrderId, request: OrderRequest) -> None:
         """Modify order at broker.
@@ -403,16 +401,9 @@ class BrokerFillSource(FillModel):
         from tradex_domain.execution import BracketOrderRequest
 
         if isinstance(request, BracketOrderRequest):
-            if hasattr(self._broker, "modify_super_order"):
-                self._broker.modify_super_order(order_id, request)
-            else:
-                from tradex_domain.errors import OrderRejectedError
-                raise OrderRejectedError(
-                    "broker does not support super orders"
-                )
+            self._broker.modify_super_order(order_id, request)
             return
-        if hasattr(self._broker, "modify_order"):
-            self._broker.modify_order(order_id, request)
+        self._broker.modify_order(order_id, request)
 
 
 class ReplayFillSource(FillModel):

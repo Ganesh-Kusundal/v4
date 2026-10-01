@@ -25,10 +25,28 @@ class TestExhaustiveMapping:
             "FILLED": "filled",
             "CANCELLED": "cancelled",
             "REJECTED": "rejected",
-            "UNKNOWN": "rejected",
+            # F-44: UNKNOWN is a broker row the process cannot interpret, and
+            # its outcome is genuinely unknown. It must not be rendered as a
+            # venue rejection, which is a different, decided answer.
+            "UNKNOWN": "unknown",
         }
         for member in OrderStatus:
             assert map_order_status(member) == expected[member.value], member
+
+    def test_unknown_is_not_rendered_as_rejected(self):
+        """F-44 negative control: the two states are not the same answer.
+
+        ``REJECTED`` means the venue refused the order. ``UNKNOWN`` means the
+        venue never told us. An operator reading the chart decides whether to
+        flatten a position on that line, and "we do not know" and "the venue
+        said no" call for opposite actions — resubmit/verify versus move on.
+        The backend already carries the distinction (``/api/charts/safety``
+        ages UNKNOWN rows) and the chart was the one surface collapsing it.
+        """
+        assert map_order_status(OrderStatus.UNKNOWN) == "unknown"
+        assert map_order_status(OrderStatus.UNKNOWN) != map_order_status(
+            OrderStatus.REJECTED
+        )
 
     def test_unmapped_value_raises_loudly(self):
         class FakeStatus:

@@ -10,10 +10,11 @@ from typing import TYPE_CHECKING, Protocol
 
 from tradex_domain.enums import OrderSide, OrderType, ProductType
 from tradex_domain.errors import AuthenticationError
-from tradex_domain.execution import Account, PortfolioSnapshot, Position
+from tradex_domain.execution import Account, Position
 from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import AccountId, Money, Price
 
+from tradex_brokers.common.mixins import SharedPortfolioMixin
 from tradex_brokers.common.provider_common import (
     as_decimal,
     first_mapping,
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
     from tradex_brokers.dhan._facade import DhanClientFacade
 
 
-class PortfolioMixin(Protocol):
+class PortfolioMixin(SharedPortfolioMixin, Protocol):
     def get_account(self: DhanClientFacade) -> Account:
         """Account snapshot via GET /fundlimit."""
         body = self._request("GET", "/fundlimit", cache_read=True)
@@ -119,13 +120,6 @@ class PortfolioMixin(Protocol):
         """Holdings via GET /holdings."""
         body = self._request("GET", "/holdings", cache_read=True)
         return self._positions(unwrap_data(body))
-
-
-    def get_portfolio(self: DhanClientFacade) -> PortfolioSnapshot:
-        """Portfolio snapshot (positions + account)."""
-        return PortfolioSnapshot(
-            positions=self.get_positions(), account=self._account_for_portfolio()
-        )
 
 
     def convert_position(

@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 import pytest
+from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.instruments import Equity, Index, Instrument
 from tradex_domain.market import Depth, Quote
@@ -78,16 +79,32 @@ def _depth(instrument: Instrument) -> Depth:
     )
 
 
+_UNSET = object()  # sentinel: "build the default table" in _FakeBroker
+
+
 class _FakeBroker:
     """Records subscribe/unsubscribe calls; handlers can be fired manually.
 
-    ``subscribe_depth_30`` only exists when ``has_depth_30`` is True — the
-    feed selects it via ``getattr`` — so tests can exercise both the Upstox
-    path (depth-30 present) and the Dhan fallback path (absent).
+    The feed selects the depth backend from the broker's capabilities table:
+    ``depth_levels >= 30`` selects ``subscribe_depth_30`` (Upstox), otherwise
+    ``subscribe_depth`` (Dhan). The fake declares depth 30 only when
+    ``has_depth_30`` is True, so tests can exercise both selections. Pass
+    ``capabilities=None`` for a broker with no table at all.
     """
 
-    def __init__(self, *, has_depth_30: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        has_depth_30: bool = False,
+        capabilities: Any | None = _UNSET,
+    ) -> None:
         self.has_depth_30 = has_depth_30
+        if capabilities is _UNSET:
+            capabilities = BrokerCapabilities(
+                depth_levels=30 if has_depth_30 else 20
+            )
+        if capabilities is not None:
+            self.capabilities = capabilities
         self.quote_subs: list[tuple[list[Instrument], Any]] = []
         self.depth_subs: list[tuple[list[Instrument], Any]] = []
         self.depth_30_subs: list[tuple[list[Instrument], Any]] = []
@@ -95,6 +112,7 @@ class _FakeBroker:
         self.unsubscribed_instruments_calls: list[list[Instrument]] = []
         self._quote_handlers: dict[str, Any] = {}
         self._depth_handlers: dict[str, Any] = {}
+        self.reconnect_hook: Any = None
 
     def __getattr__(self, name: str) -> Any:
         if name == "subscribe_depth_30" and self.has_depth_30:
@@ -128,6 +146,9 @@ class _FakeBroker:
 
     def unsubscribe_instruments(self, instruments: list[Instrument]) -> None:
         self.unsubscribed_instruments_calls.append(instruments)
+
+    def set_reconnect_hook(self, cb: Any) -> None:
+        self.reconnect_hook = cb
 
     def emit_quote(self, quote: Quote) -> None:
         for h in tuple(self._quote_handlers.values()):
@@ -433,7 +454,7 @@ class TestFeedCapabilities:
         assert feed.max_stream_instruments == 1000
 
     def test_no_capabilities_means_no_limits(self) -> None:
-        feed, _, _ = _make()  # fake broker has no capabilities table
+        feed, _, _ = _make(_FakeBroker(capabilities=None))  # no capabilities table
         assert feed.depth_levels == 0
         assert feed.max_stream_instruments is None
 

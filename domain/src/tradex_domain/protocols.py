@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.capabilities import BrokerCapabilities
@@ -17,7 +18,9 @@ from tradex_domain.enums import BrokerId, Timeframe
 from tradex_domain.events import DomainEvent
 from tradex_domain.execution import (
     Account,
+    Fill,
     Order,
+    OrderReceipt,
     OrderRequest,
     PortfolioSnapshot,
     Position,
@@ -75,11 +78,29 @@ class BrokerAdapter(Protocol):
     def get_order(self, order_id: OrderId) -> Order: ...
     def get_orderbook(self) -> list[Order]: ...
 
+    # super (bracket) orders — same surface, gated at runtime by the
+    # ``supports_super_order`` capability flag (see module docstring). The
+    # adapters raise ``CapabilityNotSupportedError`` when the flag is off.
+    def submit_super_order(self, request: OrderRequest) -> OrderId: ...
+    def modify_super_order(
+        self, order_id: OrderId, request: OrderRequest
+    ) -> object: ...
+    def cancel_super_order(self, order_id: OrderId) -> object: ...
+
     # portfolio
     def get_positions(self) -> list[Position]: ...
     def get_holdings(self) -> list[Position]: ...
     def get_account(self) -> Account: ...
     def get_portfolio(self) -> PortfolioSnapshot: ...
+
+    # OMS projection seam: whether the adapter already applies fills to its
+    # own book, and the cache that projection lives in (None when it keeps
+    # none). The execution engine reads both instead of ``getattr`` probing.
+    @property
+    def owns_position_projection(self) -> bool: ...
+
+    @property
+    def trading_cache(self) -> TradingCacheProtocol | None: ...
 
     # market data
     def get_quote(self, instrument: Instrument) -> Quote: ...
@@ -133,8 +154,39 @@ class BrokerAdapter(Protocol):
         """Subscribe to depth stream for given instrument."""
         ...
 
+    def subscribe_depth_30(
+        self,
+        instruments: Sequence[Instrument],
+        handler: Callable[[Depth], None],
+    ) -> object:
+        """Subscribe to the 30-level depth stream (Upstox-only capability).
+
+        Present on the single adapter surface but gated at runtime by
+        ``BrokerCapabilities.depth_levels`` (>= 30) — callers must check the
+        table rather than probe for the method. Adapters without the stream
+        return an inert subscription (None).
+        """
+        ...
+
     def unsubscribe(self, subscription: object) -> None:
         """Unsubscribe from a stream."""
+        ...
+
+    def unsubscribe_instruments(self, instruments: Sequence[Instrument]) -> None:
+        """Drop *instruments* from the backend wire set (best-effort).
+
+        Keeps reconnects from resurrecting unsubscribed instruments; adapters
+        whose backends carry no server-side wire set are no-ops.
+        """
+        ...
+
+    def set_reconnect_hook(self, cb: Callable[[], None] | None) -> None:
+        """Register a callback fired after every successful WS reconnect.
+
+        The trading layer wires its feed-resync hook here instead of duck-typed
+        attribute probing. Pass ``None`` to clear. Adapters without live
+        sockets accept and ignore the hook.
+        """
         ...
 
     # instruments
@@ -265,6 +317,62 @@ class MasterRefreshProvider(Protocol):
 
 
 @runtime_checkable
+class OrderCommandPort(Protocol):
+    """The single order-command door, satisfied by ``ExecutionEngine``.
+
+    Declared here, in domain, because it is a *contract* every execution mode
+    binds to rather than an implementation detail of any one of them: live,
+    paper, backtest and replay all place orders through this one surface, and
+    the invariant that matters is that no other surface exists.
+
+    **Why a protocol when ``ExecutionEngine.submit`` already reads as the
+    door.** The engine's docstring asserts AC-22 ("submit() is the ONLY way an
+    order reaches the venue") and the engine deliberately dropped its old bus
+    subscriptions to make that true. But an assertion in a docstring is not a
+    boundary — nothing failed when ``BacktestEngine.submit`` grew a second
+    ``fill_source.submit`` path that skipped risk, idempotency and the cash
+    floor entirely, because that method sidestepped the engine rather than
+    contradicting it. This protocol is the named, checkable form of the same
+    claim: a caller holding an ``OrderCommandPort`` cannot reach a venue by any
+    other route, because there is no other method on it.
+
+    ``submit`` is the only method that creates an order. ``cancel`` is declared
+    because it is part of the OMS lifecycle a caller needs, and it mutates an
+    order that already exists rather than creating one — so it is not a second
+    way in.
+    """
+
+    def submit(self, request: OrderRequest) -> OrderReceipt: ...
+
+    def cancel(self, order_id: OrderId) -> Order: ...
+
+
+@runtime_checkable
+class FillIngestPort(Protocol):
+    """The inbound-fill door: venue truth arriving from outside this process.
+
+    Satisfied by ``ExecutionEngine``'s inbound fill bridge, and deliberately a
+    *separate* port from :class:`OrderCommandPort`, because the two carry
+    opposite guarantees. A command is *this process deciding to act*, so it is
+    subject to risk, idempotency and the cash floor. An inbound fill is *the
+    venue reporting what already happened*, so refusing it would desynchronize
+    the book from reality — but it must still be deduped, proven affordable,
+    made durable, and applied atomically.
+
+    Conflating the two is what makes "a fill arrived and nothing happened" and
+    "an order was sent and the book never saw it" the same class of bug, with
+    the same wrong response. Two doors, two directions, two sets of guarantees.
+
+    ``fee_amount`` is the fee the venue actually charged when it is known;
+    ``None`` means "not known" and makes the engine recompute it from its own
+    schedule — right for paper/backtest, wrong for a live venue that caps or
+    rounds differently, so a live bridge should pass it.
+    """
+
+    def ingest_fill(self, fill: Fill, fee_amount: Decimal | None = None) -> None: ...
+
+
+@runtime_checkable
 class OrderRepository(Protocol):
     """Persistence contract for orders.
 
@@ -291,9 +399,11 @@ __all__ = [
     "Clock",
     "DepthStreamPort",
     "EventStore",
+    "FillIngestPort",
     "IndicatorComputer",
     "MasterRefreshProvider",
     "MarketStreamPort",
+    "OrderCommandPort",
     "OrderRepository",
     "OrderStreamPort",
     "SessionFacade",

@@ -8,6 +8,11 @@ The current plan is [0002 production readiness programme](../../specs/0002-produ
 Its decision record, including where each idea in these three documents ended up and which parts
 were rejected, is [rationale.md](../../specs/0002-production-readiness-programme/rationale.md).
 
+The F-numbered findings ledger both production-readiness designs cite is
+[2026-09-29-runtime-findings-ledger.md](2026-09-29-runtime-findings-ledger.md). It was never
+committed, so its entries are re-derived from the tree with file:line evidence rather than
+transcribed.
+
 | Document | Pinned at | What it was |
 |---|---|---|
 | [2026-09-26-predeploy-review.md](2026-09-26-predeploy-review.md) | `df377a0` | First pass. Predicted trouble before deploying |

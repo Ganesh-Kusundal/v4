@@ -32,6 +32,7 @@ from tradex_domain.wire import InstrumentRegistry
 from tradex_brokers.common.base import BaseBroker
 from tradex_brokers.common.capabilities import dhan_capabilities
 from tradex_brokers.common.endpoints import DHAN_REST_BASE_URL
+from tradex_brokers.common.mixins import SharedAdminMixin, SharedPortfolioMixin
 from tradex_brokers.common.provider_common import (
     future_chain_from_master,
     option_chain_from_master,
@@ -44,13 +45,16 @@ _DHAN_EQUITY_UNIVERSE = ("RELIANCE", "TCS", "INFY", "HDFCBANK")
 _DHAN_INDEX_KEYS = {"NIFTY": "26000", "BANKNIFTY": "26009", "FINNIFTY": "26037"}
 
 
-class DhanBroker(BaseBroker):
+class DhanBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
     """Dhan broker adapter — implements BrokerAdapter.
 
     Uses :class:`DhanApiClient` for HTTP calls and WebSocket streams.
     Without a bound transport, trading calls raise ``BrokerUnavailableError``.
     Common lifecycle, gating, and pass-throughs are provided by
-    :class:`BaseBroker`; only Dhan-specific behavior lives here.
+    :class:`BaseBroker`; only Dhan-specific behavior lives here. The REF-8
+    shared mixins sit behind the ``BaseBroker`` pass-throughs: the wall wins
+    for ``get_portfolio`` (delegating to the transport composite) and the
+    mixins supply ``invalidate_read_cache``.
     """
 
     _fallback_equities = _DHAN_EQUITY_UNIVERSE

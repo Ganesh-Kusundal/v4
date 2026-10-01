@@ -18,7 +18,7 @@ from typing import Any
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import HistoricalSeries
-from tradex_domain.timeframe import _TIMEFRAMES
+from tradex_domain.timeframe import TIMEFRAMES
 from tradex_shared import MultiBucketRateLimiter, RateLimitConfig
 
 log = logging.getLogger(__name__)
@@ -53,7 +53,7 @@ def _date_windows(
 def _chunk_cap_for(timeframe: Timeframe | str, broker_name: str) -> int | None:
     """Return max window days if this brokerage+timeframe must be chunked."""
     tf = Timeframe(timeframe) if isinstance(timeframe, str) else timeframe
-    if not _TIMEFRAMES[tf.value]["intraday"]:
+    if not TIMEFRAMES[tf.value]["intraday"]:
         return None
     if broker_name == "dhan":
         return _DHAN_INTRADAY_MAX_DAYS

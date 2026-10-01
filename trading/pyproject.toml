@@ -1,6 +1,8 @@
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+# Not a workspace member and not buildable: trading/ holds only tests/ and
+# scripts/ (the tradex_trading package was deleted — see the root workspace
+# comment). This file stays as a dependency-bundle + local pytest/ruff/mypy
+# config; there is deliberately no [build-system]/hatch section because
+# src/tradex_trading does not exist.
 
 [project]
 name = "tradex-trading"
@@ -22,7 +24,6 @@ dependencies = [
     "tradex-market-data>=0.1.0,<0.2",
     "tradex-interfaces>=0.1.0,<0.2",
     "tradex-runtime>=0.1.0,<0.2",
-    "tradex-persistence>=0.1.0,<0.2",
     "rx>=3.2,<4",
 ]
 
@@ -33,9 +34,6 @@ datalake = ["duckdb>=0.10,<2", "pandas>=2,<3", "pyarrow>=14,<20"]
 # previously-declared "httpx2" was an unrelated package nothing imports.
 api = ["fastapi>=0.110,<1", "uvicorn>=0.29,<1", "httpx>=0.27,<1", "websockets>=12,<18"]
 full = ["numpy>=1.26,<3", "duckdb>=0.10,<2", "fastapi>=0.110,<1", "uvicorn>=0.29,<1", "httpx>=0.27,<1", "websockets>=12,<18"]
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/tradex_trading"]
 
 [tool.ruff]
 target-version = "py312"

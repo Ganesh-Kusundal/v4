@@ -22,6 +22,23 @@ WS_PING_INTERVAL = 20.0
 WS_PING_TIMEOUT = 20.0
 
 
+def default_ws_factory(url: str) -> Any:
+    """Open a real synchronous WebSocket connection (``[live]`` extra).
+
+    Single shared factory for every broker socket (Dhan order/market/depth,
+    Upstox portfolio/market): the frame cap and the ping/pong keepalive are
+    pinned here so no socket can be opened without a heartbeat (AC-12).
+    """
+    from websockets.sync.client import connect  # noqa: PLC0415 — optional dep
+
+    return connect(
+        url,
+        max_size=2**20,
+        ping_interval=WS_PING_INTERVAL,
+        ping_timeout=WS_PING_TIMEOUT,
+    )
+
+
 def level_pair(raw: dict[str, Any]) -> tuple[Price, Quantity]:
     """Build a ``(Price, Quantity)`` depth level from a raw buy/sell row."""
     return (
@@ -89,6 +106,7 @@ def row_to_quote(
 __all__ = [
     "WS_PING_INTERVAL",
     "WS_PING_TIMEOUT",
+    "default_ws_factory",
     "level_pair",
     "row_to_quote",
 ]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
 from tradex_domain.events import FeedRecovered
 from tradex_domain.instruments import Equity, Instrument
 from tradex_reactive.bus import ReactiveBus
@@ -162,6 +163,96 @@ def test_recovery_counts_missing_bars_from_last_closed_bar() -> None:
 
     assert outcome.ok is True
     assert outcome.missing_bars == 2
+
+
+def test_hole_over_allowance_fails_closed_and_halts() -> None:
+    """F-43: a replay whose hole exceeds the allowance must not return READY.
+
+    The docstring promises the feed goes HALTED when the replay proves a hole
+    larger than the allowance. Counting the hole was never enough -- this is
+    the control that fails when the gate is removed, and it pins the *default*
+    allowance so a config change cannot quietly widen what is tolerated.
+    """
+    feed = _feed_ready_for_recovery()
+    registry = MetricsRegistry()
+    coordinator = _coordinator(
+        feed,
+        # Last closed bar at _BASE_EPOCH, first replayed bar at +1800 => 29
+        # missing, over the default allowance of 20.
+        history_provider=_Provider([_bar(_BASE_EPOCH + 1800)]),
+        metrics=registry,
+    )
+    coordinator.record_closed_bar(_bar(_BASE_EPOCH))
+
+    outcome = coordinator.recover()
+
+    assert outcome.ok is False
+    assert "29 missing bars" in str(outcome.error)
+    assert "allowance of 20" in str(outcome.error)
+    assert feed.supervisor.state is FeedState.HALTED
+    assert registry.get("feed_recovery_failures_total") == 1
+
+
+def test_hole_at_default_allowance_still_reaches_ready() -> None:
+    """F-43 positive control: a hole exactly at the allowance is tolerated."""
+    feed = _feed_ready_for_recovery()
+    coordinator = _coordinator(
+        feed,
+        # +1260 => exactly 20 missing, the default allowance. The bound is
+        # inclusive: rejecting at the limit would halt on any 20-minute hole.
+        history_provider=_Provider([_bar(_BASE_EPOCH + 1260)]),
+    )
+    coordinator.record_closed_bar(_bar(_BASE_EPOCH))
+
+    outcome = coordinator.recover()
+
+    assert outcome.ok is True
+    assert outcome.missing_bars == 20
+    assert feed.supervisor.state is FeedState.READY
+
+
+def test_allowance_is_configurable() -> None:
+    """F-43: the bound is configuration, not a constant buried in recover().
+
+    A 2-bar hole is under the default of 20, so this only fails closed because
+    the coordinator was told 1.
+    """
+    feed = _feed_ready_for_recovery()
+    coordinator = _coordinator(
+        feed,
+        history_provider=_Provider([_bar(_BASE_EPOCH + 180)]),
+        max_missing_bars=1,
+    )
+    coordinator.record_closed_bar(_bar(_BASE_EPOCH))
+
+    outcome = coordinator.recover()
+
+    assert outcome.ok is False
+    assert feed.supervisor.state is FeedState.HALTED
+
+
+def test_zero_allowance_tolerates_no_hole() -> None:
+    """F-43: ``0`` is a real bound, not a disabled switch.
+
+    A one-bar hole (last closed at T, first replayed at T+120) is rejected,
+    while the same shape under the default allowance is accepted.
+    """
+    feed = _feed_ready_for_recovery()
+    coordinator = _coordinator(
+        feed,
+        history_provider=_Provider([_bar(_BASE_EPOCH + 120)]),
+        max_missing_bars=0,
+    )
+    coordinator.record_closed_bar(_bar(_BASE_EPOCH))
+
+    assert coordinator.recover().ok is False
+
+
+def test_negative_allowance_is_rejected() -> None:
+    feed = _feed_ready_for_recovery()
+
+    with pytest.raises(ValueError):
+        _coordinator(feed, max_missing_bars=-1)
 
 
 def test_fetch_window_starts_at_last_closed_bar() -> None:

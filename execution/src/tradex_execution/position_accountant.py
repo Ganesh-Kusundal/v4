@@ -23,6 +23,7 @@ from tradex_domain.position_math import apply_dividend, apply_fill, apply_split
 from tradex_domain.utils import q2
 from tradex_domain.value_objects import Money
 
+from tradex_execution.reconciliation import ReconciliationEngine
 from tradex_execution.trading_cache import TradingCache
 
 log = logging.getLogger(__name__)
@@ -216,14 +217,22 @@ class PositionAccountant:
         """Return all tracked positions."""
         return self._cache.all_positions()
 
-    def reconcile_with_broker(
+    def _reconcile_with_broker(
         self, broker_positions: list[Position]
     ) -> list[Any]:
-        """Compare local positions against broker snapshot and return drift items."""
-        from tradex_execution.reconciliation import ReconciliationEngine
+        """Compare local positions against broker snapshot and return drift items.
 
-        local = self.all_positions()
-        return ReconciliationEngine().reconcile(local, broker_positions)
+        REF-13: this used to be a second *public* reconcile entry point
+        (``reconcile_with_broker``) alongside
+        :meth:`ExecutionEngine.reconcile`; it is now the private helper of
+        the accountant. The public reconcile entry is
+        :meth:`ExecutionEngine.reconcile`, which orchestrates the same
+        :class:`~tradex_execution.reconciliation.ReconciliationEngine`
+        comparison together with order drift and the durable record.
+        """
+        return ReconciliationEngine().reconcile(
+            self.all_positions(), broker_positions
+        )
 
 
 

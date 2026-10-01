@@ -208,6 +208,11 @@ def _sma_seeded_ema(values: Sequence[float | None], period: int) -> list[float |
     return out
 
 
+#: Public spelling (REF-14 guardrail: cross-package consumers — the strategy
+#: extension indicators — must not import an underscore-private symbol).
+sma_seeded_ema = _sma_seeded_ema
+
+
 def _ema_of_gapped(values: Sequence[float | None], period: int) -> list[float | None]:
     """EMA chained over a warmup-gapped series (openalgo-charts parity).
 

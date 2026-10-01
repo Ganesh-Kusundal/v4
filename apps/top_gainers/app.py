@@ -5,7 +5,8 @@ Run from the repo root:
     .venv/bin/streamlit run apps/top_gainers/app.py
 
 Data source: the local OHLCV parquet datalake (data/ohlcv/symbol=…/data.parquet),
-read directly with DuckDB — no broker or trading-package imports. All bars are
+read directly with DuckDB — no broker imports; the session bounds derive from
+the canonical tradex_domain session constants. All bars are
 tz-naive IST wall time, so comparisons use naive TIME/TIMESTAMP literals.
 
 Window (matches the research queries this app visualizes):
@@ -17,7 +18,7 @@ Window (matches the research queries this app visualizes):
 from __future__ import annotations
 
 import threading
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta
 
 import duckdb
 import numpy as np
@@ -25,9 +26,14 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from plotly.subplots import make_subplots
+from tradex_domain.constants import SESSION_CLOSE, SESSION_OPEN
 
 LAKE_GLOB = "data/ohlcv/**/data.parquet"
-SESSION_LO, SESSION_HI = "09:15", "15:29"
+SESSION_LO = SESSION_OPEN[:5]
+# last intra-minute bucket label derived from canonical session close
+SESSION_HI = (
+    datetime.strptime(SESSION_CLOSE, "%H:%M:%S") - timedelta(minutes=1)
+).strftime("%H:%M")
 GAIN_FROM, GAIN_TO = "09:50", "15:15"  # the ranking window
 OPEN_PROFILE_TO = "09:45"  # left-side opening profile covers 09:15 → this time
 # Candle timeframes for the chart. Matches the frontend interval picker in

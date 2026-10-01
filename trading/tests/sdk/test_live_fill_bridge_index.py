@@ -48,6 +48,11 @@ class _AckBroker:
         self.submitted.append(request)
         return BROKER_ORDER_ID
 
+    def cancel_order(self, order_id: OrderId) -> None:
+        # BrokerAdapter member: live brokers always carry it (the former
+        # hasattr probe silently no-op'd; the protocol now fails loudly).
+        return None
+
 
 class _OrderStream:
     def __init__(self) -> None:

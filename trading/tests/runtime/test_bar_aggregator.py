@@ -8,10 +8,10 @@ from decimal import Decimal
 import pytest
 from tradex_domain.enums import Timeframe
 from tradex_domain.market_calendar import IST
+from tradex_domain.timeframe import interval_seconds
 from tradex_runtime.bar_aggregator import (
     BarAggregator,
     BarFrame,
-    _tf_seconds,
     bucket_start,
 )
 
@@ -317,10 +317,10 @@ class TestBucketStart:
 
     def test_weekly_floor_uses_ist_monday_midnight(self):
         # W1 is a supported timeframe: the canonical registry maps it to
-        # 604800s, so `_tf_seconds` resolves it instead of raising. The floor
-        # must be the IST Monday, NOT a 604800s epoch multiple — the epoch
-        # origin is a Thursday, so an epoch floor would land mid-week.
-        assert _tf_seconds(Timeframe.W1) == 604_800
+        # 604800s, so `interval_seconds` resolves it instead of raising. The
+        # floor must be the IST Monday, NOT a 604800s epoch multiple — the
+        # epoch origin is a Thursday, so an epoch floor would land mid-week.
+        assert interval_seconds(Timeframe.W1) == 604_800
         # Wednesday and the Sunday that closes the same ISO week both floor
         # to Monday 2026-07-13 00:00 IST.
         assert bucket_start(_ist(2026, 7, 15, 10, 7, 23), 604_800) == _ist(2026, 7, 13, 0, 0)
@@ -330,7 +330,7 @@ class TestBucketStart:
 
     def test_unsupported_timeframe_raises(self):
         with pytest.raises(ValueError, match="unsupported"):
-            _tf_seconds("not-a-timeframe")
+            interval_seconds("not-a-timeframe")
 
 
 def _epoch_floor(ts: datetime, seconds: int) -> datetime:

@@ -11,6 +11,11 @@ Conventions:
 - ``StrEnum``/``Enum`` -> ``.value``
 - dataclass -> ``{field: to_dict(value)}`` plus a ``__type__`` marker holding
   ``module.QualifiedName`` so ``from_dict()`` can rebuild concrete subclasses
+
+Timestamp *parsing* (wire value -> ``datetime``) is centralised in
+:func:`parse_timestamp`: one ordered format ladder serves the brokers, the
+market-data catalog and ``from_dict()`` coercion, so the accepted shapes can
+never drift apart.
 """
 
 from __future__ import annotations
@@ -18,16 +23,90 @@ from __future__ import annotations
 import functools
 import importlib
 from dataclasses import fields, is_dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Any, get_args, get_origin, get_type_hints
 from uuid import UUID
 
+from tradex_domain.datetime_formats import DASHED_DATE, DASHED_DATETIME
 from tradex_domain.errors import SDKError
 
 _TYPE_KEY = "__type__"
 _DOMAIN_PREFIX = "tradex_domain."
+
+
+def parse_timestamp(value: str | int | float) -> datetime:
+    """Parse a timestamp from various formats into a timezone-aware datetime.
+
+    The single canonical timestamp entry point for the whole platform (REF-11):
+    broker adapters (:func:`tradex_brokers.common.provider_common.parse_timestamp`
+    is a thin wrapper kept for its public name), the market-data catalog, and
+    :func:`from_dict` coercion all route through this ladder so the accepted
+    wire shapes can never drift apart.
+
+    Supports:
+    - Unix epoch seconds (int/float)
+    - Unix epoch milliseconds (int > 1e12)
+    - ISO 8601 strings
+    - Common broker date formats
+
+    Parameters
+    ----------
+    value:
+        The timestamp value.
+
+    Returns
+    -------
+    datetime
+        Timezone-aware datetime. Aware inputs keep their original offset;
+        naive string hits are pinned to UTC; epoch inputs are UTC.
+
+    Raises
+    ------
+    SDKError
+        If the value cannot be parsed.
+    """
+    if isinstance(value, (int, float)):
+        # Distinguish seconds from milliseconds
+        if value > 1e12:
+            value = value / 1000.0
+        try:
+            return datetime.fromtimestamp(value, tz=UTC)
+        except (OSError, ValueError, OverflowError) as exc:
+            raise SDKError(f"Cannot parse timestamp {value!r}") from exc
+
+    if isinstance(value, str):
+        value = value.strip()
+        # Tolerant-parsing fallback ladder, tried in order. This is an ORDERED
+        # LIST OF DISTINCT WIRE SHAPES, not duplicated literals: producers each
+        # emit their own spelling for the same instant, and an entry may only
+        # be dropped once that producer is proven never to send it. Collapsing
+        # entries (or reordering them) would reject valid-but-unusual
+        # responses. The first four are the ISO-8601 'T' variants; the
+        # space-separated and date-only entries reuse the domain format
+        # contracts so the wire shapes have exactly one spelling.
+        for fmt in (
+            "%Y-%m-%dT%H:%M:%S%z",  # ISO 8601, aware
+            "%Y-%m-%dT%H:%M:%S.%f%z",  # ISO 8601, aware, microseconds
+            "%Y-%m-%dT%H:%M:%S",  # ISO 8601, naive
+            "%Y-%m-%dT%H:%M:%S.%f",  # ISO 8601, naive, microseconds
+            DASHED_DATETIME,  # "%Y-%m-%d %H:%M:%S"  -- space-separated
+            "%Y-%m-%d %H:%M:%S%z",  # space-separated, aware (no domain constant)
+            DASHED_DATE,  # "%Y-%m-%d"  -- date only
+            "%d-%m-%Y",  # day-first, European (no domain constant)
+            "%d/%m/%Y",  # day-first, slashed (no domain constant)
+        ):
+            try:
+                dt = datetime.strptime(value, fmt)  # noqa: DTZ007
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                return dt
+            except ValueError:
+                continue
+        raise SDKError(f"Cannot parse timestamp string {value!r}")
+
+    raise SDKError(f"Cannot parse timestamp of type {type(value).__name__}")
 
 
 class Serializable:
@@ -98,7 +177,9 @@ def _coerce(annotation: Any, value: Any) -> Any:
     if annotation is Decimal:
         return Decimal(str(value))
     if annotation is datetime:
-        return datetime.fromisoformat(value)
+        # Route through the canonical timestamp entry point so from_dict()
+        # accepts exactly the same wire shapes as every other parser.
+        return parse_timestamp(value)
     if annotation is date:
         return date.fromisoformat(value)
     if annotation is UUID:
@@ -158,4 +239,4 @@ def _hints(cls: type) -> dict[str, Any]:
     return get_type_hints(cls)
 
 
-__all__ = ["Serializable", "from_dict", "to_dict"]
+__all__ = ["Serializable", "from_dict", "parse_timestamp", "to_dict"]

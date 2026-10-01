@@ -33,6 +33,12 @@ from decimal import Decimal
 from typing import Any
 
 from tradex_domain import SDKError
+from tradex_domain.constants import (
+    SEGMENT_CANONICAL_DHAN as DHAN_SEGMENT_CANONICAL,
+)
+from tradex_domain.constants import (
+    SEGMENT_CANONICAL_UPSTOX as UPSTOX_SEGMENT_CANONICAL,
+)
 from tradex_domain.instrument_lifecycle import row_status
 from tradex_domain.instruments import Future, Instrument, Option
 from tradex_domain.value_objects import InstrumentId
@@ -52,41 +58,14 @@ UPSTOX_INSTRUMENT_MASTER_URL = (
 # run non-strict and keep small fixtures working.
 MIN_MASTER_ROWS = 10_000
 
-# (SEM_EXM_EXCH_ID, SEM_SEGMENT) -> canonical v4 exchange.
-# Single source of truth for Dhan master-row exchange normalization —
-# consumed by ``parse_dhan_master`` and nowhere else in trading.
-DHAN_SEGMENT_CANONICAL: dict[tuple[str, str], str] = {
-    ("NSE", "E"): "NSE",
-    ("NSE", "D"): "NFO",
-    ("NSE", "I"): "IDX",
-    ("NSE", "C"): "CDS",
-    ("NSE", "M"): "NSE_COMM",
-    ("BSE", "E"): "BSE",
-    ("BSE", "D"): "BFO",
-    ("BSE", "I"): "IDX",
-    ("BSE", "C"): "BCD",
-    ("MCX", "M"): "MCX",
-    ("IDX", "I"): "IDX",
-    ("CDS", "D"): "CDS",
-}
-
-# Segment -> canonical v4 exchange. Single source of truth for Upstox
-# master-row exchange normalization (consumed by ``parse_upstox_master``).
-# Includes the BSE/NCDEX/COM variants the trading layer previously re-declared.
-UPSTOX_SEGMENT_CANONICAL: dict[str, str] = {
-    "NSE_EQ": "NSE",
-    "BSE_EQ": "BSE",
-    "NSE_FO": "NFO",
-    "BSE_FO": "BFO",
-    "MCX_FO": "MCX",
-    "NSE_COM": "NSE_COMM",
-    "BCD_FO": "BCD",
-    "NCD_FO": "CDS",
-    "NSE_CURRENCY": "CDS",
-    "BSE_CURRENCY": "BCD",
-    "NSE_INDEX": "IDX",
-    "BSE_INDEX": "IDX",
-}
+# (SEM_EXM_EXCH_ID, SEM_SEGMENT) -> canonical v4 exchange — Dhan master-row
+# exchange normalization, and segment -> canonical v4 exchange — Upstox
+# master-row normalization (includes the BSE/NCDEX/COM variants the trading
+# layer previously re-declared). Both tables live in
+# ``tradex_domain.constants`` (single source of truth, audit REF-4); they are
+# imported under the historical local names so every importer of this
+# module — including the ``dhan/instruments`` / ``upstox/instruments`` shims
+# that re-export them as ``SEGMENT_CANONICAL`` — keeps working unchanged.
 
 _RIGHT_MAP = {"CE": "CE", "PE": "PE", "CA": "CE", "PA": "PE"}
 

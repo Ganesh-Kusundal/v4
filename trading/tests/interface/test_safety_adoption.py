@@ -32,6 +32,10 @@ from tradex_domain.execution import (
 )
 from tradex_domain.instruments import Equity, Instrument
 from tradex_domain.value_objects import CorrelationId, Money, OrderId, Price, Quantity
+from tradex_execution.reconciliation import (
+    _position_instrument_id,
+    _venue_quantity,
+)
 from tradex_interfaces.safety import (
     METRIC_ADOPTED,
     METRIC_CLEARED,
@@ -47,8 +51,6 @@ from tradex_interfaces.safety import (
     ReconciliationMonitorSeams,
     VenueAdoption,
     VenueRead,
-    _position_instrument_id,
-    _venue_quantity,
     adopt_venue_positions,
     build_reconciliation_monitor_seams,
     derive_venue_adoption,

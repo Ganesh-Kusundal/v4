@@ -70,6 +70,9 @@ class _FakeBroker:
     def unsubscribe(self, subscription: object) -> None:
         self._handlers.pop(str(subscription), None)
 
+    def set_reconnect_hook(self, cb: object) -> None:
+        return None
+
     def emit_quote(self, quote: Quote) -> None:
         for handler in tuple(self._handlers.values()):
             handler(quote)

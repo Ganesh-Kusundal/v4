@@ -15,7 +15,12 @@ from pathlib import Path
 from typing import Any
 
 from tradex_domain import BrokerId
-from tradex_domain.constants import BOOK_MATCHING, PAPER_DEFAULT, SLIPPAGE_MODEL
+from tradex_domain.constants import (
+    BOOK_MATCHING,
+    DEFAULT_BACKTEST_RISK_FRACTION,
+    PAPER_DEFAULT,
+    SLIPPAGE_MODEL,
+)
 from tradex_domain.instruments import Equity, Instrument
 from tradex_domain.paths import default_runtime_dir
 from tradex_domain.risk_budget import (
@@ -138,6 +143,11 @@ class RiskConfig:
     #: strategy identifier rather than by the ``name@version`` text in ``tag``.
     #: A strategy with no entry here falls back to the global caps above.
     budgets: dict[str, RiskBudget] = field(default_factory=dict)
+    #: F-40: the share of account equity one trade may lose, used to size an
+    #: order. Defaults to the backtest's own default so paper/live and backtest
+    #: start from the same policy; ``boot()`` builds the single
+    #: ``account_sizer`` from this, the notional ceiling, and the live balance.
+    risk_fraction: Decimal | None = Decimal(str(DEFAULT_BACKTEST_RISK_FRACTION))
 
     def __post_init__(self) -> None:
         if self.max_order_value is not None and not isinstance(self.max_order_value, Decimal):
@@ -314,6 +324,13 @@ class ExecutionConfig:
     #: They remain discoverable so the chart/backtest route can offer them to a
     #: user who asks for one by name.
     auto_register_examples: bool = False
+    #: F-45: how many bars a deferred ``next_open`` order may sit in the queue
+    #: before the engine cancels it. The engine's own default is ``0``, which
+    #: *disables* expiry, so leaving this unset made the documented max-age
+    #: sweep a silent no-op in production. Non-zero by default: a deferred
+    #: order that never fills is a position the operator did not intend, and
+    #: ``0`` is reachable explicitly. Must be >= 0.
+    pending_max_age_bars: int = 3
 
     def __post_init__(self) -> None:
         if self.slippage_bps is not None and not isinstance(
@@ -341,6 +358,32 @@ class ExecutionConfig:
         if self.book_spread_bps < 0:
             raise ValueError(
                 f"book_spread_bps must be >= 0, got {self.book_spread_bps!r}"
+            )
+        if self.pending_max_age_bars < 0:
+            raise ValueError(
+                f"pending_max_age_bars must be >= 0, got {self.pending_max_age_bars!r}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class FeedConfig:
+    """Feed continuity configuration, read by ``boot`` (F-43).
+
+    ``max_missing_bars``
+        How many bars of hole feed recovery tolerates between the last accepted
+        bar and the replayed series after a socket reconnect. Over the bound,
+        recovery fails closed and the feed goes ``HALTED`` rather than trading a
+        discontinuous book. Non-zero by default so the contract holds without
+        configuration; the default sits above a venue's structural tail hole
+        (Dhan's NSE 1m series stops at 15:14). Must be >= 0.
+    """
+
+    max_missing_bars: int = 20
+
+    def __post_init__(self) -> None:
+        if self.max_missing_bars < 0:
+            raise ValueError(
+                f"max_missing_bars must be >= 0, got {self.max_missing_bars!r}"
             )
 
 
@@ -421,6 +464,9 @@ class AppConfig:
         Structured-logging level and output format, named by
         ``$TRADEX_LOG_LEVEL`` and ``$TRADEX_LOG_JSON`` and applied by
         ``boot()`` (AC-17 / lane 5c).
+    feed : FeedConfig
+        Feed continuity bounds, applied by ``boot()`` when it builds the
+        recovery coordinator (F-43).
     feed_instruments : tuple[Instrument, ...]
         The tape a live session must be able to prove before it starts (AC-20).
         Empty by default — paper, backtest and replay need no tape — and named
@@ -439,6 +485,7 @@ class AppConfig:
     broker: BrokerConfig = field(default_factory=BrokerConfig)
     persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
+    feed: FeedConfig = field(default_factory=FeedConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     feed_instruments: tuple[Instrument, ...] = field(
         default_factory=default_feed_instruments

@@ -23,9 +23,12 @@ from datetime import datetime, timedelta
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.market_calendar import MARKET_OPEN, to_ist_naive
+from tradex_domain.timezones import IST_ZONE
 
 # canon -> {dhan_interval, upstox_unit, upstox_interval, bucket_seconds, is_intraday}
-_TIMEFRAMES: dict[str, dict[str, object]] = {
+# Public (REF-14 guardrail): the datalake parallel fetcher reads the intraday
+# flag cross-package, so the registry must not be underscore-private.
+TIMEFRAMES: dict[str, dict[str, object]] = {
     "1m": {"dhan": "1", "upstox_unit": "minutes",
        "upstox_interval": "1", "seconds": 60, "intraday": True},
     "5m": {"dhan": "5", "upstox_unit": "minutes",
@@ -47,19 +50,70 @@ _TF_BY_VALUE: dict[str, Timeframe] = {
     "30m": Timeframe.M30, "1h": Timeframe.H1, "1d": Timeframe.D1, "1w": Timeframe.W1,
 }
 
+#: Chart-style interval spellings -> canonical :class:`Timeframe`. Absorbs the
+#: table the chart route used to own, plus every daily spelling the surface
+#: layers type by hand: ``D`` is the chart REST form, ``1d`` the domain/WS
+#: form, and ``1D``/``d`` the common hand-typed variants. Values are
+#: :class:`Timeframe` members, which are strings, so a ``dict[str, str]``
+#: reading stays true for consumers that only want the canonical value.
+INTERVAL_TO_TIMEFRAME: dict[str, str] = {
+    "1m": Timeframe.M1,
+    "5m": Timeframe.M5,
+    "15m": Timeframe.M15,
+    "30m": Timeframe.M30,
+    "1h": Timeframe.H1,
+    "1d": Timeframe.D1,
+    "D": Timeframe.D1,
+    "1D": Timeframe.D1,
+    "d": Timeframe.D1,
+}
+
 def normalize(value: Timeframe | str) -> tuple[str, Timeframe]:
     """Return (canonical_str, Timeframe) for ``str | Timeframe``."""
     raw = value.value if isinstance(value, Timeframe) else str(value)
     tf = _TF_BY_VALUE.get(raw)
     if tf is None:
+        # A chart-style spelling of a supported bar ("D"/"1D"/"d") resolves
+        # onto the canonical row rather than failing the registry.
+        alias = INTERVAL_TO_TIMEFRAME.get(raw)
+        if alias is not None:
+            tf = Timeframe(alias)
+            raw = tf.value
+    if tf is None:
         raise ValueError(f"unsupported timeframe: {value!r}")
     return raw, tf
 
 
+def interval_seconds(interval: str | Timeframe) -> int:
+    """Bucket width in seconds for a canonical timeframe or interval string.
+
+    The one seconds-per-bar answer: accepts a :class:`Timeframe` member or a
+    raw string (canonical values, plus the chart-style daily spellings the
+    interval table carries) and raises :class:`ValueError` for anything the
+    registry does not support.
+    """
+    raw, _ = normalize(interval)
+    return int(TIMEFRAMES[raw]["seconds"])
+
+
+def candle_epoch(ts: datetime) -> int:
+    """UTC epoch seconds of *ts*'s IST wall clock — the chart's bar key.
+
+    One candle-stamp-to-epoch conversion for every consumer (replay targets,
+    window loaders, chart responses): naive input is read as IST (the datalake
+    contract stores tz-naive IST), aware input is converted to IST first, and
+    the epoch second of that wall clock is returned.
+    """
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=IST_ZONE)
+    else:
+        ts = ts.astimezone(IST_ZONE)
+    return int(ts.timestamp())
+
+
 def bucket_seconds(tf: Timeframe) -> int:
     """Seconds per bar for resample/bucketize."""
-    raw, _ = normalize(tf)
-    return _TIMEFRAMES[raw]["seconds"]  # type: ignore[return-value]
+    return interval_seconds(tf)
 
 
 #: The grid is IST wall clock, so wall stamps are counted from this epoch and
@@ -143,13 +197,13 @@ def bucket_start(ts: datetime, seconds: int) -> datetime:
 def dhan_interval(value: Timeframe | str) -> str | None:
     """Dhan ``interval`` string (``None`` if unsupported, e.g. M30)."""
     raw, _ = normalize(value)
-    return _TIMEFRAMES[raw]["dhan"]  # type: ignore[return-value]
+    return TIMEFRAMES[raw]["dhan"]  # type: ignore[return-value]
 
 
 def upstox_unit_interval(value: Timeframe | str) -> tuple[str, str]:
     """Upstox ``(unit, interval)`` pair."""
     raw, _ = normalize(value)
-    row = _TIMEFRAMES[raw]
+    row = TIMEFRAMES[raw]
     return str(row["upstox_unit"]), str(row["upstox_interval"])
 
 
@@ -160,11 +214,14 @@ def to_timeframe(value: Timeframe | str) -> Timeframe:
 
 
 __all__ = [
+    "INTERVAL_TO_TIMEFRAME",
     "bucket_seconds",
     "bucket_start",
     "bucket_wall_seconds",
+    "candle_epoch",
     "dhan_interval",
     "from_wall_seconds",
+    "interval_seconds",
     "normalize",
     "to_timeframe",
     "to_wall_seconds",

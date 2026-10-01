@@ -25,8 +25,6 @@ members = [
     "tradex-interfaces",
     "tradex-market-data",
     "tradex-observability",
-    "tradex-operations",
-    "tradex-persistence",
     "tradex-reactive",
     "tradex-replay",
     "tradex-research",
@@ -53,8 +51,6 @@ dev = [
     { name = "tradex-interfaces", editable = "interfaces" },
     { name = "tradex-market-data", editable = "market_data" },
     { name = "tradex-observability", editable = "observability" },
-    { name = "tradex-operations", editable = "operations" },
-    { name = "tradex-persistence", editable = "persistence" },
     { name = "tradex-reactive", editable = "reactive" },
     { name = "tradex-replay", editable = "replay" },
     { name = "tradex-research", editable = "research" },
@@ -1927,7 +1923,6 @@ dependencies = [
     { name = "duckdb" },
     { name = "pandas" },
     { name = "pyarrow" },
-    { name = "tradex-brokers" },
     { name = "tradex-domain" },
 ]
 
@@ -1936,7 +1931,6 @@ requires-dist = [
     { name = "duckdb", specifier = ">=0.10,<2" },
     { name = "pandas", specifier = ">=2,<3" },
     { name = "pyarrow", specifier = ">=14,<20" },
-    { name = "tradex-brokers", editable = "brokers" },
     { name = "tradex-domain", editable = "domain" },
 ]
 
@@ -1944,22 +1938,6 @@ requires-dist = [
 name = "tradex-observability"
 version = "0.1.0"
 source = { editable = "observability" }
-
-[[package]]
-name = "tradex-operations"
-version = "0.1.0"
-source = { editable = "operations" }
-
-[[package]]
-name = "tradex-persistence"
-version = "0.1.0"
-source = { editable = "persistence" }
-dependencies = [
-    { name = "tradex-execution" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "tradex-execution", editable = "execution" }]
 
 [[package]]
 name = "tradex-reactive"

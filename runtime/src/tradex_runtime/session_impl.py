@@ -184,6 +184,30 @@ class TradingSession:
         #: actually found. ``None`` means "never reconciled", which the route
         #: distinguishes from "reconciled and found nothing".
         self._last_reconciliation: tuple[object, ...] | None = None
+        #: Explicit stop hooks registered by the composition root. ``before``
+        #: runs ahead of feed/broker teardown (strategy registry stop_all);
+        #: ``after`` runs once the feed is down (bar aggregator dispose, tape
+        #: close). Replaces per-instance ``session.stop`` monkey-patching.
+        self._before_stop_hooks: list[Callable[[], None]] = []
+        self._after_stop_hooks: list[Callable[[], None]] = []
+
+    def add_stop_hook(
+        self,
+        hook: Callable[[], None],
+        *,
+        phase: str = "after",
+    ) -> None:
+        """Register a teardown callback owned by the composition root.
+
+        ``phase="before"`` runs before feed/broker teardown (e.g. strategy
+        registry ``stop_all``). ``phase="after"`` runs after the feed is
+        stopped so no tick can race a dispose/close. Hooks are best-effort:
+        a failure is logged and the remaining hooks still run.
+        """
+        if phase not in ("before", "after"):
+            raise ValueError(f"stop hook phase must be 'before' or 'after', got {phase!r}")
+        target = self._before_stop_hooks if phase == "before" else self._after_stop_hooks
+        target.append(hook)
 
     def start(self) -> None:
         """Transition to READY state. Idempotent: no-op if already READY."""
@@ -217,85 +241,103 @@ class TradingSession:
         """Transition to STOPPED state. Dispose all subscriptions.
 
         Idempotent: calling stop() on an already-stopped session is a no-op.
+        Composition-root ``add_stop_hook`` callbacks run around the body:
+        ``before`` ahead of feed teardown, ``after`` once the feed is down
+        (and still when the session never left NEW, so tape/aggregator
+        dispose cannot be skipped by a failed boot).
         """
         if self._state == SessionState.STOPPED:
             return  # already stopped
-        # Release the single-writer lock (live mode only) regardless of
-        # whether the session reached READY. Boot acquires the lock before
-        # session.start(); if boot fails partway (e.g. critical drift) the
-        # session stays NEW but the lock must still be released.
-        if self._writer_lock is not None:
+        self._run_stop_hooks(self._before_stop_hooks, "before")
+        try:
+            # Release the single-writer lock (live mode only) regardless of
+            # whether the session reached READY. Boot acquires the lock before
+            # session.start(); if boot fails partway (e.g. critical drift) the
+            # session stays NEW but the lock must still be released.
+            if self._writer_lock is not None:
+                try:
+                    self._writer_lock.release()  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover – defensive teardown
+                    log.warning("writer lock release failed", exc_info=True)
+                self._writer_lock = None
+            if self._state == SessionState.NEW:
+                return  # never started, nothing else to stop
+            for sub in self._subscriptions:
+                sub.cancel()
+            self._subscriptions.clear()
+            # Stop the stale-feed poll before the feed itself is torn down so a
+            # poll cannot observe a half-stopped feed.
+            if self._feed_monitor is not None:
+                try:
+                    self._feed_monitor.stop()  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover – defensive teardown
+                    log.warning("feed stale monitor stop failed", exc_info=True)
+                self._feed_monitor = None
+            # Stop the reconciliation poller before the broker is torn down so a
+            # poll cannot observe a half-stopped broker. Same ordering as the feed
+            # monitor above for the same reason.
+            if self._reconciliation_monitor is not None:
+                try:
+                    self._reconciliation_monitor.stop()  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover – defensive teardown
+                    log.warning("reconciliation monitor stop failed", exc_info=True)
+                self._reconciliation_monitor = None
+            if self._market_feed is not None:
+                try:
+                    self._market_feed.stop()  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover – defensive teardown
+                    log.warning("market feed stop failed", exc_info=True)
+            if self._mark_to_market is not None:
+                try:
+                    self._mark_to_market.close()  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover – defensive teardown
+                    log.warning("mark-to-market stop failed", exc_info=True)
+            self._bus.dispose()
+            if self._fill_bridge is not None:
+                try:
+                    self._fill_bridge.close()  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover – defensive
+                    pass
+            if self._stream_backend is not None:
+                try:
+                    # Note: for live brokers this is the same object as the
+                    # broker's cached order backend, which ``broker.close()``
+                    # below closes again — backends' close() is idempotent.
+                    self._stream_backend.close()  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover – defensive
+                    pass
+            # Tear down the daily master-refresh daemon (live brokers only).
+            if self._master_scheduler is not None:
+                try:
+                    self._master_scheduler.stop()  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover – defensive teardown
+                    log.warning("master refresh scheduler stop failed", exc_info=True)
+                self._master_scheduler = None
+            # Tear down the broker's WebSocket sockets (market/depth/order feeds).
+            # Nothing else ever closes them, so without this the daemon receive
+            # loops and the reconnect machinery stay alive — minting fresh tokens
+            # forever — after the session is stopped.
+            # REF-14: a protocol call, not a duck-type probe — BrokerAdapter
+            # declares close(), so the attribute always exists on a conforming
+            # broker; the try/except keeps teardown defensive.
             try:
-                self._writer_lock.release()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive teardown
-                log.warning("writer lock release failed", exc_info=True)
-            self._writer_lock = None
-        if self._state == SessionState.NEW:
-            return  # never started, nothing else to stop
-        for sub in self._subscriptions:
-            sub.cancel()
-        self._subscriptions.clear()
-        # Stop the stale-feed poll before the feed itself is torn down so a
-        # poll cannot observe a half-stopped feed.
-        if self._feed_monitor is not None:
-            try:
-                self._feed_monitor.stop()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive teardown
-                log.warning("feed stale monitor stop failed", exc_info=True)
-            self._feed_monitor = None
-        # Stop the reconciliation poller before the broker is torn down so a
-        # poll cannot observe a half-stopped broker. Same ordering as the feed
-        # monitor above for the same reason.
-        if self._reconciliation_monitor is not None:
-            try:
-                self._reconciliation_monitor.stop()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive teardown
-                log.warning("reconciliation monitor stop failed", exc_info=True)
-            self._reconciliation_monitor = None
-        if self._market_feed is not None:
-            try:
-                self._market_feed.stop()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive teardown
-                log.warning("market feed stop failed", exc_info=True)
-        if self._mark_to_market is not None:
-            try:
-                self._mark_to_market.close()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive teardown
-                log.warning("mark-to-market stop failed", exc_info=True)
-        self._bus.dispose()
-        if self._fill_bridge is not None:
-            try:
-                self._fill_bridge.close()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive
-                pass
-        if self._stream_backend is not None:
-            try:
-                # Note: for live brokers this is the same object as the
-                # broker's cached order backend, which ``broker.close()``
-                # below closes again — backends' close() is idempotent.
-                self._stream_backend.close()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive
-                pass
-        # Tear down the daily master-refresh daemon (live brokers only).
-        if self._master_scheduler is not None:
-            try:
-                self._master_scheduler.stop()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive teardown
-                log.warning("master refresh scheduler stop failed", exc_info=True)
-            self._master_scheduler = None
-        # Tear down the broker's WebSocket sockets (market/depth/order feeds).
-        # Nothing else ever closes them, so without this the daemon receive
-        # loops and the reconnect machinery stay alive — minting fresh tokens
-        # forever — after the session is stopped.
-        close_fn = getattr(self._broker, "close", None)
-        if callable(close_fn):
-            try:
-                close_fn()
+                self._broker.close()
             except Exception:  # pragma: no cover – defensive teardown
                 log.warning("broker close failed", exc_info=True)
-        self._state = SessionState.STOPPED
-        sid = getattr(self, '_session_id', id(self))
-        log.info("Session %s stopped", sid)
+            self._state = SessionState.STOPPED
+            sid = getattr(self, '_session_id', id(self))
+            log.info("Session %s stopped", sid)
+        finally:
+            self._run_stop_hooks(self._after_stop_hooks, "after")
+            self._before_stop_hooks.clear()
+            self._after_stop_hooks.clear()
+
+    def _run_stop_hooks(self, hooks: list[Callable[[], None]], phase: str) -> None:
+        for hook in hooks:
+            try:
+                hook()
+            except Exception:  # pragma: no cover – defensive teardown
+                log.warning("session %s-stop hook failed", phase, exc_info=True)
 
     def _check_ready(self) -> None:
         if self._state != SessionState.READY:

@@ -34,7 +34,11 @@ from tradex_brokers.common.client_shared import (
     correlation_id,
     parse_timestamp_fallback,
 )
-from tradex_brokers.common.dhan_segments import dhan_segment_for
+from tradex_brokers.common.dhan_segments import (
+    DEFAULT_OPTION_LEG_EXCHANGE,
+    OPTION_LEG_EXCHANGE,
+    dhan_segment_for,
+)
 from tradex_brokers.common.endpoints import DHAN_REST_BASE_URL
 from tradex_brokers.common.order_status import map_order_status
 from tradex_brokers.common.provider_client import ProviderHttpClient
@@ -58,26 +62,6 @@ from tradex_brokers.dhan._portfolio import PortfolioMixin
 #: a module-level name so existing importers of this module keep working
 #: unchanged.
 _DHAN_EXCHANGE_SEGMENT: dict[str, str] = dhan_segments.DHAN_EXCHANGE_SEGMENT
-
-#: Domain exchange for option legs built from a REST chain, keyed by the
-#: underlying's exchange. Equity/index underlyings follow the NFO/BFO product
-#: mapping; commodity/currency underlyings keep their own exchange — Dhan's
-#: /optionchain also serves MCX, NSE_COMM, CDS and BCD chains, and the legs
-#: must be built on the same exchange the instrument master uses or the
-#: registry / quote / order mapping for those contracts silently breaks.
-#: Note: ``IDX -> NFO`` is correct for NSE indices only; a future BSE-index
-#: (SENSEX) chain would need BFO — distinguish via registry meta then.
-_OPTION_LEG_EXCHANGE: dict[str, str] = {
-    "NSE": "NFO",
-    "BSE": "BFO",
-    "NFO": "NFO",
-    "BFO": "BFO",
-    "IDX": "NFO",
-    "MCX": "MCX",
-    "NSE_COMM": "NSE_COMM",
-    "CDS": "CDS",
-    "BCD": "BCD",
-}
 
 
 def dhan_exchange_segment(exchange: Any) -> str:
@@ -268,9 +252,14 @@ class DhanApiClient(OrdersMixin, PortfolioMixin, MarketDataMixin, AdminMixin):
 
     @staticmethod
     def _option_exchange(underlying: Instrument) -> str:
-        """Domain exchange for option legs of a REST chain for *underlying*."""
+        """Domain exchange for option legs of a REST chain for *underlying*.
+
+        The table lives in ``tradex_brokers.common.dhan_segments``
+        (:data:`OPTION_LEG_EXCHANGE`, audit REF-4); this method keeps the
+        historical normalisation (``str().upper()``) and the ``NFO`` fallback.
+        """
         exchange = str(getattr(underlying.exchange, "value", underlying.exchange)).upper()
-        return _OPTION_LEG_EXCHANGE.get(exchange, "NFO")
+        return OPTION_LEG_EXCHANGE.get(exchange, DEFAULT_OPTION_LEG_EXCHANGE)
 
     def _history_instrument_type(self, instrument: Instrument) -> str:
         meta = self._registry.meta(instrument.instrument_id)

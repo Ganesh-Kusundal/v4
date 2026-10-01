@@ -11,8 +11,10 @@ import logging
 import threading
 import time
 import uuid
+from collections.abc import Sequence
 from contextlib import nullcontext
 from dataclasses import replace
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -77,7 +79,14 @@ from tradex_execution.idempotency import (
 from tradex_execution.kill_switch import TERMINAL_STATUSES, KillSwitch
 from tradex_execution.order_manager import OrderManager
 from tradex_execution.position_accountant import PositionAccountant
-from tradex_execution.reconciliation import DriftItem, ReconciliationEngine
+from tradex_execution.reconciliation import (
+    AdoptionOutcome,
+    DriftItem,
+    ReconciliationEngine,
+)
+from tradex_execution.reconciliation import (
+    adopt_venue_positions as _adopt_venue_positions_impl,
+)
 from tradex_execution.risk import (
     RiskCheckResult,  # noqa: F401 — re-exported for callers of engine
     RiskManager,
@@ -1065,6 +1074,24 @@ class ExecutionEngine:
         """True when this exact fill was already applied (without recording)."""
         return self._fill_dedup.seen(fill)
 
+    def ingest_fill(self, fill: Fill, fee_amount: Decimal | None = None) -> None:
+        """Apply a fill that originated OUTSIDE this process (AC-22).
+
+        The named, public door behind :class:`~tradex_domain.protocols.FillIngestPort`.
+        It exists because the inbound path was previously reachable only by
+        publishing ``OrderFilled`` on the public bus, which made a *mutation*
+        surface out of a surface documented as observation-only: anyone holding
+        a bus reference could change the book, and nothing distinguished that
+        from the legitimate live bridge doing the same thing.
+
+        Behaviour is identical to the bridge's — ``_apply_fill`` is the one
+        implementation, and this simply names the caller instead of requiring it
+        to hand-roll the event. A caller that already has an ``OrderFilled``
+        should use the bus as before; this is for a caller that holds a bare
+        ``Fill`` and the fee the venue actually charged.
+        """
+        self._apply_fill(OrderFilled(fill=fill, fee_amount=fee_amount))
+
     def _apply_fill(self, event: OrderFilled) -> None:
         """Apply an inbound OrderFilled to the OMS (live-fill bridge).
 
@@ -1316,6 +1343,52 @@ class ExecutionEngine:
         if record:
             self._append(ReconciliationResult(drift_count=len(drifts)))
         return drifts
+
+    def adopt_venue_positions(
+        self,
+        *,
+        broker: Any,
+        local_positions: Sequence[Any] | None = None,
+        cache: Any = None,
+        unsettled_instruments: frozenset[str] | set[str] | None = None,
+        known_instruments: Sequence[str] | None = None,
+        last_read_at: datetime | None = None,
+        now: datetime | None = None,
+        adopt: bool = True,
+        read: Any = None,
+    ) -> AdoptionOutcome:
+        """Adopt the venue's positions into this engine's book, or refuse.
+
+        REF-12: the lane-5e adoption used to live in the HTTP edge
+        (``tradex_interfaces.safety``); this method is its public entry. The
+        flow — sealed venue read, refusal gates (failed / partial / stale /
+        unsettled-guard), pure plan derivation, and the batch-atomic write —
+        is :func:`tradex_execution.reconciliation.adopt_venue_positions`; this
+        method binds it to the engine's own book. The engine has no broker of
+        its own, so *broker* stays an explicit argument: a caller has to ask,
+        which is the adoption's "explicit, never automatic" contract.
+
+        The cache and the local book default to this engine's, so the common
+        call is ``engine.adopt_venue_positions(broker=broker)``; the remaining
+        arguments pass through unchanged (see the implementation for each
+        guard's rationale). ``cache=`` accepts a stand-in for tests, exactly as
+        the plain function always has.
+        """
+        return _adopt_venue_positions_impl(
+            broker=broker,
+            local_positions=(
+                local_positions
+                if local_positions is not None
+                else self._cache.all_positions()
+            ),
+            cache=cache if cache is not None else self._cache,
+            unsettled_instruments=unsettled_instruments,
+            known_instruments=known_instruments,
+            last_read_at=last_read_at,
+            now=now,
+            adopt=adopt,
+            read=read,
+        )
 
     def cancel(
         self,

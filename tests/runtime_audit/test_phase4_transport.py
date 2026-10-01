@@ -58,3 +58,48 @@ def test_tick_queue_drops_oldest_to_preserve_freshness():
     assert q.qsize() == 2
     assert q.get_nowait()["price"] == 101
     assert q.get_nowait()["price"] == 102
+
+
+def test_classify_outbound_splits_control_from_lossy_ticks():
+    from tradex_interfaces.queueing import OutboundLane, classify_outbound
+
+    assert classify_outbound({"type": "quote"}) is OutboundLane.TICK
+    assert classify_outbound({"type": "bar"}) is OutboundLane.TICK
+    assert classify_outbound({"type": "order"}) is OutboundLane.CONTROL
+    assert classify_outbound({"type": "replay_stepped"}) is OutboundLane.CONTROL
+    assert classify_outbound({"type": "replay_stopped"}) is OutboundLane.CONTROL
+    # Unknown types are control (fail-closed): never silently droppable.
+    assert classify_outbound({"type": "mystery"}) is OutboundLane.CONTROL
+
+
+def test_outbound_queue_stats_surfaces_resync_and_pressure():
+    from tradex_interfaces.queueing import QUEUE_HEALTH_WARN_RATIO, outbound_queue_stats
+
+    healthy = outbound_queue_stats(
+        dropped=0,
+        queued_ticks=0,
+        queued_control=0,
+        tick_cap=100,
+        control_cap=100,
+    )
+    assert healthy["resync_required"] is False
+    assert healthy["resync_hint"] is None
+    assert healthy["tick_pressure"] == "ok"
+    assert healthy["control_pressure"] == "ok"
+
+    warn_n = int(100 * QUEUE_HEALTH_WARN_RATIO)
+    warned = outbound_queue_stats(
+        dropped=3,
+        queued_ticks=warn_n,
+        queued_control=100,
+        queued_barrier=1,
+        tick_cap=100,
+        control_cap=100,
+        resync_required=True,
+    )
+    assert warned["dropped"] == 3
+    assert warned["queued_barrier"] == 1
+    assert warned["tick_pressure"] == "warn"
+    assert warned["control_pressure"] == "full"
+    assert warned["resync_required"] is True
+    assert warned["resync_hint"] == "reconnect to resync"

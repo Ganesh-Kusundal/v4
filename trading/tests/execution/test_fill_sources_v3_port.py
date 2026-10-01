@@ -39,7 +39,12 @@ class TestBrokerFillSourceProperties:
         assert bfs.submission_boundary_crossed is True
 
     def test_position_projection_owned_default_false(self) -> None:
-        broker = MagicMock(spec=[])  # no attributes
+        # The getattr(broker, ..., False) default moved onto BaseBroker: an
+        # adapter that does not override the property owns no projection.
+        from tradex_brokers.common.base import BaseBroker
+        from tradex_domain.capabilities import BrokerCapabilities
+
+        broker = BaseBroker(capabilities=BrokerCapabilities())
         bfs = BrokerFillSource(broker)
         assert bfs.position_projection_owned is False
 
@@ -50,7 +55,11 @@ class TestBrokerFillSourceProperties:
         assert bfs.position_projection_owned is True
 
     def test_position_projection_cache_default_none(self) -> None:
-        broker = MagicMock(spec=[])
+        # BaseBroker's trading_cache default is None (paper overrides it).
+        from tradex_brokers.common.base import BaseBroker
+        from tradex_domain.capabilities import BrokerCapabilities
+
+        broker = BaseBroker(capabilities=BrokerCapabilities())
         bfs = BrokerFillSource(broker)
         assert bfs.position_projection_cache is None
 

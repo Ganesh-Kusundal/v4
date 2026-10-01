@@ -50,7 +50,7 @@ from tradex_strategy.core.engine import ReactiveStrategyEngine
 from tradex_strategy.core.sizing import (
     CASH_EQUITY_ASSET_CLASSES,
     CASH_EQUITY_LOT_SIZE,
-    DEFAULT_TICK_SIZE,
+    SIZING_FALLBACK_TICK,
     ContractSpec,
     PositionSizer,
 )
@@ -402,10 +402,10 @@ def test_the_tick_size_rounds_the_stop_distance_up_to_a_whole_tick() -> None:
     assert ticked.risk_per_lot == Decimal("1")  # 2 ticks x 0.50 x 1
     assert ticked.quantity == Quantity(Decimal("10"))
     # The control: no tick recorded anywhere, so the sizer falls back to the
-    # configured DEFAULT_TICK_SIZE of 0.01, which rounds 0.70 up to 70 ticks —
+    # configured SIZING_FALLBACK_TICK of 0.01, which rounds 0.70 up to 70 ticks —
     # the same 0.70 of risk the raw distance gave, for a stated reason rather
     # than an accident of the tick being None.
-    assert DEFAULT_TICK_SIZE == Decimal("0.01")
+    assert SIZING_FALLBACK_TICK == Decimal("0.01")
     assert untiled.stop_distance_ticks == Decimal("70")
     assert untiled.risk_per_lot == Decimal("0.70")
     assert untiled.quantity == Quantity(Decimal("14"))

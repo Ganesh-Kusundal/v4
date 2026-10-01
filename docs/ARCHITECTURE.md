@@ -276,6 +276,12 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │       │   ├── http_response.py
 │   │       │   ├── instruments.py
 │   │       │   ├── market_builders.py
+│   │       │   ├── mixins/
+│   │       │   │   ├── __init__.py
+│   │       │   │   ├── admin.py
+│   │       │   │   ├── marketdata.py
+│   │       │   │   ├── orders.py
+│   │       │   │   └── portfolio.py
 │   │       │   ├── paths.py
 │   │       │   ├── provider_client.py
 │   │       │   ├── provider_common.py
@@ -681,22 +687,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │   ├── test_deploy_artifacts.py
 │   │   ├── test_metrics_labels_buckets.py
 │   │   └── test_observability_package_import.py
-│   └── pyproject.toml
-├── operations/
-│   ├── src/
-│   │   └── tradex_operations/
-│   │       ├── __init__.py
-│   │       └── py.typed
-│   ├── tests/
-│   │   └── test_runbooks.py
-│   └── pyproject.toml
-├── persistence/
-│   ├── src/
-│   │   └── tradex_persistence/
-│   │       ├── __init__.py
-│   │       └── py.typed
-│   ├── tests/
-│   │   └── test_persistence_package_import.py
 │   └── pyproject.toml
 ├── poc/
 │   ├── data/
@@ -1465,9 +1455,6 @@ L0  kernel/
 │   ├── manifests.py
 │   ├── pit.py
 │   └── py.typed
-└── operations/src/tradex_operations/  (2 files)
-    ├── __init__.py
-    └── py.typed
 
 L1  adapters/
 ├── reactive/src/tradex_reactive/  (5 files)
@@ -1711,9 +1698,6 @@ L2  engines/
 │   ├── sqlite_store.py
 │   ├── trading_cache.py
 │   └── validation_report_store.py
-├── persistence/src/tradex_persistence/  (2 files)
-│   ├── __init__.py
-│   └── py.typed
 ├── application/src/tradex_application/  (3 files)
 │   ├── __init__.py
 │   ├── orders.py
@@ -2137,10 +2121,6 @@ ExecutionEngine / OMS / risk / event store/  (24 files)
 ├── execution/src/tradex_execution/trading_cache.py
 └── execution/src/tradex_execution/validation_report_store.py
 
-Persistence shim/  (2 files)
-├── persistence/src/tradex_persistence/__init__.py
-└── persistence/src/tradex_persistence/py.typed
-
 Application order use-cases/  (3 files)
 ├── application/src/tradex_application/__init__.py
 ├── application/src/tradex_application/orders.py
@@ -2285,10 +2265,6 @@ Research PIT / manifests/  (4 files)
 ├── research/src/tradex_research/manifests.py
 ├── research/src/tradex_research/pit.py
 └── research/src/tradex_research/py.typed
-
-Operations index/  (2 files)
-├── operations/src/tradex_operations/__init__.py
-└── operations/src/tradex_operations/py.typed
 ```
 
 ### 2.2.1 Duplicate basenames (as-is)
@@ -2323,8 +2299,6 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `interfaces/src/tradex_interfaces/routes/__init__.py`
 - `market_data/src/tradex_market_data/__init__.py`
 - `observability/src/tradex_observability/__init__.py`
-- `operations/src/tradex_operations/__init__.py`
-- `persistence/src/tradex_persistence/__init__.py`
 - `reactive/src/tradex_reactive/__init__.py`
 - `replay/src/tradex_replay/__init__.py`
 - `research/src/tradex_research/__init__.py`
@@ -2362,8 +2336,6 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `interfaces/pyproject.toml`
 - `market_data/pyproject.toml`
 - `observability/pyproject.toml`
-- `operations/pyproject.toml`
-- `persistence/pyproject.toml`
 - `pyproject.toml`
 - `reactive/pyproject.toml`
 - `replay/pyproject.toml`
@@ -2383,8 +2355,6 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `interfaces/src/tradex_interfaces/py.typed`
 - `market_data/src/tradex_market_data/py.typed`
 - `observability/src/tradex_observability/py.typed`
-- `operations/src/tradex_operations/py.typed`
-- `persistence/src/tradex_persistence/py.typed`
 - `reactive/src/tradex_reactive/py.typed`
 - `replay/src/tradex_replay/py.typed`
 - `research/src/tradex_research/py.typed`
@@ -2967,13 +2937,11 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 | L0 | `domain/src/tradex_domain/` | 26 |
 | L0 | `observability/src/tradex_observability/` | 4 |
 | L0 | `research/src/tradex_research/` | 4 |
-| L0 | `operations/src/tradex_operations/` | 2 |
 | L1 | `reactive/src/tradex_reactive/` | 5 |
 | L1 | `config/src/tradex_config/` | 5 |
 | L1 | `brokers/src/tradex_brokers/` | 61 |
 | L1 | `analytics/src/tradex_analytics/` | 129 |
 | L2 | `execution/src/tradex_execution/` | 24 |
-| L2 | `persistence/src/tradex_persistence/` | 2 |
 | L2 | `application/src/tradex_application/` | 3 |
 | L2 | `strategy/src/tradex_strategy/` | 30 |
 | L3 | `market_data/src/tradex_market_data/` | 13 |
@@ -3045,8 +3013,6 @@ flowchart TB
 | `tradex_research` | 3 | 622 | Point-in-time / survivorship guards, universe manifests |
 | `tradex_observability` | 3 | 637 | Metrics registry, tracing |
 | `tradex_application` | 2 | 108 | Order use-cases above the engine |
-| `tradex_operations` | 1 | 41 | Runbook + metrics catalogue index (docs pointer) |
-| `tradex_persistence` | 1 | 19 | Re-export shim → `tradex_execution` |
 | **Total** | **~252** | **~74,800** | (excludes generated `_pb2`) |
 
 Test weight: **~150k LOC across 614 test files**, mostly under `trading/tests/`.
@@ -3072,13 +3038,9 @@ which is a subset of what `tests/test_import_boundaries.py` *permits*.
        │          │                 └──────┬───────┘              │
        │          │                        ▼                      │
        │          │                tradex_execution ◄────────┐     │
-       │          │                  │    │    │                │     │
-       │          │                  ▼    │    │                │     │
-       │          │           tradex_      │    │                │     │
-       │          │          persistence  │    │                │     │
-       │          │                  │    │    │                │     │
-       │          │                  ▼    ▼    │                │     │
-       │          │          tradex_  tradex_ │                │     │
+       │          │                  │    │                  │     │
+       │          │                  ▼    ▼                  │     │
+       │          │          tradex_  tradex_                │     │
        │          │           strategy analytics ◄─────────────┘     │
        │          │               │                                  │
        │          │               └──────────┐        ┌──────────────┘
@@ -3103,7 +3065,6 @@ which is a subset of what `tests/test_import_boundaries.py` *permits*.
 | Package | Imports internally |
 |---|---|
 | `domain` | — |
-| `operations` | — |
 | `observability` | — |
 | `research` | — |
 | `brokers` | domain |
@@ -3111,7 +3072,6 @@ which is a subset of what `tests/test_import_boundaries.py` *permits*.
 | `reactive` | domain |
 | `analytics` | domain |
 | `application` | domain, execution |
-| `persistence` | execution |
 | `strategy` | analytics, domain |
 | `market_data` | brokers, domain, observability, research |
 | `execution` | domain, observability, reactive |
@@ -3125,9 +3085,9 @@ standalone read-only service, imported by no package above.
 ### 4.2 Layer reading
 
 ```
-L0  kernel        domain, observability, research, operations
+L0  kernel        domain, observability, research
 L1  adapters      reactive, config, brokers, analytics
-L2  engines       execution, persistence, application, strategy
+L2  engines       execution, application, strategy
 L3  data & replay market_data, replay
 L4  composition   runtime
 L5  interfaces    interfaces   (the `tradex` binary)
@@ -3374,6 +3334,14 @@ default stays `True` **unconditionally** — a clean run that appended nothing
 would leave a healthy session reporting "never reconciled", which is a worse
 lie than a redundant row. A caller that suppresses it must record the check
 itself via `session.record_reconciliation(...)`.
+
+Single-writer entries (REF-12/REF-14): `ExecutionEngine.reconcile` is the only
+public reconcile entry — the broker comparison is
+`PositionAccountant._reconcile_with_broker`, private by design — and
+`ExecutionEngine.adopt_venue_positions` is the only adoption entry, binding the
+pure `tradex_execution.reconciliation.adopt_venue_positions` plan to the
+engine's book (`interfaces/safety` re-exports it; nothing else may mutate the
+book from a venue read). `tests/test_guardrails.py` enforces both.
 
 ### 7.6 Crash recovery — the event log
 

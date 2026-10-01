@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import pytest
 from tradex_domain.enums import OrderSide, OrderType, ProductType, TimeInForce
 from tradex_domain.execution import Fill, OrderRequest, Position
 from tradex_domain.instruments import Equity
@@ -95,8 +96,12 @@ def test_broker_cancel_delegates_to_adapter() -> None:
     mock_broker.cancel_order.assert_called_once_with(oid)
 
 
-def test_broker_cancel_noop_when_no_cancel_order() -> None:
-    BrokerFillSource(object()).cancel(OrderId(value="oid-1"))
+def test_broker_cancel_without_cancel_order_fails_loudly() -> None:
+    """cancel_order is a BrokerAdapter protocol member (defaulted on
+    BaseBroker) — a broker missing it is a protocol violation and must fail
+    loudly rather than silently swallowing the cancel."""
+    with pytest.raises(AttributeError, match="cancel_order"):
+        BrokerFillSource(object()).cancel(OrderId(value="oid-1"))  # type: ignore[arg-type]
 
 
 # ===========================================================================
@@ -310,7 +315,7 @@ def test_avg_price_drift_fields() -> None:
 
 
 # ===========================================================================
-# PositionManager apply() / reconcile_with_broker (tests 19-22)
+# PositionManager apply() / _reconcile_with_broker (tests 19-22)
 # ===========================================================================
 
 
@@ -338,7 +343,7 @@ def test_reconcile_no_drift() -> None:
     pm, _cache = _pm()
     pm.on_fill(_fill("f1", OrderSide.BUY, 10, 100))
     broker_pos = [_position(quantity=10, avg=100)]
-    drifts = pm.reconcile_with_broker(broker_pos)
+    drifts = pm._reconcile_with_broker(broker_pos)
     assert drifts == []
 
 
@@ -346,6 +351,6 @@ def test_reconcile_detects_drift() -> None:
     pm, _cache = _pm()
     pm.on_fill(_fill("f1", OrderSide.BUY, 10, 100))
     broker_pos = [_position(quantity=15, avg=100)]
-    drifts = pm.reconcile_with_broker(broker_pos)
+    drifts = pm._reconcile_with_broker(broker_pos)
     assert len(drifts) == 1
     assert drifts[0].diff == Decimal("-5")

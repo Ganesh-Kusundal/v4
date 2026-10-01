@@ -16,7 +16,6 @@ _SRC = {
     "brokers": _ROOT / "brokers/src",
     "config": _ROOT / "config/src",
     "research": _ROOT / "research/src",
-    "operations": _ROOT / "operations/src",
     "observability": _ROOT / "observability/src",
     "analytics": _ROOT / "analytics/src",
     "reactive": _ROOT / "reactive/src",
@@ -27,7 +26,6 @@ _SRC = {
     "market_data": _ROOT / "market_data/src",
     "interfaces": _ROOT / "interfaces/src",
     "runtime": _ROOT / "runtime/src",
-    "persistence": _ROOT / "persistence/src",
 }
 
 _INTERNAL = {
@@ -36,6 +34,10 @@ _INTERNAL = {
     "tradex_config",
     "tradex_trading",
     "tradex_research",
+    # ``tradex_operations`` / ``tradex_persistence`` packages were deleted
+    # (REF-15: zero production importers). Kept here so every negative guard
+    # still fails if any package imports them again — same treatment as
+    # ``tradex_trading`` above.
     "tradex_operations",
     "tradex_observability",
     "tradex_analytics",
@@ -47,8 +49,13 @@ _INTERNAL = {
     "tradex_market_data",
     "tradex_interfaces",
     "tradex_runtime",
-    "tradex_persistence",
 }
+# ``operations`` (``tradex_operations`` — a docs-path index) and ``persistence``
+# (``tradex_persistence`` — a re-export shim over ``tradex_execution``) had zero
+# production importers and were deleted with their pyprojects and tests. Their
+# names stay in ``_INTERNAL`` as reintroduction guards (see above); their
+# entries are gone from ``_SRC``/``_ALLOWED`` so the scan no longer targets
+# directories that no longer exist.
 
 # package key → allowed internal imports (self always allowed separately)
 _ALLOWED: dict[str, set[str]] = {
@@ -56,7 +63,6 @@ _ALLOWED: dict[str, set[str]] = {
     "brokers": {"tradex_domain"},
     "config": {"tradex_domain"},
     "research": {"tradex_domain"},
-    "operations": set(),
     "observability": set(),
     "analytics": {"tradex_domain"},
     "reactive": {"tradex_domain"},
@@ -73,7 +79,6 @@ _ALLOWED: dict[str, set[str]] = {
     "application": {"tradex_domain", "tradex_execution"},
     "market_data": {
         "tradex_domain",
-        "tradex_brokers",
         "tradex_replay",
         "tradex_runtime",
         # ``backtest_loader`` calls the AC-4 point-in-time guards
@@ -109,10 +114,17 @@ _ALLOWED: dict[str, set[str]] = {
         "tradex_market_data",
         "tradex_reactive",
         "tradex_observability",
+        # ``replay_controller`` lazily pulls ``SyntheticTickGenerator`` for
+        # replay gap-fill; runtime and replay are sibling composition-layer
+        # packages and the edge is acyclic. Revisit if it grows beyond that
+        # one lazy import (dependency-injection would remove it entirely).
+        "tradex_replay",
         "tradex_trading",  # sdk session only (config → tradex_config)
     },
-    "persistence": {"tradex_execution"},
 }
+# ``market_data`` never imported ``tradex_brokers`` (verified 2026-10-01: zero
+# matches under market_data/src), and the stale ``tradex-brokers`` dependency
+# was dropped from its pyproject (REF-16) — the allowlist entry went with it.
 # ``trading`` (the ``tradex_trading`` composition root) no longer has a source
 # tree: the last real code under it — the SDK session and live fill bridge — has
 # been moved into ``runtime`` and the whole package is deleted. Its entry was
@@ -230,7 +242,7 @@ def test_trading_composition_root_is_gone() -> None:
 def test_extracted_packages_respect_allowed_internals() -> None:
     """Each extracted package only imports its declared internal dependencies."""
     for pkg, allowed in _ALLOWED.items():
-        if pkg in {"domain", "brokers", "research", "operations", "config"}:
+        if pkg in {"domain", "brokers", "research", "config"}:
             continue
         if pkg not in _SRC:
             continue
@@ -246,7 +258,6 @@ def test_extracted_packages_respect_allowed_internals() -> None:
             "market_data": "tradex_market_data",
             "interfaces": "tradex_interfaces",
             "runtime": "tradex_runtime",
-            "persistence": "tradex_persistence",
         }[pkg]
         for path in _py_files(_SRC[pkg]):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -358,14 +369,11 @@ def test_research_package_never_imports_trading_brokers_or_ops() -> None:
         assert not violations, f"{path.relative_to(_ROOT)} imports {sorted(violations)}"
 
 
-def test_operations_package_never_imports_internal_packages() -> None:
-    forbidden = _INTERNAL - _ALLOWED["operations"]
-    for path in _py_files(_SRC["operations"]):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        imported = _imported_modules(tree)
-        imported -= {"tradex_operations"}
-        violations = imported & forbidden
-        assert not violations, f"{path.relative_to(_ROOT)} imports {sorted(violations)}"
+# ``test_operations_package_never_imports_internal_packages`` was removed with
+# the ``operations/`` tree itself (REF-15): the package had zero production
+# importers — it only indexed paths under docs/operations/ — so there is no
+# source left to scan. ``tradex_operations`` remains in ``_INTERNAL``, so any
+# package that starts importing it again still fails every layer guard above.
 
 
 # ---------------------------------------------------------------------------

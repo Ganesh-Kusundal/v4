@@ -54,6 +54,9 @@ class _BrokerWithMasterLoader:
         self.master_loader.load(force_refresh=force_refresh)
         self.refreshes += 1
 
+    def set_reconnect_hook(self, cb: object) -> None:
+        """No-op — BrokerAdapter protocol member (no live sockets to wire)."""
+
 
 class _PlainBroker:
     """Live-compatible broker with no master loader (no scheduler expected)."""
@@ -84,6 +87,9 @@ class _PlainBroker:
 
     def unsubscribe(self, sub: object) -> None:
         pass
+
+    def set_reconnect_hook(self, cb: object) -> None:
+        """No-op — BrokerAdapter protocol member (no live sockets to wire)."""
 
 
 def test_live_starts_master_refresh_scheduler(named_tape, monkeypatch, tmp_path) -> None:

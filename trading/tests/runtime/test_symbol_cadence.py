@@ -762,6 +762,9 @@ class _FakeBroker:
     def unsubscribe_instruments(self, instruments: object) -> None:
         return None
 
+    def set_reconnect_hook(self, cb: object) -> None:
+        return None
+
 
 class TestComposesWithFeedStaleMonitor:
     def test_the_cadence_check_rides_the_existing_poll_thread(self) -> None:

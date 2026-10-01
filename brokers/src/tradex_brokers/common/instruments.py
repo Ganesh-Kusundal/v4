@@ -21,6 +21,7 @@ from typing import Any
 from tradex_domain import InstrumentNotFoundError, SDKError
 from tradex_domain.instruments import Equity, Future, Index, Instrument, Option
 from tradex_domain.options import OptionChain
+from tradex_domain.utils import as_decimal as _domain_as_decimal
 from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
 
@@ -31,6 +32,10 @@ def as_decimal(value: str | float | int) -> Decimal:
     """Convert a value to ``Decimal`` safely.
 
     Handles strings with commas, currency symbols, and whitespace.
+
+    The coercion logic lives in :func:`tradex_domain.utils.as_decimal`
+    (single shared implementation, audit REF-5); this wrapper preserves this
+    module's historical ``SDKError`` contract and message verbatim.
 
     Parameters
     ----------
@@ -47,19 +52,10 @@ def as_decimal(value: str | float | int) -> Decimal:
     SDKError
         If the value cannot be converted.
     """
-    if isinstance(value, Decimal):
-        return value
-    if isinstance(value, (int, float)):
-        return Decimal(str(value))
-    if isinstance(value, str):
-        cleaned = value.strip().replace(",", "").replace("₹", "").replace("$", "")
-        if not cleaned:
-            return Decimal("0")
-        try:
-            return Decimal(cleaned)
-        except InvalidOperation as exc:
-            raise SDKError(f"Cannot convert {value!r} to Decimal") from exc
-    raise SDKError(f"Cannot convert {type(value).__name__} to Decimal")
+    try:
+        return _domain_as_decimal(value)
+    except ValueError as exc:
+        raise SDKError(str(exc)) from exc
 
 
 def as_price(value: object, default: str = "0") -> Price:

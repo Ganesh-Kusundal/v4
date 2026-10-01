@@ -11,8 +11,9 @@ import time
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
+from tradex_domain.utils import as_decimal as _domain_as_decimal
 from tradex_domain.value_objects import Price
 
 
@@ -308,21 +309,13 @@ __all__ = [
 def as_decimal(value: str | float | int) -> Decimal:
     """Convert a value to ``Decimal`` safely.
 
-    Handles strings with commas, currency symbols, and whitespace.
+    Delegates to the single shared implementation in
+    :func:`tradex_domain.utils.as_decimal` (audit REF-5), preserving this
+    module's historical ``ValueError`` contract and message. Handles strings
+    with commas, currency symbols, and whitespace; empty strings read as
+    ``Decimal("0")``.
     """
-    if isinstance(value, Decimal):
-        return value
-    if isinstance(value, (int, float)):
-        return Decimal(str(value))
-    if isinstance(value, str):
-        cleaned = value.strip().replace(",", "").replace("₹", "").replace("$", "")
-        if not cleaned:
-            return Decimal("0")
-        try:
-            return Decimal(cleaned)
-        except InvalidOperation as exc:
-            raise ValueError(f"Cannot convert {value!r} to Decimal") from exc
-    raise ValueError(f"Cannot convert {type(value).__name__} to Decimal")
+    return _domain_as_decimal(value)
 
 
 def as_price(value: object, default: str = "0") -> Price:

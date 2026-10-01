@@ -29,8 +29,10 @@ from tradex_domain.constants import (
     SERVICE_NAME,
     VERSION_DEFAULT,
 )
+from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.protocols import BrokerAdapter
+from tradex_strategy.core.sizing import DEFAULT_MAX_ORDER_VALUE
 
 if TYPE_CHECKING:
     from tradex_runtime.session_impl import TradingSession
@@ -110,6 +112,129 @@ def _broker_matches_config(config: AppConfig, broker: Any) -> bool:
         return False
     value = getattr(identity, "value", identity)
     return str(value).strip().lower() == name
+
+
+@dataclass(frozen=True, slots=True)
+class _LiveFeedBundle:
+    """Mode-composer output for live feed + recovery + tape services."""
+
+    market_feed: Any
+    master_scheduler: Any
+    feed_monitor: Any
+    feed_recovery: Any
+    tape_recorder: Any
+
+
+def _compose_live_feed(
+    *,
+    cfg: AppConfig,
+    broker: Any,
+    bus: ReactiveBus | ThreadSafeReactiveBus,
+    feed_supervisor: Any,
+    metrics: MetricsRegistry,
+    order_watchdog: Any,
+) -> _LiveFeedBundle:
+    """Wire live-only feed services. Paper/backtest/replay skip this path."""
+    from tradex_runtime.feed_integrity import FeedIntegrityTracker
+    from tradex_runtime.feed_monitor import FeedStaleMonitor, SymbolCadenceMonitor
+    from tradex_runtime.feed_recovery import (
+        FeedRecoveryCoordinator,
+        ParquetHistoryProvider,
+    )
+    from tradex_runtime.market_feed import MarketFeed
+    from tradex_runtime.master_lifecycle import (
+        InstrumentRefreshScheduler,
+        MasterLoader,
+    )
+    from tradex_runtime.tape_recorder import open_tape_recorder
+
+    if feed_supervisor is None:
+        raise RuntimeError(
+            "live boot missing FeedSupervisor before MarketFeed wiring",
+        )
+    integrity = FeedIntegrityTracker(metrics=metrics)
+    tape_recorder = open_tape_recorder(broker=str(cfg.broker_id))
+    market_feed = MarketFeed(
+        broker=broker,
+        bus=bus,
+        supervisor=feed_supervisor,
+        integrity=integrity,
+        recorder=tape_recorder,
+    )
+    instrument_registry = getattr(broker, "registry", None)
+
+    def _master_status(instrument: Any) -> object:
+        iid = getattr(instrument, "instrument_id", None)
+        meta_of = getattr(instrument_registry, "meta", None)
+        if iid is None or not callable(meta_of):
+            return None
+        return meta_of(iid).get("master_status")
+
+    cadence_monitor = SymbolCadenceMonitor(
+        instruments=lambda: list(market_feed.wanted_instruments()),
+        ticks=lambda instrument: market_feed.last_tick(instrument),
+        status_of=_master_status,
+        metrics=metrics,
+    )
+    feed_monitor = FeedStaleMonitor(
+        market_feed,
+        metrics=metrics,
+        order_watchdog=order_watchdog,
+        cadence_monitor=cadence_monitor,
+    )
+    try:
+        history_provider: Any = ParquetHistoryProvider()
+    except Exception:
+        log.warning("live history provider unavailable", exc_info=True)
+        history_provider = None
+    feed_recovery = FeedRecoveryCoordinator(
+        market_feed,
+        supervisor=feed_supervisor,
+        history_provider=history_provider,
+        bus=bus,
+        metrics=metrics,
+        max_missing_bars=cfg.feed.max_missing_bars,
+    )
+    market_feed.set_recovery(feed_recovery)
+    master_scheduler: Any = None
+    loader = getattr(broker, "master_loader", None)
+    refresh_hook = getattr(broker, "ensure_master_fresh", None)
+    if isinstance(loader, MasterLoader) and callable(refresh_hook):
+        master_scheduler = InstrumentRefreshScheduler(
+            cfg.broker_id.value.lower(), refresh_hook
+        )
+    return _LiveFeedBundle(
+        market_feed=market_feed,
+        master_scheduler=master_scheduler,
+        feed_monitor=feed_monitor,
+        feed_recovery=feed_recovery,
+        tape_recorder=tape_recorder,
+    )
+
+
+def _compose_fill_source(
+    cfg: AppConfig,
+    broker: Any,
+    slippage_model: Any,
+    paper_clock: Callable[[], datetime] | None,
+) -> Any:
+    """Mode composer: pick the FillSource for the configured run mode."""
+    if cfg.mode == "paper":
+        from tradex_runtime.paper_book_fill_source import PaperBookFillSource
+
+        if cfg.execution.fill_path == BOOK_MATCHING:
+            return PaperBookFillSource(
+                spread_bps=cfg.execution.book_spread_bps,
+                clock=paper_clock,
+            )
+        return PaperFillSource(slippage_model=slippage_model)
+    if cfg.mode == "backtest":
+        return SimulatedFillSource(slippage_model=slippage_model)
+    if cfg.mode == "live":
+        return BrokerFillSource(broker)
+    if cfg.mode == "replay":
+        return SimulatedFillSource(slippage_model=slippage_model)
+    raise ValueError(f"unknown mode: {cfg.mode}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -349,33 +474,11 @@ def boot(
         FeeCalculator() if cfg.execution.fees_enabled else None
     )
 
-    # 4. Create fill source based on mode. In paper the two Flow-B fill paths
-    #    are selectable per run (AC-14 / spec lane 2d): "book_matching" walks the
-    #    paper broker's simulated book (the oracle), "slippage_model" fills at
-    #    the live quote through the slippage model. Both satisfy the same
-    #    FillSource seam, so everything downstream (risk, ledger, fees) is
-    #    identical and the only difference is how the price was found.
-    fill_source: Any
-    if cfg.mode == "paper":
-        from tradex_runtime.paper_book_fill_source import (
-            PaperBookFillSource,
-        )
-
-        if cfg.execution.fill_path == BOOK_MATCHING:
-            fill_source = PaperBookFillSource(
-                spread_bps=cfg.execution.book_spread_bps,
-                clock=paper_clock,
-            )
-        else:
-            fill_source = PaperFillSource(slippage_model=slippage_model)
-    elif cfg.mode == "backtest":
-        fill_source = SimulatedFillSource(slippage_model=slippage_model)
-    elif cfg.mode == "live":
-        fill_source = BrokerFillSource(broker)
-    elif cfg.mode == "replay":
-        fill_source = SimulatedFillSource(slippage_model=slippage_model)
-    else:
-        raise ValueError(f"unknown mode: {cfg.mode}")
+    # 4. Create fill source based on mode. Mode composer owns the branch;
+    # everything downstream (risk, ledger, fees) is identical across paths.
+    fill_source: Any = _compose_fill_source(
+        cfg, broker, slippage_model, paper_clock
+    )
 
     # 4b. Durability (R1/R2) — opt-in via cfg.persistence.path:
     #   - SQLiteIdempotencyGuard: correlation IDs survive restarts.
@@ -671,6 +774,29 @@ def _boot_tail(
     # (start_all) and stopped inside session.stop() (stop_all, wired via a
     # closure below).  No broker or SQLite inside strategies — the runtime
     # enforces that by owning all I/O surfaces.
+    # F-40: ONE sizer, built from the same ``limits`` the RiskManager above was
+    # constructed from, so the gate and the sizer cannot size against different
+    # accounts. Without this the engine fell back to ``unconfigured_sizer`` and
+    # paper/live placed a fixed ~Rs 95,000 notional while backtest used a risk
+    # budget — 8,333 vs 7,916 shares on the shipped ``sma_cross``.
+    #
+    # ``equity_source`` rather than a fixed ``equity``: each live signal sizes
+    # against the balance the session actually holds. Backtest keeps its own
+    # opening-capital sizer, and ``BacktestEngine`` resolves to the object it is
+    # handed rather than building a second one, so one policy decides both modes.
+    from tradex_strategy.core.sizing import account_sizer
+
+    strategy_sizer = account_sizer(
+        equity=Decimal("0"),
+        max_order_value=limits["max_order_value"] or DEFAULT_MAX_ORDER_VALUE,
+        risk_fraction=cfg.risk.risk_fraction,
+        equity_source=(
+            (lambda: _broker_available_cash(broker))
+            if cfg.mode in ("paper", "live")
+            else None
+        ),
+    )
+
     strategy_engine: Any = None
     strategy_registry: Any = None
     if wire_strategies:
@@ -681,6 +807,8 @@ def _boot_tail(
         strategy_engine = ReactiveStrategyEngine(
             bus, engine.submit,
             fill_reference=cfg.execution.fill_reference,
+            sizer=strategy_sizer,
+            pending_max_age_bars=cfg.execution.pending_max_age_bars,
         )
         strategy_registry = StrategyRegistry()
         # The discovered examples are bound to a hardcoded instrument and place
@@ -861,111 +989,19 @@ def _boot_tail(
     feed_recovery: Any = None
     tape_recorder: Any = None
     if cfg.mode == "live":
-        from tradex_runtime.feed_integrity import FeedIntegrityTracker
-        from tradex_runtime.feed_monitor import FeedStaleMonitor, SymbolCadenceMonitor
-        from tradex_runtime.feed_recovery import (
-            FeedRecoveryCoordinator,
-            ParquetHistoryProvider,
-        )
-        from tradex_runtime.market_feed import MarketFeed
-        from tradex_runtime.master_lifecycle import (
-            InstrumentRefreshScheduler,
-            MasterLoader,
-        )
-
-        # Reuse the supervisor already wired into ExecutionEngine — a second
-        # instance would leave require_feed gating on a different READY state
-        # than MarketFeed / session readiness.
-        if feed_supervisor is None:
-            raise RuntimeError(
-                "live boot missing FeedSupervisor before MarketFeed wiring",
-            )
-        integrity = FeedIntegrityTracker(metrics=metrics)
-        # Tick tape: a JSONL record of every quote the feed accepts, for the
-        # backtest/live parity suite and the two-paper-fill-path comparison to
-        # consume. ``open_tape_recorder`` returns None when TRADEX_RECORD_TAPE
-        # is not "1", which is the "no recorder exists" signal: the feed then
-        # has nothing to record to. Named ``tape_recorder``, not ``recorder``:
-        # "tape" already means the feed-instruments set here
-        # (TRADEX_FEED_INSTRUMENTS), and this is a different tape entirely.
-        from tradex_runtime.tape_recorder import open_tape_recorder
-
-        tape_recorder = open_tape_recorder(broker=str(cfg.broker_id))
-        market_feed = MarketFeed(
+        live = _compose_live_feed(
+            cfg=cfg,
             broker=broker,
             bus=bus,
-            supervisor=feed_supervisor,
-            integrity=integrity,
-            recorder=tape_recorder,
-        )
-        # AC-12 / lane 3d: per-symbol cadence. The feed-level 30 s threshold
-        # cannot see a symbol that stopped ticking *entirely* — it is absent
-        # from ``MarketFeed._last_tick`` rather than stale in it — and neither
-        # wire format carries a sequence number, so a dropped frame is
-        # indistinguishable from an illiquid minute. A symbol needs one tick per
-        # 3m session-anchored window; one that the instrument master reports as
-        # halted or delisted is exempt, and every exemption is counted in
-        # feed_liveness_exempt_total so the blind spot stays visible.
-        #
-        # It joins the SAME owned poll as the tape and the order stream rather
-        # than owning a second timer, and it does not demote the feed: one
-        # illiquid scrip must not shut the order gate for a healthy tape.
-        instrument_registry = getattr(broker, "registry", None)
-
-        def _master_status(instrument: Any) -> object:
-            """The instrument master's lifecycle state for *instrument*.
-
-            Read from the broker's instrument registry, which is where a master
-            load puts a row's metadata (``BaseBroker.load_instruments``). A
-            broker that exposes no registry, or an instrument it never loaded,
-            yields ``None`` — "not exempt", so the symbol keeps its cadence
-            contract rather than being waved through on a missing lookup.
-            """
-            iid = getattr(instrument, "instrument_id", None)
-            meta_of = getattr(instrument_registry, "meta", None)
-            if iid is None or not callable(meta_of):
-                return None
-            return meta_of(iid).get("master_status")
-
-        cadence_monitor = SymbolCadenceMonitor(
-            instruments=lambda: list(market_feed.wanted_instruments()),
-            ticks=lambda instrument: market_feed.last_tick(instrument),
-            status_of=_master_status,
-            metrics=metrics,
-        )
-        # The session owns the monitor's lifecycle; nothing else has to
-        # remember to poll check_stale(). The same thread also checks the
-        # order-stream watchdog (AC-12) and per-symbol cadence (lane 3d) — one
-        # poll, three questions, one lifecycle.
-        feed_monitor = FeedStaleMonitor(
-            market_feed,
+            feed_supervisor=feed_supervisor,
             metrics=metrics,
             order_watchdog=order_watchdog,
-            cadence_monitor=cadence_monitor,
         )
-        # Recovery is fail-closed: without a history provider it can only ever
-        # fail, which is exactly the guarantee we want from a bare reconnect.
-        try:
-            history_provider: Any = ParquetHistoryProvider()
-        except Exception:
-            log.warning("live history provider unavailable", exc_info=True)
-            history_provider = None
-        feed_recovery = FeedRecoveryCoordinator(
-            market_feed,
-            supervisor=feed_supervisor,
-            history_provider=history_provider,
-            bus=bus,
-            metrics=metrics,
-        )
-        # Wire the coordinator back into the feed so LARGE_JUMP / MISSING_BAR
-        # violations auto-trigger recovery (B: socket alone never READY).
-        market_feed.set_recovery(feed_recovery)
-        loader = getattr(broker, "master_loader", None)
-        refresh_hook = getattr(broker, "ensure_master_fresh", None)
-        if isinstance(loader, MasterLoader) and callable(refresh_hook):
-            master_scheduler = InstrumentRefreshScheduler(
-                cfg.broker_id.value.lower(), refresh_hook
-            )
+        market_feed = live.market_feed
+        master_scheduler = live.master_scheduler
+        feed_monitor = live.feed_monitor
+        feed_recovery = live.feed_recovery
+        tape_recorder = live.tape_recorder
 
     session = TradingSession(
         broker=broker,
@@ -1012,15 +1048,46 @@ def _boot_tail(
         # this package may not import. The composition root builds it and
         # passes it down.
         validation_report_store=validation_report_store,
-        # AC-10 / lane 2f: bind the documented "one config flip stops all
-        # order flow" control. ``AppConfig.live_orders_enabled`` is read by
-        # ``from_dict`` and was read by nothing else, so the gate that
-        # ``_make_order_gate()`` builds was dead. With the flag wired to the
-        # session and its RiskManager master gate, flipping it refuses every
-        # submit. As with the RiskManager gate, this closes order flow that
-        # leaves the machine, so it is bound in live only; paper keeps it open.
-        live_orders_enabled=(cfg.live_orders_enabled or cfg.mode != "live"),
+    # AC-10 / lane 2f: bind the documented "one config flip stops all
+    # order flow" control. ``AppConfig.live_orders_enabled`` is read by
+    # ``from_dict`` and was read by nothing else, so the gate that
+    # ``_make_order_gate()`` builds was dead. With the flag wired to the
+    # session and its RiskManager master gate, flipping it refuses every
+    # submit. As with the RiskManager gate, this closes order flow that
+    # leaves the machine, so it is bound in live only; paper keeps it open.
+    live_orders_enabled=(cfg.live_orders_enabled or cfg.mode != "live"),
     )
+
+    # F-39: the ``Quote -> Candle`` bridge. This is the missing middle between
+    # the feed and every strategy: ``ReactiveStrategyEngine.register`` subscribes
+    # to ``Candle``, and nothing else on the session bus publishes one, so
+    # without this line ``on_bar`` never fires in paper/live and a strategy sits
+    # subscribed and silent. ``wire_bar_aggregation`` was written for exactly
+    # this call and had no production caller.
+    #
+    # It is built for every mode that wires strategies, not live only: paper
+    # trading is the mode the parity bar is measured in, and a bridge that only
+    # existed live would make the backtest-vs-paper tape comparison impossible.
+    # The tape is the same ``cfg.feed_instruments`` the cold start resolves, so
+    # one config field names the instruments rather than two lists drifting.
+    bar_aggregator: Any = None
+    if strategy_engine is not None:
+        from tradex_runtime.bar_aggregator import wire_bar_aggregation
+
+        tape = cfg.feed_instruments if feed_instruments is None else feed_instruments
+        if tape:
+            bar_aggregator = wire_bar_aggregation(
+                bus,
+                tape,
+                Timeframe.M1,
+                metrics=metrics,
+            )
+        else:
+            log.warning(
+                "no feed instruments named; bar aggregation is not wired, so no "
+                "bar reaches any strategy. Set TRADEX_FEED_INSTRUMENTS to trade "
+                "from live ticks."
+            )
 
     # AC-10 / lane 2f: prove at boot that the order gate actually fires, so
     # "one config flip stops all order flow" is a fact and not a runbook claim.
@@ -1071,42 +1138,32 @@ def _boot_tail(
         # set_reconnect_hook after each successful reopen.
         _install_post_reconnect_reread(broker, engine, stream_backend, session)
 
-    # C4: attach the strategy registry to the session so callers (and tests)
-    # can inspect lifecycle state via session.strategy_registry().  The
-    # registry is a constructor argument — no post-init private mutation
-    # [REF-5].  Wire stop_all into session.stop() via a closure so every
-    # teardown path (context manager, explicit stop(), RuntimeContext.close())
-    # transitions runtimes to STOPPED before bus subscriptions are disposed.
-    # C4 (extended): the tick tape is closed on the same funnel, AFTER the
-    # session stop has torn the feed down so no broker thread can be mid-record.
-    # The recorder writes line-buffered, so every record already reached the OS
-    # even if this never ran; closing is what ends the session with a finished
-    # segment rather than one left open. ``close()`` is idempotent, and the
-    # recorder is None unless the TRADEX_RECORD_TAPE gate was open, so
-    # non-live and un-gated boots take the untouched path.
-    if strategy_registry is not None or tape_recorder is not None:
-        _reg = strategy_registry
+    # C4: attach strategy-registry / bar-aggregator / tape teardown via
+    # explicit stop hooks (not ``session.stop`` monkey-patching). Registry
+    # stops before the feed; aggregator and tape close after, so no tick can
+    # race a dispose.
+    if strategy_registry is not None:
+        session.add_stop_hook(strategy_registry.stop_all, phase="before")
+    if bar_aggregator is not None:
+        _aggregator = bar_aggregator
+
+        def _dispose_bar_aggregator() -> None:
+            try:
+                _aggregator.dispose()
+            except Exception:  # pragma: no cover - defensive teardown
+                log.warning("bar aggregator dispose failed", exc_info=True)
+
+        session.add_stop_hook(_dispose_bar_aggregator, phase="after")
+    if tape_recorder is not None:
         _recorder = tape_recorder
-        _orig_stop = session.stop
-        def _stop_with_teardown():
-            if _reg is not None:
-                _reg.stop_all()
-            _orig_stop()  # stops the feed, so no tick can race the close below
-            if _recorder is not None:
-                try:
-                    _recorder.close()
-                except Exception:  # pragma: no cover - defensive teardown
-                    log.warning("tape recorder close failed", exc_info=True)
-        # Intentional per-instance method substitution: the registry teardown and
-        # the tape close must run before the normal teardown on every stop path.
-        # Rewriting an attribute that is a method on the class is a
-        # method-assign, which mypy flags because assigning over a bound method
-        # is unsafe in general. It is safe here — ``session`` is a freshly
-        # booted instance, and the closure captures the original bound ``stop``.
-        # Converting this to a constructor parameter is a session-API change (a
-        # product decision), so the substitution is kept and the error suppressed
-        # at this one line with that reasoning.
-        session.stop = _stop_with_teardown  # type: ignore[method-assign]  # ponytail: closure on instance; upgrade to session ctor param if registry grows a public API
+
+        def _close_tape_recorder() -> None:
+            try:
+                _recorder.close()
+            except Exception:  # pragma: no cover - defensive teardown
+                log.warning("tape recorder close failed", exc_info=True)
+
+        session.add_stop_hook(_close_tape_recorder, phase="after")
 
     if not reconcile_tripped:
         # 9b. Cold start the market feed (Flow D step 5, AC-20): start the

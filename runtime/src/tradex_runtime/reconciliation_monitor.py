@@ -13,7 +13,8 @@ that reconciles on a timer, reports drift exactly as before, and additionally
 *adopts* the venue's positions into the book when it is safe to.
 
 The adoption is the new behaviour and it is the dangerous one, so it is gated by
-the venue-read contract in :mod:`tradex_interfaces.safety`:
+the venue-read contract (:class:`~tradex_execution.reconciliation.VenueRead` and
+friends, surfaced through :mod:`tradex_interfaces.safety`):
 
 * **A failed read never adopts.** ``broker.get_positions()`` raising produces a
   *failed* :class:`VenueRead`, and a failed read carries no positions at all, so
@@ -29,17 +30,20 @@ the venue-read contract in :mod:`tradex_interfaces.safety`:
   mid-flight is skipped, because the venue's snapshot cannot yet have seen the
   fill and adopting would undo it — silently, while logging a "correction".
 
-Why the safety surface owns the read and this module owns the timer
+Why the safety surface owns the seam and this module owns the timer
 -------------------------------------------------------------------
 ``tradex_runtime`` may not import ``tradex_interfaces`` (``tests/test_import_boundaries.py``
 pins it), and the direction is the right one: ``interfaces`` is the layer that
 sees the execution book *and* the analytics promotion bar, so the join belongs
-there, not here. So the adoption logic — the read, the plan, the refusal — is
-defined in :mod:`tradex_interfaces.safety` and this module *calls* it through the
-two callables it is handed at construction. Nothing is duplicated: the same
-:func:`tradex_interfaces.safety.adopt_venue_positions` the monitor calls is the one
-the HTTP surface calls for a dry-run, so a "what would change" shown to an
-operator and a change written by the timer cannot disagree.
+there, not here. Since REF-12/REF-13 the adoption logic itself — the read, the
+plan, the refusal, the write — lives in :mod:`tradex_execution.reconciliation`
+and is exposed as
+:meth:`tradex_execution.engine.ExecutionEngine.adopt_venue_positions`; the
+seam builder (:func:`tradex_interfaces.safety.build_reconciliation_monitor_seams`)
+hands this module callables that prefer that engine entry. Nothing is
+duplicated: the same adoption path the monitor calls is the one the HTTP
+surface calls for a dry-run, so a "what would change" shown to an operator and
+a change written by the timer cannot disagree.
 """
 
 from __future__ import annotations
@@ -51,6 +55,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from tradex_domain.constants import RECONCILIATION_INTERVAL
+from tradex_observability.metrics import METRIC_ADOPTED as _METRIC_ADOPTED
+from tradex_observability.metrics import METRIC_CLEARED as _METRIC_CLEARED
+from tradex_observability.metrics import METRIC_LAST_ADOPTED as _METRIC_LAST_ADOPTED
+from tradex_observability.metrics import METRIC_READ_FAILED as _METRIC_READ_FAILED
+from tradex_observability.metrics import METRIC_REFUSED as _METRIC_REFUSED
+from tradex_observability.metrics import METRIC_SKIPPED as _METRIC_SKIPPED
 
 log = logging.getLogger(__name__)
 
@@ -67,19 +77,11 @@ RECONCILIATION_INTERVAL_SECONDS = RECONCILIATION_INTERVAL
 #: is the same code path the safety route reports from. The adoption metrics are
 #: new with this module.
 #:
-#: These are declared as literals rather than imported from
-#: :mod:`tradex_interfaces.safety` because ``tradex_runtime`` may not import
-#: ``tradex_interfaces`` (pinned by ``tests/test_import_boundaries.py``). A metric
-#: name is a wire contract with Prometheus, not a code dependency: both modules
-#: declare it and ``trading/tests/runtime/test_reconciliation_monitor.py`` pins
-#: that they agree, which is what makes a drift a visible thing rather than a
-#: silent one.
-_METRIC_ADOPTED = "venue_adoption_adopted_total"
-_METRIC_CLEARED = "venue_adoption_cleared_total"
-_METRIC_SKIPPED = "venue_adoption_skipped_total"
-_METRIC_REFUSED = "venue_adoption_refused_total"
-_METRIC_READ_FAILED = "venue_read_failed_total"
-_METRIC_LAST_ADOPTED = "venue_adoption_last_adopted"
+#: REF-13: the names are imported from :mod:`tradex_observability.metrics`, the
+#: single canonical home (a metric name is a wire contract with Prometheus, not
+#: a code dependency). ``tradex_runtime`` may import ``tradex_observability``
+#: (allowed by ``tests/test_import_boundaries.py``); the underscore aliases keep
+#: this module's private surface unchanged for the tests that pin the names.
 
 
 class ReconciliationMonitor:
@@ -93,10 +95,11 @@ class ReconciliationMonitor:
     ``adopt``
         The adoption itself: reads the venue, refuses a bad read, derives the
         plan, applies it to the cache and returns an outcome describing what
-        changed. Bound to :func:`tradex_interfaces.safety.adopt_venue_positions` by
-        the composition root — the same function the safety route calls for a
-        dry-run, so an operator's "what would change" and the timer's change are
-        the same code path.
+        changed. Bound by the composition root
+        (:func:`tradex_interfaces.safety.build_reconciliation_monitor_seams`) to
+        :meth:`tradex_execution.engine.ExecutionEngine.adopt_venue_positions` —
+        the same path the safety route calls for a dry-run, so an operator's
+        "what would change" and the timer's change are the same code path.
     ``metrics``
         Optional ``MetricsRegistry``.
 

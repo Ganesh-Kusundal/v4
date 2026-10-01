@@ -6,7 +6,7 @@ to guarantee a single rounding convention everywhere.
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 
 def q2(value: Decimal) -> Decimal:
@@ -19,4 +19,40 @@ def q2(value: Decimal) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-__all__ = ["q2"]
+def as_decimal(value: str | float | int) -> Decimal:
+    """Convert a value to ``Decimal`` safely.
+
+    The single shared coercion helper (audit REF-5) — merged from the two
+    byte-identical bodies that used to live in
+    ``tradex_brokers.common.instruments`` (raising ``SDKError``) and
+    ``tradex_shared.rate_limiting`` (raising ``ValueError``). Both originals
+    handled exactly the same input space; only the exception type differed,
+    so the ValueError contract here is a superset and the brokers layer
+    re-wraps it in ``SDKError``.
+
+    Handles ``Decimal`` passthrough, ints/floats (via ``str``), and strings
+    with surrounding whitespace, thousands commas, and currency symbols
+    (``₹``, ``$``). An empty or whitespace-only string reads as
+    ``Decimal("0")``.
+
+    Raises
+    ------
+    ValueError
+        If the value cannot be converted.
+    """
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)):
+        return Decimal(str(value))
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "").replace("₹", "").replace("$", "")
+        if not cleaned:
+            return Decimal("0")
+        try:
+            return Decimal(cleaned)
+        except InvalidOperation as exc:
+            raise ValueError(f"Cannot convert {value!r} to Decimal") from exc
+    raise ValueError(f"Cannot convert {type(value).__name__} to Decimal")
+
+
+__all__ = ["as_decimal", "q2"]

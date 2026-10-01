@@ -21,8 +21,11 @@ from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from tradex_domain.constants import DEFAULT_INITIAL_CAPITAL
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
+from tradex_domain.intervals import normalize_interval
+from tradex_domain.timeframe import INTERVAL_TO_TIMEFRAME
 from tradex_domain.timezones import IST_ZONE
 from tradex_execution.projection import execution_projection
 
@@ -30,17 +33,13 @@ from tradex_interfaces.auth.deps import require_auth
 from tradex_interfaces.safety import build_safety_report
 
 #: Interval codes the chart may request, mapped to canonical Timeframes.
-#: Deliberately no monthly code: neither side has calendar-month bucketing yet
-#: (the chart library refuses to guess that 'M' means 30 days), so offering it
-#: would promise a bar we cannot build correctly.
-INTERVAL_TIMEFRAME: dict[str, Timeframe] = {
-    "1m": Timeframe.M1,
-    "5m": Timeframe.M5,
-    "15m": Timeframe.M15,
-    "30m": Timeframe.M30,
-    "1h": Timeframe.H1,
-    "D": Timeframe.D1,
-}
+#: Single-sourced in the domain (:data:`tradex_domain.timeframe.
+#: INTERVAL_TO_TIMEFRAME`) so this REST table and the WS/replay consumers
+#: cannot drift; the alias keeps the historical route-local name. Deliberately
+#: no monthly code: neither side has calendar-month bucketing yet (the chart
+#: library refuses to guess that 'M' means 30 days), so offering it would
+#: promise a bar we cannot build correctly.
+INTERVAL_TIMEFRAME = INTERVAL_TO_TIMEFRAME
 
 #: Default window when the caller passes no ``from``: ~10 trading days back,
 #: enough for a first paint of any intraday interval; daily requests should
@@ -64,9 +63,16 @@ _ORDER_STATUS_MAP: dict[str, str] = {
     "FILLED": "filled",
     "CANCELLED": "cancelled",
     "REJECTED": "rejected",
-    # UNKNOWN is a broker row we cannot interpret; surfacing it as rejected
-    # keeps it visible (a line with an error affordance) instead of invisible.
-    "UNKNOWN": "rejected",
+    # F-44: UNKNOWN gets its own tier. It is a broker row the process cannot
+    # interpret, so the outcome is genuinely unknown — which is a *different*
+    # answer from REJECTED, where the venue decided. The two were collapsed
+    # here, and this is the surface an operator reads to decide whether to
+    # flatten a position: "we do not know" and "the venue said no" call for
+    # opposite actions. The distinction is already carried by the backend
+    # (``/api/charts/safety`` ages UNKNOWN rows and counts unresolved ones);
+    # the chart was the one surface that dropped it. Presentation only — no
+    # engine state changes with it.
+    "UNKNOWN": "unknown",
 }
 
 
@@ -175,13 +181,14 @@ def _build_strategy(name: str, instrument: Any, params: dict[str, Any]) -> Any:
 
 
 def _backtest_candles(instrument: Any, tf: Timeframe, start: datetime, end: datetime) -> list[Any]:
-    """Load resampled candles for a backtest window from the datalake."""
-    from tradex_market_data.market_provider import ParquetMarketProvider
-    from tradex_market_data.paths import DATALAKE_ROOT
+    """Load resampled candles for a backtest window from the datalake.
 
-    return ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
-        instrument, tf, start, end
-    ).candles
+    Routes through :class:`~tradex_market_data.window_loader.MarketWindowLoader`
+    so chart history, backtest and replay share one resolution path.
+    """
+    from tradex_market_data.window_loader import MarketWindowLoader
+
+    return list(MarketWindowLoader().load(instrument, tf, start, end).candles)
 
 
 #: Slippage the chart's backtests assume, in basis points of fill price. Stated
@@ -223,7 +230,7 @@ def _backtest_engine(body: dict[str, Any]) -> Any:
     # ever lost, and losing it must stop BUYs rather than wave them through.
     risk.fail_closed_cash = True
     return BacktestEngine(
-        initial_capital=body.get("initial_capital", 100000),
+        initial_capital=body.get("initial_capital", int(DEFAULT_INITIAL_CAPITAL)),
         risk_manager=risk,
         fee_calculator=FeeCalculator(),
         slippage_model=PercentageSlippageModel(
@@ -836,11 +843,12 @@ def create_chart_router(
         exchange = str(body.get("exchange", "NSE"))
         if not symbol:
             raise HTTPException(status_code=422, detail="'symbol' required")
-        # Normalize the WS-style "1d" alias onto the REST "D" the table keys on,
-        # so a Tier-2 fetch that rides the same interval string the WebSocket
-        # layer uses does not 422 here.
+        # One normalization path (domain/intervals): the WS-style "1d" alias
+        # folds onto the REST "D" the table keys on, so a Tier-2 fetch that
+        # rides the same interval string the WebSocket layer uses does not
+        # 422 here.
         raw_interval = str(body.get("interval", "D"))
-        interval = "D" if raw_interval == "1d" else raw_interval
+        interval = normalize_interval(raw_interval)
         tf = INTERVAL_TIMEFRAME.get(interval)
         if tf is None:
             raise HTTPException(status_code=422, detail="unsupported interval")
@@ -997,20 +1005,18 @@ def create_chart_router(
     def _bars_from_datalake(
         instrument: Any, tf: Timeframe, start: datetime, end: datetime, limit: int
     ) -> tuple[list[dict[str, Any]], int | None]:
-        """Datalake bars via the same builder ParquetMarketProvider uses.
+        """Datalake bars via the shared :class:`MarketWindowLoader`.
 
-        Candle construction and resampling are single-sourced (market_builders
-        + HistoricalSeries.resample); this endpoint adds only the IST->UTC
-        edge conversion on top. The store is anchored to the repo root
-        (``datalake.paths.DATALAKE_ROOT``) so serve works from any cwd.
+        Candle construction and resampling stay single-sourced in
+        ``ParquetMarketProvider``; this endpoint adds only the IST→UTC edge
+        conversion for the chart wire format.
         """
-        from tradex_market_data.market_provider import ParquetMarketProvider
-        from tradex_market_data.paths import DATALAKE_ROOT
+        from tradex_market_data.window_loader import MarketWindowLoader, series_from_window
 
-        series = ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
-            instrument, tf, start, end
-        )
-        return _serialize_series(series, limit)
+        window = MarketWindowLoader(
+            metrics=getattr(session, "metrics", None),
+        ).load(instrument, tf, start, end)
+        return _serialize_series(series_from_window(window), limit)
 
     def _bars_from_broker(
         session: Any | None,

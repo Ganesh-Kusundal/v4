@@ -47,6 +47,28 @@ DEFAULT_BUCKETS: tuple[float, ...] = (
     300,
 )
 
+# ---------------------------------------------------------------------------
+# Canonical metric names (REF-13: one home)
+# ---------------------------------------------------------------------------
+#: The venue-adoption reconciliation family, emitted per poll by the runtime
+#: :class:`~tradex_runtime.reconciliation_monitor.ReconciliationMonitor`. A
+#: metric name is a wire contract with Prometheus (``deploy/prometheus-rules.yml``
+#: reads these), so the string literals live HERE and nowhere else: the runtime
+#: monitor imports them to emit, and ``tradex_interfaces.safety`` re-exports them
+#: for the safety surface and its tests. Neither consumer may re-declare the
+#: string — a drift between two declarations is a silent graph split.
+METRIC_ADOPTED = "venue_adoption_adopted_total"
+#: Emitted per cleared instrument.
+METRIC_CLEARED = "venue_adoption_cleared_total"
+#: Emitted per skipped instrument, labelled by reason.
+METRIC_SKIPPED = "venue_adoption_skipped_total"
+#: Emitted per refused adoption, labelled by reason.
+METRIC_REFUSED = "venue_adoption_refused_total"
+#: Emitted per failed venue read.
+METRIC_READ_FAILED = "venue_read_failed_total"
+#: Gauge of how many instruments the last adoption wrote.
+METRIC_LAST_ADOPTED = "venue_adoption_last_adopted"
+
 #: A series key: the label set as a sorted tuple of ``(key, value)`` string
 #: pairs. Sorting is what makes label order irrelevant.
 LabelKey = tuple[tuple[str, str], ...]

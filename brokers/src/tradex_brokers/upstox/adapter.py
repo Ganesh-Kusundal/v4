@@ -33,6 +33,7 @@ from tradex_brokers.common.endpoints import (
     UPSTOX_REST_BASE_URL,
     UPSTOX_V3_BASE_URL,
 )
+from tradex_brokers.common.mixins import SharedAdminMixin, SharedPortfolioMixin
 from tradex_brokers.common.provider_common import option_chain_from_master
 from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 from tradex_brokers.upstox.client import UpstoxApiClient
@@ -47,13 +48,16 @@ _UPSTOX_INDEX_KEYS = {
 }
 
 
-class UpstoxBroker(BaseBroker):
+class UpstoxBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
     """Upstox broker adapter — implements BrokerAdapter.
 
     Uses :class:`UpstoxApiClient` for HTTP calls and WebSocket streams.
     Without a bound transport, trading calls raise ``BrokerUnavailableError``.
     Common lifecycle, gating, and pass-throughs are provided by
-    :class:`BaseBroker`; only Upstox-specific behavior lives here.
+    :class:`BaseBroker`; only Upstox-specific behavior lives here. The REF-8
+    shared mixins sit behind the ``BaseBroker`` pass-throughs: the wall wins
+    for ``get_portfolio`` (delegating to the transport composite) and the
+    mixins supply ``invalidate_read_cache``.
     """
 
     _fallback_equities = _UPSTOX_EQUITY_UNIVERSE

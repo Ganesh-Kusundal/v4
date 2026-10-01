@@ -16,6 +16,9 @@ from tradex_application.orders import (
     BrokerCapabilityError,
 )
 from tradex_application.orders import (
+    build_bracket_request as app_build_bracket_request,
+)
+from tradex_application.orders import (
     cancel_order as app_cancel_order,
 )
 from tradex_application.orders import (
@@ -224,70 +227,6 @@ def _build_order_request(
     )
 
 
-def _build_bracket_request(
-    body: dict, correlation_id: CorrelationId | None = None,
-) -> Any:
-    """Parse an HTTP body into a bracket (super) OrderRequest.
-
-    Mirrors ``_build_order_request`` for instrument/entry fields, plus the
-    protective legs ``stop_loss_price``/``target_price`` (required) and
-    ``trailing_jump`` (optional, defaults 0). Raises ``KeyError`` on missing
-    required fields and ``ValueError`` on malformed ones; the domain
-    ``BracketOrderRequest`` validates protective-price ordering.
-    """
-    from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-    from tradex_domain.execution import BracketOrderRequest
-    from tradex_domain.instruments import Equity
-    from tradex_domain.value_objects import Quantity
-
-    instrument_id = body.get("instrument_id")
-    if instrument_id:
-        parts = instrument_id.split(":", 1)
-        if len(parts) != 2:
-            raise HTTPException(
-                status_code=422,
-                detail=INSTRUMENT_ID_FORMAT_MESSAGE,
-            )
-        instrument = Equity.of(parts[0], parts[1])
-    else:
-        exchange = body.get("exchange")
-        symbol = body.get("symbol")
-        if not exchange or not symbol:
-            raise HTTPException(
-                status_code=422,
-                detail=INSTRUMENT_ID_OR_EXCHANGE_SYMBOL_MESSAGE,
-            )
-        instrument = Equity.of(exchange, symbol)
-
-    side = OrderSide(body["side"])
-    order_type = OrderType(body.get("order_type", "MARKET"))
-    quantity = Quantity(Decimal(str(body["quantity"])))
-    price = _price(body["price"], "price")
-    time_in_force = (
-        TimeInForce(body["time_in_force"])
-        if body.get("time_in_force")
-        else TimeInForce.DAY
-    )
-    trailing_jump = body.get("trailing_jump")
-    return BracketOrderRequest(
-        instrument=instrument,
-        side=side,
-        order_type=order_type,
-        quantity=quantity,
-        price=price,
-        time_in_force=time_in_force,
-        stop_loss_price=_price(body["stop_loss_price"], "stop_loss_price"),
-        target_price=_price(body["target_price"], "target_price"),
-        trailing_jump=(
-            _price(trailing_jump, "trailing_jump")
-            if trailing_jump is not None
-            else _price("0", "trailing_jump")
-        ),
-        product_type=_parse_product(body),
-        correlation_id=correlation_id,
-    )
-
-
 def _build_bracket_modify_request(
     existing: Any,
     body: dict,
@@ -446,7 +385,7 @@ async def place_bracket_order(
     if broker is None:
         raise HTTPException(status_code=503, detail=BROKER_UNAVAILABLE_MESSAGE)
     try:
-        order_request = _build_bracket_request(body, correlation_id)
+        order_request = app_build_bracket_request(body, correlation_id)
         receipt = app_submit_bracket_order(session.engine, broker, order_request)
         return _map_receipt(receipt)
     except BrokerCapabilityError as exc:

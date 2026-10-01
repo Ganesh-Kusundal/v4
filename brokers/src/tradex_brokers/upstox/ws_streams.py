@@ -29,8 +29,7 @@ from tradex_domain.value_objects import InstrumentId
 from tradex_brokers.common.provider_common import instrument_from_id
 from tradex_brokers.common.ws_reconnect import AutoReconnectMixin
 from tradex_brokers.common.ws_shared import (
-    WS_PING_INTERVAL,
-    WS_PING_TIMEOUT,
+    default_ws_factory,
     row_to_quote,
 )
 
@@ -44,18 +43,6 @@ MapPosition = Callable[[Mapping[str, Any]], Position | None]
 UPSTOX_MARKET_DATA_AUTHORIZE_PATH = "/feed/market-data-feed/authorize"
 #: Official Upstox V2 portfolio/order stream authorize endpoint path.
 UPSTOX_PORTFOLIO_AUTHORIZE_PATH = "/feed/portfolio-stream-feed/authorize"
-
-
-def default_ws_factory(url: str) -> Any:
-    """Open a real synchronous WebSocket connection (``[live]`` extra)."""
-    from websockets.sync.client import connect  # noqa: PLC0415 — optional dep
-
-    return connect(
-        url,
-        max_size=2**20,
-        ping_interval=WS_PING_INTERVAL,
-        ping_timeout=WS_PING_TIMEOUT,
-    )
 
 
 class UpstoxPortfolioStreamBackend(AutoReconnectMixin):

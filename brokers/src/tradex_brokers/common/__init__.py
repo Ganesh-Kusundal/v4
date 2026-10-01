@@ -20,6 +20,11 @@ from tradex_brokers.common.auth_flow import (
 )
 from tradex_brokers.common.cache import ReadCache
 from tradex_brokers.common.instruments import future_chain_from_master
+from tradex_brokers.common.mixins import (
+    ProviderFacade,
+    SharedAdminMixin,
+    SharedPortfolioMixin,
+)
 from tradex_brokers.common.paths import (
     default_runtime_dir,
     default_token_state_path,
@@ -84,6 +89,10 @@ __all__ = [
     "default_totp_cooldown_path",
     "default_runtime_dir",
     "default_token_state_path",
+    # shared broker mixins (REF-8)
+    "ProviderFacade",
+    "SharedAdminMixin",
+    "SharedPortfolioMixin",
     # provider client
     "ProviderHttpClient",
     "UncertainSubmissionTracker",

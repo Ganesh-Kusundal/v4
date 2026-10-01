@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -50,6 +50,7 @@ from tradex_domain.protocols import (
     DepthStreamPort,
     MarketStreamPort,
     OrderStreamPort,
+    TradingCacheProtocol,
 )
 from tradex_domain.value_objects import InstrumentId, Price
 from tradex_domain.wire import InstrumentRegistry
@@ -321,6 +322,56 @@ class BaseBroker:
             hook = getattr(backend, "set_reconnect_hook", None)
             if callable(hook):
                 hook(cb)
+
+    # ------------------------------------------------------------------
+    # execution↔broker seam defaults [REF-7]
+    #
+    # Every adapter must satisfy ``BrokerAdapter`` without each one having to
+    # redeclare these members, so the execution layer and MarketFeed call them
+    # directly instead of ``getattr``/``hasattr`` probing. The defaults
+    # reproduce exactly what the former probes assumed for adapters without
+    # the capability: no projection, no cache, inert wire-set cleanup, no
+    # 30-level depth stream.
+    # ------------------------------------------------------------------
+
+    @property
+    def owns_position_projection(self) -> bool:
+        """Whether this adapter applies fills to its own OMS projection.
+
+        Live adapters do not — the ExecutionEngine owns position and cash — so
+        the default is False, the value the former
+        ``getattr(broker, "owns_position_projection", False)`` probe assumed.
+        PaperBroker overrides it to True.
+        """
+        return False
+
+    @property
+    def trading_cache(self) -> TradingCacheProtocol | None:
+        """The adapter's OMS projection cache, or ``None`` when it keeps none."""
+        return None
+
+    def unsubscribe_instruments(self, instruments: Sequence[Instrument]) -> None:
+        """Drop *instruments* from the live wire set (no-op by default).
+
+        Adapters whose stream backends carry a server-side wire set override
+        this (Dhan/Upstox/paper do); the default keeps the MarketFeed cleanup
+        best-effort-safe for adapters without one.
+        """
+        return None
+
+    def subscribe_depth_30(
+        self,
+        instruments: Sequence[Instrument],
+        handler: Callable[[Depth], None],
+    ) -> object:
+        """Subscribe the 30-level depth stream (Upstox-only capability).
+
+        Inert by default — returns ``None``, the same "no stream" sentinel the
+        paper streaming no-ops return. Callers gate on
+        ``capabilities.depth_levels >= 30`` before reaching for it, never on
+        ``hasattr``.
+        """
+        return None
 
     # ------------------------------------------------------------------
     # gating / requirement helpers

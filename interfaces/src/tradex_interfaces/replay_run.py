@@ -6,21 +6,14 @@ from datetime import datetime
 
 from tradex_domain.enums import Timeframe
 from tradex_domain.market import Candle
-from tradex_domain.timezones import IST_ZONE as _IST
-from tradex_runtime.bar_aggregator import BarAggregator, _tf_seconds
-
-
-def _chart_seconds(timestamp: datetime) -> int:
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=_IST)
-    else:
-        timestamp = timestamp.astimezone(_IST)
-    return int(timestamp.timestamp())
+from tradex_domain.timeframe import candle_epoch, interval_seconds
+from tradex_runtime.bar_aggregator import BarAggregator
 
 
 def _target_key(timestamp: datetime, timeframe: Timeframe) -> int:
-    seconds = _tf_seconds(timeframe)
-    return _chart_seconds(timestamp) - (_chart_seconds(timestamp) % seconds)
+    seconds = interval_seconds(timeframe)
+    epoch = candle_epoch(timestamp)
+    return epoch - (epoch % seconds)
 
 
 @dataclass

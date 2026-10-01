@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
-from tradex_domain.errors import OrderRejectedError
 from tradex_domain.execution import BracketOrderRequest, OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
@@ -114,15 +113,16 @@ class TestBrokerFillSource:
 
         mock_broker.place_order.assert_not_called()
 
-    def test_fallback_when_no_submit_order(self) -> None:
-        """If broker has no submit_order, returns ACK order."""
+    def test_broker_without_submit_order_fails_loudly(self) -> None:
+        """submit_order is a BrokerAdapter protocol member (defaulted on
+        BaseBroker) — a broker missing it is a protocol violation and must
+        fail loudly, not silently produce an undispatched ACK order."""
         plain_broker = object()  # no submit_order method
-        fill_source = BrokerFillSource(plain_broker)
+        fill_source = BrokerFillSource(plain_broker)  # type: ignore[arg-type]
 
         req = _make_request(price=Decimal("2500.00"))
-        order, fill = fill_source.submit(req)
-        assert order.status == OrderStatus.ACK
-        assert fill is None
+        with pytest.raises(AttributeError, match="submit_order"):
+            fill_source.submit(req)
 
     def test_bracket_request_calls_submit_super_order(self) -> None:
         """A BracketOrderRequest must hit the broker's super-order endpoint,
@@ -152,7 +152,10 @@ class TestBrokerFillSource:
 
     def test_bracket_request_rejected_when_broker_lacks_super_orders(self) -> None:
         """A broker with no super-order endpoint must fail loudly, not degrade
-        to an unprotected entry submission."""
+        to an unprotected entry submission. submit_super_order is a protocol
+        member (BaseBroker gates it on ``supports_super_order``), so a broker
+        genuinely missing the method is a protocol violation: AttributeError.
+        """
         mock_broker = MagicMock()
         del mock_broker.submit_super_order  # broker without the method
         fill_source = BrokerFillSource(mock_broker)
@@ -167,7 +170,7 @@ class TestBrokerFillSource:
             target_price=Price(value=Decimal("2600.00")),
             time_in_force=TimeInForce.DAY,
         )
-        with pytest.raises(ValueError, match="does not support super orders"):
+        with pytest.raises(AttributeError, match="submit_super_order"):
             fill_source.submit(req)
         mock_broker.submit_order.assert_not_called()
 
@@ -213,11 +216,14 @@ class TestBrokerFillSource:
 
     def test_broker_cancel_super_order_fails_loudly_without_endpoint(self) -> None:
         """A broker without super-order cancellation must raise, never fall
-        back to a plain cancel on the composite id."""
+        back to a plain cancel on the composite id. cancel_super_order is a
+        protocol member (BaseBroker gates it on ``supports_super_order``), so
+        a mock missing the method surfaces the protocol violation directly.
+        """
         mock_broker = MagicMock()
         del mock_broker.cancel_super_order
         fill_source = BrokerFillSource(mock_broker)
 
-        with pytest.raises(OrderRejectedError, match="does not support super-order"):
+        with pytest.raises(AttributeError, match="cancel_super_order"):
             fill_source.cancel_super_order(OrderId(value="super-1"))
         mock_broker.cancel_order.assert_not_called()

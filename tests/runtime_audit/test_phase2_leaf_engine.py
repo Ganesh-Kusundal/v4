@@ -177,7 +177,7 @@ def test_position_accountant_reconcile_integration():
         unrealized_pnl=Money(Decimal("0")),
     )
 
-    drifts = accountant.reconcile_with_broker([broker_pos])
+    drifts = accountant._reconcile_with_broker([broker_pos])
     assert len(drifts) == 1
     # local (100) minus broker (80) = +20 shares held locally but not at the venue.
     assert drifts[0].diff == Decimal("20")

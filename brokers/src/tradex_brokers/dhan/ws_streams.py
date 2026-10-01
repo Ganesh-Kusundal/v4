@@ -30,8 +30,7 @@ from tradex_brokers.common.market_builders import build_depth
 from tradex_brokers.common.provider_common import instrument_from_id
 from tradex_brokers.common.ws_reconnect import AutoReconnectMixin
 from tradex_brokers.common.ws_shared import (
-    WS_PING_INTERVAL,
-    WS_PING_TIMEOUT,
+    default_ws_factory,
     row_to_quote,
 )
 from tradex_brokers.dhan.client import dhan_segment
@@ -52,18 +51,6 @@ DHAN_MARKET_DATA_WS_URL = "wss://api-feed.dhan.co"
 DHAN_SUBSCRIBE_FULL = 21
 #: Official Dhan depth-20 websocket (RequestCode 23 binary feed).
 DHAN_DEPTH_20_WS_URL = "wss://depth-api-feed.dhan.co/twentydepth"
-
-
-def default_ws_factory(url: str) -> Any:
-    """Open a real synchronous WebSocket connection (``[live]`` extra)."""
-    from websockets.sync.client import connect  # noqa: PLC0415 — optional dep
-
-    return connect(
-        url,
-        max_size=2**20,
-        ping_interval=WS_PING_INTERVAL,
-        ping_timeout=WS_PING_TIMEOUT,
-    )
 
 
 class DhanOrderStreamBackend(AutoReconnectMixin):

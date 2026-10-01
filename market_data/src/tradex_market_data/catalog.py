@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from tradex_domain import Candle
+from tradex_domain.serialization import parse_timestamp
 
 from tradex_market_data.paths import datalake_root
 
@@ -18,10 +19,16 @@ def _safe_symbol(symbol: str) -> str:
 
 
 def _parse_ts(value: str | datetime) -> datetime:
-    """Parse an ISO timestamp string or pass through a datetime."""
+    """Parse an ISO timestamp string or pass through a datetime.
+
+    Delegates to the domain-wide canonical timestamp parser (REF-11) so the
+    catalog accepts exactly the same wire shapes as every other parser; the
+    ``datetime`` passthrough stays local because it is storage-layer plumbing,
+    not a wire format.
+    """
     if isinstance(value, datetime):
         return value
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return parse_timestamp(value)
 
 
 class DataCatalog:
@@ -98,7 +105,7 @@ class DataCatalog:
             with open(filepath) as f:
                 data = json.load(f)
 
-            timestamp = datetime.fromisoformat(data['timestamp'])
+            timestamp = _parse_ts(data['timestamp'])
 
             # Apply time filters
             if start and timestamp < start:

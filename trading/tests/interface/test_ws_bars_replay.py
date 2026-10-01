@@ -279,13 +279,21 @@ class TestSubscribeBarsContract:
 
 
 class TestReplayControl:
-    def test_pause_resume_speed_stop_ack(self):
+    def test_replay_commands_without_a_run_are_refused(self):
+        """No run, no ack — a command that did nothing must not claim success.
+
+        ``replay_stop`` is the exception: it is a safe no-op and answers, so a
+        client can stop defensively without first checking whether a run
+        exists. pause/resume/speed cannot be safe no-ops — a ``replay_paused``
+        frame when nothing is running tells the client the opposite of the
+        truth — so they are refused with ``replay_error``.
+        """
         client = TestClient(_app())
         with client.websocket_connect("/ws/stream") as ws:
             for msg, expected in [
-                ({"type": "replay_pause"}, "replay_paused"),
-                ({"type": "replay_resume"}, "replay_resumed"),
-                ({"type": "replay_speed", "speed": 2.0}, "replay_speed"),
+                ({"type": "replay_pause"}, "replay_error"),
+                ({"type": "replay_resume"}, "replay_error"),
+                ({"type": "replay_speed", "speed": 2.0}, "replay_error"),
                 ({"type": "replay_stop"}, "replay_stopped"),
             ]:
                 ws.send_json(msg)
@@ -545,16 +553,45 @@ class TestReplayControl:
             assert stopped
 
             # After stop, pause/resume/step/speed must ack fresh (no stale state)
-            ws.send_json({"type": "replay_pause"})
-            assert ws.receive_json()["type"] == "replay_paused"
-            ws.send_json({"type": "replay_resume"})
-            assert ws.receive_json()["type"] == "replay_resumed"
-            ws.send_json({"type": "replay_speed", "speed": 3.0})
-            assert ws.receive_json()["type"] == "replay_speed"
-            ws.send_json({"type": "replay_step"})
-            # step doesn't ack, but pause after step should work
-            ws.send_json({"type": "replay_pause"})
-            assert ws.receive_json()["type"] == "replay_paused"
+            # After stop, pause/resume/step/speed must NOT fake a success.
+            #
+            # This used to assert a fresh `replay_paused` — a pause ack when
+            # nothing was running, so a client could believe a stopped replay
+            # was paused. The replay state is now explicit (ReplayState in
+            # tradex_runtime.replay_controller), and an illegal transition is
+            # refused with replay_error instead of silently acked.
+            for command, payload in [
+                ("replay_pause", {}),
+                ("replay_resume", {}),
+                ("replay_speed", {"speed": 3.0}),
+                ("replay_step", {}),
+            ]:
+                ws.send_json({"type": command, **payload})
+                reply = ws.receive_json()
+                assert reply["type"] == "replay_error", (
+                    f"{command} on a stopped replay acked {reply['type']!r} "
+                    "instead of refusing"
+                )
+
+            # A fresh start after the stop still works — the reset is real.
+            ws.send_json({
+                "type": "replay_start",
+                "instrument": "NSE:TEST",
+                "interval": "1m",
+                "speed": 2.0,
+                "ticks_per_bar": 2,
+            })
+            deadline = __import__("time").monotonic() + 5
+            restarted = False
+            while __import__("time").monotonic() < deadline:
+                msg = ws.receive_json()
+                if msg["type"] == "replay_started":
+                    restarted = True
+                    break
+                if msg["type"] == "replay_error":
+                    break
+            assert restarted, "a fresh start after stop was refused"
+            ws.send_json({"type": "replay_stop"})
 
     def test_replay_scoped_flush_no_unrelated_aggregator_mutation(self, monkeypatch):
         """Sim replay quotes route only to the selected replay aggregator.

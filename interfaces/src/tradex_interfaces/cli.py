@@ -601,7 +601,10 @@ def cmd_sync(args: Any) -> int:
     ranges = None
     targets = instruments
     if args.skip_existing:
-        bar_freq = {"1m": "1min", "5m": "5min", "15m": "15min"}.get(args.timeframe, "1min")
+        # Single-sourced bar-frequency vocabulary (domain/constants).
+        from tradex_domain.constants import BAR_FREQ_MAP
+
+        bar_freq = BAR_FREQ_MAP.get(args.timeframe, "1min")
         found = GapDetector(store).scan(
             instruments, start=start, end=end,
             timeframe=args.timeframe, bar_freq=bar_freq,

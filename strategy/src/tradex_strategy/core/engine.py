@@ -140,6 +140,13 @@ class ReactiveStrategyEngine:
         self._pending: dict[InstrumentId, list[dict]] = {}
         # 0 == no expiry (backward-compat). > 0 == cancel after N bars.
         self._pending_max_age_bars = pending_max_age_bars
+        # F-47: per-strategy order outcomes. Live publishes ErrorOccurred and
+        # bumps a session-global counter, so a strategy whose orders are
+        # refused reads the same as one that is fine; the backtest re-raises
+        # and aborts, so it never had this gap. These make the live failure
+        # at least as nameable as the backtest one.
+        self._order_failures: dict[str, int] = {}
+        self._orders_expired: dict[str, int] = {}
 
     def _make_context(self, **overrides: Any) -> StrategyContext:
         """Create a StrategyContext with current engine state."""
@@ -245,6 +252,9 @@ class ReactiveStrategyEngine:
                 "(ReactiveStrategyEngine cannot reach a venue)",
                 strategy_id, request.instrument.instrument_id,
             )
+            self._order_failures[strategy_id] = (
+                self._order_failures.get(strategy_id, 0) + 1
+            )
             return
         try:
             self._submit(request)
@@ -252,6 +262,9 @@ class ReactiveStrategyEngine:
             log.error(
                 "%s: submit() raised for %s: %s",
                 strategy_id, request.instrument.instrument_id, exc,
+            )
+            self._order_failures[strategy_id] = (
+                self._order_failures.get(strategy_id, 0) + 1
             )
             self._bus.publish(ErrorOccurred(error=exc))
 
@@ -368,6 +381,11 @@ class ReactiveStrategyEngine:
             self._bar_count - pending["deferred_at_bar"],
             self._pending_max_age_bars,
         )
+        # F-45: count it, so live has the equivalent of the backtest's
+        # ``num_unfilled``. The backtest reports deferred orders that never
+        # filled; without this number a live session cannot be compared to one.
+        _sid = str(pending["strategy_id"])
+        self._orders_expired[_sid] = self._orders_expired.get(_sid, 0) + 1
         self._bus.publish(OrderCancelled(order=order))
 
     def _wrap_on_quote(self, strategy: Any) -> Any:
@@ -654,5 +672,20 @@ class ReactiveStrategyEngine:
     def strategies(self) -> dict:
         """Return registered strategies."""
         return dict(self._strategies)
+
+    def order_stats(self, strategy_id: str) -> dict[str, int]:
+        """One strategy's order outcomes: failures and expired deferrals.
+
+        F-47: live publishes ``ErrorOccurred`` and bumps one session-global
+        counter, so a strategy whose every order is refused reads the same as
+        one that is healthy. The backtest re-raises and aborts the run, so this
+        asymmetry is the live-only half of the parity gap. Keyed by strategy id
+        because "the counter went up" does not tell an operator which strategy
+        to stop.
+        """
+        return {
+            "order_failures": self._order_failures.get(strategy_id, 0),
+            "orders_expired": self._orders_expired.get(strategy_id, 0),
+        }
 
 

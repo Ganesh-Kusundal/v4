@@ -7,13 +7,14 @@ from typing import TYPE_CHECKING, Protocol
 
 from tradex_domain.enums import OrderSide, ProductType
 from tradex_domain.errors import AuthenticationError
-from tradex_domain.execution import Account, PortfolioSnapshot, Position
+from tradex_domain.execution import Account, Position
 from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import AccountId, Money, Price
 
 if TYPE_CHECKING:
     from tradex_brokers.upstox._facade import UptoxFacade
 
+from tradex_brokers.common.mixins import SharedPortfolioMixin
 from tradex_brokers.common.provider_common import (
     as_decimal,
     first_mapping,
@@ -23,7 +24,7 @@ from tradex_brokers.common.provider_common import (
 )
 
 
-class PortfolioMixin(Protocol):
+class PortfolioMixin(SharedPortfolioMixin, Protocol):
     def get_account(self: UptoxFacade) -> Account:
         """Account snapshot via GET /user/get-funds-and-margin (v3 host)."""
         body = self._request(
@@ -140,12 +141,6 @@ class PortfolioMixin(Protocol):
             "GET", "/portfolio/long-term-holdings", cache_read=True
         )
         return self._positions(unwrap_data(body))
-
-    def get_portfolio(self: UptoxFacade) -> PortfolioSnapshot:
-        """Portfolio snapshot (positions + account)."""
-        return PortfolioSnapshot(
-            positions=self.get_positions(), account=self._account_for_portfolio()
-        )
 
     def get_trade_book(self: UptoxFacade) -> list[dict[str, object]]:
         """Today's executed trades via GET /order/trades/get-trades-for-day."""

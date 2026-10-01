@@ -2,8 +2,9 @@
 
 **Date**: 2026-09-29
 **Status**: Approved design (brainstorming path: architectural)
-**Source**: Pre-production architecture review, findings ledger F-01…F-41
-(coordinator-verified, file:line evidence retained in the review working notes).
+**Source**: Pre-production architecture review, findings ledger F-01…F-47, at
+[`docs/audits/2026-09/2026-09-29-runtime-findings-ledger.md`](../../audits/2026-09/2026-09-29-runtime-findings-ledger.md)
+(entries re-derived from the tree at `3a1797e`, with file:line evidence).
 
 ## Summary
 
@@ -45,7 +46,7 @@ The review established:
     store failures unless `require_durable_events` (`engine.py:329-364`), which
     boot sets only for `mode == "live"` (`startup.py:560-564`).
 - 13 HIGH findings and a set of MEDIUM/LOW findings follow behind them (full
-  ledger: the review report, "Critical findings (prioritized)").
+  ledger: [`2026-09-29-runtime-findings-ledger.md`](../../audits/2026-09/2026-09-29-runtime-findings-ledger.md)).
 - False confidence is a first-class defect class in this repo: parity tests
   hand-wire the exact production wiring that `boot()` omits; mock shapes diverge
   from domain types. Verification must therefore prove **production wiring**, not
@@ -105,13 +106,38 @@ its ownership stops and reports; the coordinator re-lanes.
 | Phase | Wave | Lanes (file-disjoint) | Extra proof |
 |---|---|---|---|
 | 0 Stop the bleeding | W0 | Integrator lane alone: commit/stash the dirty tree; land the F-05 contract fix with its test | clean tree; contracts green |
-| | W0.5 | A `engine.py` + `interfaces/safety.py`: F-01 recorder + report-read side-effect removal (both sides of the chain), F-35 tri-state drift report, F-26 fail-closed appends, F-13 kill-switch on modify, F-12a engine-side permit issuance. B `runtime/startup.py` + `brokers/paper/adapter.py`: F-39 wire bars, F-40 wire `account_sizer`, F-34 `configure_runtime_cache`. C `market_data/corporate_actions.py`: F-19 real-`Candle` adjust keyed to ex-date + test rewrite with the domain `Candle` | boot smoke: synthetic quotes → `on_bar` fires and orders carry `account_sizer` sizing; a timer poll makes `reconciliation_checked` truthful with a fresh `last_checked_at`; a report read appends nothing |
-| 1 Domain corrections | W1 | A FSM truth: F-02/03/04 — `UNKNOWN` terminality, delete `SUBMITTED`, all status writes via `Order.transition_to` (`order_manager.py`, `_make_order`). B drift vocabulary: F-10 one vocabulary (`events.py` / `reconciliation.py` / `safety.py`). C lot-size + currency on `Money` | Hypothesis FSM property test |
-| 2 OMS/risk boundaries | W2 | A engine split: intake/dispatch/fill_apply modules, `engine.py` ≤ 400 lines, behavior unchanged. B fill bookkeeping: F-27 overfill clamp before effect + one quantity to all three records, F-28 wire `DurableFillDedup` when a store is present, F-29 one dedup policy shared with recovery. C risk: F-14 explicit backtest no-risk opt-out + cash floor always, F-15 attributed-book enforcement, F-16 fail-closed baseline load, F-17 `now=` threading, F-18 trading-hours + CLI cid + instrument limits | crash-window matrix (kill -9 at each durable write boundary); risk-bypass property test over every venue path |
+| | W0.5 | A `engine.py` + `interfaces/safety.py`: F-01 recorder + report-read side-effect removal (both sides of the chain), F-35 tri-state drift report, F-26 fail-closed appends, F-13 kill-switch on modify, F-12a engine-side permit issuance. B `runtime/startup.py` + `brokers/paper/adapter.py`: F-39 wire bars, F-40 wire `account_sizer`, F-34 `configure_runtime_cache`, **F-43** the feed-recovery missing-bars allowance enforced in `recover()` and threaded from a new `FeedConfig` field. C `market_data/corporate_actions.py`: F-19 real-`Candle` adjust keyed to ex-date + test rewrite with the domain `Candle` | boot smoke: synthetic quotes → `on_bar` fires and orders carry `account_sizer` sizing; a timer poll makes `reconciliation_checked` truthful with a fresh `last_checked_at`; a report read appends nothing; a replay with a hole over the allowance leaves the feed `HALTED` |
+| 1 Domain corrections | W1 | A FSM truth: F-02/03/04 — `UNKNOWN` terminality, delete `SUBMITTED`, all status writes via `Order.transition_to` (`order_manager.py`, `_make_order`). **F-44** UNKNOWN chart tier, in the same lane and wave as F-02/03/04 so the status vocabulary moves once. B drift vocabulary: F-10 one vocabulary (`events.py` / `reconciliation.py` / `safety.py`). C lot-size + currency on `Money` | Hypothesis FSM property test |
+| 2 OMS/risk boundaries | W2 | A engine split: intake/dispatch/fill_apply modules, `engine.py` ≤ 400 lines, behavior unchanged, **F-45** the deferred-order expiry bound sourced from config with a non-zero default plus an expired-order count, **F-47** per-strategy order-failure counters. B fill bookkeeping: F-27 overfill clamp before effect + one quantity to all three records, F-28 wire `DurableFillDedup` when a store is present, F-29 one dedup policy shared with recovery. C risk: F-14 explicit backtest no-risk opt-out + cash floor always, F-15 attributed-book enforcement, F-16 fail-closed baseline load, F-17 `now=` threading, F-18 trading-hours + CLI cid + instrument limits | crash-window matrix (kill -9 at each durable write boundary); risk-bypass property test over every venue path |
 | 3 Broker/market-data | W3 | A wall fix F-22 (override detection) + F-12b adapter wall requires engine permit + F-24 cancel priority. B WS gaps F-20 → forced reconcile on reconnect + F-23 tracker durability. C PIT strict mode F-21 + CA ex-date strictness | paper/live adapter parity contract tests |
 | 4 Strategy integration | W4 | A F-41 bracket single-ownership + emit-time position marking fix. B CA applied in live + warmup/state persistence + `on_start` wiring. C shared indicator library (replace hand-rolled SMA/RSI in `sma_cross` / `mean_reversion`) | same-strategy backtest-vs-paper tape parity on one fixed tape |
 | 5 Testing programme | W5 | A hash-chain fuzz + permanent crash-matrix harness. B live-reconnect money-path test + de-mock `test_kill_switch`. C concurrency race tests (submit vs fill vs monitor) | the new tests gate the release |
 | 6 Cleanup | W6 | A deletion ledger: `poc/`, `apps/top_gainers`, `persistence` shim, `position_manager` alias, `SUBMITTED`, dead `_attach_event_store` (F-06), F-32 modify pickling. B god-file splits remainder: `safety.py`, `startup.py`. C `graphify-out` gitignore + docs audit | zero-import proofs re-run; suite green |
+
+### Landed ahead of their waves, at `3a1797e`
+
+F-39, F-40 and F-43 (W0.5), F-45 and F-47 (W2), F-44 (W1) and F-46 (W6) were
+closed together rather than in their scheduled waves, because they are small
+seams around the same composition root and splitting them across four waves
+would have meant four sequential edits to `startup.py` under a gate chain that
+exists precisely to avoid that. Each carries a control demonstrated to fail when
+its fix is removed; the per-finding list is in the
+[ledger](../../audits/2026-09/2026-09-29-runtime-findings-ledger.md).
+
+Two behaviour changes came with them, both consequences rather than accidents:
+
+- **Paper/live order quantities change.** They are now the risk-policy size
+  rather than a fixed ~₹95,000 notional. That is the point of F-40, but it is
+  a real change to what paper places — run paper first, deliberately.
+- **A reconnect can now halt a feed that previously recovered.** The allowance
+  defaults to 20 bars, chosen to sit above Dhan's structural 15-minute
+  session-tail hole (its NSE 1m series stops at 15:14). Lowering it and seeing
+  recovery halt on the known tail is the lever working, not a regression.
+
+F-34 (W0.5) and the rest of W1/W2/W6 remain open. When F-03 deletes
+`SUBMITTED`, re-check the chart's status map: it still carries `SUBMITTED` on
+the `pending` tier.
+
 | 7 Production readiness | W7 | A JSON event schema v3 (decoder registry path already exists). B short-exposure gate + trading-hours hardening. C runbook + alert rules (`deploy/prometheus-rules.yml`): stale `reconciliation_checked`, `UNKNOWN > 0`, kill-switch tripped, append failures, tracker residue | live dry-run checklist (paper during market hours) |
 
 ### Conflict control and rollback
@@ -156,7 +182,7 @@ exercise production wiring, never a fixture that re-creates it.
 
 ## Requirements and acceptance criteria
 
-- **AC-1**: Every finding F-01…F-41 is closed by a failing-first regression test
+- **AC-1**: Every finding F-01…F-47 is closed by a failing-first regression test
   named in its phase's implementation plan, or explicitly deferred with a written
   rationale in the phase plan.
 - **AC-2**: After every wave, the gate set is green on a clean tree.

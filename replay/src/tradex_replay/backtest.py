@@ -11,6 +11,7 @@ from typing import Any, Final, cast
 
 from tradex_analytics.reports import max_drawdown, sharpe_ratio, total_return
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
+from tradex_domain.constants import DEFAULT_INITIAL_CAPITAL
 from tradex_domain.correlation_id import mint_correlation_id
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, Timeframe
 from tradex_domain.events import (
@@ -32,7 +33,7 @@ from tradex_execution.slippage import SlippageModel
 from tradex_execution.trading_cache import TradingCache
 from tradex_market_data.corporate_actions import CorporateActionStore
 from tradex_reactive.bus import ReactiveBus
-from tradex_strategy.core.brackets import _brackets, protective_request
+from tradex_strategy.core.brackets import is_valid_bracket, protective_request
 from tradex_strategy.core.engine import ReactiveStrategyEngine
 from tradex_strategy.core.protocols import Strategy
 from tradex_strategy.core.sizing import DEFAULT_MAX_ORDER_VALUE, PositionSizer
@@ -267,7 +268,7 @@ class BacktestEngine:
         slippage_model: SlippageModel | None = None,
         corporate_actions: CorporateActionStore | None = None,
         risk_manager: Any | None = None,
-        initial_capital: Decimal | float | str = Decimal("100000"),
+        initial_capital: Decimal | float | str = DEFAULT_INITIAL_CAPITAL,
         sharpe_frequency: str = "1m",
         stop_gap_bps: Decimal | float | str = DEFAULT_STOP_GAP_BPS,
         sizer: PositionSizer | None = None,
@@ -387,24 +388,26 @@ class BacktestEngine:
         )
 
     def submit(self, request: Any) -> Any:
-        """Route a strategy order through the backtest engine.
+        """REMOVED — this was a second order door, and it skipped every gate.
 
-        Wire a strategy's order callback to this method so its orders are
-        counted and filled inside the backtest.
+        It called ``self._fill_source.submit(request)`` directly, which bypasses
+        :meth:`~tradex_execution.engine.ExecutionEngine.submit` and with it the
+        kill switch, the risk manager, the idempotency guard, the durable event
+        log and the cash floor. A strategy wired to this method would have
+        placed orders that the engine's book never recorded.
 
-        Parameters
-        ----------
-        request : OrderRequest
-            The order request to submit.
-
-        Returns
-        -------
-        object
-            The order receipt or result.
+        It had **zero callers** — not in ``run()`` (which routes through
+        ``engine.submit``), not in any package, not in any test — so removing it
+        is a deletion, not a migration. The one door is
+        :class:`~tradex_domain.protocols.OrderCommandPort`.
         """
-        if self._fill_source is not None and hasattr(self._fill_source, "submit"):
-            return self._fill_source.submit(request)  # type: ignore[attr-defined]
-        return request
+        raise NotImplementedError(
+            "BacktestEngine.submit was removed: it dispatched straight to the "
+            "fill source, bypassing risk, idempotency, the kill switch and the "
+            "cash floor. Route orders through ExecutionEngine.submit "
+            "(tradex_domain.protocols.OrderCommandPort), which run() already "
+            "does for both the next_open queue and the recording-only bridge."
+        )
 
     def run(self, strategy: Strategy, data: list[Candle | Quote | Fill]) -> BacktestResult:
         """Run a backtest.
@@ -575,7 +578,7 @@ class BacktestEngine:
         def _register_bracket(f: Any, stop: float, target: float) -> None:
             stop_p = Price(value=Decimal(str(stop)))
             target_p = Price(value=Decimal(str(target)))
-            if not _brackets(f.side, f.price, stop_p, target_p):
+            if not is_valid_bracket(f.side, f.price, stop_p, target_p):
                 return
             active_brackets[f.instrument.instrument_id] = _OpenBracket(
                 instrument=f.instrument,
