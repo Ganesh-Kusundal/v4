@@ -70,9 +70,9 @@ DEFAULT_SCANNER_CALL_INTERVAL = 0.25
 #: Provider classes whose reads are local and must not be paced.  Keyed by
 #: class name so an import cycle (market_data -> brokers -> ...) cannot be
 #: introduced here, and so a test fake is paced like the real thing it stands
-#: in for unless it is one of these two.
+#: in for unless it is one of these.
 _LOCAL_MARKET_PROVIDERS = frozenset(
-    {"ParquetMarketProvider", "BulkPrefetchMarketProvider"}
+    {"MarketWindowLoader", "ParquetMarketProvider", "BulkPrefetchMarketProvider"}
 )
 
 
@@ -85,9 +85,9 @@ def scanner_call_interval(market: Any) -> float:
     * ``runtime/startup.py`` — ``scanner_market = broker`` in paper/live.
       A 500-symbol scan is 500 calls into the same quota the live feed is
       drawing from, so this is the case the limit exists for.
-    * ``runtime/startup.py`` — ``ParquetMarketProvider`` in backtest/replay.
-      Local disk. Imposing a crawl on a local read would only add minutes to
-      a scan and gain nothing, so the gate is off.
+    * ``runtime/startup.py`` — ``MarketWindowLoader`` wrapping ``ParquetMarketProvider``
+      in backtest/replay. Local disk. Imposing a crawl on a local read would
+      only add minutes to a scan and gain nothing, so the gate is off.
     * ``interfaces/routes/chart.py`` — ``BulkPrefetchMarketProvider``. One
       bulk read, then in-memory slices. Nothing is paced.
 

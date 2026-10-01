@@ -138,6 +138,7 @@ def _load_datalake_tail(instrument: str, timeframe: str, now: int) -> list[dict[
         from tradex_domain.instruments import Equity
         from tradex_market_data.market_provider import ParquetMarketProvider
         from tradex_market_data.paths import DATALAKE_ROOT
+        from tradex_market_data.window_loader import MarketWindowLoader
 
         exchange, symbol = (
             instrument.split(":", 1) if ":" in instrument else ("NSE", instrument)
@@ -145,9 +146,11 @@ def _load_datalake_tail(instrument: str, timeframe: str, now: int) -> list[dict[
         tf = Timeframe(timeframe)
         end = datetime.fromtimestamp(now, tz=IST_ZONE) + timedelta(seconds=interval_seconds(tf))
         parsed = Equity.of(exchange, symbol)
-        series = ParquetMarketProvider(base_path=DATALAKE_ROOT).history(
-            parsed, tf, end - timedelta(days=30), end
+        # Use MarketWindowLoader as the canonical data loading entry point.
+        loader = MarketWindowLoader(
+            provider=ParquetMarketProvider(base_path=DATALAKE_ROOT)
         )
+        series = loader.history(parsed, tf, end - timedelta(days=30), end)
         candles = series.candles[-_TAIL_LIMIT:]
         return [
             {

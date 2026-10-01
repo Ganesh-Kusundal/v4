@@ -4,10 +4,16 @@ Implements the market-provider surface used by ``ScannerEngine`` and
 backtest tooling (``history(instrument, timeframe, start, end)``) against
 the local ``data/ohlcv`` store instead of broker APIs, so scanning and
 backtesting run offline over the full Nifty universe.
+
+.. deprecated::
+    Use :class:`MarketWindowLoader` from ``tradex_market_data.window_loader``
+    instead. This class is kept for backward compatibility and for
+    ``BulkPrefetchMarketProvider`` (scanner-specific batch reader).
 """
 
 from __future__ import annotations
 
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +35,10 @@ class ParquetMarketProvider:
     The datalake stores 1-minute bars; requesting another timeframe
     resamples via ``HistoricalSeries.resample()``. Missing symbols return an
     empty series (matching ``ScannerEngine._history``'s degraded contract).
+
+    .. deprecated::
+        Use :class:`MarketWindowLoader` instead. This class is kept for
+        backward compatibility and internal use.
     """
 
     def __init__(
@@ -45,6 +55,11 @@ class ParquetMarketProvider:
         # quarantine on the provider's read path reaches the session registry
         # that ``GET /metrics`` serves (AC-15). Ignored when a store is passed
         # — that store already has whatever registry it was built with.
+        warnings.warn(
+            "ParquetMarketProvider is deprecated. Use MarketWindowLoader instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._store = store or ParquetStorage(
             base_path or datalake_root(), metrics=metrics
         )

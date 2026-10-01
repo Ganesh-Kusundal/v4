@@ -192,7 +192,7 @@ class TestBootWiresDiscovery:
     def test_backtest_mode_scanner_uses_datalake_provider(self, monkeypatch) -> None:
         """In backtest/replay modes the scanner market is the parquet datalake
         provider, not the broker — offline scanning over the full universe."""
-        from tradex_market_data.market_provider import ParquetMarketProvider
+        from tradex_market_data.window_loader import MarketWindowLoader
 
         for mode in ("backtest", "replay"):
             session = boot(
@@ -201,7 +201,8 @@ class TestBootWiresDiscovery:
             )
             try:
                 engine = session._scanner_engine  # noqa: SLF001 – wiring probe
-                assert isinstance(engine._market, ParquetMarketProvider)  # noqa: SLF001
+                # MarketWindowLoader is now the canonical data loading entry point
+                assert isinstance(engine._market, MarketWindowLoader)  # noqa: SLF001
             finally:
                 session.stop()
 

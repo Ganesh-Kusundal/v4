@@ -146,6 +146,46 @@ class MarketWindowLoader:
             source=MarketSource.NONE,
         )
 
+    def history(
+        self,
+        instrument: Any,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+        *,
+        allow_broker: bool = False,
+    ) -> HistoricalSeries:
+        """Load history and return as HistoricalSeries (backward-compatible).
+
+        This method provides backward compatibility for callers that need
+        a HistoricalSeries instead of a MarketWindow. New code should use
+        :meth:`load` to get provenance tracking.
+
+        Parameters
+        ----------
+        instrument : Instrument
+            Instrument to load.
+        timeframe : Timeframe
+            Requested bar timeframe.
+        start, end : datetime
+            Inclusive timestamp range.
+        allow_broker : bool
+            Whether to fall back to broker if datalake is empty.
+
+        Returns
+        -------
+        HistoricalSeries
+            Candles for the requested window; empty series when no data.
+        """
+        window = self.load(instrument, timeframe, start, end, allow_broker=allow_broker)
+        return HistoricalSeries(
+            instrument=window.instrument,
+            timeframe=window.timeframe,
+            candles=list(window.candles),
+            start=window.start,
+            end=window.end,
+        )
+
     def load_replay_m1(
         self,
         instrument: Any,
@@ -235,3 +275,8 @@ __all__ = [
     "MarketWindowLoader",
     "series_from_window",
 ]
+
+# MarketWindowLoader methods:
+# - load(instrument, timeframe, start, end, *, allow_broker=False) -> MarketWindow
+# - history(instrument, timeframe, start, end, *, allow_broker=False) -> HistoricalSeries  # noqa: E501
+# - load_replay_m1(instrument, *, minutes=390, start_time=None, now=None) -> MarketWindow

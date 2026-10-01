@@ -940,10 +940,14 @@ def _boot_tail(
     if wire_strategies:
         if cfg.mode in ("backtest", "replay"):
             from tradex_market_data.market_provider import ParquetMarketProvider
+            from tradex_market_data.window_loader import MarketWindowLoader
             # AC-15: the scanner's parquet store gets the session registry, so a
             # corrupt partition quarantined while the scanner reads the local
             # lake is counted on the very registry ``GET /metrics`` renders.
-            scanner_market: Any = ParquetMarketProvider(metrics=metrics)
+            # Use MarketWindowLoader as the canonical data loading entry point.
+            scanner_market: Any = MarketWindowLoader(
+                provider=ParquetMarketProvider(metrics=metrics)
+            )
             # Local disk: a scan here costs no venue quota, so pacing it
             # would only add wall clock to a backtest.
             scanner_call_interval = 0.0

@@ -1098,15 +1098,19 @@ async def ws_stream(
                         from tradex_market_data.market_provider import ParquetMarketProvider
                         from tradex_market_data.parquet_storage import ParquetStorage
                         from tradex_market_data.paths import DATALAKE_ROOT
+                        from tradex_market_data.window_loader import MarketWindowLoader
 
                         store = ParquetStorage(
                             DATALAKE_ROOT, metrics=getattr(session, "metrics", None)
                         )
-                        provider = ParquetMarketProvider(store=store)
+                        # Use MarketWindowLoader as the canonical data loading entry point.
+                        loader = MarketWindowLoader(
+                            provider=ParquetMarketProvider(store=store)
+                        )
                         sym = getattr(inst, "symbol", None) or str(iid).split(":")[-1]
                         rng = store.date_range(sym)
                         if rng and rng[1]:
-                            series = provider.history(
+                            series = loader.history(
                                 inst,
                                 Timeframe.M1,
                                 rng[1] - timedelta(days=2),

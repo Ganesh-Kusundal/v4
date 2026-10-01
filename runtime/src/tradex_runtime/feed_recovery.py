@@ -403,12 +403,14 @@ class ParquetHistoryProvider:
         from tradex_market_data.market_provider import ParquetMarketProvider
         from tradex_market_data.parquet_storage import ParquetStorage
         from tradex_market_data.paths import DATALAKE_ROOT
+        from tradex_market_data.window_loader import MarketWindowLoader
 
         store = self._store if self._store is not None else ParquetStorage(
             DATALAKE_ROOT, metrics=self._metrics
         )
-        provider = ParquetMarketProvider(store=store)
-        series = provider.history(instrument, Timeframe(str(timeframe)), start, end)
+        # Use MarketWindowLoader as the canonical data loading entry point.
+        loader = MarketWindowLoader(provider=ParquetMarketProvider(store=store))
+        series = loader.history(instrument, Timeframe(str(timeframe)), start, end)
         return tuple(getattr(series, "candles", ()) or ())
 
 
