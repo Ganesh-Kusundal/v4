@@ -1,0 +1,163 @@
+{
+  "name": "tradex-predeploy-cleanup",
+  "description": "Multi-agent cleanup of TradeX v4 for deployment readiness",
+  "version": "1.0.0",
+  "phases": [
+    {
+      "name": "phase-1-dead-code",
+      "description": "Eliminate all provably dead code",
+      "duration_days": 3,
+      "streams": [
+        {
+          "id": "stream-1-dead-code-hunter",
+          "agent_type": "general-purpose",
+          "prompt_file": ".claude/agents/dead-code-hunter.md",
+          "tasks": [
+            "Delete poc/, apps/, graphify-out/ directories",
+            "Delete one-time migration scripts (backfill_2025.py, backtest_datalake.py, sync_today.py, topup_gaps.py)",
+            "Delete DurableTokenManager and legacy token compatibility",
+            "Delete legacy rate limit re-exports",
+            "Migrate ParquetBacktestLoader callers and delete it"
+          ],
+          "acceptance_criteria": [
+            "25,000+ lines deleted",
+            "All tests pass",
+            "No dead imports remain",
+            "Lint gate passes"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "phase-2-consolidation",
+      "description": "Consolidate duplicate implementations",
+      "duration_days": 7,
+      "parallel_streams": [
+        {
+          "id": "stream-2-data-layer",
+          "agent_type": "general-purpose",
+          "prompt_file": ".claude/agents/data-layer-consolidator.md",
+          "tasks": [
+            "Merge ParquetMarketProvider into MarketWindowLoader",
+            "Delete ParquetMarketProvider",
+            "Delete simple_sync.py",
+            "Update all imports"
+          ],
+          "acceptance_criteria": [
+            "Single MarketWindowLoader is only data entry point",
+            "All chart history tests pass",
+            "All backtest tests pass",
+            "No references to deleted modules"
+          ]
+        },
+        {
+          "id": "stream-3-feed-layer",
+          "agent_type": "general-purpose",
+          "prompt_file": ".claude/agents/feed-layer-consolidator.md",
+          "tasks": [
+            "Merge FeedSupervisor into MarketFeed",
+            "Merge FeedMonitor into MarketFeed",
+            "Merge FeedRecoveryCoordinator into MarketFeed",
+            "Delete all three modules",
+            "Update all imports"
+          ],
+          "acceptance_criteria": [
+            "Single MarketFeed owns all feed lifecycle",
+            "Feed state machine works",
+            "Feed health monitoring works",
+            "Feed recovery works",
+            "All streaming tests pass"
+          ]
+        },
+        {
+          "id": "stream-4-order-layer",
+          "agent_type": "general-purpose",
+          "prompt_file": ".claude/agents/order-layer-consolidator.md",
+          "tasks": [
+            "Implement order projection from events",
+            "Migrate callers to event projection",
+            "Delete SQLiteOrderStore",
+            "Keep SQLiteIdempotencyGuard"
+          ],
+          "acceptance_criteria": [
+            "Single SQLiteEventStore is source of truth",
+            "Order projection is efficient",
+            "All order tests pass",
+            "All order API endpoints work"
+          ]
+        },
+        {
+          "id": "stream-5-test-coverage",
+          "agent_type": "general-purpose",
+          "prompt_file": ".claude/agents/test-coverage-engineer.md",
+          "tasks": [
+            "Add broker fallback tests",
+            "Add feed recovery integration tests",
+            "Add event store tamper detection tests",
+            "Add end-to-end backtest test",
+            "Add end-to-end live order test"
+          ],
+          "acceptance_criteria": [
+            "All new tests pass",
+            "Test coverage > 80% for critical paths",
+            "Integration tests cover end-to-end flows",
+            "No silent failures"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "phase-3-integration",
+      "description": "Integrate all streams and verify deployment readiness",
+      "duration_days": 3,
+      "tasks": [
+        "Integrate all stream outputs",
+        "Resolve any merge conflicts",
+        "Run full test suite",
+        "Fix any test failures",
+        "Run lint and complexity gates",
+        "Final deployment readiness check"
+      ],
+      "acceptance_criteria": [
+        "All tests pass (0 failures)",
+        "Lint gate passes (0 errors)",
+        "Complexity gate passes",
+        "No dead imports remain",
+        "System is deployable to staging"
+      ]
+    }
+  ],
+  "verification_gates": [
+    {
+      "name": "gate-1-after-dead-code",
+      "after_phase": "phase-1-dead-code",
+      "checks": [
+        "pytest at root passes",
+        "ruff check passes",
+        "grep for deleted modules returns nothing",
+        "git diff shows 25,000+ lines deleted"
+      ]
+    },
+    {
+      "name": "gate-2-after-consolidation",
+      "after_phase": "phase-2-consolidation",
+      "checks": [
+        "pytest at root passes",
+        "ruff check passes",
+        "All acceptance criteria met for each stream",
+        "No references to deleted modules remain"
+      ]
+    },
+    {
+      "name": "gate-3-final",
+      "after_phase": "phase-3-integration",
+      "checks": [
+        "Full test suite passes",
+        "Lint gate passes",
+        "Complexity gate passes",
+        "Test coverage > 80%",
+        "System builds and deploys to staging"
+      ]
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 """Token lifecycle management with persistence and refresh scheduling.
 
 Provides a ``TokenLifecyclePort`` protocol for broker-specific token operations
-and a ``DurableTokenManager`` that handles persistence, expiry checks, and
+and a ``PortTokenManager`` that handles persistence, expiry checks, and
 automatic refresh.  The manager also supports a generation-aware mint mode
 (ported from v3) where an injected ``MintStrategy`` produces tokens with
 optional expiry and refresh-token rotation.
@@ -345,7 +345,7 @@ class TokenLifecyclePort(Protocol):
 class TokenMintResult:
     """Result of a real provider mint (TOTP generate or OAuth refresh).
 
-    ``expires_at`` uses the same clock as the ``DurableTokenManager``
+    ``expires_at`` uses the same clock as the ``PortTokenManager``
     (wall-clock seconds by default) and may be ``None`` when the provider
     gives no expiry — the token is then trusted until a 401.
     ``refresh_token`` is persisted for providers that rotate it (Upstox).
@@ -865,60 +865,6 @@ class MintTokenManager:
         return state
 
 
-# ---------------------------------------------------------------------------
-# DurableTokenManager — backward-compatible dual-mode facade
-# ---------------------------------------------------------------------------
-
-
-class DurableTokenManager(PortTokenManager, MintTokenManager):
-    """Dual-mode token manager kept for backward compatibility.
-
-    Combines both modes in one object:
-
-    **Port mode (v4)** — pass a ``TokenLifecyclePort`` implementation.
-    ``get_token()`` / ``force_refresh()`` delegate to the port with caching
-    + persistence (see ``PortTokenManager``).
-
-    **Mint mode (v3 compatibility)** — pass a ``mint`` callable instead of
-    a port.  ``ensure_token()`` / ``current()`` provide generation-aware
-    minting (see ``MintTokenManager``).
-
-    .. deprecated::
-        New code should use ``PortTokenManager`` or ``MintTokenManager``
-        directly. This class will be removed in a future release.
-    """
-
-    def __init__(
-        self,
-        port: TokenLifecyclePort | None = None,
-        state_path: Path | str | None = None,
-        *,
-        mint: MintStrategy | None = None,
-        totp: Any | None = None,
-        refresh_buffer_seconds: float = 0.0,
-        clock: Callable[[], float] = time.time,
-        cooldown: Any | None = None,
-    ) -> None:
-        import warnings
-
-        warnings.warn(
-            "DurableTokenManager is deprecated; use PortTokenManager or "
-            "MintTokenManager directly.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        PortTokenManager.__init__(self, port, state_path)
-        MintTokenManager.__init__(
-            self,
-            state_path,
-            mint=mint,
-            totp=totp,
-            refresh_buffer_seconds=refresh_buffer_seconds,
-            clock=clock,
-            cooldown=cooldown,
-        )
-
-
 __all__ = [
     "MintStrategy",
     "MintTokenManager",
@@ -927,7 +873,6 @@ __all__ = [
     "TokenLifecyclePort",
     "TokenMintResult",
     "TokenRefreshScheduler",
-    "DurableTokenManager",  # deprecated — kept for backward compatibility
     "InsecureCredentialPermissions",
     "assert_secret_file_mode",
     "assert_runtime_secret_permissions",

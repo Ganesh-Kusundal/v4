@@ -41,7 +41,7 @@ def _callee_name(func: ast.expr) -> str:
 
 
 #: Constructors that take a datalake root as their first argument.
-_LAKE_CONSTRUCTORS = ("ParquetStorage", "ParquetBacktestLoader")
+_LAKE_CONSTRUCTORS = ("ParquetStorage",)
 
 
 def _second_root_definitions(tree: ast.AST) -> set[str]:

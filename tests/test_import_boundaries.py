@@ -81,16 +81,6 @@ _ALLOWED: dict[str, set[str]] = {
         "tradex_domain",
         "tradex_replay",
         "tradex_runtime",
-        # ``backtest_loader`` calls the AC-4 point-in-time guards
-        # (``assert_historical_universe``) and reads the universe manifest, so the
-        # edge points at a package that exists to be called. It is acyclic and it
-        # inverts nothing: ``tradex_research`` imports no other workspace package
-        # at all, and this list already admits two layers above market_data
-        # (``tradex_replay``, ``tradex_runtime``), so there is no ordering being
-        # honoured here that research breaks. The alternative — reimplementing
-        # the guard inside market_data — would be a second spelling of the
-        # survivorship check, which is the thing the guard exists to prevent.
-        "tradex_research",
     },
     "interfaces": {
         "tradex_domain",
@@ -705,8 +695,8 @@ _MODULE_TO_PKG = {name: name[len("tradex_"):] for name in _INTERNAL}
 #:     ``tradex_market_data.universe`` to ``tradex_domain.universe``, so
 #:     ``tradex_strategy`` no longer imports the datalake package for them.
 #:     ``tradex_market_data.universe`` survives only as a re-export shim.
-#:   * ``market_data -> replay -> market_data`` — ``backtest_loader`` no longer
-#:     imports the replay driver; the run-with-loader helper is replay-side.
+#:   * ``market_data -> replay -> market_data`` — ``backtest_loader`` was
+#:     deleted; the run-with-loader helper is replay-side.
 #:
 #: ``market_data -> runtime -> strategy -> market_data`` was already gone.
 #:

@@ -14,18 +14,6 @@ from tradex_market_data.simple_sync import (
 from tradex_market_data.symbol_resolve import ResolveResult, resolve_universe_symbols
 from tradex_market_data.universe import available_universes, load_universe
 
-# ParquetBacktestLoader imports replay/strategy — keep it lazy so scanner
-# discovery can load universes without a circular import.
-
-
-def __getattr__(name: str):
-    if name == "ParquetBacktestLoader":
-        from tradex_market_data.backtest_loader import ParquetBacktestLoader
-
-        return ParquetBacktestLoader
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __all__ = [
     "DataCatalog",
     "CorporateAction",
@@ -41,5 +29,4 @@ __all__ = [
     "load_universe",
     "available_universes",
     "ParquetMarketProvider",
-    "ParquetBacktestLoader",
 ]

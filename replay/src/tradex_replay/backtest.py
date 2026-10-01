@@ -1199,8 +1199,7 @@ def run_with_loader(
     """Load datalake candles and run *strategy* through ``BacktestEngine``.
 
     One-call convenience over ``loader.load(...)`` + ``BacktestEngine.run``,
-    for a datalake-backed loader such as
-    :class:`tradex_market_data.backtest_loader.ParquetBacktestLoader`.
+    for any datalake-backed loader exposing ``load(**kwargs) -> list[Candle]``.
 
     Lives here, not on the loader, so ``market_data`` need not import
     ``replay``: a data-loading package should not know about an execution

@@ -5,9 +5,7 @@ carries ``rate_per_second``, ``capacity``, ``min_interval``,
 ``cooldown_seconds``, optional ``wait_cooldown``, and optional
 ``extra_windows`` — the shape ``limiter_from_table`` consumes.
 
-The per-broker ``rate_table`` modules that used to re-export these tables
-under their legacy names (``DHAN_RATE_LIMITS`` etc.) were removed; the
-canonical names below are the single home.
+The canonical names below are the single home for all broker rate tables.
 """
 
 from __future__ import annotations

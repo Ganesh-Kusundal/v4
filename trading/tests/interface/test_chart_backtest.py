@@ -1,9 +1,8 @@
 """Strategy/backtest/scanner endpoint tests — engine parity and validation.
 
 The backtest endpoint reads its candles from the same single source the
-canonical datalake backtest path does (``scripts/backtest_datalake.py``:
-``ParquetMarketProvider`` and its resample), and this file pins two things
-about what it then does with them.
+canonical datalake backtest path does (``ParquetMarketProvider`` and its
+resample), and this file pins two things about what it then does with them.
 
 **Parity is against a *correctly built* engine, not a bare one.** The route
 used to construct ``BacktestEngine(initial_capital=...)`` and nothing else —

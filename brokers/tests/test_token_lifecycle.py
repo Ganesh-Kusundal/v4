@@ -1,4 +1,4 @@
-"""Tests for DurableTokenManager — deadlock regression."""
+"""Tests for PortTokenManager — deadlock regression."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class _FakePort:
         return self._expired
 
 
-class TestDurableTokenManagerDeadlock:
+class TestPortTokenManagerDeadlock:
     """get_token() with state_path must not deadlock."""
 
     def test_get_token_with_state_path_no_deadlock(self) -> None:

@@ -60,20 +60,12 @@ from tradex_shared.rate_limiting import (
 )
 
 if TYPE_CHECKING:
-    # The per-provider rate tables are re-exported lazily by the module-level
-    # ``__getattr__`` below. A PEP 562 ``__getattr__`` is typed ``-> object``,
-    # so mypy would otherwise see each table as a bare ``object``. Importing
-    # them here — for the type checker only — gives it their real mapping
-    # types. At runtime this block never executes and the lazy ``__getattr__``
-    # resolves the names.
+    # The per-provider rate tables are imported here for type checking only.
+    # At runtime, callers should import them directly from rate_table.
     from tradex_brokers.common.rate_table import (
-        DHAN_RATE_TABLE as DHAN_RATE_LIMITS,
-    )
-    from tradex_brokers.common.rate_table import (
-        PAPER_RATE_TABLE as PAPER_RATE_LIMITS,
-    )
-    from tradex_brokers.common.rate_table import (
-        UPSTOX_RATE_TABLE as UPSTOX_RATE_LIMITS,
+        DHAN_RATE_TABLE,
+        PAPER_RATE_TABLE,
+        UPSTOX_RATE_TABLE,
     )
 
 log = logging.getLogger(__name__)
@@ -101,22 +93,6 @@ def _load_rate_tables() -> dict[str, Mapping[str, object]]:
         "paper": PAPER_RATE_TABLE,
     }
 
-
-def __getattr__(name: str) -> object:
-    """Backward-compat: re-export broker rate tables under their legacy names."""
-    if name == "DHAN_RATE_LIMITS":
-        from tradex_brokers.common.rate_table import DHAN_RATE_TABLE
-
-        return DHAN_RATE_TABLE
-    if name == "UPSTOX_RATE_LIMITS":
-        from tradex_brokers.common.rate_table import UPSTOX_RATE_TABLE
-
-        return UPSTOX_RATE_TABLE
-    if name == "PAPER_RATE_LIMITS":
-        from tradex_brokers.common.rate_table import PAPER_RATE_TABLE
-
-        return PAPER_RATE_TABLE
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 _RATE_TABLES_BY_PROVIDER: dict[str, Mapping[str, object]] | None = None
 
@@ -499,7 +475,7 @@ class RetryConfig:
 def _normalize_transport_result(result: Any) -> Any:
     """Normalize an injected-fetch result to the downstream dict contract.
 
-    Mirrors the legacy ``FetchResiliencePipeline.send`` semantics so the
+    Mirrors the ``FetchResiliencePipeline.send`` semantics so the
     fetch-injection seam produces identical shapes: a ``(status, body)``
     tuple carries ``_http_status`` (merged into dict bodies), plain dicts
     pass through, and anything else is wrapped in ``{"data": ...}``.
@@ -528,7 +504,7 @@ class RetryableHttpClient:
         Optional injected fetch seam (used by tests / replay backends).
         When provided, ``send()`` delegates to ``transport(method, url,
         **kwargs)`` instead of ``urllib`` and normalises the result exactly
-        like the legacy ``FetchResiliencePipeline``: a ``(status, body)``
+        like ``FetchResiliencePipeline``: a ``(status, body)``
         tuple carries ``_http_status`` (merged into dict bodies), plain
         dicts pass through, and anything else is wrapped in
         ``{"data": ...}``.  This keeps network calls out of tests while
@@ -824,9 +800,7 @@ __all__ = [
     "CircuitBreaker",
     "CircuitBreakerConfig",
     "CircuitState",
-    "DHAN_RATE_LIMITS",
     "MultiBucketRateLimiter",
-    "PAPER_RATE_LIMITS",
     "RateLimitConfig",
     "ResiliencePipeline",
     "RetryConfig",
@@ -834,7 +808,6 @@ __all__ = [
     "RetryableHttpClient",
     "RollingWindowCounter",
     "TokenBucketRateLimiter",
-    "UPSTOX_RATE_LIMITS",
     "bucket_for_path",
     "limiter_for_provider",
     "limiter_from_table",

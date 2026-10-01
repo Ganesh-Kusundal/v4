@@ -1,7 +1,7 @@
 """Ported from v3 ``test_provider_api_clients.py`` — ProviderHttpClient basics.
 
 v4 ``ProviderHttpClient`` composes ``HttpTransport`` + a ``send``-pipeline
-+ optional ``DurableTokenManager``.  The constructor is completely different
++ optional ``PortTokenManager``.  The constructor is completely different
 from v3.  These tests exercise the composition pattern and auth injection.
 """
 

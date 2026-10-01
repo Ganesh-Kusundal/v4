@@ -1,7 +1,7 @@
 """Principal-engineer regression contracts — ported from v3.
 
 Tests behavior that ordinary happy-path adapter tests can miss:
-durable-token persistence across restarts, force-refresh, and
+port-token persistence across restarts, force-refresh, and
 wire registry provider-key round-trip.
 
 Skipped from v3 (deferred to later waves):
@@ -20,7 +20,7 @@ from tradex_domain import AuthenticationError, InstrumentId
 from tradex_domain.wire import InstrumentRegistry
 
 # ---------------------------------------------------------------------------
-# DurableTokenManager — persistence + refresh flow
+# PortTokenManager — persistence + refresh flow
 # ---------------------------------------------------------------------------
 
 
@@ -44,7 +44,7 @@ class _MockPort:
         return self._expired
 
 
-def test_durable_token_manager_refreshes_and_persists(tmp_path: Path) -> None:
+def test_port_token_manager_refreshes_and_persists(tmp_path: Path) -> None:
     path = tmp_path / "token.json"
     port = _MockPort(["gen-1", "gen-2"])
     manager = PortTokenManager(port, state_path=path)
@@ -55,7 +55,7 @@ def test_durable_token_manager_refreshes_and_persists(tmp_path: Path) -> None:
     assert json.loads(path.read_text())["access_token"] == "gen-1"
 
 
-def test_durable_token_manager_survives_corrupt_state(tmp_path: Path) -> None:
+def test_port_token_manager_survives_corrupt_state(tmp_path: Path) -> None:
     path = tmp_path / "token.json"
     path.write_text("not-json")
 
@@ -66,7 +66,7 @@ def test_durable_token_manager_survives_corrupt_state(tmp_path: Path) -> None:
     assert manager.get_token() == "gen-1"
 
 
-def test_durable_token_manager_loads_persisted_state_on_construction(
+def test_port_token_manager_loads_persisted_state_on_construction(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "token.json"
@@ -86,7 +86,7 @@ def test_durable_token_manager_loads_persisted_state_on_construction(
     assert manager2.get_token() == "token-A"
 
 
-def test_durable_token_manager_force_refresh(tmp_path: Path) -> None:
+def test_port_token_manager_force_refresh(tmp_path: Path) -> None:
     path = tmp_path / "token.json"
     port = _MockPort(["gen-1", "gen-2"])
     manager = PortTokenManager(port, state_path=path)
@@ -96,7 +96,7 @@ def test_durable_token_manager_force_refresh(tmp_path: Path) -> None:
     assert manager.force_refresh() == "gen-2"
 
 
-def test_durable_token_manager_refresh_failure_raises_authentication_error(
+def test_port_token_manager_refresh_failure_raises_authentication_error(
     tmp_path: Path,
 ) -> None:
     class _FailingPort:

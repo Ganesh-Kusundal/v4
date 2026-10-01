@@ -876,9 +876,7 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 ├── trading/
 │   ├── scripts/
 │   │   ├── audit_symbol_resolution.py
-│   │   ├── backfill_2025.py
 │   │   ├── backfill_parquet.py
-│   │   ├── backtest_datalake.py
 │   │   ├── clean_datalake.py
 │   │   ├── datalake_stats.py
 │   │   ├── e2e_smoke.py
@@ -887,9 +885,7 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │   ├── reconcile_bars.py
 │   │   ├── rename_symbol.py
 │   │   ├── repair_gaps.py
-│   │   ├── seed_e2e_datalake.py
-│   │   ├── sync_today.py
-│   │   └── topup_gaps.py
+│   │   └── seed_e2e_datalake.py
 │   ├── tests/
 │   │   ├── analytics/
 │   │   │   ├── goldens/
@@ -1362,8 +1358,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │   │   ├── __init__.py
 │   │   │   ├── test_audit_symbol_resolution.py
 │   │   │   ├── test_backfill_parquet.py
-│   │   │   ├── test_backtest_datalake.py
-│   │   │   ├── test_datalake_root_seam.py
 │   │   │   ├── test_datalake_stats.py
 │   │   │   └── test_reconcile_bars.py
 │   │   ├── sdk/

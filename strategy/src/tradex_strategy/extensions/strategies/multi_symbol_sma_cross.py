@@ -2,12 +2,8 @@
 
 Ships with the framework as the third reference strategy: a single instance
 trades EVERY instrument it observes, tracking per-instrument close history.
-This is the pattern to pair with datalake multi-symbol backtests:
-
-    from tradex_market_data.backtest_loader import ParquetBacktestLoader
-    loader = ParquetBacktestLoader()
-    result = loader.run(MultiSymbolSmaCross(), universe="nifty100",
-                        timeframe=Timeframe.D1, max_workers=4)
+This is the pattern to pair with datalake multi-symbol backtests via
+``POST /api/charts/backtest`` (multi-symbol mode).
 
 Signals carry the originating instrument, so ``BacktestEngine`` matches each
 signal to that instrument's candles (``candles_by_id``) in multi-symbol runs.

@@ -1,14 +1,14 @@
 """Every datalake consumer must resolve to the same anchored root.
 
-Phase 4B anchored the lake through ``tradex_market_data.paths``, but four
+Phase 4B anchored the lake through ``tradex_market_data.paths``, but three
 constructor defaults kept their own literals: ``"data/"`` in
-``backtest_loader.py`` and twice in ``market_provider.py``, and ``"data/lake"``
-in ``catalog.py``. A default argument is a *relative* path, so it resolved
-against the process cwd — exactly the 2026-09-02 incident, where ``tradex
-serve`` launched from ``trading/`` opened a nonexistent ``trading/data/`` and
-the chart API served ``source: "none"`` with zero bars.
+``market_provider.py`` (twice), and ``"data/lake"`` in ``catalog.py``. A
+default argument is a *relative* path, so it resolved against the process cwd
+— exactly the 2026-09-02 incident, where ``tradex serve`` launched from
+``trading/`` opened a nonexistent ``trading/data/`` and the chart API served
+``source: "none"`` with zero bars.
 
-The contract under test, for all four call sites:
+The contract under test, for all three call sites:
 
 - omitted path  -> the repo-anchored root, identical across call sites
 - ``os.chdir``  -> does not move the resolved root (the actual bug)
@@ -23,7 +23,6 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from tradex_market_data.backtest_loader import ParquetBacktestLoader
 from tradex_market_data.catalog import DataCatalog
 from tradex_market_data.market_provider import (
     BulkPrefetchMarketProvider,
@@ -80,13 +79,12 @@ def _catalog_default_root() -> str:
 
 class TestAnchoredDefaults:
     def test_every_call_site_resolves_to_the_same_absolute_path(self):
-        """All four defaults agree with each other and with the seam.
+        """All three defaults agree with each other and with the seam.
 
         ``catalog.py`` used ``"data/lake"`` while the rest used ``"data/"``,
         so the two could never name the same directory even after anchoring.
         """
         roots = {
-            "backtest_loader": Path(ParquetBacktestLoader().provider.store.base_path),
             "market_provider": Path(ParquetMarketProvider().store.base_path),
             "bulk_prefetch_provider": Path(_bulk_default_root()),
             "catalog": Path(_catalog_default_root()),
@@ -100,10 +98,7 @@ class TestAnchoredDefaults:
 
     def test_resolved_paths_are_absolute(self):
         """A relative default is what made the root follow the process cwd."""
-        roots = (
-            ParquetMarketProvider().store.base_path,
-            ParquetBacktestLoader().provider.store.base_path,
-        )
+        roots = (ParquetMarketProvider().store.base_path,)
         for base in roots:
             assert Path(base).is_absolute(), f"{base!r} is still cwd-relative"
 
@@ -115,9 +110,6 @@ class TestAnchoredDefaults:
         """
         before = {
             "market_provider": Path(ParquetMarketProvider().store.base_path),
-            "backtest_loader": Path(
-                ParquetBacktestLoader().provider.store.base_path
-            ),
         }
 
         monkeypatch.chdir(tmp_path)
@@ -126,15 +118,11 @@ class TestAnchoredDefaults:
 
         after = {
             "market_provider": Path(ParquetMarketProvider().store.base_path),
-            "backtest_loader": Path(
-                ParquetBacktestLoader().provider.store.base_path
-            ),
         }
         assert before == after, (
             f"datalake root moved with the process cwd: {before} -> {after}"
         )
         assert after["market_provider"] == Path(datalake_root())
-        assert after["backtest_loader"] == Path(datalake_root())
 
     def test_chdir_leaves_the_ohlcv_partition_root_anchored(
         self, monkeypatch, tmp_path
@@ -169,11 +157,6 @@ class TestExplicitPathsStillHonoured:
         # only handle it keeps, so assert on the resolved base_path.
         assert Path(provider._store.base_path) == expected
 
-    def test_backtest_loader_honours_explicit_base_path(self, tmp_path):
-        target = tmp_path / "explicit" / "lake"
-        loader = ParquetBacktestLoader(base_path=str(target))
-        assert Path(loader.provider.store.base_path) == target
-
     def test_catalog_honours_explicit_root(self, tmp_path):
         target = tmp_path / "catalog-root"
         assert Path(DataCatalog(target)._root) == target
@@ -201,15 +184,12 @@ class TestExplicitPathsStillHonoured:
         store = ParquetStorage(tmp_path / "given")
         provider = ParquetMarketProvider(store=store, base_path="data/")
         assert provider.store is store
-        loader = ParquetBacktestLoader(store=store, base_path="data/")
-        assert loader.provider.store is store
 
 
 class TestNoRetiredLiteralsRemain:
     """Guard: the literals must not creep back into these modules."""
 
     _MODULES = (
-        "tradex_market_data.backtest_loader",
         "tradex_market_data.catalog",
         "tradex_market_data.market_provider",
     )

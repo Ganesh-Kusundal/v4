@@ -573,7 +573,7 @@ def cmd_sync(args: Any) -> int:
     else:
         name = "dhan" if args.broker in ("both", "dhan") else args.broker
         if name != "dhan":
-            print("error: sync is Dhan-only (use trading/scripts/topup_gaps.py for Upstox fill)")
+            print("error: sync is Dhan-only (use trading/scripts/fill_gaps.py for Upstox fill)")
             return 1
         try:
             broker = build_broker_from_env("dhan")

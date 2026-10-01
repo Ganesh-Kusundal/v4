@@ -5,7 +5,7 @@
 2026-09-26 so ``tradex_strategy`` no longer has to import ``tradex_market_data``
 for them, which broke the ``market_data -> replay -> strategy -> market_data``
 import ring. This module is kept so the existing importers in
-``market_data/__init__.py``, ``backtest_loader.py``, ``interfaces/cli.py``,
+``market_data/__init__.py``, ``interfaces/cli.py``,
 ``interfaces/routes/chart.py`` and the trading scripts keep working unchanged.
 New code should import ``tradex_domain.universe`` directly.
 

@@ -1,7 +1,7 @@
-"""Ported from v3 ``test_auth_cache.py`` — ReadCache + DurableTokenManager.
+"""Ported from v3 ``test_auth_cache.py`` — ReadCache + PortTokenManager.
 
 v4 ReadCache API is compatible with v3 (``get``/``set``/``expired_count``).
-v4 DurableTokenManager uses ``TokenLifecyclePort`` protocol (completely
+v4 PortTokenManager uses ``TokenLifecyclePort`` protocol (completely
 different from v3's ``mint=`` callback).  Auth-mint tests
 (``dhan_totp_mint``, ``upstox_refresh_mint``) are skipped — they depend
 on broker-specific auth flows.
@@ -86,11 +86,11 @@ def test_read_cache_hits_and_misses_counters() -> None:
 
 
 # ---------------------------------------------------------------------------
-# DurableTokenManager — get_token, refresh, persistence
+# PortTokenManager — get_token, refresh, persistence
 # ---------------------------------------------------------------------------
 
 
-def test_durable_manager_reuses_valid_token(tmp_path: Path) -> None:
+def test_port_manager_reuses_valid_token(tmp_path: Path) -> None:
     port = _FakePort()
     manager = PortTokenManager(port=port, state_path=tmp_path / "token.json")
     t1 = manager.get_token()
@@ -99,7 +99,7 @@ def test_durable_manager_reuses_valid_token(tmp_path: Path) -> None:
     assert port.refresh_count == 1  # only one refresh (cached)
 
 
-def test_durable_manager_refreshes_when_expired(tmp_path: Path) -> None:
+def test_port_manager_refreshes_when_expired(tmp_path: Path) -> None:
     port = _FakePort()
     manager = PortTokenManager(port=port, state_path=tmp_path / "token.json")
     t1 = manager.get_token()
@@ -109,7 +109,7 @@ def test_durable_manager_refreshes_when_expired(tmp_path: Path) -> None:
     assert port.refresh_count == 2
 
 
-def test_durable_manager_force_refresh(tmp_path: Path) -> None:
+def test_port_manager_force_refresh(tmp_path: Path) -> None:
     port = _FakePort()
     manager = PortTokenManager(port=port, state_path=tmp_path / "token.json")
     t1 = manager.get_token()
@@ -118,7 +118,7 @@ def test_durable_manager_force_refresh(tmp_path: Path) -> None:
     assert port.refresh_count == 2
 
 
-def test_durable_manager_persists_state(tmp_path: Path) -> None:
+def test_port_manager_persists_state(tmp_path: Path) -> None:
     port = _FakePort()
     state_path = tmp_path / "token.json"
     manager = PortTokenManager(port=port, state_path=state_path)
@@ -129,7 +129,7 @@ def test_durable_manager_persists_state(tmp_path: Path) -> None:
     assert data["access_token"] == token
 
 
-def test_durable_manager_loads_persisted_state(tmp_path: Path) -> None:
+def test_port_manager_loads_persisted_state(tmp_path: Path) -> None:
     state_path = tmp_path / "token.json"
     state_path.write_text(json.dumps({"access_token": "persisted-token"}))
 
@@ -139,7 +139,7 @@ def test_durable_manager_loads_persisted_state(tmp_path: Path) -> None:
     assert manager._cached_token == "persisted-token"
 
 
-def test_durable_manager_refresh_failure_raises_auth_error(tmp_path: Path) -> None:
+def test_port_manager_refresh_failure_raises_auth_error(tmp_path: Path) -> None:
     class _FailingPort:
         def get_access_token(self) -> str:
             return ""
@@ -157,7 +157,7 @@ def test_durable_manager_refresh_failure_raises_auth_error(tmp_path: Path) -> No
         manager.get_token()
 
 
-def test_durable_manager_without_state_path() -> None:
+def test_port_manager_without_state_path() -> None:
     port = _FakePort()
     manager = PortTokenManager(port=port)
     token = manager.get_token()

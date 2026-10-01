@@ -3,7 +3,7 @@
 Re-exports the key types so that adapters can do::
 
     from tradex_brokers.common import (
-        DurableTokenManager,
+        PortTokenManager,
         TotpCooldownGuard,
         ...
     )
@@ -50,7 +50,6 @@ from tradex_brokers.common.resilience import (
 )
 from tradex_brokers.common.streaming import ReconnectingStreamBackend
 from tradex_brokers.common.token_lifecycle import (
-    DurableTokenManager,
     MintStrategy,
     MintTokenManager,
     PortTokenManager,
@@ -111,7 +110,6 @@ __all__ = [
     # streaming
     "ReconnectingStreamBackend",
     # token lifecycle
-    "DurableTokenManager",
     "MintStrategy",
     "MintTokenManager",
     "PortTokenManager",

@@ -205,26 +205,7 @@ class TestBootWiresDiscovery:
             finally:
                 session.stop()
 
-    def test_backtest_mode_exposes_datalake_backtest_loader(self, monkeypatch) -> None:
-        """Backtest/replay sessions expose ``session.backtest`` bound to the
-        datalake loader; paper sessions keep it ``None``."""
-        from tradex_market_data.backtest_loader import ParquetBacktestLoader
-
-        for mode in ("backtest", "replay"):
-            session = boot(
-                AppConfig(risk=permissive_risk(), mode=mode),
-                broker=_fake_broker_with_history([10.0]),
-            )
-            try:
-                assert isinstance(session.backtest, ParquetBacktestLoader)
-            finally:
-                session.stop()
-        session = boot(AppConfig(risk=permissive_risk(), mode="paper"))
-        try:
-            assert session.backtest is None
-        finally:
-            session.stop()
-
+    
 
 def test_paper_boot_with_real_broker_runs_discovered_scanner() -> None:
     """End-to-end with the real PaperBroker (no mocks): the paper broker's

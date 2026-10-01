@@ -966,17 +966,6 @@ def _boot_tail(
         from tradex_domain.market import Candle as _Candle
         bus.of_type(_Candle).subscribe(on_next=scanner_engine.consume)
 
-    # 7d. Backtest loader — backtest/replay modes expose an offline datalake
-    # backtest tool on the session: ``session.backtest.load()``/``.run()``
-    # assemble ``BacktestEngine`` inputs from the parquet store (multi-symbol,
-    # no broker). Paper/live keep None (live data paths instead).
-    backtest_loader: Any = None
-    if cfg.mode in ("backtest", "replay"):
-        from tradex_market_data.backtest_loader import ParquetBacktestLoader
-        # AC-15: same session registry as the scanner, so a quarantine hit
-        # while a backtest loads the lake is counted on the served metrics.
-        backtest_loader = ParquetBacktestLoader(metrics=metrics)
-
     # 8. Create session — strategies registered, scanner engine bound
     # so ``session._scanner_engine.run(definition)`` works.
     # Live mode additionally wires the market feed and the daily master
@@ -1015,8 +1004,7 @@ def _boot_tail(
         strategy_engine=strategy_engine,
         strategy_registry=strategy_registry,
         stream_backend=stream_backend,
-        backtest_loader=backtest_loader,
-        fill_bridge=fill_bridge,
+                fill_bridge=fill_bridge,
         market_feed=market_feed,
         feed_supervisor=feed_supervisor,
         master_scheduler=master_scheduler,

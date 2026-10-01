@@ -1,7 +1,7 @@
 """Tests for v3-ported token lifecycle functionality.
 
 Covers ``TokenMintResult``, ``TokenBroadcast``, ``TokenRefreshScheduler``,
-and the generation-aware methods on ``DurableTokenManager`` (``ensure_token``,
+and the generation-aware methods on ``MintTokenManager`` (``ensure_token``,
 ``current``, ``persisted_refresh_token``, ``_expired``, ``_mint_and_persist``).
 """
 
@@ -168,7 +168,7 @@ class TestTokenRefreshScheduler:
 
 
 # ---------------------------------------------------------------------------
-# DurableTokenManager — generation-aware (mint mode)
+# MintTokenManager — generation-aware (mint mode)
 # ---------------------------------------------------------------------------
 
 
@@ -451,9 +451,6 @@ class TestMintTokenManagerDirect:
         assert mgr.refresh() == "conform"  # force-refresh re-mints via callable
         assert mgr.is_expired() is False  # no expiry on plain-string mints
 
-    def test_durable_compat_subclass_unchanged(self) -> None:
-        from tradex_brokers.common.token_lifecycle import DurableTokenManager
-
-        mgr = DurableTokenManager(mint=lambda: "compat")
+    def test_mint_mode_basic(self) -> None:
+        mgr = MintTokenManager(mint=lambda: "compat")
         assert mgr.ensure_token() == "compat"
-        assert mgr.get_token_with_rejection  # port-mode API still present

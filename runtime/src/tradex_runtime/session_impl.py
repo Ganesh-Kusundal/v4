@@ -83,7 +83,6 @@ class TradingSession:
         strategy_engine: object | None = None,
         strategy_registry: object | None = None,
         stream_backend: object | None = None,
-        backtest_loader: object | None = None,
         live_orders_enabled: bool = True,
         fill_bridge: object | None = None,
         market_feed: object | None = None,
@@ -114,7 +113,6 @@ class TradingSession:
         #: constructor — no post-init private mutation [REF-5].
         self._strategy_registry = strategy_registry
         self._stream_backend = stream_backend
-        self._backtest_loader = backtest_loader
         self._live_orders_enabled = live_orders_enabled
         #: AC-10 / lane 2f: the live-order gate closure, built once from
         #: ``live_orders_enabled``. It used to be built by ``_make_order_gate``
@@ -464,17 +462,6 @@ class TradingSession:
     def strategy_engine(self) -> object | None:
         """Strategy engine (auto-registered discovered strategies)."""
         return self._strategy_engine
-
-    @property
-    def backtest(self) -> object | None:
-        """Offline datalake backtest loader (backtest/replay modes only).
-
-        Returns a :class:`ParquetBacktestLoader` exposing ``load(...)``
-        (flat candle list for ``BacktestEngine.run``) and ``run(strategy,
-        ...)`` (one-shot backtest) over the local parquet datalake. ``None``
-        in paper/live modes, which trade live data instead.
-        """
-        return self._backtest_loader
 
     @property
     def mode(self) -> str:
