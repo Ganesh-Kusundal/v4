@@ -147,7 +147,8 @@ def _declared_period(name: str, params: Mapping[str, Any]) -> int:
 
 
 class ScannerEngine:
-    """Evaluates ``Condition`` values over a default D1 window per instrument.
+    """Evaluates ``Condition`` values over the definition's declared
+    timeframe (D1 by default) per instrument.
 
     Supports two data paths:
 
@@ -331,7 +332,7 @@ class ScannerEngine:
         result cache; see :meth:`_cache_key` for what makes a repeat
         legitimate.
         """
-        key = self._cache_key(definition)
+        key = self._cache_key(definition, definition.timeframe)
         cached = self._cache.get(key)
         if cached is not None:
             return cached
@@ -344,7 +345,7 @@ class ScannerEngine:
         self._size_buffers(warmup_bars(conditions))
         results: list[ScannerResult] = []
         for instrument in definition.universe:
-            series = self._history(instrument)
+            series = self._history(instrument, definition.timeframe)
             result = self._evaluate(instrument, series, conditions)
             if conditions and not result.matched_conditions:
                 continue
@@ -363,7 +364,11 @@ class ScannerEngine:
         ]
         return ranked
 
-    def _cache_key(self, definition: ScannerDefinition) -> str:
+    def _cache_key(
+        self,
+        definition: ScannerDefinition,
+        timeframe: Timeframe = Timeframe.D1,
+    ) -> str:
         """Digest of everything that can change what this scan returns.
 
         Enumerated, with the reason each is in:
@@ -373,8 +378,9 @@ class ScannerEngine:
             whole of what is being tested
         ``window_days``  the span the snapshot path asks the provider for, so
             a 5-day scan cannot be served a 30-day scan's answer
-        ``timeframe``   the bars are read at; D1 today, named rather than
-            assumed so changing it cannot silently widen the key
+        ``timeframe``   the bars are read at — the definition's
+            declared timeframe, named rather than assumed so
+            changing it cannot silently widen the key
         ``bar_version``  bumped by ``consume``.  This is the invalidation
             rule for streamed data: it makes a pre-bar entry unreachable, so
             a new D1 bar never serves a pre-close answer.
@@ -407,7 +413,7 @@ class ScannerEngine:
                     [c.name, c.params, c.operator, c.threshold] for c in definition.conditions
                 ],
                 "window_days": self._window_days,
-                "timeframe": str(Timeframe.D1),
+                "timeframe": str(timeframe),
                 "bar_version": self._bar_version,
                 "portfolio": _portfolio_key(self._portfolio),
             }
@@ -419,7 +425,11 @@ class ScannerEngine:
 
     # -- internals ---------------------------------------------------------------
 
-    def _history(self, instrument: Any) -> HistoricalSeries:
+    def _history(
+        self,
+        instrument: Any,
+        timeframe: Timeframe = Timeframe.D1,
+    ) -> HistoricalSeries:
         key = _instrument_key(instrument)
         buf = self._buffers.get(key)
         if buf:
@@ -448,7 +458,7 @@ class ScannerEngine:
             # has for a provider read that raises.
             self._limiter.acquire()
         try:
-            return self._market.history(instrument, Timeframe.D1, start, end)
+            return self._market.history(instrument, timeframe, start, end)
         except (SDKError, NotImplementedError):
             # ``NotImplementedError`` is not an ``SDKError``: the paper broker
             # raises ``PaperHistoryNotImplemented`` (C5d) rather than fabricate

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from tradex_domain.enums import OrderSide
+from tradex_domain.enums import OrderSide, Timeframe
 from tradex_domain.execution import Position
 from tradex_domain.instruments import Instrument
 from tradex_domain.protocols import SessionFacade
@@ -71,6 +71,10 @@ class ScannerDefinition(Serializable):
     conditions: list[Condition] = field(default_factory=list)
     rank_by: str = "score"
     limit: int = 20
+    #: Bar timeframe the scanner evaluates on. D1 preserves the
+    #: engine's historical daily-scan behaviour; an intraday value
+    #: (M5/M15) makes ScannerEngine fetch and evaluate that timeframe.
+    timeframe: Timeframe = Timeframe.D1
 
 
 @dataclass(frozen=True, slots=True)
