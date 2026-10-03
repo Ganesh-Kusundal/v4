@@ -53,6 +53,13 @@ class RiskManager:
         max_orders_per_minute: int | None = None,
         *,
         live_orders_enabled: bool = True,
+        #: Short-selling policy. When False, a SELL that would open or
+        #: grow a short position is denied; a SELL that only trims or
+        #: closes a long stays allowed (flattening is never blocked).
+        #: Class-level default True preserves every existing direct
+        #: constructor; ``boot()`` binds ``RiskConfig.allow_short``
+        #: (default False) so the platform boundary is safe by default.
+        allow_short: bool = True,
         positions_provider: Callable[[], list[Position]] | None = None,
         price_provider: Callable[[Any], Quote | None] | None = None,
         reject_unknown_market_value: bool = False,
@@ -71,6 +78,7 @@ class RiskManager:
         self._recent_orders: deque[datetime] = deque()
         self._lock = threading.Lock()
         self._live_orders_enabled = live_orders_enabled
+        self._allow_short = allow_short
         #: When True, a MARKET order whose price/mark cannot be resolved is
         #: denied (fail-closed for live); when False it preserves the legacy
         #: behaviour of skipping the order-value gate (dev/paper).
@@ -423,6 +431,18 @@ class RiskManager:
             # Master gate
             if not self._live_orders_enabled:
                 return self._deny("live_orders_disabled", now=now)
+
+            # Short-selling policy gate. A SELL that would open or
+            # grow a short is denied unless the account is opted in.
+            # A SELL that only reduces a long stays allowed: this gate
+            # never blocks flattening. Checked early because it is a
+            # hard policy, not a limit that scales with the book.
+            if (
+                request.side is OrderSide.SELL
+                and not self._allow_short
+                and self._opens_short(request)
+            ):
+                return self._deny("short_selling_disabled", now=now)
 
             # Live opening risk fails closed until the quote-driven MTM
             # service has produced fresh marks for the cached book.
@@ -811,6 +831,29 @@ class RiskManager:
                 return (
                     long_after > long_before or short_after > short_before
                 )
+        return True
+
+    def _opens_short(self, request: OrderRequest) -> bool:
+        """True when a SELL would open or grow a short position.
+
+        Uses the same per-side gross arithmetic as
+        :meth:`_increases_exposure`: a SELL of 40 against a long 100
+        leaves gross short at 0 (a reduction, allowed); a SELL of 150
+        against a long 100 grows gross short 0 → 50 (an open, gated).
+        Without a position book a SELL cannot be proven to be a
+        reduction, so this fails closed — the same conservative
+        branch :meth:`_increases_exposure` takes.
+        """
+        if self._positions_provider is None:
+            return True
+        signed = -request.quantity.value
+        for pos in self._positions_provider():
+            if pos.instrument == request.instrument:
+                resulting = pos.quantity.value + signed
+                short_before = max(-pos.quantity.value, Decimal(0))
+                short_after = max(-resulting, Decimal(0))
+                return short_after > short_before
+        # No position for this instrument: any SELL opens a short.
         return True
 
     @property

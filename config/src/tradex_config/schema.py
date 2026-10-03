@@ -148,6 +148,12 @@ class RiskConfig:
     #: start from the same policy; ``boot()`` builds the single
     #: ``account_sizer`` from this, the notional ceiling, and the live balance.
     risk_fraction: Decimal | None = Decimal(str(DEFAULT_BACKTEST_RISK_FRACTION))
+    #: Short-selling policy. False (the platform default) denies any
+    #: SELL that would open or grow a short position; a SELL that only
+    #: reduces a long stays allowed. ``boot()`` passes this to
+    #: ``RiskManager``. Operators who trade short-enabled books set
+    #: ``risk.allow_short: true``.
+    allow_short: bool = False
 
     def __post_init__(self) -> None:
         if self.max_order_value is not None and not isinstance(self.max_order_value, Decimal):

@@ -641,6 +641,7 @@ def _boot_tail(
         reject_unknown_market_value=cfg.risk.reject_unknown_market_value,
         max_daily_loss_amt=limits["max_daily_loss_amt"],
         max_drawdown_pct=limits["max_drawdown_pct"],
+        allow_short=cfg.risk.allow_short,
         # AC-10 / lane 2f: the master gate. When False, ``check()`` refuses
         # EVERY submit before any other gate runs. Bound to the same
         # ``AppConfig.live_orders_enabled`` the session gate reads, so the
