@@ -48,35 +48,41 @@ def test_returns_none_when_both_empty():
 
 **Verification:** All tests pass
 
-### Task 2: Add Feed Recovery Integration Tests (6 hours)
-**File:** `runtime/tests/test_feed_recovery.py`
+### Task 2: Add Feed State Machine Tests (6 hours)
+**File:** `runtime/tests/test_feed_state_machine.py`
+
+NOTE: Feed state lives on `FeedSupervisor` (`runtime/feed_supervisor.py`), NOT on
+`MarketFeed`. `MarketFeed` owns a supervisor and exposes it via the `.supervisor`
+property (`market_feed.py:175`). Test the supervisor directly.
 
 ```python
-"""Integration tests for feed recovery after disconnection."""
-
-def test_detects_feed_disconnection():
-    """Feed should detect disconnection within timeout."""
-    # Setup: Mock feed with disconnection
-    # Act: Wait for detection
-    # Assert: Feed state == DEGRADED
-
-def test_reconnects_after_disconnection():
-    """Feed should reconnect automatically after disconnection."""
-    # Setup: Mock feed with disconnection
-    # Act: Trigger recovery
-    # Assert: Feed state == READY
+"""Tests for FeedSupervisor state transitions."""
 
 def test_transitions_through_states():
-    """Feed should transition through DEGRADED → HALTED → READY."""
-    # Setup: Mock feed with multiple failures
-    # Act: Trigger recovery sequence
-    # Assert: State transitions are correct
+    """Supervisor should transition CONNECTING → RESYNCHRONIZING → READY."""
+    # Setup: Fresh supervisor
+    # Act: connected() / recovery_started() /
+    #      recovery_succeeded(last_event_at=..., recovered_through=...)
+    # Assert: state == FeedState.READY, ready() is True
+    # Note: recovery_succeeded takes keyword-only last_event_at / recovered_through
 
-def test_recovers_after_extended_outage():
-    """Feed should recover after extended outage."""
-    # Setup: Mock feed with long disconnection
-    # Act: Wait for recovery
-    # Assert: Feed state == READY, all subscriptions restored
+def test_recovery_failure_demotes_ready():
+    """A failed recovery must not leave the feed READY."""
+    # Setup: Supervisor in READY
+    # Act: recovery_failed("timeout")
+    # Assert: state != FeedState.READY
+
+def test_stale_marks_degraded():
+    """mark_stale() moves a READY feed to DEGRADED."""
+    # Setup: Supervisor in READY
+    # Act: mark_stale()
+    # Assert: state == FeedState.DEGRADED
+
+def test_disconnected_resets_readiness():
+    """A socket reconnect must never leave the feed READY."""
+    # Setup: Supervisor in READY
+    # Act: disconnected()
+    # Assert: state != FeedState.READY, ready() is False
 ```
 
 **Verification:** All tests pass

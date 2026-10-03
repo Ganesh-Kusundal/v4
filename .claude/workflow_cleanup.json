@@ -30,78 +30,43 @@
     },
     {
       "name": "phase-2-consolidation",
-      "description": "Consolidate duplicate implementations",
-      "duration_days": 7,
-      "parallel_streams": [
-        {
-          "id": "stream-2-data-layer",
-          "agent_type": "general-purpose",
-          "prompt_file": ".claude/agents/data-layer-consolidator.md",
-          "tasks": [
-            "Merge ParquetMarketProvider into MarketWindowLoader",
-            "Delete ParquetMarketProvider",
-            "Delete simple_sync.py",
-            "Update all imports"
-          ],
-          "acceptance_criteria": [
-            "Single MarketWindowLoader is only data entry point",
-            "All chart history tests pass",
-            "All backtest tests pass",
-            "No references to deleted modules"
-          ]
-        },
+      "description": "CORRECTED 2026-07-31. The streams below were specified against line counts that were wrong by 10-100x and named duplicate implementations that do not exist. Re-measured: MarketFeed is 800 lines (not 34,952), FeedMonitor 813 (not 36,084), FeedRecoveryCoordinator 423 (not 16,626), ParquetMarketProvider 290 (not 11,188). The feed modules are already composed (MarketFeed owns a supervisor, has set_recovery(), check_stale()); merging them would ADD ~1,350 lines and remove no logic. SQLiteOrderStore is a complementary boot-restore mirror, not a duplicate — event projection already exists at startup.py:1496. simple_sync.py is the WRITE path, not a duplicate of the read path. Streams 3 and 4 as originally specced would have deleted working, tested, already-integrated components.",
+      "status": "cancelled",
+      "cancelled_streams": [
         {
           "id": "stream-3-feed-layer",
-          "agent_type": "general-purpose",
-          "prompt_file": ".claude/agents/feed-layer-consolidator.md",
-          "tasks": [
-            "Merge FeedSupervisor into MarketFeed",
-            "Merge FeedMonitor into MarketFeed",
-            "Merge FeedRecoveryCoordinator into MarketFeed",
-            "Delete all three modules",
-            "Update all imports"
-          ],
-          "acceptance_criteria": [
-            "Single MarketFeed owns all feed lifecycle",
-            "Feed state machine works",
-            "Feed health monitoring works",
-            "Feed recovery works",
-            "All streaming tests pass"
-          ]
+          "reason": "Premise false. FeedSupervisor/FeedMonitor/FeedRecoveryCoordinator are components MarketFeed already owns, not duplicates of it."
         },
         {
           "id": "stream-4-order-layer",
-          "agent_type": "general-purpose",
-          "prompt_file": ".claude/agents/order-layer-consolidator.md",
-          "tasks": [
-            "Implement order projection from events",
-            "Migrate callers to event projection",
-            "Delete SQLiteOrderStore",
-            "Keep SQLiteIdempotencyGuard"
-          ],
-          "acceptance_criteria": [
-            "Single SQLiteEventStore is source of truth",
-            "Order projection is efficient",
-            "All order tests pass",
-            "All order API endpoints work"
-          ]
-        },
+          "reason": "Premise false. SQLiteOrderStore is the boot-restore mirror documented at startup.py:485-490; _recover_oms_from_events() already does projection."
+        }
+      ],
+      "completed_streams": [
+        {
+          "id": "stream-2-data-layer",
+          "status": "landed",
+          "commit": "30cd2eb",
+          "note": "Landed as a deprecation path, not a deletion: MarketWindowLoader.history() facade + ParquetMarketProvider deprecation warning. ParquetMarketProvider stays because MarketWindowLoader wraps it."
+        }
+      ],
+      "remaining_streams": [
         {
           "id": "stream-5-test-coverage",
           "agent_type": "general-purpose",
           "prompt_file": ".claude/agents/test-coverage-engineer.md",
           "tasks": [
-            "Add broker fallback tests",
-            "Add feed recovery integration tests",
-            "Add event store tamper detection tests",
+            "Add MarketWindowLoader broker fallback + MarketSource provenance tests",
+            "Add FeedSupervisor state machine tests (state lives on the supervisor, not MarketFeed)",
+            "Add event store hash-chain tamper detection tests",
             "Add end-to-end backtest test",
             "Add end-to-end live order test"
           ],
           "acceptance_criteria": [
             "All new tests pass",
-            "Test coverage > 80% for critical paths",
             "Integration tests cover end-to-end flows",
-            "No silent failures"
+            "No silent failures",
+            "All existing tests still pass"
           ]
         }
       ]

@@ -47,7 +47,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from tradex_domain import BrokerUnavailableError, RateLimitError
 from tradex_shared.rate_limiting import (
@@ -58,15 +58,6 @@ from tradex_shared.rate_limiting import (
     bucket_for_path,
     limiter_from_table,
 )
-
-if TYPE_CHECKING:
-    # The per-provider rate tables are imported here for type checking only.
-    # At runtime, callers should import them directly from rate_table.
-    from tradex_brokers.common.rate_table import (
-        DHAN_RATE_TABLE,
-        PAPER_RATE_TABLE,
-        UPSTOX_RATE_TABLE,
-    )
 
 log = logging.getLogger(__name__)
 

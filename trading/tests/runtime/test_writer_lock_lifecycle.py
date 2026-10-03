@@ -404,8 +404,16 @@ def test_stale_takeover_race_never_double_acquires(tmp_path) -> None:
     contenders = 12
     _dead_writer_lock(lock_path)  # crashed writer: the pid is reaped
 
+    # ``retries=1`` is load-bearing, not incidental. The invariant under test is
+    # "exactly one contender wins the race", and a contender that loses must not
+    # get a second chance to win it — otherwise a process acquiring on a later
+    # retry is counted as a double-acquire long after the first winner released,
+    # which is a legal handover, not a TOCTOU defect. This test failed once
+    # under full-suite load with ``retries=8`` for exactly that reason: two of
+    # twelve processes reported "acquired" from different retry rounds.
+    # ``test_stale_takeover_allows_later_acquire`` below covers the retry path.
     procs = _start_contenders(
-        lock_path, contenders, hold_s=2.0, retries=8, start_delay=1.5
+        lock_path, contenders, hold_s=2.0, retries=1, start_delay=1.5
     )
     outcomes = _collect(procs)
     errors = [o for o in outcomes if o["outcome"] == "error"]
@@ -418,8 +426,47 @@ def test_stale_takeover_race_never_double_acquires(tmp_path) -> None:
         f"processes {[o['pid'] for o in acquired]}; exactly one may acquire. "
         f"refused={[o['pid'] for o in refused]}"
     )
+    assert len(refused) == contenders - 1, (
+        f"expected {contenders - 1} refusals, got {len(refused)}"
+    )
     # Every loser really was a loser, never a second winner.
     assert not ({o["pid"] for o in acquired} & {o["pid"] for o in refused})
+
+
+def test_stale_takeover_allows_later_acquire(tmp_path) -> None:
+    """A contender that loses the race may still acquire on a later retry.
+
+    Complements ``test_stale_takeover_race_never_double_acquires``, which
+    asserts the single-winner invariant with ``retries=1``. This covers the
+    retry path: after the first winner releases, the lock is claimable again,
+    so a retrying contender eventually succeeds. The invariant that must hold
+    is *at most one holder at a time*, not *exactly one acquirer overall* —
+    a process acquiring on retry 5 after the retry-1 winner released is a
+    legal handover, not a double-acquire.
+    """
+    lock_path = tmp_path / "dhan.writer.lock"
+    contenders = 4
+    _dead_writer_lock(lock_path)
+
+    procs = _start_contenders(
+        lock_path, contenders, hold_s=0.3, retries=8, start_delay=1.5
+    )
+    outcomes = _collect(procs)
+    errors = [o for o in outcomes if o["outcome"] == "error"]
+    assert not errors, f"unexpected contender errors: {errors!r}"
+
+    acquired = [o for o in outcomes if o["outcome"] == "acquired"]
+    # At least one contender must win, and no pid may appear twice (a process
+    # holds the lock once per acquire() call and reports once).
+    assert acquired, f"no contender acquired the lock: {outcomes!r}"
+    pids = [o["pid"] for o in acquired]
+    assert len(pids) == len(set(pids)), f"a process acquired twice: {outcomes!r}"
+    # Every acquirer's on-disk pid was its own — nobody inherited a stale claim.
+    for outcome in acquired:
+        assert outcome["on_disk"] == str(outcome["pid"]), (
+            f"on-disk pid {outcome['on_disk']!r} is not the acquiring process "
+            f"{outcome['pid']!r}: {outcomes!r}"
+        )
 
 
 # --------------------------------------------------------------------------

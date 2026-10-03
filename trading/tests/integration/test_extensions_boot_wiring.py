@@ -206,7 +206,7 @@ class TestBootWiresDiscovery:
             finally:
                 session.stop()
 
-    
+
 
 def test_paper_boot_with_real_broker_runs_discovered_scanner() -> None:
     """End-to-end with the real PaperBroker (no mocks): the paper broker's
