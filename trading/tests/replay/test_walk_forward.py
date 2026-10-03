@@ -244,7 +244,10 @@ class TestRunWalkForward:
         data = list(range(400))
 
         def run_fn(params, subset):
-            return _make_bt(total_return=params.get("k", 1) * 0.01)
+            return _make_bt(
+                total_return=params.get("k", 1) * 0.01,
+                sharpe=params.get("k", 1) * 1.0,
+            )
 
         optimize_fn = make_grid_optimizer({"k": [1, 2, 3]}, run_fn)
         report = run_walk_forward(

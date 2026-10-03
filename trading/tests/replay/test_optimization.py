@@ -35,21 +35,21 @@ def _make_bt(
 # ---------------------------------------------------------------------------
 
 class TestOptimizationResult:
-    def test_default_score_uses_total_return(self):
-        bt = _make_bt(total_return=1.25)
+    def test_default_score_uses_sharpe(self):
+        bt = _make_bt(total_return=1.25, sharpe=2.5)
         opt = OptimizationResult(params={"x": 1}, result=bt)
-        assert opt.score == 1.25
+        assert opt.score == 2.5
 
     def test_explicit_score_preserved(self):
         bt = _make_bt(total_return=1.0)
         opt = OptimizationResult(params={"x": 1}, result=bt, score=99.0)
         assert opt.score == 99.0
 
-    def test_zero_score_falls_back_to_total_return(self):
-        bt = _make_bt(total_return=0.5)
+    def test_zero_score_falls_back_to_default_score(self):
+        bt = _make_bt(total_return=0.5, sharpe=0.75)
         opt = OptimizationResult(params={}, result=bt, score=0.0)
-        # 0.0 triggers __post_init__ fallback to total_return
-        assert opt.score == 0.5
+        # 0.0 triggers __post_init__ fallback to the default (Sharpe) score
+        assert opt.score == 0.75
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +82,10 @@ class TestGridSearch:
         def run_fn(params):
             nonlocal call_count
             call_count += 1
-            return _make_bt(total_return=params["a"] + params["b"])
+            return _make_bt(
+                total_return=params["a"] + params["b"],
+                sharpe=params["a"] + params["b"],
+            )
 
         result = grid_search({"a": [1, 2], "b": [10, 20]}, run_fn)
 
@@ -132,7 +135,9 @@ class TestGridSearch:
         assert result.total_combinations == 2
 
     def test_single_value_grid(self):
-        result = grid_search({"k": [42]}, lambda p: _make_bt(total_return=p["k"]))
+        result = grid_search(
+            {"k": [42]}, lambda p: _make_bt(total_return=p["k"], sharpe=p["k"]),
+        )
         assert result.best.params == {"k": 42}
         assert result.best.score == 42
 
@@ -174,7 +179,8 @@ class TestMakeGridOptimizer:
     def test_returns_best_params_for_training_data(self):
         def run_fn(params, train_data):
             # score improves with params["k"] scaled by data length
-            return _make_bt(total_return=params["k"] * 0.1 * len(train_data))
+            scaled = params["k"] * 0.1 * len(train_data)
+            return _make_bt(total_return=scaled, sharpe=scaled)
 
         optimize_fn = make_grid_optimizer({"k": [1, 2, 3]}, run_fn)
         best = optimize_fn([1, 2, 3, 4, 5])

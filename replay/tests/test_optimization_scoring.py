@@ -38,6 +38,7 @@ def test_default_score_nan_sharpe_is_zero() -> None:
 
 def test_default_score_inf_sharpe_is_zero() -> None:
     assert _default_score(_result(0.99, float("inf"))) == 0.0
+    assert _default_score(_result(0.99, float("-inf"))) == 0.0
 
 
 def test_optimization_result_default_score_is_sharpe() -> None:
