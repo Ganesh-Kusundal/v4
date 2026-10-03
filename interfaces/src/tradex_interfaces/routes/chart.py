@@ -449,6 +449,21 @@ def create_chart_router(
         instrument = _resolve_instrument(
             str(body.get("exchange", "NSE")), str(body.get("symbol", ""))
         )
+        # Resolve the id and its params BEFORE reading the lake. A malformed
+        # request is malformed whatever the window holds — and the default
+        # window (no from/to -> "now minus lookback") often covers no data at
+        # all, so validating after the read meant an empty lake answered 200
+        # with an empty plot and this 422 was unreachable for the default
+        # request shape. Validation is separated from computation because a few
+        # indicators (vortex) cannot compute over an empty candle list at all,
+        # so "nothing to compute" must not mean "compute nothing". Same order
+        # as /seasonality, which already validates first.
+        try:
+            from tradex_analytics.indicators import validate_indicator_request
+
+            merged_params = validate_indicator_request(indicator_id, params)[1]
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         start, end = _window(body.get("from"), body.get("to"))
 
         bars, _ = _bars_from_datalake(instrument, tf, start, end, limit=20000)
@@ -461,7 +476,7 @@ def create_chart_router(
             from tradex_analytics.indicators import compute_indicator
 
             values = compute_indicator(
-                indicator_id, _candles_for_bars(instrument, bars), params
+                indicator_id, _candles_for_bars(instrument, bars), merged_params
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

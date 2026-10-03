@@ -981,6 +981,38 @@ def _resolve_indicator_params(
     return merged
 
 
+def validate_indicator_request(
+    indicator_id: str,
+    params: dict[str, Any] | None = None,
+    registry: Any = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Resolve ``indicator_id`` and ``params`` against the registry; returns
+    ``(spec, merged_params)`` — exactly what :func:`compute_indicator` would
+    look up and hand the spec's function.
+
+    Raises ``ValueError`` for an unknown id, a spec with no compute function,
+    or an undeclared param name — the same failures ``compute_indicator``
+    raises, minus the computation itself.
+
+    This exists so a caller holding no candles can still reject a malformed
+    request. Validating only inside ``compute_indicator`` means a caller with
+    nothing to compute over (an empty bar window) has to return early, and the
+    early return is indistinguishable to a client from a successful compute
+    over zero bars: a typo'd indicator id answers 200 with an empty plot.
+
+    A caller that only wants the merged params should discard the spec —
+    that is the route's shape, which has bars to compute over later.
+    """
+    target = registry if registry is not None else REGISTRY
+    try:
+        spec = target.get(indicator_id)
+    except KeyError:
+        raise ValueError(f"unknown indicator: {indicator_id!r}") from None
+    if spec.fn is None:
+        raise ValueError(f"unknown indicator: {indicator_id!r}")
+    return spec, _resolve_indicator_params(indicator_id, params, registry)
+
+
 def compute_indicator(
     indicator_id: str,
     candles: list,
@@ -996,14 +1028,7 @@ def compute_indicator(
     Pass ``registry=`` to target a specific instance; defaults to the
     module-level ``REGISTRY``.
     """
-    target = registry if registry is not None else REGISTRY
-    try:
-        spec = target.get(indicator_id)
-    except KeyError:
-        raise ValueError(f"unknown indicator: {indicator_id!r}") from None
-    if spec.fn is None:
-        raise ValueError(f"unknown indicator: {indicator_id!r}")
-    merged = _resolve_indicator_params(indicator_id, params, registry)
+    spec, merged = validate_indicator_request(indicator_id, params, registry)
     result = spec.fn(candles, **merged)
     if isinstance(result, dict):
         return result

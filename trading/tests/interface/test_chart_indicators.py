@@ -104,3 +104,63 @@ class TestComputeEndpoint:
                 "id": indicator_id, "params": params,
             })
             assert resp.status_code == 200, (indicator_id, resp.text)
+
+
+class TestComputeValidatesBeforeReadingTheLake:
+    """A malformed request is malformed whatever bars the window holds.
+
+    The default window (``from``/``to`` absent -> "now minus lookback")
+    routinely covers no data at all, so the route used to answer 200 with
+    ``points: []`` before ``compute_indicator`` ever ran — and the 422 it
+    documents was unreachable for the default request shape. These tests
+    pin the *ordering*, not the coverage: the windows below are empty by
+    construction, so the lake read returns nothing in every environment.
+    """
+
+    #: Deliberately outside any datalake coverage: 1998 predates the lake.
+    _EMPTY_WINDOW = {"from": 883612800, "to": 884688000}
+
+    def _compute(self, body: dict):
+        return _client().post("/api/charts/indicators/compute", json=body)
+
+    def _empty_window_body(self, **overrides) -> dict:
+        return {
+            "exchange": "NSE", "symbol": "RELIANCE", "interval": "5m",
+            **self._EMPTY_WINDOW, **overrides,
+        }
+
+    def test_the_window_really_is_empty(self):
+        """Guard the guard: if this ever returns bars, the tests below stop
+        proving anything and this is the first thing that broke."""
+        resp = _client().get("/api/charts/history/NSE:RELIANCE", params={
+            "interval": "5m", **self._EMPTY_WINDOW,
+        })
+        assert resp.json()["bars"] == []
+        assert resp.json()["source"] == "none"
+
+    def test_unknown_indicator_is_422_over_an_empty_window(self):
+        resp = self._compute(self._empty_window_body(id="does-not-exist"))
+        assert resp.status_code == 422, resp.text
+        assert "unknown indicator" in resp.json()["error"]["message"]
+
+    def test_unknown_param_is_422_over_an_empty_window(self):
+        resp = self._compute(self._empty_window_body(id="sma", params={"bogus": 1}))
+        assert resp.status_code == 422, resp.text
+
+    def test_a_valid_indicator_over_an_empty_window_is_still_200(self):
+        """The fix must not turn "no data" into an error."""
+        resp = self._compute(self._empty_window_body(id="sma"))
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["points"] == []
+        assert resp.json()["meta"]["source"] == "none"
+
+    def test_the_empty_window_cannot_500_on_an_indicator_that_needs_candles(self):
+        """`vortex` indexes ``candles[0]`` and raises IndexError on ``[]``.
+
+        Validating without computing is what keeps an empty window a 200 for
+        every registered indicator, rather than a 500 for the handful that
+        cannot compute over zero bars.
+        """
+        resp = self._compute(self._empty_window_body(id="vortex"))
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["points"] == []
