@@ -7,6 +7,7 @@ over strategy parameters.
 from __future__ import annotations
 
 import itertools
+import math
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -24,9 +25,9 @@ class OptimizationResult:
     score: float = 0.0
 
     def __post_init__(self) -> None:
-        # Default score is total_return
+        # Default score is risk-adjusted Sharpe (see _default_score).
         if self.score == 0.0:
-            object.__setattr__(self, "score", self.result.total_return)
+            object.__setattr__(self, "score", _default_score(self.result))
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +42,19 @@ class GridSearchResult:
     def top_n(self) -> list[OptimizationResult]:
         """Return results sorted by score descending."""
         return sorted(self.results, key=lambda r: r.score, reverse=True)
+
+
+def _default_score(result: BacktestResult) -> float:
+    """Risk-adjusted default score: Sharpe, floored to 0.0 when not finite.
+
+    Raw ``total_return`` as the default ranks a high-return,
+    high-drawdown grid point above a steadier one — the classic
+    overfitting trap. Sharpe is already computed on every
+    ``BacktestResult``, so the default ranks on risk-adjusted return.
+    A non-finite Sharpe (flat or single-observation equity curve)
+    scores 0.0 rather than poisoning ``max``/``sorted`` with NaN.
+    """
+    return result.sharpe if math.isfinite(result.sharpe) else 0.0
 
 
 def grid_search(
@@ -60,7 +74,8 @@ def grid_search(
     run_fn : Callable
         Function that takes a param dict and returns a BacktestResult.
     score_fn : Callable | None
-        Function to score a BacktestResult. Defaults to total_return.
+        Function to score a BacktestResult. Defaults to risk-adjusted
+        Sharpe (see ``_default_score``).
     max_workers : int
         Parallelism for evaluating combinations (default 1 = sequential).
         ``run_fn`` must be thread-safe when set > 1.
@@ -90,7 +105,9 @@ def grid_search(
         params = dict(zip(keys, combo))
         try:
             bt_result = run_fn(params)
-            score = score_fn(bt_result) if score_fn else bt_result.total_return
+            score = (
+                score_fn(bt_result) if score_fn else _default_score(bt_result)
+            )
             return OptimizationResult(params=params, result=bt_result, score=score)
         except Exception:
             return None
