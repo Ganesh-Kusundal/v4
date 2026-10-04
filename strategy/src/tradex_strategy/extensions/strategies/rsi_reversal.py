@@ -39,16 +39,21 @@ class RsiReversalStrategy(StudyStrategyBase):
         self._prev: float | None = None
 
     def _on_bar_ready(self, context, candles: list[Any]):
-        closes = [float(c.ohlc.close.value) for c in candles]
-        values = rsi(closes, self._length)
+        view = getattr(context, "analytics", None)
+        if view is not None:
+            values = view.indicator("rsi", period=self._length)["value"]
+        else:
+            closes = [float(c.ohlc.close.value) for c in candles]
+            values = rsi(closes, self._length)
         cur = float(values[-1])
         prev = float(values[-2])
+        ts = getattr(context, "timestamp", None)
         out = None
         if self._prev is not None:
             if prev <= self._oversold < cur:
-                out = self._emit(OrderSide.BUY, "rsi_oversold_recovery", context.timestamp)
+                out = self._emit(OrderSide.BUY, "rsi_oversold_recovery", ts)
             elif prev >= self._overbought > cur:
-                out = self._emit(OrderSide.SELL, "rsi_overbought_fade", context.timestamp)
+                out = self._emit(OrderSide.SELL, "rsi_overbought_fade", ts)
         self._prev = cur
         return out
 

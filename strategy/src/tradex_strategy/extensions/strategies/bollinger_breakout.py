@@ -36,14 +36,21 @@ class BollingerBreakoutStrategy(StudyStrategyBase):
 
     def _on_bar_ready(self, context, candles: list[Any]):
         closes = [float(c.ohlc.close.value) for c in candles]
-        result = bollinger(closes, self._length, self._std_dev)
+        view = getattr(context, "analytics", None)
+        if view is not None:
+            result = view.indicator(
+                "bollinger", period=self._length, num_std=self._std_dev
+            )
+        else:
+            result = bollinger(closes, self._length, self._std_dev)
         close = closes[-1]
         upper = result["upper"][-1]
         lower = result["lower"][-1]
+        ts = getattr(context, "timestamp", None)
         if upper is not None and close > upper:
-            return self._emit(OrderSide.BUY, "bollinger_upper_breakout", context.timestamp)
+            return self._emit(OrderSide.BUY, "bollinger_upper_breakout", ts)
         if lower is not None and close < lower:
-            return self._emit(OrderSide.SELL, "bollinger_lower_breakdown", context.timestamp)
+            return self._emit(OrderSide.SELL, "bollinger_lower_breakdown", ts)
         return None
 
 

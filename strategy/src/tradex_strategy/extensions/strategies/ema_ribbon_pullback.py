@@ -36,7 +36,14 @@ class EmaRibbonPullbackStrategy(StudyStrategyBase):
 
     def _on_bar_ready(self, context, candles: list[Any]):
         closes = [float(c.ohlc.close.value) for c in candles]
-        emas = [sma_seeded_ema(closes, length) for length in self._lengths]
+        view = getattr(context, "analytics", None)
+        if view is not None:
+            emas = [
+                view.indicator("ema", period=length)["value"]
+                for length in self._lengths
+            ]
+        else:
+            emas = [sma_seeded_ema(closes, length) for length in self._lengths]
         fast = emas[0]
         if any(e[-1] is None for e in emas):
             return None
@@ -47,10 +54,11 @@ class EmaRibbonPullbackStrategy(StudyStrategyBase):
         bearish = all(
             cast(float, emas[i][-1]) < cast(float, emas[i + 1][-1]) for i in range(3)
         )
+        ts = getattr(context, "timestamp", None)
         if bullish and close <= cast(float, fast[-1]):
-            return self._emit(OrderSide.BUY, "ema_ribbon_pullback", context.timestamp)
+            return self._emit(OrderSide.BUY, "ema_ribbon_pullback", ts)
         if bearish and close >= cast(float, fast[-1]):
-            return self._emit(OrderSide.SELL, "ema_ribbon_rip", context.timestamp)
+            return self._emit(OrderSide.SELL, "ema_ribbon_rip", ts)
         return None
 
 

@@ -75,14 +75,25 @@ class SmaCrossStrategy:
 
     def on_bar(self, context: StrategyContext, candle) -> Signal | None:
         """Emit a signal on an SMA crossover."""
-        self._closes.append(float(candle.ohlc.close.value))
-        if len(self._closes) <= self._slow:
-            return None
-        prev_fast = self._sma(self._fast, self._closes[:-1])
-        prev_slow = self._sma(self._slow, self._closes[:-1])
-        fast = self._sma(self._fast, self._closes)
-        slow = self._sma(self._slow, self._closes)
-        ts = context.timestamp if context is not None else None
+        ts = getattr(context, "timestamp", None)
+        view = getattr(context, "analytics", None)
+        if view is not None:
+            fast_series = view.indicator("sma", period=self._fast)["value"]
+            slow_series = view.indicator("sma", period=self._slow)["value"]
+            if len(fast_series) <= self._slow:
+                return None
+            prev_fast = fast_series[-2]
+            prev_slow = slow_series[-2]
+            fast = fast_series[-1]
+            slow = slow_series[-1]
+        else:
+            self._closes.append(float(candle.ohlc.close.value))
+            if len(self._closes) <= self._slow:
+                return None
+            prev_fast = self._sma(self._fast, self._closes[:-1])
+            prev_slow = self._sma(self._slow, self._closes[:-1])
+            fast = self._sma(self._fast, self._closes)
+            slow = self._sma(self._slow, self._closes)
         if prev_fast <= prev_slow and fast > slow:
             return self._signal(OrderSide.BUY, "sma_cross_up", ts)
         if prev_fast >= prev_slow and fast < slow:

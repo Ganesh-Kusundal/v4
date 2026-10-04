@@ -36,16 +36,23 @@ class MacdCrossStrategy(StudyStrategyBase):
         self._prev: tuple[float, float] | None = None
 
     def _on_bar_ready(self, context, candles: list[Any]):
-        closes = [float(c.ohlc.close.value) for c in candles]
-        result = macd(closes, self._fast, self._slow, self._signal)
+        view = getattr(context, "analytics", None)
+        if view is not None:
+            result = view.indicator(
+                "macd", fast=self._fast, slow=self._slow, signal=self._signal
+            )
+        else:
+            closes = [float(c.ohlc.close.value) for c in candles]
+            result = macd(closes, self._fast, self._slow, self._signal)
         cur = (float(result["macd"][-1]), float(result["signal"][-1]))
         prev = (float(result["macd"][-2]), float(result["signal"][-2]))
+        ts = getattr(context, "timestamp", None)
         out = None
         if self._prev is not None:
             if prev[0] <= prev[1] and cur[0] > cur[1]:
-                out = self._emit(OrderSide.BUY, "macd_cross_up", context.timestamp)
+                out = self._emit(OrderSide.BUY, "macd_cross_up", ts)
             elif prev[0] >= prev[1] and cur[0] < cur[1]:
-                out = self._emit(OrderSide.SELL, "macd_cross_down", context.timestamp)
+                out = self._emit(OrderSide.SELL, "macd_cross_down", ts)
         self._prev = cur
         return out
 

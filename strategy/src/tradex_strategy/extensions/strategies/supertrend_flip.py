@@ -36,14 +36,21 @@ class SupertrendFlipStrategy(StudyStrategyBase):
         self._prev_dir: int | None = None
 
     def _on_bar_ready(self, context, candles: list[Any]):
-        result = supertrend(candles, self._period, self._multiplier)
+        view = getattr(context, "analytics", None)
+        if view is not None:
+            result = view.indicator(
+                "supertrend", period=self._period, multiplier=self._multiplier
+            )
+        else:
+            result = supertrend(candles, self._period, self._multiplier)
         cur_dir = result["direction"][-1]
+        ts = getattr(context, "timestamp", None)
         out = None
         if self._prev_dir is not None and cur_dir is not None:
             if cur_dir == 1 and self._prev_dir != 1:
-                out = self._emit(OrderSide.BUY, "supertrend_flip_up", context.timestamp)
+                out = self._emit(OrderSide.BUY, "supertrend_flip_up", ts)
             elif cur_dir == -1 and self._prev_dir != -1:
-                out = self._emit(OrderSide.SELL, "supertrend_flip_down", context.timestamp)
+                out = self._emit(OrderSide.SELL, "supertrend_flip_down", ts)
         if cur_dir is not None:
             self._prev_dir = int(cur_dir)
         return out
