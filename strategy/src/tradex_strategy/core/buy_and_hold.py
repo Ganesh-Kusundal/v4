@@ -30,6 +30,11 @@ class BuyAndHoldStrategy:
         """Version of this strategy's logic (stamped on orders/signals)."""
         return "1.0.0"
 
+    @property
+    def instruments(self) -> list:
+        """Instrument ids this strategy is bound to (routing)."""
+        return [self._instrument.instrument_id]
+
     def on_start(self, context: StrategyContext) -> None:
         """Called when the strategy is started — no action for buy-and-hold."""
 

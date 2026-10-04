@@ -62,6 +62,11 @@ class SmaCrossStrategy:
         """Return the traded instrument."""
         return self._instrument
 
+    @property
+    def instruments(self):
+        """Instrument ids this strategy is bound to (routing)."""
+        return [self._instrument.instrument_id]
+
     def on_start(self, context: StrategyContext) -> None:
         """No-op start hook."""
 

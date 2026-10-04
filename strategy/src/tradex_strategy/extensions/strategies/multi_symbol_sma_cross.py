@@ -27,6 +27,10 @@ class MultiSymbolSmaCross:
     instrument when its fast SMA crosses its slow SMA. Instruments that never
     produce a cross emit nothing — the engine simply sees no signal for them.
 
+    Intentionally declares no ``instruments``: it trades every instrument by
+    design, so the engine's SubscriptionRouter gives it a wildcard
+    subscription (every event of every instrument).
+
     Note: long-only gate is caller responsibility (allow_short flag) — this
     reference strategy emits both BUY and SELL; callers must filter SELL
     when short selling is disallowed.

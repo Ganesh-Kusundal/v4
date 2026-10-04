@@ -12,10 +12,16 @@ from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
 from tradex_domain.events import ErrorOccurred, OrderCancelled
 from tradex_domain.execution import Order, OrderReceipt, OrderRequest
 from tradex_domain.instruments import InstrumentId
+from tradex_domain.market import Candle, Depth, Quote
 from tradex_domain.strategy import Signal, StrategyContext
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
 from tradex_strategy.core.brackets import protective_request
+from tradex_strategy.core.routing import (
+    StrategySubscription,
+    SubscriptionRouter,
+    event_instrument_id,
+)
 from tradex_strategy.core.sizing import PositionSizer, unconfigured_sizer
 
 log = logging.getLogger(__name__)
@@ -116,6 +122,10 @@ class ReactiveStrategyEngine:
         self._bus = bus
         self._sizer = sizer if sizer is not None else unconfigured_sizer()
         self._strategies: dict[str, Any] = {}
+        # Per-symbol event routing (Phase 1). Built at register() from
+        # each strategy's declared instruments; consulted by the wrapper
+        # handlers before a strategy is evaluated.
+        self._router = SubscriptionRouter()
         # Per-strategy subscriptions (AC-8). Keyed by strategy_id so a
         # single strategy can be stopped/unregistered without touching any
         # other strategy's delivery — RxPY disposables are independent, so
@@ -198,6 +208,15 @@ class ReactiveStrategyEngine:
                 # Fill prior deferred orders at THIS bar's open, then let the
                 # strategy evaluate the bar (its own signal waits for the next).
                 self._flush_pending(candle)
+            # Routing guard (Phase 1): skip the strategy call for
+            # instruments it is not subscribed to. Placed AFTER the
+            # bookkeeping above so _bar_count and _flush_pending evolve
+            # exactly as before — only the strategy evaluation is skipped.
+            inst_id = event_instrument_id(candle)
+            if inst_id is not None and not self._router.delivers(
+                strategy.strategy_id, Candle, inst_id
+            ):
+                return None
             ctx = self._make_context(
                 bar_count=self._bar_count,
                 timestamp=getattr(candle, "timestamp", None),
@@ -393,6 +412,13 @@ class ReactiveStrategyEngine:
         def handler(quote: Any) -> Any:
             if strategy.strategy_id in self._gated:
                 return None
+            # Routing guard (Phase 1): skip the strategy call for
+            # instruments it is not subscribed to.
+            inst_id = event_instrument_id(quote)
+            if inst_id is not None and not self._router.delivers(
+                strategy.strategy_id, Quote, inst_id
+            ):
+                return None
             ctx = self._make_context(timestamp=getattr(quote, "timestamp", None))
             result = strategy.on_quote(ctx, quote)
             self._maybe_publish_order(result, strategy, quote)
@@ -403,6 +429,13 @@ class ReactiveStrategyEngine:
         """Wrap strategy.on_depth to inject context."""
         def handler(depth: Any) -> Any:
             if strategy.strategy_id in self._gated:
+                return None
+            # Routing guard (Phase 1): skip the strategy call for
+            # instruments it is not subscribed to.
+            inst_id = event_instrument_id(depth)
+            if inst_id is not None and not self._router.delivers(
+                strategy.strategy_id, Depth, inst_id
+            ):
                 return None
             ctx = self._make_context(timestamp=getattr(depth, "timestamp", None))
             if hasattr(strategy, "on_depth"):
@@ -415,6 +448,10 @@ class ReactiveStrategyEngine:
         """Wrap strategy.on_fill to inject context."""
         def handler(fill: Any) -> Any:
             if strategy.strategy_id in self._gated:
+                return None
+            # Fills route by owning strategy, not instrument. A fill with
+            # no strategy_id (manual/legacy) goes to all strategies.
+            if fill.strategy_id is not None and fill.strategy_id != strategy.strategy_id:
                 return None
             ctx = self._make_context()
             return strategy.on_fill(ctx, fill)
@@ -565,6 +602,27 @@ class ReactiveStrategyEngine:
         from tradex_domain import Candle, Fill, Quote
         from tradex_domain.market import Depth
 
+        # Build the routing index. Strategies declaring instruments are
+        # routed per instrument; those declaring none (portfolio strategies
+        # that trade everything) get a wildcard subscription.
+        instruments = getattr(strategy, "instruments", None)
+        if instruments:
+            for inst in instruments:
+                inst_id = getattr(inst, "instrument_id", inst)
+                self._router.subscribe(
+                    StrategySubscription(Candle, inst_id), strategy.strategy_id
+                )
+                self._router.subscribe(
+                    StrategySubscription(Quote, inst_id), strategy.strategy_id
+                )
+                self._router.subscribe(
+                    StrategySubscription(Depth, inst_id), strategy.strategy_id
+                )
+        else:
+            self._router.subscribe(StrategySubscription(Candle), strategy.strategy_id)
+            self._router.subscribe(StrategySubscription(Quote), strategy.strategy_id)
+            self._router.subscribe(StrategySubscription(Depth), strategy.strategy_id)
+
         self._disposables.setdefault(strategy.strategy_id, []).extend([
             self._bus.of_type(Candle).subscribe(self._wrap_on_bar(strategy)),
             self._bus.of_type(Quote).subscribe(self._wrap_on_quote(strategy)),
@@ -580,6 +638,7 @@ class ReactiveStrategyEngine:
         """
         self._strategies.pop(strategy_id, None)
         self._gated.discard(strategy_id)
+        self._router.unsubscribe(strategy_id)
         self._dispose_strategy(strategy_id)
 
     def _dispose_strategy(self, strategy_id: str) -> None:
@@ -594,6 +653,7 @@ class ReactiveStrategyEngine:
         """Clean up all subscriptions and drop deferred orders."""
         for strategy_id in list(self._disposables):
             self._dispose_strategy(strategy_id)
+            self._router.unsubscribe(strategy_id)
         self._disposables.clear()
         self._gated.clear()
         self._strategies.clear()
