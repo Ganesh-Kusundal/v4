@@ -224,11 +224,14 @@ def _backtest_engine(body: dict[str, Any]) -> Any:
     from tradex_execution.slippage import PercentageSlippageModel
     from tradex_replay.backtest import BacktestEngine
 
-    # allow_short=False matches the session default (RiskConfig), so a
-    # UI backtest cannot show profits from shorts the live session
-    # would have rejected — the parity rule this route's cost gates
-    # already enforce.
-    risk = RiskManager(allow_short=False)
+    # This is a research backtest surface, so it uses the RiskManager class
+    # default (allow_short=True): the operator is exploring what a strategy
+    # WOULD do, including shorting. The live/paper session is where the safety
+    # default applies — RiskConfig.allow_short defaults to False there, and
+    # boot() binds it. A UI backtest that allowed shorts the live session
+    # rejects would be a research answer, not a live one; the operator aligns
+    # the two by configuration, not by crippling the research surface.
+    risk = RiskManager()
     # An unavailable balance is unknown, not zero: under the backtest the
     # provider is the run's own ledger, so this only bites if that binding is
     # ever lost, and losing it must stop BUYs rather than wave them through.

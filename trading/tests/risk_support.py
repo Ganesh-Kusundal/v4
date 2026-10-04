@@ -78,8 +78,18 @@ def permissive_risk(**overrides: Any) -> RiskConfig:
     ``UNBOUNDED``. ``overrides`` replace individual limits, so a test that *is*
     about one of them keeps its own deliberate value while inheriting complete
     ones for the rest.
+
+    ``allow_short`` defaults to True: this is the permissive test policy, and
+    the parity/interface suites exercise short-position behaviour. Tests that
+    assert shorts are DENIED construct their own ``RiskManager(allow_short=False)``
+    directly rather than reaching for this helper.
     """
-    base = {**_PERMISSIVE_VALUE_LIMITS, **_PERMISSIVE_PNL_LIMITS, **overrides}
+    base = {
+        **_PERMISSIVE_VALUE_LIMITS,
+        **_PERMISSIVE_PNL_LIMITS,
+        "allow_short": True,
+        **overrides,
+    }
     return RiskConfig(**base)
 
 
