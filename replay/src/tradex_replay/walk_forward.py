@@ -54,6 +54,7 @@ from tradex_analytics.research_validity import (
 from tradex_domain import Timeframe
 
 from tradex_replay.backtest import BacktestResult
+from tradex_replay.optimization import _default_score
 
 log = logging.getLogger(__name__)
 
@@ -235,7 +236,7 @@ def run_walk_forward(
     step_size : int | None
         Step size between windows. Defaults to test_window.
     score_fn : Callable | None
-        Scoring function. Defaults to total_return.
+        Scoring function. Defaults to risk-adjusted Sharpe.
     purge_bars : int
         Override for the embargo length, in bars.  0 (the default) computes
         ``max(1, ceil(0.01 * test_window))``.
@@ -325,7 +326,7 @@ def run_walk_forward_by_date(
     test_days : int
         Testing window length in calendar days.
     score_fn : Callable | None
-        Scoring function. Defaults to total_return.
+        Scoring function. Defaults to risk-adjusted Sharpe.
     purge_bars : int
         Override for the embargo length, in bars.  0 (the default) computes
         ``max(1, ceil(0.01 * window_length_bars))`` over the test window's bars.
@@ -705,7 +706,7 @@ def _fold(
     try:
         best_params = optimize_fn(train_data)
         in_sample = run_fn(best_params, train_data)
-        in_score = score_fn(in_sample) if score_fn else in_sample.total_return
+        in_score = score_fn(in_sample) if score_fn else _default_score(in_sample)
         # Warm first, then the embargo gap, then the scored bars.  The gap is
         # legitimately part of the history visible at the first out of sample
         # bar; it is simply not evaluated, scored or claimed.

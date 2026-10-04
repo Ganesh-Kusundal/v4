@@ -840,9 +840,9 @@ class RiskManager:
         :meth:`_increases_exposure`: a SELL of 40 against a long 100
         leaves gross short at 0 (a reduction, allowed); a SELL of 150
         against a long 100 grows gross short 0 → 50 (an open, gated).
-        Without a position book a SELL cannot be proven to be a
-        reduction, so this fails closed — the same conservative
-        branch :meth:`_increases_exposure` takes.
+        Without a position book a SELL cannot be proven to be a reduction, so
+        this fails closed unconditionally (True) — deliberately more conservative
+        than :meth:`_increases_exposure`'s conditional no-book branch.
         """
         if self._positions_provider is None:
             return True

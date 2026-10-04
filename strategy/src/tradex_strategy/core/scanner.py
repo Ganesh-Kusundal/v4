@@ -367,6 +367,7 @@ class ScannerEngine:
     def _cache_key(
         self,
         definition: ScannerDefinition,
+        # Kept for backward-compatible single-arg callers; run() passes definition.timeframe.
         timeframe: Timeframe = Timeframe.D1,
     ) -> str:
         """Digest of everything that can change what this scan returns.

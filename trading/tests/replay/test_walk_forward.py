@@ -214,12 +214,11 @@ class TestRunWalkForward:
     def test_score_fn_is_the_folds_own_score_not_the_default(self):
         """``score_fn`` is wired to the fold, not accepted and ignored.
 
-        The default scores a result by its total return, so a run whose Sharpe
-        and return disagree is the only way to tell the two apart: the recorded
-        ``in_sample_score`` / ``out_of_sample_score`` are 0.20 under the default
-        and 0.50 under ``score_fn``, for one and the same run. The old suite had
-        no such test — it asserted an aggregate number that never came from
-        ``score_fn`` in the first place.
+        The in-sample default scores by risk-adjusted Sharpe and the
+        out-of-sample default by total return, so a run whose Sharpe and return
+        disagree tells them apart: under the default the recorded
+        ``in_sample_score`` / ``out_of_sample_score`` are 0.50 / 0.20, and
+        0.50 / 0.50 under ``score_fn``, for one and the same run.
         """
         def run_fn(params, subset):
             return _make_bt(total_return=0.20, sharpe=0.50)
@@ -236,7 +235,7 @@ class TestRunWalkForward:
             step = report.steps[0]
             return step.in_sample_score, step.out_of_sample_score
 
-        assert scores(None) == pytest.approx((0.20, 0.20))
+        assert scores(None) == pytest.approx((0.50, 0.20))
         assert scores(lambda r: r.sharpe) == pytest.approx((0.50, 0.50))
 
     def test_grid_optimizer_composition(self):

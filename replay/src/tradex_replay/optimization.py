@@ -25,9 +25,8 @@ class OptimizationResult:
     score: float = 0.0
 
     def __post_init__(self) -> None:
-        # Default score is risk-adjusted Sharpe (see _default_score).
-        # The 0.0 sentinel is safe by design: an explicit score of exactly
-        # 0.0 is indistinguishable from "unset", so it is overridden here.
+        # 0.0 is the unset sentinel: an explicit score of 0.0 is indistinguishable
+        # from unset by design, so _default_score overrides it — accepted limitation.
         if self.score == 0.0:
             object.__setattr__(self, "score", _default_score(self.result))
 

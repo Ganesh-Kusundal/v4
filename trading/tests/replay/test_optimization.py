@@ -97,7 +97,7 @@ class TestGridSearch:
         assert result.best.score == 22
 
     def test_custom_score_fn(self):
-        """Custom score_fn should override default total_return scoring."""
+        """Custom score_fn should override default Sharpe scoring."""
         def run_fn(params):
             return _make_bt(total_return=params["x"] * 10, sharpe=params["x"] * 0.5)
 
