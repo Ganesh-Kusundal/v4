@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING, Any
 
 from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
 from tradex_domain.events import ErrorOccurred, OrderCancelled
-from tradex_domain.execution import Order, OrderReceipt, OrderRequest
+from tradex_domain.execution import Order, OrderReceipt, OrderRequest, Position
 from tradex_domain.instruments import InstrumentId
 from tradex_domain.market import Candle, Depth, Quote
 from tradex_domain.strategy import Signal, StrategyContext
-from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
+from tradex_domain.value_objects import CorrelationId, Money, OrderId, Price, Quantity
 
 from tradex_strategy.core.decision_pipeline import DecisionPipeline
 from tradex_strategy.core.routing import (
@@ -23,6 +23,7 @@ from tradex_strategy.core.routing import (
     event_instrument_id,
 )
 from tradex_strategy.core.sizing import PositionSizer, unconfigured_sizer
+from tradex_strategy.core.views import MarketView, PortfolioView
 
 if TYPE_CHECKING:
     from tradex_analytics.runtime import AnalyticsRuntime
@@ -84,6 +85,8 @@ class ReactiveStrategyEngine:
         pending_max_age_bars: int = 0,
         sizer: PositionSizer | None = None,
         analytics: AnalyticsRuntime | None = None,
+        positions_provider: Callable[[], Iterable[Position]] | None = None,
+        balance_provider: Callable[[], Money] | None = None,
     ) -> None:
         """Initialize with a ReactiveBus.
 
@@ -107,12 +110,21 @@ class ReactiveStrategyEngine:
                 value of ``N`` cancels the order on the ``N+1``-th bar that
                 does not match its instrument.
             sizer: the ``PositionSizer`` for this engine. ``None`` means
-                :func:`~tradex_strategy.core.sizing.unconfigured_sizer``.
+                :func:`~tradex_strategy.core.sizing.unconfigured_sizer`.
             analytics: optional ``AnalyticsRuntime`` each candle is ingested
                 into before the strategy is evaluated; the resulting
                 ``AnalyticsView`` for the candle's (instrument, timeframe) is
                 passed to the strategy via ``StrategyContext.analytics``.
                 ``None`` (default) leaves the context field ``None``.
+            positions_provider: optional zero-arg callable returning the open
+                positions (e.g. ``cache.all_positions``). When wired, the
+                context carries the read-only ``position``/``portfolio`` views
+                resolved for the event's instrument. ``None`` (default)
+                leaves those fields ``None`` — the ``context.session``
+                fallback path.
+            balance_provider: optional zero-arg callable returning the account
+                balance as ``Money`` (e.g. ``lambda: engine.cash_snapshot().cash``).
+                Feeds the ``portfolio`` view's ``balance``.
         """
         if fill_reference not in _FILL_REFERENCES:
             raise ValueError(f"unknown fill_reference: {fill_reference!r}")
@@ -168,10 +180,50 @@ class ReactiveStrategyEngine:
         # at least as nameable as the backtest one.
         self._order_failures: dict[str, int] = {}
         self._orders_expired: dict[str, int] = {}
+        # Read-only context views (Phase 6-7). ``_latest_quotes`` is the
+        # engine's own store, updated as Quote events arrive; each context
+        # gets a MarketView SNAPSHOT of it, so a strategy holding a context
+        # cannot see (let alone write) quotes that arrived after the fact.
+        self._latest_quotes: dict[InstrumentId, Quote] = {}
+        self._positions_provider = positions_provider
+        self._balance_provider = balance_provider
 
     def _make_context(self, **overrides: Any) -> StrategyContext:
-        """Create a StrategyContext with current engine state."""
-        return StrategyContext(**overrides)
+        """Create a StrategyContext with current engine state.
+
+        Carries the read-only ``market`` view (a snapshot of the latest
+        quotes) on every call. When ``instrument`` is passed — every
+        event handler passes its own event's instrument — the context also
+        carries the ``position``/``portfolio`` views resolved for that
+        instrument from the wired providers. Explicit ``position``/
+        ``portfolio``/``market`` overrides win over the computed views.
+        """
+        instrument = overrides.pop("instrument", None)
+        views: dict[str, Any] = {"market": MarketView(self._latest_quotes)}
+        if instrument is not None:
+            views["position"] = self._position_for(instrument)
+            views["portfolio"] = self._portfolio_view()
+        return StrategyContext(**views, **overrides)
+
+    def _position_for(self, instrument: Any) -> Position | None:
+        """Open position for *instrument* from the wired provider, or None."""
+        if self._positions_provider is None:
+            return None
+        inst_id = getattr(instrument, "instrument_id", instrument)
+        for position in self._positions_provider():
+            if position.instrument.instrument_id == inst_id:
+                return position
+        return None
+
+    def _portfolio_view(self) -> PortfolioView | None:
+        """Balance + positions snapshot, or None when neither provider is wired."""
+        if self._positions_provider is None and self._balance_provider is None:
+            return None
+        balance = self._balance_provider() if self._balance_provider is not None else None
+        positions = (
+            self._positions_provider() if self._positions_provider is not None else ()
+        )
+        return PortfolioView(balance=balance, positions=positions)
 
     @staticmethod
     def _reference_price(event: Any) -> Price | None:
@@ -239,6 +291,7 @@ class ReactiveStrategyEngine:
                 bar_count=self._bar_count,
                 timestamp=getattr(candle, "timestamp", None),
                 analytics=view,
+                instrument=getattr(candle, "instrument", None),
             )
             result = strategy.on_bar(ctx, candle)
             self._maybe_publish_order(result, strategy, candle)
@@ -423,16 +476,26 @@ class ReactiveStrategyEngine:
     def _wrap_on_quote(self, strategy: Any) -> Any:
         """Wrap strategy.on_quote to inject context and bridge Signal→Order."""
         def handler(quote: Any) -> Any:
+            # Track the latest quote per instrument: the market view a
+            # strategy reads is a snapshot of this store. Tracked before
+            # the gates below so the store is complete regardless of which
+            # strategies are subscribed, paused, or stopped. A test fake
+            # with no instrument cannot be keyed, so it is simply not tracked.
+            inst_id = event_instrument_id(quote)
+            if inst_id is not None:
+                self._latest_quotes[inst_id] = quote
             if strategy.strategy_id in self._gated:
                 return None
             # Routing guard (Phase 1): skip the strategy call for
             # instruments it is not subscribed to.
-            inst_id = event_instrument_id(quote)
             if inst_id is not None and not self._router.delivers(
                 strategy.strategy_id, Quote, inst_id
             ):
                 return None
-            ctx = self._make_context(timestamp=getattr(quote, "timestamp", None))
+            ctx = self._make_context(
+                timestamp=getattr(quote, "timestamp", None),
+                instrument=getattr(quote, "instrument", None),
+            )
             result = strategy.on_quote(ctx, quote)
             self._maybe_publish_order(result, strategy, quote)
             return result
@@ -450,7 +513,10 @@ class ReactiveStrategyEngine:
                 strategy.strategy_id, Depth, inst_id
             ):
                 return None
-            ctx = self._make_context(timestamp=getattr(depth, "timestamp", None))
+            ctx = self._make_context(
+                timestamp=getattr(depth, "timestamp", None),
+                instrument=getattr(depth, "instrument", None),
+            )
             if hasattr(strategy, "on_depth"):
                 result = strategy.on_depth(ctx, depth)
                 self._maybe_publish_order(result, strategy, depth)
@@ -466,7 +532,7 @@ class ReactiveStrategyEngine:
             # no strategy_id (manual/legacy) goes to all strategies.
             if fill.strategy_id is not None and fill.strategy_id != strategy.strategy_id:
                 return None
-            ctx = self._make_context()
+            ctx = self._make_context(instrument=getattr(fill, "instrument", None))
             return strategy.on_fill(ctx, fill)
         return handler
 

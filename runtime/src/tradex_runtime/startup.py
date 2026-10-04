@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
-from tradex_domain import BrokerId, OrderRejectedError
+from tradex_domain import BrokerId, Money, OrderRejectedError
 from tradex_domain.constants import (
     BOOK_MATCHING,
     DEFAULT_BPS_DIVISOR,
@@ -812,6 +812,11 @@ def _boot_tail(
             fill_reference=cfg.execution.fill_reference,
             sizer=strategy_sizer,
             pending_max_age_bars=cfg.execution.pending_max_age_bars,
+            # Read-only context views (Phase 6-7): strategies read
+            # position/portfolio/market off the context instead of reaching
+            # through ``context.session`` at the live session services.
+            positions_provider=lambda: engine.cache.all_positions(),
+            balance_provider=lambda: Money(amount=engine.cash_snapshot().cash),
         )
         strategy_registry = StrategyRegistry()
         # The discovered examples are bound to a hardcoded instrument and place

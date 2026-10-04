@@ -44,7 +44,16 @@ class Signal(Serializable):
 
 @dataclass(frozen=True, slots=True)
 class StrategyContext(Serializable):
-    """Context passed to strategy callbacks."""
+    """Context passed to strategy callbacks.
+
+    **Deprecated:** ``session`` is a live ``SessionFacade`` exposing
+    trade/portfolio/stream/scanner/state/bus — a leaky boundary that lets a
+    strategy reach services it has no business holding. Prefer the read-only
+    views below (``market``, ``position``, ``portfolio``, ``analytics``),
+    populated by the engine from its own state. ``session`` is retained as a
+    fallback during the migration and will be removed once every strategy
+    reads through the views.
+    """
 
     session: SessionFacade | None = None
     instruments: tuple[Instrument, ...] = ()
@@ -57,6 +66,14 @@ class StrategyContext(Serializable):
     #: or None when no AnalyticsRuntime is wired. Strategies read indicator
     #: values from this view instead of computing them locally.
     analytics: Any = None
+    #: Read-only market view: the latest quote per instrument as tracked by
+    #: the engine, or None when no quote has been seen. Replaces the
+    #: ``context.session.stream`` read path.
+    market: Any = None
+    #: Read-only portfolio view: a balance + positions snapshot taken when
+    #: the context is built, or None when no positions/balance provider is
+    #: wired. Replaces the ``context.session.portfolio`` read path.
+    portfolio: Any = None
 
 
 @dataclass(frozen=True, slots=True)

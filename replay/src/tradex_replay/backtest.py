@@ -24,7 +24,7 @@ from tradex_domain.execution import OrderRequest
 from tradex_domain.marketing import select_mark
 from tradex_domain.protective import stop_hit, target_hit
 from tradex_domain.utils import q2
-from tradex_domain.value_objects import CorrelationId, Price, Quantity
+from tradex_domain.value_objects import CorrelationId, Money, Price, Quantity
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fees import FeeCalculator
 from tradex_execution.fill_sources import FillSource, SimulatedFillSource
@@ -724,6 +724,11 @@ class BacktestEngine:
             fill_reference="next_open",
             sizer=sizer,
             analytics=analytics,
+            # Read-only context views (Phase 6-7): the same cache and ledger
+            # the risk manager reads, so a strategy's view of its position
+            # and balance is the run's own book — no second source.
+            positions_provider=lambda: cache.all_positions(),
+            balance_provider=lambda: Money(amount=engine.cash_snapshot().cash),
         )
         strategy_engine.register(strategy)
 
