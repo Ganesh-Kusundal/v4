@@ -57,6 +57,7 @@ from tradex_reactive.bus import ReactiveBus
 from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_strategy.core.engine import ReactiveStrategyEngine
 from tradex_strategy.core.scanner import DEFAULT_SCANNER_CALL_INTERVAL, ScannerEngine
+from tradex_strategy.core.signal_builder import get_strategy
 from tradex_strategy.extensions import all_definitions, all_scanners, all_strategies
 
 from tradex_runtime.logging_config import setup_structured_logging
@@ -819,7 +820,40 @@ def _boot_tail(
         # account would run `sma_cross_example` on RELIANCE out of the box, and
         # SELL (never cash-gated) would put on a real short.
         strategies = all_strategies if cfg.execution.auto_register_examples else ()
+
+        # The per-binding definition path (below) is active only when the
+        # examples are opted in and a tape is named; it is resolved here so the
+        # module-instance loop can suppress the instances it replaces.
+        universe = tuple(
+            cfg.feed_instruments if feed_instruments is None else feed_instruments
+        )
+        per_binding_active = bool(
+            cfg.execution.auto_register_examples and all_definitions and universe
+        )
+        # A definition and a module-level instance can describe the same
+        # strategy (the reference ``sma_cross_example`` instance and the
+        # ``sma_cross`` definition). With the per-binding path active both
+        # would register and trade the same instrument, so every order the
+        # module instance places would be doubled by its per-binding twin. The
+        # definition owns the strategy, so suppress the module instance it
+        # replaces; the link is the strategy registry the module instance
+        # registers under, whose name is the definition's spec id. A strategy
+        # with no definition is untouched, preserving backward compatibility.
+        suppressed_strategy_ids: set[str] = set()
+        if per_binding_active:
+            for definition in all_definitions:
+                owner = get_strategy(definition.spec.id)
+                if owner is not None:
+                    suppressed_strategy_ids.add(owner.strategy_id)
+
         for strategy in strategies:
+            if strategy.strategy_id in suppressed_strategy_ids:
+                log.info(
+                    "suppressing module instance %s: a definition binds it "
+                    "per instrument",
+                    strategy.strategy_id,
+                )
+                continue
             artifact = StrategyArtifact(
                 strategy_id=strategy.strategy_id,
                 version=str(getattr(strategy, "version", VERSION_DEFAULT)),
@@ -853,19 +887,14 @@ def _boot_tail(
         # Phase 4: definition/instance separation. A ``StrategyDefinition`` is
         # a factory + spec; expanding it over the named tape yields one
         # isolated instance per instrument, each addressable by a
-        # ``<definition_id>:<symbol>`` strategy id. This is additive: the
-        # module-level instances above still register as they always have, and
-        # a strategy with no definition is untouched. It is gated on the same
+        # ``<definition_id>:<symbol>`` strategy id. It is gated on the same
         # opt-in as the examples (``auto_register_examples``) because a
         # per-binding instance places orders exactly like the instance it
         # replaces — a boot that did not ask for examples must not acquire one
-        # per symbol. Without a named universe there is nothing to bind to, so
-        # the path is a no-op and the instance registration above is the whole
-        # story.
-        universe = tuple(
-            cfg.feed_instruments if feed_instruments is None else feed_instruments
-        )
-        if cfg.execution.auto_register_examples and all_definitions and universe:
+        # per symbol. A strategy that has a definition has its module instance
+        # suppressed above, so only the per-binding instance trades; a strategy
+        # with no definition is untouched.
+        if per_binding_active:
             from tradex_strategy.core.definitions import instantiate_definitions
 
             for definition in all_definitions:

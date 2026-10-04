@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from tradex_domain.execution import OrderRequest
@@ -10,6 +11,8 @@ from tradex_domain.value_objects import Price
 
 from tradex_strategy.core.brackets import protective_request
 from tradex_strategy.core.sizing import PositionSizer
+
+log = logging.getLogger(__name__)
 
 
 class DecisionPipeline:
@@ -37,7 +40,15 @@ class DecisionPipeline:
     ) -> OrderRequest | None:
         decision = self._sizer.size(signal, reference_price=entry_price)
         if decision.quantity is None:
+            log.error(
+                "%s: refused to size %s — %s",
+                strategy_id, getattr(signal, "reason", ""), decision.reason,
+            )
             return None
+        log.info(
+            "%s: sized %s to %s (%s)", strategy_id,
+            getattr(signal, "reason", ""), decision.quantity, decision.reason,
+        )
         return protective_request(
             signal=signal,
             entry=entry_price,
