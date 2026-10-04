@@ -9,10 +9,10 @@ example — no core changes required.
 
 from __future__ import annotations
 
-from tradex_domain import OrderSide, Signal
+from tradex_domain import OrderSide, Signal, Timeframe
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
-from tradex_domain.strategy import StrategyContext
+from tradex_domain.strategy import StrategyContext, StrategySpec
 
 from tradex_strategy.core.signal_builder import build_signal, register_strategy
 
@@ -77,6 +77,16 @@ class MeanReversionStrategy:
     def instruments(self):
         """Instrument ids this strategy is bound to (routing)."""
         return [self._instrument.instrument_id]
+
+    @property
+    def spec(self) -> StrategySpec:
+        """Declared requirements (Phase 3): RSI on M1, period+1 warmup."""
+        return StrategySpec(
+            id="mean_reversion_example",
+            required_indicators=("rsi",),
+            warmup_bars=15,
+            timeframes=(Timeframe.M1,),
+        )
 
     def on_start(self, context: StrategyContext) -> None:
         """No-op start hook."""

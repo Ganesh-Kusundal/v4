@@ -25,12 +25,12 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from tradex_domain import OrderSide, Signal
+from tradex_domain import OrderSide, Signal, Timeframe
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
 from tradex_domain.protective import stop_hit as domain_stop_hit
 from tradex_domain.protective import target_hit as domain_target_hit
-from tradex_domain.strategy import StrategyContext
+from tradex_domain.strategy import StrategyContext, StrategySpec
 from tradex_domain.value_objects import Price
 
 from tradex_strategy.core.signal_builder import build_signal, register_strategy
@@ -111,6 +111,18 @@ class BracketBreakoutStrategy:
     def instruments(self) -> list:
         """Instrument ids this strategy is bound to (routing)."""
         return [self._instrument.instrument_id]
+
+    @property
+    def spec(self) -> StrategySpec:
+        """Declared requirements (Phase 3): no indicator math — the ATR stop
+        is computed from bars in-strategy, so nothing is required from the
+        registry. Warmup covers the lookback window plus one bar."""
+        return StrategySpec(
+            id="bracket_breakout_example",
+            required_indicators=(),
+            warmup_bars=21,
+            timeframes=(Timeframe.M1,),
+        )
 
     def on_start(self, context: StrategyContext) -> None:
         """No-op start hook."""

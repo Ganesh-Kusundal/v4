@@ -9,9 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 from tradex_analytics.indicators import supertrend
-from tradex_domain import OrderSide
+from tradex_domain import OrderSide, Timeframe
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
+from tradex_domain.strategy import StrategySpec
 
 from tradex_strategy.extensions.strategies.study_base import (
     StudyStrategyBase,
@@ -19,6 +20,13 @@ from tradex_strategy.extensions.strategies.study_base import (
 
 
 class SupertrendFlipStrategy(StudyStrategyBase):
+    spec = StrategySpec(
+        id="supertrend_flip",
+        required_indicators=("supertrend",),
+        warmup_bars=10,
+        timeframes=(Timeframe.M1,),
+    )
+
     def __init__(
         self,
         strategy_id: str,

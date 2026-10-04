@@ -91,4 +91,29 @@ class ScannerResult(Serializable):
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-__all__ = ["Condition", "ScannerDefinition", "ScannerResult", "Signal", "StrategyContext"]
+@dataclass(frozen=True, slots=True)
+class StrategySpec:
+    """What a strategy declares it needs, validated at startup.
+
+    Read via ``getattr(strategy, "spec", None)`` — a strategy with no spec
+    is valid (nothing to validate). This is metadata + validation only; it
+    does not drive routing or computation.
+    """
+
+    id: str
+    version: str = "1.0.0"
+    scope: str = "INSTRUMENT"
+    timeframes: tuple[Timeframe, ...] = ()
+    warmup_bars: int = 0
+    required_indicators: tuple[str, ...] = ()
+    required_features: tuple[str, ...] = ()
+
+
+__all__ = [
+    "Condition",
+    "ScannerDefinition",
+    "ScannerResult",
+    "Signal",
+    "StrategyContext",
+    "StrategySpec",
+]

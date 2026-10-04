@@ -11,9 +11,10 @@ from __future__ import annotations
 from typing import Any, cast
 
 from tradex_analytics.indicators import sma_seeded_ema
-from tradex_domain import OrderSide
+from tradex_domain import OrderSide, Timeframe
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
+from tradex_domain.strategy import StrategySpec
 
 from tradex_strategy.extensions.strategies.study_base import (
     StudyStrategyBase,
@@ -21,6 +22,13 @@ from tradex_strategy.extensions.strategies.study_base import (
 
 
 class EmaRibbonPullbackStrategy(StudyStrategyBase):
+    spec = StrategySpec(
+        id="ema_ribbon_pullback",
+        required_indicators=("ema",),
+        warmup_bars=101,
+        timeframes=(Timeframe.M1,),
+    )
+
     def __init__(
         self,
         strategy_id: str,

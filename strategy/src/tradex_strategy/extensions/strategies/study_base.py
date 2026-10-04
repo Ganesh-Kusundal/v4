@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any
 
 from tradex_domain import OrderSide, Signal
+from tradex_domain.strategy import StrategySpec
 
 from tradex_strategy.core.signal_builder import build_signal
 
@@ -60,6 +61,10 @@ class StudyStrategyBase:
 
     #: subclass metadata
     version_value: str = "1.0.0"
+
+    #: Declared requirements (Phase 3). Subclasses override; ``None`` means
+    #: the strategy declares nothing, which is valid (nothing to validate).
+    spec: StrategySpec | None = None
 
     def __init__(self, strategy_id: str, instrument, warmup: int) -> None:
         self._id = strategy_id

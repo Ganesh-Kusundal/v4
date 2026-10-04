@@ -33,6 +33,7 @@ from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.protocols import BrokerAdapter
 from tradex_strategy.core.sizing import DEFAULT_MAX_ORDER_VALUE
+from tradex_strategy.core.spec_validator import validate_strategy_spec
 
 if TYPE_CHECKING:
     from tradex_runtime.session_impl import TradingSession
@@ -848,6 +849,24 @@ def _boot_tail(
                 ),
             )
             strategy_engine.register(strategy)
+
+        # Phase 3: validate every discovered strategy's declared spec at
+        # boot. A strategy that declares a requirement the platform cannot
+        # meet (unknown indicator, unknown feature) is a startup error, not
+        # a first-candle runtime failure. Strategies without a spec declare
+        # nothing and are valid. The full discovered set is validated, not
+        # just the auto-registered ones, so a broken spec refuses the boot
+        # even when the examples are not auto-registered.
+        for strategy in all_strategies:
+            spec = getattr(strategy, "spec", None)
+            if spec is None:
+                continue
+            problems = validate_strategy_spec(spec)
+            if problems:
+                raise ValueError(
+                    f"strategy {spec.id!r} declared requirements the platform "
+                    f"cannot meet: {'; '.join(problems)}"
+                )
 
     # 7. Connect broker (loads instruments/registry for live brokers)
     broker.connect()

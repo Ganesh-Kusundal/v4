@@ -9,9 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 from tradex_analytics.indicators import macd
-from tradex_domain import OrderSide
+from tradex_domain import OrderSide, Timeframe
 from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
+from tradex_domain.strategy import StrategySpec
 
 from tradex_strategy.extensions.strategies.study_base import (
     StudyStrategyBase,
@@ -19,6 +20,13 @@ from tradex_strategy.extensions.strategies.study_base import (
 
 
 class MacdCrossStrategy(StudyStrategyBase):
+    spec = StrategySpec(
+        id="macd_cross",
+        required_indicators=("macd",),
+        warmup_bars=35,
+        timeframes=(Timeframe.M1,),
+    )
+
     def __init__(
         self,
         strategy_id: str,
