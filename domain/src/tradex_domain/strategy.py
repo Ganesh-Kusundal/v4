@@ -107,6 +107,10 @@ class StrategySpec:
     warmup_bars: int = 0
     required_indicators: tuple[str, ...] = ()
     required_features: tuple[str, ...] = ()
+    #: Event-type names the strategy subscribes to (``Candle``/``Quote``/
+    #: ``Depth``/``Fill``). Empty is valid: a strategy may be quote-driven or
+    #: consume no event stream at all. Validated at startup.
+    subscriptions: tuple[str, ...] = ()
 
 
 __all__ = [

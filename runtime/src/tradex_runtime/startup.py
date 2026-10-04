@@ -852,11 +852,12 @@ def _boot_tail(
 
         # Phase 3: validate every discovered strategy's declared spec at
         # boot. A strategy that declares a requirement the platform cannot
-        # meet (unknown indicator, unknown feature) is a startup error, not
-        # a first-candle runtime failure. Strategies without a spec declare
-        # nothing and are valid. The full discovered set is validated, not
-        # just the auto-registered ones, so a broken spec refuses the boot
-        # even when the examples are not auto-registered.
+        # meet (unknown indicator/feature, unsupported timeframe, insufficient
+        # warmup, unknown subscription) is a startup error, not a first-candle
+        # runtime failure. Strategies without a spec declare nothing and are
+        # valid. The full discovered set is validated, not just the
+        # auto-registered ones, so a broken spec refuses the boot even when
+        # the examples are not auto-registered.
         for strategy in all_strategies:
             spec = getattr(strategy, "spec", None)
             if spec is None:

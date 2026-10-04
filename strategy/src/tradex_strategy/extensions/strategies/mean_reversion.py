@@ -80,10 +80,12 @@ class MeanReversionStrategy:
 
     @property
     def spec(self) -> StrategySpec:
-        """Declared requirements (Phase 3): RSI on M1, period+1 warmup."""
+        """Declared requirements (Phase 3): no registry indicator — RSI is
+        computed in-strategy from its own rolling closes. Warmup covers
+        period+1 bars for that local RSI."""
         return StrategySpec(
             id="mean_reversion_example",
-            required_indicators=("rsi",),
+            required_indicators=(),
             warmup_bars=15,
             timeframes=(Timeframe.M1,),
         )
