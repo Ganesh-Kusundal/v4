@@ -182,8 +182,9 @@ class ReactiveStrategyEngine:
         self._orders_expired: dict[str, int] = {}
         # Read-only context views (Phase 6-7). ``_latest_quotes`` is the
         # engine's own store, updated as Quote events arrive; each context
-        # gets a MarketView SNAPSHOT of it, so a strategy holding a context
-        # cannot see (let alone write) quotes that arrived after the fact.
+        # gets a MarketView — a live, read-only (write-rejecting) proxy over
+        # that store, not a point-in-time snapshot, so a strategy holding a
+        # context still sees quotes that arrived after the fact.
         self._latest_quotes: dict[InstrumentId, Quote] = {}
         self._positions_provider = positions_provider
         self._balance_provider = balance_provider
@@ -191,11 +192,11 @@ class ReactiveStrategyEngine:
     def _make_context(self, **overrides: Any) -> StrategyContext:
         """Create a StrategyContext with current engine state.
 
-        Carries the read-only ``market`` view (a snapshot of the latest
-        quotes) on every call. When ``instrument`` is passed — every
-        event handler passes its own event's instrument — the context also
-        carries the ``position``/``portfolio`` views resolved for that
-        instrument from the wired providers. Explicit ``position``/
+        Carries the read-only ``market`` view (a live proxy over the latest
+        quotes, not a snapshot) on every call. When ``instrument`` is passed
+        — every event handler passes its own event's instrument — the
+        context also carries the ``position``/``portfolio`` views resolved
+        for that instrument from the wired providers. Explicit ``position``/
         ``portfolio``/``market`` overrides win over the computed views.
         """
         instrument = overrides.pop("instrument", None)
@@ -203,7 +204,12 @@ class ReactiveStrategyEngine:
         if instrument is not None:
             views["position"] = self._position_for(instrument)
             views["portfolio"] = self._portfolio_view()
-        return StrategyContext(**views, **overrides)
+        # Merge rather than ``StrategyContext(**views, **overrides)``: an
+        # override naming a computed key (market, or position/portfolio when
+        # an instrument was passed) would raise ``TypeError: got multiple
+        # values for keyword argument`` instead of winning.
+        merged = {**views, **overrides}
+        return StrategyContext(**merged)
 
     def _position_for(self, instrument: Any) -> Position | None:
         """Open position for *instrument* from the wired provider, or None."""

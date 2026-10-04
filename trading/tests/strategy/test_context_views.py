@@ -152,6 +152,34 @@ def test_position_is_none_for_untracked_instrument() -> None:
     assert ctx.position is None
 
 
+def test_explicit_market_override_wins_over_computed_view() -> None:
+    """An explicit ``market`` override replaces the computed MarketView.
+
+    Regression: ``StrategyContext(**views, **overrides)`` raised
+    ``TypeError: got multiple values for keyword argument 'market'``
+    instead of letting the override win.
+    """
+    engine = _engine()
+    ctx = engine._make_context(market="OVERRIDE")
+    assert ctx.market == "OVERRIDE"
+
+
+def test_explicit_position_and_portfolio_overrides_win() -> None:
+    """Explicit ``position``/``portfolio`` overrides replace the computed views."""
+    engine = _engine(
+        positions_provider=lambda: [_position()],
+        balance_provider=lambda: _money("50000"),
+    )
+    instrument = Equity.of("NSE", "RELIANCE")
+    ctx = engine._make_context(
+        instrument=instrument,
+        position="POSITION_OVERRIDE",
+        portfolio="PORTFOLIO_OVERRIDE",
+    )
+    assert ctx.position == "POSITION_OVERRIDE"
+    assert ctx.portfolio == "PORTFOLIO_OVERRIDE"
+
+
 # ---------------------------------------------------------------------------
 # Read-only surface
 # ---------------------------------------------------------------------------
