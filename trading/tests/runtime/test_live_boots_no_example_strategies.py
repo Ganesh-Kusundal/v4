@@ -134,3 +134,66 @@ def test_a_deliberately_enabled_strategy_is_still_registered(
         )
     finally:
         session.stop()
+
+
+def _paper_cfg(tmp_path) -> AppConfig:
+    return AppConfig(risk=permissive_risk(),
+        mode="paper",
+        broker_id=BrokerId.DHAN,
+        persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+    )
+
+
+def _registered_strategy_ids(session) -> set:
+    reg = session.strategy_registry()
+    return {rt.artifact.strategy_id for rt in reg.list_all()}
+
+
+def test_per_binding_definition_suppresses_module_twin(
+    named_tape, monkeypatch, tmp_path,
+) -> None:
+    from dataclasses import replace
+
+    from tradex_runtime import startup as sm
+
+    monkeypatch.setattr(
+        "tradex_runtime.live.build_broker_from_env",
+        lambda *a, **k: _live_broker(),
+    )
+    cfg = replace(_live_cfg(tmp_path), execution=replace(
+        _live_cfg(tmp_path).execution, auto_register_examples=True,
+    ))
+    session = sm.boot(cfg)
+    try:
+        registered = _registered_strategy_ids(session)
+        assert "sma_cross:RELIANCE" in registered, (
+            "per-binding instance must be registered when a tape is named"
+        )
+        assert "sma_cross_example" not in registered, (
+            "module twin must be suppressed when the definition binds it"
+        )
+    finally:
+        session.stop()
+
+
+def test_module_twin_registered_without_feed_instruments(
+    no_tape, tmp_path,
+) -> None:
+    from dataclasses import replace
+
+    from tradex_runtime.startup import boot
+
+    cfg = replace(_paper_cfg(tmp_path), execution=replace(
+        _paper_cfg(tmp_path).execution, auto_register_examples=True,
+    ))
+    session = boot(cfg, feed_instruments=())
+    try:
+        registered = _registered_strategy_ids(session)
+        assert "sma_cross_example" in registered, (
+            "module twin must register when no tape is named"
+        )
+        assert "sma_cross:RELIANCE" not in registered, (
+            "per-binding instance must not register without a tape"
+        )
+    finally:
+        session.stop()

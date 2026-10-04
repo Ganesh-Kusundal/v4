@@ -842,9 +842,25 @@ def _boot_tail(
         suppressed_strategy_ids: set[str] = set()
         if per_binding_active:
             for definition in all_definitions:
+                # Convention: a module-level instance that a definition
+                # replaces must be registered in the strategy registry under
+                # the definition's spec id
+                # (``register_strategy(definition.spec.id, instance)``).
+                # This is the only link between a definition and its module
+                # twin — the instance's own ``strategy_id`` is independent
+                # (``sma_cross_example`` vs ``sma_cross``). A definition whose
+                # twin is not registered under its spec id cannot be
+                # suppressed here.
                 owner = get_strategy(definition.spec.id)
                 if owner is not None:
                     suppressed_strategy_ids.add(owner.strategy_id)
+                else:
+                    log.warning(
+                        "definition %r has no module instance registered "
+                        "under its spec id; if one exists it will not be "
+                        "suppressed",
+                        definition.spec.id,
+                    )
 
         for strategy in strategies:
             if strategy.strategy_id in suppressed_strategy_ids:
