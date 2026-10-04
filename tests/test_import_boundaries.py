@@ -257,6 +257,146 @@ def test_extracted_packages_respect_allowed_internals() -> None:
             assert not violations, f"{path.relative_to(_ROOT)} imports {sorted(violations)}"
 
 
+# ---------------------------------------------------------------------------
+# Extension-strategy boundaries (Phase 8)
+# ---------------------------------------------------------------------------
+#
+# The package-level rules above cap ``tradex_strategy`` at
+# ``{tradex_domain, tradex_analytics, tradex_market_data}``. That is the right
+# ceiling for the framework *core*, but an *extension strategy* is a leaf: the
+# code a user drops into ``extensions/strategies/``. A leaf that reaches into
+# the execution engine, a broker adapter, the runtime composition layer, or the
+# HTTP interface has stopped being a strategy and become a back door around the
+# one order path. A leaf that imports a concrete analytics *implementation*
+# has bypassed the shared analytics seam (``context.analytics``) that Phase 2
+# built to stop five strategies recomputing the same indicator five ways. These
+# rules hold the leaf small.
+
+_STRATEGY_EXT_SRC = _ROOT / "strategy/src/tradex_strategy/extensions/strategies"
+
+#: Packages an extension strategy may never import, at any depth.
+_STRATEGY_EXT_FORBIDDEN = {
+    "tradex_execution",
+    "tradex_brokers",
+    "tradex_runtime",
+    "tradex_interfaces",
+}
+
+#: Analytics modules that are pure *contracts* (Protocols / typed shapes) and
+#: not concrete implementations, so an extension strategy may import them.
+_STRATEGY_EXT_ANALYTICS_CONTRACTS = {"tradex_analytics.views"}
+
+#: Extension files approved to import the concrete ``tradex_analytics.indicators``
+#: compute seam directly. This is the Phase 2 *fallback* path: each strategy
+#: prefers ``context.analytics`` (the shared ``AnalyticsView``) and calls the
+#: module-level compute only when that view is absent, so the strategy can
+#: still be unit-tested without an ``AnalyticsRuntime``. The import is approved
+#: because it is the SAME seam the REST/WS indicator path uses, so a fallback
+#: signal cannot drift from the chart. A new file here needs a documented
+#: reason; a new *symbol* does not — the rule allows the module, not a name.
+_STRATEGY_EXT_ANALYTICS_FALLBACK = {
+    "strategy/src/tradex_strategy/extensions/strategies/bollinger_breakout.py",
+    "strategy/src/tradex_strategy/extensions/strategies/ema_ribbon_pullback.py",
+    "strategy/src/tradex_strategy/extensions/strategies/macd_cross.py",
+    "strategy/src/tradex_strategy/extensions/strategies/rsi_reversal.py",
+    "strategy/src/tradex_strategy/extensions/strategies/supertrend_flip.py",
+}
+
+
+def _extension_dotted_imports(path: Path) -> set[str]:
+    """Full dotted module names imported by an extension-strategy file.
+
+    TYPE_CHECKING imports are *not* excluded here, unlike the package-level
+    scan: the leaf contract is about architectural coupling, not only runtime
+    cycles, so a strategy should not even type-reference the engine.
+    """
+    return _imported_dotted(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+
+
+def _extension_forbidden_layer_hits() -> list[str]:
+    """Every extension import of a layer the leaf may not reach."""
+    offenders: list[str] = []
+    for path in _py_files(_STRATEGY_EXT_SRC):
+        rel = str(path.relative_to(_ROOT))
+        for name in sorted(_extension_dotted_imports(path)):
+            if name.split(".")[0] in _STRATEGY_EXT_FORBIDDEN:
+                offenders.append(f"{rel}: {name}")
+    return offenders
+
+
+def _extension_concrete_analytics_hits() -> list[str]:
+    """Every extension import of a concrete analytics implementation.
+
+    ``tradex_analytics.views`` (the ``AnalyticsView`` Protocol) is a contract,
+    not an implementation, and is allowed from any extension. The concrete
+    ``tradex_analytics.indicators`` module is allowed only for the files on the
+    documented Phase 2 fallback allowlist. Everything else — including the bare
+    ``tradex_analytics`` package, which drags in every implementation — is a
+    violation.
+    """
+    offenders: list[str] = []
+    for path in _py_files(_STRATEGY_EXT_SRC):
+        rel = str(path.relative_to(_ROOT))
+        for name in sorted(_extension_dotted_imports(path)):
+            if name != "tradex_analytics" and not name.startswith("tradex_analytics."):
+                continue
+            if name in _STRATEGY_EXT_ANALYTICS_CONTRACTS:
+                continue
+            if name == "tradex_analytics.indicators" and rel in _STRATEGY_EXT_ANALYTICS_FALLBACK:
+                continue
+            offenders.append(f"{rel}: {name}")
+    return offenders
+
+
+def test_strategy_extensions_respect_extension_boundaries() -> None:
+    """An extension strategy may not import execution/brokers/runtime/interfaces."""
+    offenders = _extension_forbidden_layer_hits()
+    assert not offenders, (
+        "extension strategies import a layer they must not reach; a strategy is "
+        "a leaf and must go through the engine/ports, not around them:\n" + "\n".join(offenders)
+    )
+
+
+def test_strategy_extensions_do_not_import_concrete_analytics() -> None:
+    """An extension strategy reads indicators through ``context.analytics``.
+
+    Only ``tradex_analytics.views`` (the contract) is allowed, plus the
+    documented Phase 2 fallback in ``_STRATEGY_EXT_ANALYTICS_FALLBACK``.
+    """
+    offenders = _extension_concrete_analytics_hits()
+    assert not offenders, (
+        "extension strategies import a concrete analytics implementation; read "
+        "indicators through context.analytics (AnalyticsView) instead. The only "
+        "exceptions are tradex_analytics.views and the documented fallback "
+        "allowlist:\n" + "\n".join(offenders)
+    )
+
+
+def test_strategy_extension_scan_root_is_not_empty() -> None:
+    """Guard the extension scans against passing vacuously."""
+    assert _py_files(_STRATEGY_EXT_SRC), (
+        f"no .py files found under {_STRATEGY_EXT_SRC.relative_to(_ROOT)}; the "
+        "extension boundary scan is not looking at anything"
+    )
+
+
+def test_strategy_extension_fallback_allowlist_is_current() -> None:
+    """Every approved fallback entry must still import the approved module.
+
+    Without this, a strategy that drops its fallback leaves a stale allowlist
+    entry behind, and the allowlist drifts into excusing an import that no
+    longer exists — so a later reader trusts a justification that is false.
+    """
+    for rel in sorted(_STRATEGY_EXT_ANALYTICS_FALLBACK):
+        path = _ROOT / rel
+        assert path.is_file(), f"fallback allowlist names a missing file: {rel}"
+        imported = _extension_dotted_imports(path)
+        assert "tradex_analytics.indicators" in imported, (
+            f"{rel} is on the concrete-analytics fallback allowlist but no "
+            "longer imports tradex_analytics.indicators; drop the entry"
+        )
+
+
 def test_all_workspace_packages_present() -> None:
     """Guard against the test silently scanning nothing."""
     for name, src in _SRC.items():
