@@ -53,6 +53,10 @@ class StrategyContext(Serializable):
     balance: Money | None = None
     timestamp: datetime | None = None
     bar_count: int = 0
+    #: Read-only analytics view for the current (instrument, timeframe),
+    #: or None when no AnalyticsRuntime is wired. Strategies read indicator
+    #: values from this view instead of computing them locally.
+    analytics: Any = None
 
 
 @dataclass(frozen=True, slots=True)

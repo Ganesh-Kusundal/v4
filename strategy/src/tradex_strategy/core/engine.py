@@ -6,7 +6,7 @@ import hashlib
 import logging
 from collections.abc import Callable, Iterable
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
 from tradex_domain.events import ErrorOccurred, OrderCancelled
@@ -23,6 +23,9 @@ from tradex_strategy.core.routing import (
     event_instrument_id,
 )
 from tradex_strategy.core.sizing import PositionSizer, unconfigured_sizer
+
+if TYPE_CHECKING:
+    from tradex_analytics.runtime import AnalyticsRuntime
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +83,7 @@ class ReactiveStrategyEngine:
         fill_reference: str = "next_open",
         pending_max_age_bars: int = 0,
         sizer: PositionSizer | None = None,
+        analytics: AnalyticsRuntime | None = None,
     ) -> None:
         """Initialize with a ReactiveBus.
 
@@ -103,7 +107,12 @@ class ReactiveStrategyEngine:
                 value of ``N`` cancels the order on the ``N+1``-th bar that
                 does not match its instrument.
             sizer: the ``PositionSizer`` for this engine. ``None`` means
-                :func:`~tradex_strategy.core.sizing.unconfigured_sizer`.
+                :func:`~tradex_strategy.core.sizing.unconfigured_sizer``.
+            analytics: optional ``AnalyticsRuntime`` each candle is ingested
+                into before the strategy is evaluated; the resulting
+                ``AnalyticsView`` for the candle's (instrument, timeframe) is
+                passed to the strategy via ``StrategyContext.analytics``.
+                ``None`` (default) leaves the context field ``None``.
         """
         if fill_reference not in _FILL_REFERENCES:
             raise ValueError(f"unknown fill_reference: {fill_reference!r}")
@@ -121,6 +130,7 @@ class ReactiveStrategyEngine:
         self._fill_reference = fill_reference
         self._bus = bus
         self._sizer = sizer if sizer is not None else unconfigured_sizer()
+        self._analytics = analytics
         self._strategies: dict[str, Any] = {}
         # Per-symbol event routing (Phase 1). Built at register() from
         # each strategy's declared instruments; consulted by the wrapper
@@ -217,9 +227,17 @@ class ReactiveStrategyEngine:
                 strategy.strategy_id, Candle, inst_id
             ):
                 return None
+            # Feed the canonical bar store and bind the view to this
+            # candle's (instrument, timeframe). The strategy reads indicator
+            # values from the shared view instead of computing locally.
+            view = None
+            if self._analytics is not None:
+                self._analytics.ingest(candle)
+                view = self._analytics.view(candle.instrument.instrument_id, candle.timeframe)
             ctx = self._make_context(
                 bar_count=self._bar_count,
                 timestamp=getattr(candle, "timestamp", None),
+                analytics=view,
             )
             result = strategy.on_bar(ctx, candle)
             self._maybe_publish_order(result, strategy, candle)

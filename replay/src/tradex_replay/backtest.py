@@ -713,8 +713,17 @@ class BacktestEngine:
         # stays a driver of market data into the run and a source of
         # observations out of it.
         sizer = self._resolve_sizer()
+        # Fresh runtime per run: no cross-run leakage of bars or cached
+        # indicator state. The engine ingests each candle into it and hands
+        # the resulting view to the strategy via StrategyContext.analytics.
+        from tradex_analytics.runtime import AnalyticsRuntime
+        analytics = AnalyticsRuntime()
         strategy_engine = ReactiveStrategyEngine(
-            bus, engine.submit, fill_reference="next_open", sizer=sizer,
+            bus,
+            engine.submit,
+            fill_reference="next_open",
+            sizer=sizer,
+            analytics=analytics,
         )
         strategy_engine.register(strategy)
 
