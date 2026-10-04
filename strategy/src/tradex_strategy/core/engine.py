@@ -16,7 +16,7 @@ from tradex_domain.market import Candle, Depth, Quote
 from tradex_domain.strategy import Signal, StrategyContext
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
-from tradex_strategy.core.brackets import protective_request
+from tradex_strategy.core.decision_pipeline import DecisionPipeline
 from tradex_strategy.core.routing import (
     StrategySubscription,
     SubscriptionRouter,
@@ -130,6 +130,7 @@ class ReactiveStrategyEngine:
         self._fill_reference = fill_reference
         self._bus = bus
         self._sizer = sizer if sizer is not None else unconfigured_sizer()
+        self._pipeline = DecisionPipeline(self._sizer)
         self._analytics = analytics
         self._strategies: dict[str, Any] = {}
         # Per-symbol event routing (Phase 1). Built at register() from
@@ -328,23 +329,17 @@ class ReactiveStrategyEngine:
                 # sizing a next_open order at the signal bar's close sets both
                 # the notional ceiling and the risk budget against a price the
                 # order never got.
-                quantity = self._size(
-                    pending["signal"], open_price, pending["strategy_id"],
-                )
-                if quantity is None:
-                    continue
                 # Declared protective levels ride the deferred signal onto the
                 # order, validated against the open this order actually fills
                 # at — not the close the strategy saw when it declared them.
-                request = protective_request(
-                    signal=pending["signal"],
-                    entry=open_price,
-                    quantity=quantity,
+                request = self._pipeline.build_request(
+                    pending["signal"], open_price, pending["strategy_id"],
                     correlation_id=pending["correlation_id"],
                     tag=f"{pending['strategy_id']}@{version}",
-                    strategy_id=pending["strategy_id"],
                     reference_timestamp=getattr(candle, "timestamp", None),
                 )
+                if request is None:
+                    continue
                 self._place(request, pending["strategy_id"])
         # Sweep stale orders from every other instrument's queue (O(n_bars)
         # instruments × O(k) per-instrument pending).
@@ -547,18 +542,14 @@ class ReactiveStrategyEngine:
                 f"strategy {strategy_id} emitted {result.reason!r} without a "
                 "priced event (candle/quote/depth) to reference"
             )
-        quantity = self._size(result, price, strategy_id)
-        if quantity is None:
-            return
-        request = protective_request(
-            signal=result,
-            entry=price,
-            quantity=quantity,
+        request = self._pipeline.build_request(
+            result, price, strategy_id,
             correlation_id=correlation_id,
             tag=tag,
-            strategy_id=strategy_id,
             reference_timestamp=getattr(event, "timestamp", None),
         )
+        if request is None:
+            return
         # AC-17 / lane 5c, second link in the chain. This is where the id is
         # born: the strategy derives it from the triggering event and stamps it
         # on the order, so logging it here is what lets an operator find the
