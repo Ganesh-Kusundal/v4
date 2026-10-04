@@ -24,6 +24,7 @@ from tradex_strategy.extensions.strategies.rsi_reversal import (
     rsi_reversal_strategy,
 )
 from tradex_strategy.extensions.strategies.sma_cross import (
+    sma_cross_definition,
     sma_cross_strategy,
 )
 from tradex_strategy.extensions.strategies.supertrend_flip import (
@@ -37,6 +38,7 @@ __all__ = [
     "mean_reversion_strategy",
     "multi_symbol_sma_cross",
     "rsi_reversal_strategy",
+    "sma_cross_definition",
     "sma_cross_strategy",
     "supertrend_flip_strategy",
 ]

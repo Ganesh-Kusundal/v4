@@ -57,7 +57,7 @@ from tradex_reactive.bus import ReactiveBus
 from tradex_reactive.thread_safe_bus import ThreadSafeReactiveBus
 from tradex_strategy.core.engine import ReactiveStrategyEngine
 from tradex_strategy.core.scanner import DEFAULT_SCANNER_CALL_INTERVAL, ScannerEngine
-from tradex_strategy.extensions import all_scanners, all_strategies
+from tradex_strategy.extensions import all_definitions, all_scanners, all_strategies
 
 from tradex_runtime.logging_config import setup_structured_logging
 from tradex_runtime.metrics import MetricsRegistry
@@ -850,6 +850,53 @@ def _boot_tail(
             )
             strategy_engine.register(strategy)
 
+        # Phase 4: definition/instance separation. A ``StrategyDefinition`` is
+        # a factory + spec; expanding it over the named tape yields one
+        # isolated instance per instrument, each addressable by a
+        # ``<definition_id>:<symbol>`` strategy id. This is additive: the
+        # module-level instances above still register as they always have, and
+        # a strategy with no definition is untouched. It is gated on the same
+        # opt-in as the examples (``auto_register_examples``) because a
+        # per-binding instance places orders exactly like the instance it
+        # replaces — a boot that did not ask for examples must not acquire one
+        # per symbol. Without a named universe there is nothing to bind to, so
+        # the path is a no-op and the instance registration above is the whole
+        # story.
+        universe = tuple(
+            cfg.feed_instruments if feed_instruments is None else feed_instruments
+        )
+        if cfg.execution.auto_register_examples and all_definitions and universe:
+            from tradex_strategy.core.definitions import instantiate_definitions
+
+            for definition in all_definitions:
+                for instrument in universe:
+                    bound_id = f"{definition.spec.id}:{instrument.symbol}"
+                    (instance,) = instantiate_definitions(
+                        [definition], [instrument], strategy_id=bound_id
+                    )
+                    artifact = StrategyArtifact(
+                        strategy_id=bound_id,
+                        version=str(getattr(instance, "version", VERSION_DEFAULT)),
+                    )
+
+                    def _stop_bound(sid: str = bound_id) -> None:
+                        strategy_engine.stop_strategy(
+                            sid,
+                            cancel=engine.cancel,
+                            working_orders=engine.cache.all_orders(),
+                        )
+
+                    strategy_registry.register(
+                        StrategyRuntime(
+                            artifact,
+                            instance,
+                            on_pause=lambda sid=bound_id: strategy_engine.pause_strategy(sid),
+                            on_resume=lambda sid=bound_id: strategy_engine.resume_strategy(sid),
+                            on_stop=lambda sid=bound_id: _stop_bound(sid),
+                        ),
+                    )
+                    strategy_engine.register(instance)
+
         # Phase 3: validate every discovered strategy's declared spec at
         # boot. A strategy that declares a requirement the platform cannot
         # meet (unknown indicator/feature, unsupported timeframe, insufficient
@@ -867,6 +914,19 @@ def _boot_tail(
                 raise ValueError(
                     f"strategy {spec.id!r} declared requirements the platform "
                     f"cannot meet: {'; '.join(problems)}"
+                )
+
+        # Phase 4: a definition's spec is the spec every per-binding instance
+        # will carry, so it is validated on the same terms even when no
+        # universe was named and no instance was built. This keeps the gate
+        # above intact for the instance-based path and extends it to the
+        # definition-based one.
+        for definition in all_definitions:
+            problems = validate_strategy_spec(definition.spec)
+            if problems:
+                raise ValueError(
+                    f"strategy {definition.spec.id!r} declared requirements the "
+                    f"platform cannot meet: {'; '.join(problems)}"
                 )
 
     # 7. Connect broker (loads instruments/registry for live brokers)

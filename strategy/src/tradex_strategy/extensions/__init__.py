@@ -2,8 +2,9 @@
 
 Discovery contract (pinned): each ``extensions`` sub-package lists candidate
 objects in ``__all__``; this package filters them with ``isinstance`` against
-the runtime-checkable ``Strategy`` protocol and the ``ScannerDefinition``
-dataclass, exposing ``all_strategies`` and ``all_scanners``.
+the runtime-checkable ``Strategy`` protocol, the ``StrategyDefinition``
+factory/spec pair, and the ``ScannerDefinition`` dataclass, exposing
+``all_strategies``, ``all_definitions`` and ``all_scanners``.
 
 Importing this package (directly, or via ``tradex_trading.strategy``) triggers
 discovery — custom strategies and scanners are picked up without touching core.
@@ -15,6 +16,7 @@ from typing import Any, TypeVar, cast
 
 from tradex_domain.strategy import ScannerDefinition
 
+from tradex_strategy.core.definitions import StrategyDefinition
 from tradex_strategy.core.protocols import Strategy
 from tradex_strategy.extensions import scanners as _scanners
 from tradex_strategy.extensions import shared as _shared  # noqa: F401
@@ -40,6 +42,9 @@ def _collect(package: object, predicate: Any) -> tuple[_T, ...]:
 
 all_strategies: tuple[Strategy, ...] = _collect(_strategies, Strategy)
 all_scanners: tuple[ScannerDefinition, ...] = _collect(_scanners, ScannerDefinition)
+all_definitions: tuple[StrategyDefinition, ...] = _collect(
+    _strategies, StrategyDefinition
+)
 
 
-__all__ = ["all_strategies", "all_scanners"]
+__all__ = ["all_definitions", "all_strategies", "all_scanners"]

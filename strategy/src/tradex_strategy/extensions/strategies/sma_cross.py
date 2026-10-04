@@ -12,6 +12,7 @@ from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity
 from tradex_domain.strategy import StrategyContext, StrategySpec
 
+from tradex_strategy.core.definitions import StrategyDefinition
 from tradex_strategy.core.signal_builder import build_signal, register_strategy
 
 
@@ -154,4 +155,20 @@ sma_cross_strategy = SmaCrossStrategy(
     instrument=Equity.of(ExchangeId.NSE, "RELIANCE"),
 )
 register_strategy("sma_cross", sma_cross_strategy)
+
+sma_cross_definition = StrategyDefinition(
+    spec=StrategySpec(
+        id="sma_cross",
+        version="1.0.0",
+        scope="INSTRUMENT",
+        timeframes=(Timeframe.M1,),
+        warmup_bars=20,
+        required_indicators=("sma",),
+    ),
+    create=lambda instrument, strategy_id="sma_cross", **config: SmaCrossStrategy(
+        strategy_id=strategy_id, instrument=instrument, **config
+    ),
+)
+
+__all__ = ["SmaCrossStrategy", "sma_cross_definition", "sma_cross_strategy"]
 
