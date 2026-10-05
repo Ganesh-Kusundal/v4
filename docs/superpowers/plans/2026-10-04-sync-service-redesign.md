@@ -48,11 +48,11 @@ So the blind spot this plan diagnosed is still open at runtime.
 - **`SyncService` is not yet a superset of `simple_sync`.** `simple_sync` accepts `ranges=` (range-scoped fetch, the thing that stops a tail-only gap from becoming a full-session Dhan request that returns the wrong bars); `SyncService.sync` does not. `SyncService.scan` also drops `holidays=`, which `repair_gaps`/`backfill_parquet` pass. Routing the range-scoped drivers **without** adding these regresses them. See the rewritten Task 4.
 - **`repair_tail` has no broker to route to.** It currently calls `self.sync`, i.e. Dhan — the one venue whose 1m series stops at 15:14 and so cannot serve the tail it exists to repair (`sync_service.py:251-254` admits this). No standalone Upstox tail-repair script exists (`rg -l "repair_tail|tail repair"` finds only these three modules), despite `simple_sync`'s docstring claiming "Upstox tail repair is a separate script." `repair_tail` is therefore a no-op with a misleading name; Task 3's version is **removed** in the reconciliation (see Task 4, Step 0).
 
-### Hardening owed before drivers route through it
+### Hardening (2 of 3 fixed in `4bb551a`)
 
-- **`converge` spins on deterministic failures.** `sync` sets `resumable` only when the *deadline* passed (`sync_service.py:182`); a `partial_response` with budget remaining leaves `resumable=False`, so `converge` re-scans, re-fetches the same symbol, gets the same partial, and burns up to 10 passes.
-- **`converged=True` is defined only by `min_gap_stamps`.** `converge` returns clean when `scan.gaps` is empty (`sync_service.py:203`) but ignores `scan.sub_threshold_symbols` — so with the drivers' `min_gap_stamps=15`, a real hole under the floor reports "converged". This is the exact blind spot `CLAUDE.md` documents.
-- **`_fetch_bounded` leaks worker threads.** A fresh `ThreadPoolExecutor` per batch with `shutdown(wait=False)` on timeout (`sync_service.py:113, 134`) leaves the hung broker call running in a non-daemon thread; over many batches the *process* can hang on exit even though each pass "returned in budget." There is no clean cancellation for a blocked socket read — this is a stated ceiling, not a solved problem.
+- ✅ **`converge` no longer spins on deterministic failures.** It tracks symbols a pass already failed and stops re-selecting them, so a reproducible `partial_response` is tried once, not ten times. (`SyncReport.under_floored` added alongside.)
+- ✅ **`converged=True` no longer ignores floored holes.** When `scan.gaps` is empty, `converge` consults `scan.sub_threshold_symbols`; a hole under `min_gap_stamps` returns `converged=False` with `under_floored=(symbols)`. Note this makes `converged` strictly stricter for every driver — a lake with sub-floor holes now reports "not converged" where it previously said clean.
+- ⚠️ **`_fetch_bounded` still leaks worker threads.** A fresh `ThreadPoolExecutor` per batch with `shutdown(wait=False)` on timeout (`sync_service.py:113, 134`) leaves the hung broker call running in a non-daemon thread; over many batches the *process* can hang on exit even though each pass "returned in budget." There is no clean cancellation for a blocked socket read — this is a stated ceiling, not a solved problem. **Unresolved; do not claim "cannot hang" without it.**
 
 ---
 
@@ -651,7 +651,7 @@ Add to `SyncService`:
 
 Recommended order:
 
-1. **Harden `converge`** (converge spin + `sub_threshold_symbols`) — small, and it changes what "converged" means for every driver that adopts `converge`. Land it before drivers depend on the flag.
+1. ~~**Harden `converge`**~~ — ✅ done in `4bb551a`.
 2. **Task 4 Step 1** — `ranges`/`holidays` on `SyncService`, with failing tests first.
 3. **Task 4 Steps 2–3** — route drivers one at a time, diffing accepted args against `SyncConfig` fields; run the interface + datalake suites after each.
 4. **Task 4 Step 0** — delete `repair_tail` and correct the `simple_sync` docstring; it can land any time before the drivers do.
