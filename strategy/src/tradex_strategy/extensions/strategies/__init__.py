@@ -20,6 +20,9 @@ from tradex_strategy.extensions.strategies.mean_reversion import (
 from tradex_strategy.extensions.strategies.multi_symbol_sma_cross import (
     multi_symbol_sma_cross,
 )
+from tradex_strategy.extensions.strategies.regime_filtered_supertrend import (
+    regime_filtered_supertrend_strategy,
+)
 from tradex_strategy.extensions.strategies.rsi_reversal import (
     rsi_reversal_strategy,
 )
@@ -37,6 +40,7 @@ __all__ = [
     "macd_cross_strategy",
     "mean_reversion_strategy",
     "multi_symbol_sma_cross",
+    "regime_filtered_supertrend_strategy",
     "rsi_reversal_strategy",
     "sma_cross_definition",
     "sma_cross_strategy",
