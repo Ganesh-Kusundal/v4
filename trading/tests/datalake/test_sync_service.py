@@ -67,6 +67,33 @@ class _Store:
         return None
 
 
+class _MemStore:
+    """In-memory store: upsert records frames; read returns them filtered.
+
+    ``_Store`` always reads empty, so converge could never observe the
+    coverage its own sync pass wrote and would loop to the pass cap. This
+    stand-in closes that loop: the second scan sees the written candles.
+    """
+
+    def __init__(self) -> None:
+        self.frames: list[pd.DataFrame] = []
+
+    def upsert(self, df: pd.DataFrame) -> int:
+        self.frames.append(df)
+        return len(df)
+
+    def read(self, *, symbols, start, end, timeframe) -> pd.DataFrame:
+        if not self.frames:
+            return pd.DataFrame()
+        df = pd.concat(self.frames, ignore_index=True)
+        df = df[df["symbol"].isin(symbols)]
+        ts = pd.to_datetime(df["timestamp"])
+        return df[(ts >= pd.Timestamp(start)) & (ts <= pd.Timestamp(end))]
+
+    def date_range(self, symbol):
+        return None
+
+
 class FakeBroker:
     """Programmable broker: rate-limit N times, truncate, sleep, or serve."""
 
@@ -132,6 +159,21 @@ def test_sync_detects_partial_response() -> None:
     assert "X" in report.failed
     assert report.failed["X"] == "partial_response"
     assert report.written == 0
+
+
+def test_converge_terminates_when_clean() -> None:
+    svc = SyncService(FakeBroker(), _MemStore(), SyncConfig(timeframe="1m"))
+    report = svc.converge([_eq("X")], START, END)
+    assert report.converged is True
+
+
+def test_converge_stops_at_budget() -> None:
+    svc = _service(FakeBroker(delay_s=5.0), budget_s=1.0)
+    t0 = time.monotonic()
+    report = svc.converge([_eq("X"), _eq("Y")], START, END)
+    assert time.monotonic() - t0 < 4.0
+    assert report.converged is False
+    assert report.resumable is True
 
 
 def test_coverage_accepts_utc_candles_at_ist_instants() -> None:

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from itertools import batched
 from typing import Any
@@ -190,6 +190,68 @@ class SyncService:
             elapsed_s=elapsed,
             resumable=exhausted,
         )
+
+    def converge(self, instruments, start, end) -> SyncReport:
+        inst_list = list(instruments)
+        t0 = time.monotonic()
+        deadline = t0 + self._config.budget_seconds
+        fetched = written = 0
+        failed: dict[str, str] = {}
+        for _ in range(10):  # bounded passes; budget is the real cap
+            scan = self.scan(inst_list, start, end)
+            if not scan.gaps:
+                return SyncReport(
+                    requested=len(inst_list),
+                    fetched=fetched,
+                    written=written,
+                    failed=failed,
+                    elapsed_s=time.monotonic() - t0,
+                    converged=True,
+                )
+            gapped = [inst for inst, _ in scan.gaps]
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            saved = self._config
+            object.__setattr__(self, "_config", replace(saved, budget_seconds=remaining))
+            try:
+                part = self.sync(gapped, start, end)
+            finally:
+                object.__setattr__(self, "_config", saved)
+            fetched += part.fetched
+            written += part.written
+            failed.update(part.failed)
+            if part.resumable:
+                break
+        return SyncReport(
+            requested=len(inst_list),
+            fetched=fetched,
+            written=written,
+            failed=failed,
+            elapsed_s=time.monotonic() - t0,
+            converged=False,
+            resumable=True,
+        )
+
+    def repair_tail(self, instruments, start, end) -> SyncReport:
+        # The detector classifies the unrepairable close; the open is
+        # repairable. Compose the Upstox pass over the edge-only symbols.
+        scan = GapDetector(self._store).scan(
+            instruments,
+            start=start,
+            end=end,
+            timeframe=self._config.timeframe,
+            bar_freq="1min",
+            include_open_stamps=True,
+        )
+        edge_symbols = {s for s in scan.edge_only} | set(scan.sub_threshold_symbols)
+        targets = [i for i in instruments if i.symbol in edge_symbols]
+        if not targets:
+            return SyncReport(0, 0, 0, converged=True)
+        # The tail pass uses the same sync machinery against the Upstox broker
+        # when one is configured; here it reuses self._broker so the service
+        # stays single-broker until the tail broker is wired at the driver.
+        return self.sync(targets, start, end)
 
 
 __all__ = ["SyncConfig", "SyncReport", "SyncService"]
