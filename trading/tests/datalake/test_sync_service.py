@@ -8,6 +8,7 @@ from decimal import Decimal
 
 import pandas as pd
 from tradex_domain import OHLC, Candle, Equity, HistoricalSeries, Price, Quantity, Timeframe
+from tradex_domain.market_calendar import IST, to_ist_naive
 from tradex_market_data.sync_service import SyncConfig, SyncService
 
 START = datetime(2026, 8, 3, 9, 15)
@@ -19,6 +20,10 @@ def _eq(symbol: str) -> Equity:
 
 
 def _candle(inst, ts: datetime) -> Candle:
+    # Real broker output: tz-aware UTC at the correct instant for the IST
+    # wall-clock timestamp (provider_common.parse_timestamp pins naive strings
+    # to UTC). Tagging the IST wall clock as UTC — the old fixture's bug —
+    # shifts every session 5.5h and fails coverage validation.
     return Candle(
         instrument=inst,
         timeframe=Timeframe.M1,
@@ -29,7 +34,7 @@ def _candle(inst, ts: datetime) -> Candle:
             close=Price(value=Decimal("100")),
         ),
         volume=Quantity(value=Decimal("1000")),
-        timestamp=ts.replace(tzinfo=UTC),
+        timestamp=ts.replace(tzinfo=IST).astimezone(UTC),
     )
 
 
@@ -127,3 +132,22 @@ def test_sync_detects_partial_response() -> None:
     assert "X" in report.failed
     assert report.failed["X"] == "partial_response"
     assert report.written == 0
+
+
+def test_coverage_accepts_utc_candles_at_ist_instants() -> None:
+    """A broker returning tz-aware UTC candles at the correct instants for a
+    09:15-15:30 IST window must pass coverage — not be flagged partial_response.
+    """
+    inst = _eq("X")
+    series = _full_series(inst, START, END)
+    first_utc = series.candles[0].timestamp
+    last_utc = series.candles[-1].timestamp
+    assert first_utc.tzinfo is not None
+    assert to_ist_naive(first_utc) == START
+    assert to_ist_naive(last_utc) == END
+    svc = _service(FakeBroker())
+    assert svc._validate_coverage(series, START, END) is True
+    report = svc.sync([inst], START, END)
+    assert report.failed == {}
+    assert report.fetched == 1
+    assert report.written > 0

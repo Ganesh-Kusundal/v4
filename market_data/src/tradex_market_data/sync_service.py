@@ -18,6 +18,7 @@ from typing import Any
 
 import pandas as pd
 from tradex_domain.market import HistoricalSeries
+from tradex_domain.market_calendar import to_ist_naive
 
 from tradex_market_data.gap_detector import GapDetector, GapScan
 from tradex_market_data.parallel_fetcher import (
@@ -84,9 +85,12 @@ class SyncService:
     ) -> bool:
         if not series.candles:
             return False
+        # Broker candles are tz-aware UTC; the window is IST-naive. Compare in
+        # IST-naive space (the datalake contract) — stripping tzinfo from a
+        # UTC stamp would shift every session 5.5h and fail coverage.
         # Allow one bar of slack at each edge (broker session conventions).
-        first = series.candles[0].timestamp.replace(tzinfo=None)
-        last = series.candles[-1].timestamp.replace(tzinfo=None)
+        first = to_ist_naive(series.candles[0].timestamp)
+        last = to_ist_naive(series.candles[-1].timestamp)
         return first <= start + _EDGE_SLACK and last >= end - _EDGE_SLACK
 
     def _fetch_bounded(
