@@ -131,7 +131,8 @@ def _events(
     return events
 
 
-def _broadcast_seconds(events: list[Candle], strategy_ids: list[str]) -> int:
+def _broadcast_deliveries(events: list[Candle], strategy_ids: list[str]) -> int:
+    """Delivery count: every strategy's work runs for every event."""
     delivered = 0
     for event in events:
         for _ in strategy_ids:
@@ -140,11 +141,12 @@ def _broadcast_seconds(events: list[Candle], strategy_ids: list[str]) -> int:
     return delivered
 
 
-def _routed_seconds(
+def _routed_deliveries(
     events: list[Candle],
     strategy_ids: list[str],
     router: SubscriptionRouter,
 ) -> int:
+    """Delivery count: only strategies the router delivers to do the work."""
     delivered = 0
     for event in events:
         instrument_id = event_instrument_id(event)
@@ -194,19 +196,25 @@ def main() -> None:
         instruments, args.strategies, args.wildcard_fraction
     )
     events = _events(symbol_data, args.rounds)
+    checks = len(events) * args.strategies
+    if checks == 0:
+        parser.error(
+            "degenerate benchmark: --symbols, --strategies and --rounds must "
+            f"all be positive (got symbols={args.symbols}, "
+            f"strategies={args.strategies}, rounds={args.rounds})"
+        )
 
     lookup = _best_seconds(
         lambda: _lookup_seconds(events, strategy_ids, router), args.repeats
     )
     routed = _best_seconds(
-        lambda: _routed_seconds(events, strategy_ids, router), args.repeats
+        lambda: _routed_deliveries(events, strategy_ids, router), args.repeats
     )
     broadcast = _best_seconds(
-        lambda: _broadcast_seconds(events, strategy_ids), args.repeats
+        lambda: _broadcast_deliveries(events, strategy_ids), args.repeats
     )
-    delivered = _routed_seconds(events, strategy_ids, router)
+    delivered = _routed_deliveries(events, strategy_ids, router)
 
-    checks = len(events) * args.strategies
     wildcard_count = int(args.strategies * args.wildcard_fraction)
     print("=== per-symbol routing vs broadcast ===")
     print(

@@ -53,12 +53,21 @@ class StrategyContext(Serializable):
     populated by the engine from its own state. ``session`` is retained as a
     fallback during the migration and will be removed once every strategy
     reads through the views.
+
+    **Deprecated, and unpopulated:** the ``positions``/``balance`` fields
+    predate the ``portfolio`` view and are not filled by ``_make_context``.
+    ``portfolio`` is canonical — one balance + positions read from the same
+    providers — and is what strategies must read. The two legacy fields are
+    kept only so existing keyword constructions keep working; nothing reads
+    them, so they are dead weight and slated for removal.
     """
 
     session: SessionFacade | None = None
     instruments: tuple[Instrument, ...] = ()
+    #: Deprecated: superseded by ``portfolio.positions``; never populated.
     positions: tuple[Position, ...] = ()
     position: Position | None = None
+    #: Deprecated: superseded by ``portfolio.balance``; never populated.
     balance: Money | None = None
     timestamp: datetime | None = None
     bar_count: int = 0
