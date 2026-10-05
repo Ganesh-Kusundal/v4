@@ -28,7 +28,7 @@ from tradex_domain.market_calendar import NSE_HOLIDAYS_2026  # noqa: E402
 from tradex_market_data.gap_detector import GapDetector  # noqa: E402
 from tradex_market_data.parquet_storage import ParquetStorage  # noqa: E402
 from tradex_market_data.paths import datalake_root  # noqa: E402
-from tradex_market_data.simple_sync import simple_sync  # noqa: E402
+from tradex_market_data.sync_service import SyncConfig, SyncService  # noqa: E402
 from tradex_market_data.universe import load_universe  # noqa: E402
 from tradex_runtime.live import build_broker_from_env  # noqa: E402
 
@@ -177,9 +177,16 @@ def main(argv: list[str] | None = None) -> int:
             for i in uniq if str(i.instrument_id) in gap_map
         }
         log.info("cluster %s -> %s (%d symbols)", c_start.date(), c_end.date(), len(uniq))
-        result = simple_sync(
-            dhan, store, uniq, "1m", c_start, c_end, ranges=ranges,
+        svc = SyncService(
+            dhan, store,
+            SyncConfig(
+                timeframe="1m",
+                min_gap_stamps=args.min_gap_stamps,
+                include_open_stamps=args.include_open_stamps,
+                tail_days=args.tail_days or None,
+            ),
         )
+        result = svc.sync(uniq, c_start, c_end, ranges=ranges)
         total_written += result.written
         if result.skipped:
             log.info("cluster skipped %d (no data): %s",

@@ -52,7 +52,7 @@ load_env_file(str(ROOT / ".env.local"))
 from tradex_market_data.gap_detector import GapDetector  # noqa: E402
 from tradex_market_data.parquet_storage import ParquetStorage  # noqa: E402
 from tradex_market_data.paths import datalake_root  # noqa: E402
-from tradex_market_data.simple_sync import simple_sync  # noqa: E402
+from tradex_market_data.sync_service import SyncConfig, SyncService  # noqa: E402
 from tradex_market_data.universe import load_universe  # noqa: E402
 from tradex_runtime.live import build_broker_from_env  # noqa: E402
 
@@ -207,9 +207,20 @@ def main(argv: list[str] | None = None) -> int:
                 str(i.instrument_id): gap_map[i.symbol]
                 for i in chunk if i.symbol in gap_map
             }
-            result = simple_sync(
-                dhan, store, list(chunk), args.timeframe, ws, we, ranges=ranges,
+            # Per-chunk budget: the driver owns the global wall clock, so hand
+            # the service only what is left of it.
+            remaining = max(1.0, args.budget - (time.monotonic() - started))
+            svc = SyncService(
+                dhan, store,
+                SyncConfig(
+                    timeframe=args.timeframe,
+                    batch_size=args.chunk,
+                    min_gap_stamps=args.min_gap_stamps,
+                    include_open_stamps=open_stamps,
+                    budget_seconds=remaining,
+                ),
             )
+            result = svc.sync(list(chunk), ws, we, ranges=ranges)
             written += result.written
             print(f"[repair] {first} [{bucket['kind']}]: {len(chunk)}/{len(insts)} symbols, "
                   f"{result.fetched} fetched, {result.written} rows, "
