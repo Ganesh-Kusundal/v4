@@ -8,9 +8,15 @@ strategy owns (``tradex_strategy/core/components.py``):
     LossCooldown   a losing fill suppresses new signals for N bars
     TimeExit       a position open for N bars is closed, flip or not
 
-The components hold only strategy-local decision state; the kernel and
-the indicator path are untouched, and a strategy that does not use them
-is unaffected.
+    The components hold only strategy-local decision state; the kernel and
+    the indicator path are untouched, and a strategy that does not use them
+    is unaffected.
+
+    Position state is fill-driven: a signal is intent, the fill is the
+    position. ``on_fill`` seats, averages, or closes the tracked position;
+    ``_try_entry`` only records which side the next fill must match to be
+    an entry. An exit fill therefore closes the position instead of
+    re-seating a phantom one in the exit direction.
 """
 
 from __future__ import annotations
@@ -94,6 +100,7 @@ class RegimeFilteredSupertrendStrategy(StudyStrategyBase):
         self._position_side: OrderSide | None = None
         self._entry_price: float | None = None
         self._quantity = 0.0
+        self._pending_entry_side: OrderSide | None = None
 
     def on_bar(self, context, candle):
         self._bar_index += 1
@@ -105,28 +112,37 @@ class RegimeFilteredSupertrendStrategy(StudyStrategyBase):
         price = float(fill.price.value)
         qty = float(fill.quantity.value)
         if self._position_side is None:
+            # Flat: only the fill of the last entry signal opens a position;
+            # an exit or untracked fill matches nothing and is ignored.
+            if side != self._pending_entry_side:
+                return
             self._position_side = side
             self._entry_price = price
             self._quantity = qty
+            self._pending_entry_side = None
+            self._time_exit.record_entry(self._bar_index)
             return
         if side == self._position_side:
-            if self._entry_price is None:
+            entry_price = self._entry_price
+            if entry_price is None:
                 self._entry_price = price
                 self._quantity = qty
             else:
                 total = self._quantity + qty
-                self._entry_price = (self._entry_price * self._quantity + price * qty) / total
+                self._entry_price = (entry_price * self._quantity + price * qty) / total
                 self._quantity = total
             return
-        if self._entry_price is not None:
+        entry_price = self._entry_price
+        if entry_price is not None:
             if self._position_side == OrderSide.BUY:
-                pnl = (price - self._entry_price) * self._quantity
+                pnl = (price - entry_price) * self._quantity
             else:
-                pnl = (self._entry_price - price) * self._quantity
+                pnl = (entry_price - price) * self._quantity
             self._cooldown.record_fill(pnl)
         self._position_side = None
         self._entry_price = None
         self._quantity = 0.0
+        self._pending_entry_side = None
         self._time_exit.clear()
 
     def _on_bar_ready(self, context, candles: list[Any]):
@@ -152,9 +168,8 @@ class RegimeFilteredSupertrendStrategy(StudyStrategyBase):
         ):
             exit_side = OrderSide.SELL if self._position_side == OrderSide.BUY else OrderSide.BUY
             out = self._emit(exit_side, "time_exit", ts)
-            self._position_side = None
-            self._entry_price = None
-            self._quantity = 0.0
+            # The exit fill closes the position; clearing TimeExit here only
+            # stops a second exit signal while the fill is in flight.
             self._time_exit.clear()
         if cur_dir is not None:
             self._prev_dir = int(cur_dir)
@@ -166,10 +181,8 @@ class RegimeFilteredSupertrendStrategy(StudyStrategyBase):
             return None
         if not self._regime.allows(direction):
             return None
-        signal = self._emit(side, reason, ts)
-        self._position_side = side
-        self._time_exit.record_entry(self._bar_index)
-        return signal
+        self._pending_entry_side = side
+        return self._emit(side, reason, ts)
 
 
 regime_filtered_supertrend_strategy = RegimeFilteredSupertrendStrategy(
