@@ -18,7 +18,7 @@ from typing import Any
 
 import pandas as pd
 from tradex_domain.market import HistoricalSeries
-from tradex_domain.market_calendar import to_ist_naive
+from tradex_domain.market_calendar import MARKET_CLOSE, to_ist_naive
 
 from tradex_market_data.gap_detector import GapDetector, GapScan
 from tradex_market_data.parallel_fetcher import (
@@ -30,6 +30,12 @@ from tradex_market_data.simple_sync import series_to_frame
 log = logging.getLogger(__name__)
 
 _EDGE_SLACK = timedelta(minutes=1)
+
+#: Dhan's NSE 1m series stops at 15:14 (measured, see CLAUDE.md); Upstox serves
+#: to 15:29. A window ending at the session close can therefore never be
+#: covered to its last minute, and demanding that would mark every symbol
+#: partial_response and write nothing. 16 min = the close minus 15:14.
+_VENUE_TAIL_SLACK = timedelta(minutes=16)
 
 
 @dataclass(frozen=True)
@@ -97,7 +103,13 @@ class SyncService:
         # Allow one bar of slack at each edge (broker session conventions).
         first = to_ist_naive(series.candles[0].timestamp)
         last = to_ist_naive(series.candles[-1].timestamp)
-        return first <= start + _EDGE_SLACK and last >= end - _EDGE_SLACK
+        # Only demand the venue's unservable tail when the window actually
+        # reaches the session close; a window ending mid-session must still be
+        # covered to its own end.
+        required_end = end
+        if end.time() >= MARKET_CLOSE:
+            required_end = end - _VENUE_TAIL_SLACK
+        return first <= start + _EDGE_SLACK and last >= required_end - _EDGE_SLACK
 
     def _covers_ranges(
         self,

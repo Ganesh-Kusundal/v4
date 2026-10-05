@@ -176,6 +176,51 @@ def test_converge_stops_at_budget() -> None:
     assert report.resumable is True
 
 
+def _truncated_series(inst, start, end, *, drop_minutes):
+    """A full session's series with its tail cut off, as a venue serves it."""
+    full = _full_series(inst, start, end)
+    cutoff = end - timedelta(minutes=drop_minutes)
+    return HistoricalSeries(
+        instrument=inst,
+        timeframe=Timeframe.M1,
+        candles=[c for c in full.candles if to_ist_naive(c.timestamp) <= cutoff],
+        start=start,
+        end=end,
+    )
+
+
+class _FixedSeriesBroker:
+    """Returns one canned series whatever it is asked for."""
+
+    def __init__(self, series) -> None:
+        self._series = series
+        self.rate_limiter = None
+
+    def history(self, inst, timeframe, start, end):
+        return self._series
+
+
+def test_sync_accepts_a_series_truncated_by_the_venue_ceiling() -> None:
+    """Dhan's 1m series stops at 15:14, so a window ending at the close can
+    never be covered to its last minute. Rejecting it would mark every symbol
+    partial_response and write nothing — the regression simple_sync avoids."""
+    inst = _eq("X")
+    broker = _FixedSeriesBroker(_truncated_series(inst, START, END, drop_minutes=16))
+    report = _service(broker).sync([inst], START, END)
+    assert report.failed == {}
+    assert report.fetched == 1
+    assert report.written > 0
+
+
+def test_sync_still_rejects_a_series_short_of_the_window() -> None:
+    """Negative control: a response stopping well before the window is partial."""
+    inst = _eq("X")
+    broker = _FixedSeriesBroker(_truncated_series(inst, START, END, drop_minutes=120))
+    report = _service(broker).sync([inst], START, END)
+    assert report.failed.get("X") == "partial_response"
+    assert report.written == 0
+
+
 class _RecordingBroker(FakeBroker):
     """FakeBroker that remembers the exact windows it was asked for."""
 
