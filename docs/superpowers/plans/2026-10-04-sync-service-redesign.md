@@ -8,6 +8,54 @@
 
 **Tech Stack:** Python 3.12, pandas, pytest, `tradex_market_data` (`GapDetector`, `ParallelHistoryFetcher`, `ParquetStorage`, `simple_sync`).
 
+---
+
+## ⚠️ Reconciliation (2026-10-05) — read before executing any task
+
+**Tasks 1–3 have already shipped, and the shipped code is the source of truth — not the code blocks below.** This plan was written before implementation; three of its code blocks are stale and one is *regressive*. Re-derive from the tree, not from this document.
+
+Shipped commits (all on `main`):
+
+```
+de0fecc feat(market_data): configurable, deadline-bounded backoff in fetch_with_backoff
+196326a feat(market_data): SyncService core with bounded backoff and coverage validation
+560d8a7 fix(market_data): coverage validation compares IST-naive, not raw UTC
+889f2e6 feat(market_data): SyncService converge and tail-repair
+```
+
+`25 passed` on `trading/tests/datalake/test_sync_service.py trading/tests/datalake/test_parallel_fetcher.py`.
+
+### Divergences — the plan's blocks are wrong
+
+1. **`_validate_coverage` (Task 2, Step 3) is a real bug; shipped code fixed it.** The plan strips tzinfo (`series.candles[0].timestamp.replace(tzinfo=None)`) and pairs it with a test fixture that tags IST wall-clock as UTC. Real Dhan/Upstox candles are tz-aware UTC *instants*; `.replace(tzinfo=None)` shifts every session 5.5 h and would mark **every real symbol** `partial_response` — sync writes nothing while reporting a failure it blames on the broker. Shipped code compares via `to_ist_naive` (`market_data/src/tradex_market_data/sync_service.py:92-95`). **Do not restore the plan's version.**
+2. **`_fetch_bounded` (not in the plan) is the actual no-hang enforcement.** `fetch_with_backoff`'s `deadline` only clamps *sleeps between attempts*; one blocking `fetcher.fetch(...)` still runs to completion, so the plan's `sync()` would blow a 1 s budget on a 5 s broker. Shipped code wraps the batch in a `ThreadPoolExecutor` and `future.result(timeout=remaining)` (`sync_service.py:99-134`).
+3. **Task 3's `converge` test could never pass against Task 3's `converge` code.** The plan's test uses `_Store` (whose `read` always returns empty), so `converge` re-scans, re-sees the same gaps, loops to the 10-pass cap, and returns `converged=False` — the `is True` assertion fails. Shipped test added `_MemStore` so the second scan observes the first pass's writes. An internally inconsistent headline test is the tell that this plan was never executed as written.
+4. **Task 1's snippet would delete shipped robustness.** The real `fetch_with_backoff` also carries `zero_progress_streak` (give up after 2 no-progress attempts) and `dead_symbols` / `_has_transient_errors` fail-fast (`parallel_fetcher.py:112-131`). The plan's replacement omits all three.
+
+### Still open, and why it matters
+
+**Task 4 is the only task that delivers the goal, and it is not done.** `SyncService` has zero production callers — it appears only in its own module, its test, and `__init__.py`. The drivers still run the old, unbounded path:
+
+- `trading/scripts/repair_gaps.py:210` → `simple_sync(...)`
+- `trading/scripts/fill_gaps.py:180` → `simple_sync(...)`
+- `trading/scripts/backfill_parquet.py:236-310` → `GapDetector` + a bespoke requeue/backoff loop
+- `interfaces/src/tradex_interfaces/cli.py:618` → `simple_sync(...)`
+
+So the blind spot this plan diagnosed is still open at runtime.
+
+### Two constraints the plan's Task 4 understates
+
+- **`SyncService` is not yet a superset of `simple_sync`.** `simple_sync` accepts `ranges=` (range-scoped fetch, the thing that stops a tail-only gap from becoming a full-session Dhan request that returns the wrong bars); `SyncService.sync` does not. `SyncService.scan` also drops `holidays=`, which `repair_gaps`/`backfill_parquet` pass. Routing the range-scoped drivers **without** adding these regresses them. See the rewritten Task 4.
+- **`repair_tail` has no broker to route to.** It currently calls `self.sync`, i.e. Dhan — the one venue whose 1m series stops at 15:14 and so cannot serve the tail it exists to repair (`sync_service.py:251-254` admits this). No standalone Upstox tail-repair script exists (`rg -l "repair_tail|tail repair"` finds only these three modules), despite `simple_sync`'s docstring claiming "Upstox tail repair is a separate script." `repair_tail` is therefore a no-op with a misleading name; Task 3's version is **removed** in the reconciliation (see Task 4, Step 0).
+
+### Hardening owed before drivers route through it
+
+- **`converge` spins on deterministic failures.** `sync` sets `resumable` only when the *deadline* passed (`sync_service.py:182`); a `partial_response` with budget remaining leaves `resumable=False`, so `converge` re-scans, re-fetches the same symbol, gets the same partial, and burns up to 10 passes.
+- **`converged=True` is defined only by `min_gap_stamps`.** `converge` returns clean when `scan.gaps` is empty (`sync_service.py:203`) but ignores `scan.sub_threshold_symbols` — so with the drivers' `min_gap_stamps=15`, a real hole under the floor reports "converged". This is the exact blind spot `CLAUDE.md` documents.
+- **`_fetch_bounded` leaks worker threads.** A fresh `ThreadPoolExecutor` per batch with `shutdown(wait=False)` on timeout (`sync_service.py:113, 134`) leaves the hung broker call running in a non-daemon thread; over many batches the *process* can hang on exit even though each pass "returned in budget." There is no clean cancellation for a blocked socket read — this is a stated ceiling, not a solved problem.
+
+---
+
 ## Global Constraints
 
 - Test command from repo root: `.venv/bin/python -m pytest <paths> -q`
@@ -21,7 +69,9 @@
 
 ---
 
-### Task 1: Bounded backoff in `fetch_with_backoff`
+### Task 1: Bounded backoff in `fetch_with_backoff` — ✅ SHIPPED (`de0fecc`)
+
+> **Superseded — do not execute.** The shipped `fetch_with_backoff` matches the *interfaces* below but not the *snippet*: it retains `zero_progress_streak` and `dead_symbols`/`_has_transient_errors` (divergence 4). Tests at `test_parallel_fetcher.py:287` and `:306` are green.
 
 **Files:**
 - Modify: `market_data/src/tradex_market_data/parallel_fetcher.py:70-136`
@@ -145,7 +195,9 @@ git commit -m "feat(market_data): configurable, deadline-bounded backoff in fetc
 
 ---
 
-### Task 2: `SyncService` core — scan / sync with coverage validation
+### Task 2: `SyncService` core — scan / sync with coverage validation — ✅ SHIPPED (`196326a`, fixed by `560d8a7`)
+
+> **Superseded — do not execute.** The shipped `_validate_coverage` uses `to_ist_naive` (divergence 1), and the shipped `sync` adds `_fetch_bounded` (divergence 2). The code block in Step 3 below would re-introduce a 5.5 h coverage bug and drop the only real no-hang guarantee.
 
 **Files:**
 - Create: `market_data/src/tradex_market_data/sync_service.py`
@@ -451,7 +503,9 @@ git commit -m "feat(market_data): SyncService core with bounded backoff and cove
 
 ---
 
-### Task 3: `converge` + `repair_tail`
+### Task 3: `converge` + `repair_tail` — ⚠️ PARTIAL (`889f2e6`)
+
+> **Superseded — do not execute.** `converge` shipped (with `_MemStore` in its test, divergence 3). `repair_tail` shipped but is a no-op with a misleading name and is **removed** in the reconciled Task 4 (Step 0). Also owed: the `converge` spin on deterministic failures, and consulting `sub_threshold_symbols` before declaring `converged` (see Hardening above).
 
 **Files:**
 - Modify: `market_data/src/tradex_market_data/sync_service.py`
@@ -545,38 +599,65 @@ Add to `SyncService`:
 
 ---
 
-### Task 4: Route the drivers through `SyncService`
+### Task 4: Route the drivers through `SyncService` — ❌ NOT STARTED
+
+**This is the only task that delivers the goal.** It is not a mechanical delegation: `SyncService` is not yet a superset of `simple_sync`, so routing the range-scoped drivers first regresses them.
 
 **Files:**
-- Modify: `trading/scripts/repair_gaps.py`, `trading/scripts/fill_gaps.py`, `trading/scripts/backfill_parquet.py`, `interfaces/src/tradex_interfaces/cli.py`
-- Test: existing script/CLI tests must stay green
+- Modify: `market_data/src/tradex_market_data/sync_service.py` (Steps 0–1)
+- Modify: `trading/scripts/repair_gaps.py`, `trading/scripts/fill_gaps.py`, `trading/scripts/backfill_parquet.py`, `interfaces/src/tradex_interfaces/cli.py` (Step 2)
+- Test: `trading/tests/datalake/test_sync_service.py` (extend), existing script/CLI tests stay green
 
-- [ ] **Step 1: Refactor each driver** to build a `SyncService` and call `.converge(...)` (or `.sync` for one pass). Map `--budget` to `budget_seconds`; keep `--skip-existing` behavior (it becomes the default `converge`).
-- [ ] **Step 2: Run** `.venv/bin/python -m pytest trading/tests/interface trading/tests/datalake -q` — green.
-- [ ] **Step 3: Commit** — `refactor(sync): route drivers through SyncService`.
+**Interfaces to add first (Step 1):**
+- `SyncService.sync(..., *, ranges: dict[str, list[tuple[datetime, datetime]]] | None = None)` — forwarded to `fetch_with_backoff(..., ranges=ranges)`, so range-scoped drivers keep asking Dhan only for the hole.
+- `SyncService.scan(..., holidays: set[date] | None = None)` — forwarded to `GapDetector.scan`, so holiday-aware drivers keep their grid.
+- `SyncConfig.max_workers` (already present) is the scan's `max_workers` — confirm `scan` forwards it (it currently hardcodes nothing; it omits it, defaulting to 1).
 
 ---
 
-## Self-Review
+- [ ] **Step 0: Delete `repair_tail`.** It routes through `self.sync` (Dhan), which cannot serve the tail it exists to repair; no Upstox tail broker is wired and no standalone script exists. Deleting it removes a no-op whose name promises a guarantee it does not provide. Also fix `simple_sync.py`'s docstring line "Upstox tail repair is a separate script" — no such script exists. If tail repair is genuinely wanted, it is a **new** task with a second broker, not this one.
 
-**1. Spec coverage:** F1 backoff wired → Task 1+2; F2 converge → Task 3; F3 tail composition → Task 3 `repair_tail`; F4 coverage → Task 2 `_validate_coverage`; F5-F7 progress/resumable → Task 2 `SyncReport`. Drivers → Task 4.
+- [ ] **Step 1: Extend `SyncService` to a superset of `simple_sync`** (add `ranges` and `holidays` as above). Write the failing tests first: a range-scoped sync must call the broker only for the requested ranges; a scan with `holidays=` must not flag the holiday. Run `.venv/bin/python -m pytest trading/tests/datalake/test_sync_service.py -q`.
 
-**2. Placeholder scan:** every step has complete code; the only prose-only step is Task 4's driver refactor (the exact edit depends on each script's current arg parsing — the implementer reads each script).
+- [ ] **Step 2: Route the drivers.** Map each driver's existing args onto `SyncConfig` — do **not** drop flags:
+  - `repair_gaps`: `--budget`→`budget_seconds`; `--timeframe`→`timeframe`; `--min-gap-stamps`→`min_gap_stamps`; `--no-open-stamps`→`include_open_stamps=False`; `--chunk`→`batch_size`; `--tail-days`→`tail_days`; pass `holidays=NSE_HOLIDAYS_2026`; build `ranges` from `gap_map`; keep the cluster ordering (`_ORDER`, `_kind`) in the driver — it is policy, not sync.
+  - `fill_gaps`: same mapping; `--tail-days`→`tail_days`; keep the cluster loop; pass `ranges=`.
+  - `backfill_parquet`: the bespoke requeue/backoff loop (lines ~258–310) is exactly what `fetch_with_backoff` already does — replace it with `SyncService.sync`. Keep `--skip-existing` → `converge`, `--no-skip-existing` → `sync`. Note this driver currently supports **two** brokers via `_make_fetchers`; `SyncService` is single-broker, so either pass one fetcher at a time or leave this driver's multi-broker path until `SyncService` grows a broker pair.
+  - `cli.cmd_sync`: `--skip-existing` (default true) → `converge`, `--no-skip-existing` → `sync`; `--min-gap-stamps`, `--batch-size`, `--workers`→`max_workers`, `--backoff-base`→`initial_backoff_s`. `--dry-run` uses `PaperBroker`, which has no `rate_limiter` attribute — `ParallelHistoryFetcher` already falls back to the paper table (`parallel_fetcher.py:206-215`), so confirm the dry-run path still works.
 
-**3. Type consistency:** `SyncConfig`/`SyncReport` field names match between definition, tests, and `sync`/`converge`; `fetch_with_backoff`'s new `initial_backoff_s`/`deadline` are consistent between Task 1 and Task 2's call site; `_validate_coverage` is the single coverage gate.
+- [ ] **Step 3: Verify no driver changed behavior.** For each driver, diff the *args* it accepts against the `SyncConfig` fields it sets; a dropped flag is the regression to catch. Run `.venv/bin/python -m pytest trading/tests/interface trading/tests/datalake -q` — green.
 
-**Behavior-preservation:** `simple_sync`/`GapDetector` signatures unchanged; `SyncService` is additive; drivers delegate.
+- [ ] **Step 4: Commit** — `refactor(sync): route drivers through SyncService`.
 
-**Testing note:** the `FakeBroker` is the key — current tests mock `ParallelHistoryFetcher` wholesale, so nothing exercises the real backoff/budget path. Each new test has a negative control (remove the fix → test fails).
+---
+
+## Self-Review (post-reconciliation)
+
+**1. Spec coverage:** F1 backoff wired → ✅ Task 1+2 shipped; F2 converge → ✅ Task 3 shipped (but spins on deterministic failures — hardening owed); F3 tail composition → ❌ `repair_tail` shipped as a no-op and is deleted in Task 4 Step 0; F4 coverage → ✅ shipped via `to_ist_naive`, **not** the plan's buggy `.replace(tzinfo=None)`; F5–F7 progress/resumable → ✅ `SyncReport` shipped. Drivers → **❌ Task 4, not started — this is the whole remaining job.**
+
+**2. Placeholder scan:** Tasks 1–3 code blocks are superseded (see Reconciliation). Task 4 is deliberately prose + interfaces, because each driver's edit depends on its current arg parsing and the mapping must be checked flag-by-flag.
+
+**3. Type consistency:** `SyncConfig`/`SyncReport` names match between definition, tests, and `sync`/`converge`. `fetch_with_backoff`'s `initial_backoff_s`/`deadline` are consistent between Task 1 and Task 2's call site.
+
+**Behavior-preservation:** `simple_sync`/`GapDetector` signatures unchanged; `SyncService` is additive. **But `SyncService` is not yet a behavioral superset** — it lacks `ranges`/`holidays`, so Task 4 Step 1 must land before Step 2 or the range-scoped drivers regress.
+
+**Testing note:** the `FakeBroker` is the key — the old tests mock `ParallelHistoryFetcher` wholesale, so nothing exercised the real backoff/budget path. Each shipped test has a negative control. The coverage test (`test_coverage_accepts_utc_candles_at_ist_instants`) exists specifically because the plan's original fixture hid the 5.5 h bug.
 
 ---
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-10-04-sync-service-redesign.md`. Two execution options:
+**State: Tasks 1–3 shipped; Task 4 is the remaining work.** Do not re-execute Tasks 1–3 — the tree is ahead of this document.
 
-**1. Subagent-Driven (recommended)** — fresh subagent per task, review between tasks.
+Recommended order:
+
+1. **Harden `converge`** (converge spin + `sub_threshold_symbols`) — small, and it changes what "converged" means for every driver that adopts `converge`. Land it before drivers depend on the flag.
+2. **Task 4 Step 1** — `ranges`/`holidays` on `SyncService`, with failing tests first.
+3. **Task 4 Steps 2–3** — route drivers one at a time, diffing accepted args against `SyncConfig` fields; run the interface + datalake suites after each.
+4. **Task 4 Step 0** — delete `repair_tail` and correct the `simple_sync` docstring; it can land any time before the drivers do.
+
+Two execution options:
+
+**1. Subagent-Driven (recommended)** — fresh subagent per step, review between steps.
 
 **2. Inline Execution** — execute in this session with checkpoints.
-
-Which approach?
