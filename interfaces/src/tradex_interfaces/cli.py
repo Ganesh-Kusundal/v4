@@ -294,6 +294,13 @@ def main(argv: list[str] | None = None) -> int:
             os.environ["TRADEX_ENV_FILE"] = str(env_path)
             print(f"env_file={env_path} ({len(names)} entries)")
 
+    if args.command == "sync":
+        # Sync is self-contained (see run_cli) — it builds its own brokers,
+        # fetcher, and store. Booting a session here only to discard it made
+        # `tradex sync` unusable: the AC-10 risk gate refuses to boot without a
+        # complete policy, so the command died before reaching its own dispatch.
+        return run_cli(argv)
+
     from tradex_config.env import from_env
     from tradex_runtime.startup import boot
 

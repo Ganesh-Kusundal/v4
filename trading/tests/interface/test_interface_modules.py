@@ -283,6 +283,29 @@ class TestCliMain:
         assert result == 0
         assert "ltp" in capsys.readouterr().out
 
+    def test_main_sync_does_not_boot_a_session(self, monkeypatch) -> None:
+        """sync is self-contained (run_cli declares it so) and must not pay the
+        runtime boot. That boot refuses to start without a complete risk policy,
+        which made `tradex sync` unusable from the console entry point — while
+        run_cli, invoked directly, ran it fine."""
+        for key in (
+            "TRADEX_RISK_MAX_ORDER_VALUE",
+            "TRADEX_RISK_MAX_POSITION_VALUE",
+            "TRADEX_RISK_MAX_ORDERS_PER_MINUTE",
+            "TRADEX_RISK_MAX_DAILY_LOSS",
+            "TRADEX_RISK_MAX_DRAWDOWN_PCT",
+        ):
+            monkeypatch.delenv(key, raising=False)
+        with patch(
+            "tradex_runtime.startup.boot",
+            side_effect=AssertionError("sync must not boot a session"),
+        ):
+            result = main(
+                ["sync", "--dry-run", "--universe", "nifty50",
+                 "--start", "2026-09-28", "--end", "2026-09-30"]
+            )
+        assert result == 0
+
     def test_main_missing_env_file_does_not_crash(self, capsys) -> None:
         result = main(["--env-file", "/nonexistent/env-does-not-exist.env"])
         assert result == 2  # no command → help printed
