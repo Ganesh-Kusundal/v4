@@ -67,6 +67,14 @@ class RiskManager:
         max_mark_age_seconds: float = 5.0,
         max_daily_loss_amt: Decimal | None = None,
         max_drawdown_pct: Decimal | None = None,
+        #: Optional cap on total gross exposure (sum of ``abs(qty) * mark``
+        #: across the book, measured after the incoming order). ``None``
+        #: (default) means no cap — backward compatible.
+        max_gross_exposure: Decimal | None = None,
+        #: Optional cap on absolute net exposure (signed ``qty * mark``
+        #: summed across the book, after the incoming order). ``None``
+        #: (default) means no cap — backward compatible.
+        max_net_exposure: Decimal | None = None,
         budgets: dict[str, RiskBudget] | None = None,
         clock: Clock | None = None,
         metrics: MetricsRegistry | None = None,
@@ -93,6 +101,8 @@ class RiskManager:
         #: progresses; they always allow reductions/flattening.
         self._max_daily_loss_amt = max_daily_loss_amt
         self._max_drawdown_pct = max_drawdown_pct
+        self._max_gross_exposure = max_gross_exposure
+        self._max_net_exposure = max_net_exposure
         #: M5: real type (was ``Any``, defeating mypy). The fields store
         #: the calendar date the account-level baseline was taken, used to roll
         #: the day-start P&L forward on a date change.
@@ -203,6 +213,45 @@ class RiskManager:
             mark = self._mark_price(getattr(pos, "instrument", None))
             total += abs(qty.value) * (mark if mark is not None else avg.value)
         return total
+
+    def _resulting_exposures(self, request: OrderRequest) -> tuple[Decimal, Decimal]:
+        """Gross and net notional of the book as it would stand after *request*.
+
+        Marks every position exactly as :meth:`_position_exposure` does
+        (market mark when available, else avg_price) and adds the order's
+        signed quantity to the matching position — the same per-side
+        arithmetic as :meth:`_increases_exposure`. With no matching
+        position (or no book at all) the order's own notional is added:
+        it opens a new position.
+        """
+        signed = (
+            request.quantity.value
+            if request.side is OrderSide.BUY
+            else -request.quantity.value
+        )
+        gross = Decimal(0)
+        net = Decimal(0)
+        matched = False
+        if self._positions_provider is not None:
+            for pos in self._positions_provider():
+                qty = getattr(pos, "quantity", None)
+                avg = getattr(pos, "avg_price", None)
+                if qty is None or avg is None:
+                    continue
+                resulting = qty.value
+                if pos.instrument == request.instrument:
+                    resulting += signed
+                    matched = True
+                mark = self._mark_price(getattr(pos, "instrument", None))
+                price = mark if mark is not None else avg.value
+                gross += abs(resulting) * price
+                net += resulting * price
+        if not matched:
+            mark = self._mark_for_trade(request)
+            if mark is not None:
+                gross += mark * request.quantity.value
+                net += signed * mark
+        return gross, net
 
     def _mark_price(self, instrument: Any) -> Decimal | None:
         """Current market price for an instrument, or None if unavailable."""
@@ -491,6 +540,27 @@ class RiskManager:
                 exposure = self._position_exposure() + self._incoming_exposure(request)
                 if exposure > max_position_value:
                     return self._deny("position_value_exceeded", now=now)
+
+            # Gross / net exposure limits (global). Deny when the book
+            # *resulting from this order* would breach either cap. A
+            # reduction cannot increase exposure at a fixed mark, so the
+            # unconditional check never blocks a flattening — it only
+            # stops the book from growing past the cap.
+            if (
+                self._max_gross_exposure is not None
+                or self._max_net_exposure is not None
+            ):
+                gross, net = self._resulting_exposures(request)
+                if (
+                    self._max_gross_exposure is not None
+                    and gross > self._max_gross_exposure
+                ):
+                    return self._deny("max_gross_exposure_exceeded", now=now)
+                if (
+                    self._max_net_exposure is not None
+                    and abs(net) > self._max_net_exposure
+                ):
+                    return self._deny("max_net_exposure_exceeded", now=now)
 
             # Daily-loss / drawdown guards (per-strategy or global).
             # Only deny new exposure, never a reduction.

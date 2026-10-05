@@ -128,6 +128,15 @@ class RiskConfig:
     reject_unknown_market_value: bool = False
     max_daily_loss_amt: Decimal | None = None
     max_drawdown_pct: Decimal | None = None
+    #: Optional cap on total gross exposure (sum of ``abs(qty) * mark``
+    #: across the book, measured after the incoming order). ``None``
+    #: (default) means no cap. Not a boot-required limit — unlike the five
+    #: above, leaving this unset is a valid "no cap" choice, not a gap.
+    max_gross_exposure: Decimal | None = None
+    #: Optional cap on absolute net exposure (signed ``qty * mark`` summed
+    #: across the book, after the incoming order). ``None`` (default)
+    #: means no cap.
+    max_net_exposure: Decimal | None = None
     #: Live opening exposure requires a quote-derived mark no older than this
     #: many seconds. The live composition root enables this fail-closed gate.
     require_fresh_marks: bool = False
@@ -179,6 +188,22 @@ class RiskConfig:
                 self,
                 "max_drawdown_pct",
                 Decimal(str(self.max_drawdown_pct)),
+            )
+        if self.max_gross_exposure is not None and not isinstance(
+            self.max_gross_exposure, Decimal
+        ):
+            object.__setattr__(
+                self,
+                "max_gross_exposure",
+                Decimal(str(self.max_gross_exposure)),
+            )
+        if self.max_net_exposure is not None and not isinstance(
+            self.max_net_exposure, Decimal
+        ):
+            object.__setattr__(
+                self,
+                "max_net_exposure",
+                Decimal(str(self.max_net_exposure)),
             )
         if self.max_mark_age_seconds < 0:
             raise ValueError("max_mark_age_seconds must be non-negative")

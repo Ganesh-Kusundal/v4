@@ -643,6 +643,11 @@ def _boot_tail(
         reject_unknown_market_value=cfg.risk.reject_unknown_market_value,
         max_daily_loss_amt=limits["max_daily_loss_amt"],
         max_drawdown_pct=limits["max_drawdown_pct"],
+        # Optional account-level exposure caps. ``None`` (the default) is
+        # "no cap", so these are wired straight from the config rather than
+        # through ``effective_limits`` — they are not boot-required limits.
+        max_gross_exposure=cfg.risk.max_gross_exposure,
+        max_net_exposure=cfg.risk.max_net_exposure,
         allow_short=cfg.risk.allow_short,
         # AC-10 / lane 2f: the master gate. When False, ``check()`` refuses
         # EVERY submit before any other gate runs. Bound to the same
