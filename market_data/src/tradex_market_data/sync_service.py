@@ -57,6 +57,11 @@ class SyncReport:
     elapsed_s: float = 0.0
     converged: bool = False
     resumable: bool = False
+    #: Symbols whose only remaining shortfall is a hole under ``min_gap_stamps``.
+    #: The scan cannot see them, so ``converged`` must not be declared over
+    #: them: a rerun at the same floor is a no-op, which is why this is
+    #: reported rather than retried.
+    under_floored: tuple[str, ...] = ()
 
 
 class SyncService:
@@ -197,18 +202,39 @@ class SyncService:
         deadline = t0 + self._config.budget_seconds
         fetched = written = 0
         failed: dict[str, str] = {}
+        #: Symbols a pass has already tried and left still-short. A truncated
+        #: response reproduces on every attempt, so re-fetching it only burns
+        #: the budget; track it and stop re-selecting it.
+        retried: set[str] = set()
         for _ in range(10):  # bounded passes; budget is the real cap
             scan = self.scan(inst_list, start, end)
             if not scan.gaps:
+                # A floored hole is invisible to ``gaps`` but is not a clean
+                # lake. Do not declare convergence over it — a rerun at the
+                # same floor changes nothing, so it is reported, not retried.
+                under_floored = tuple(scan.sub_threshold_symbols)
+                if under_floored:
+                    log.warning(
+                        "converge: %d symbol(s) have holes under min_gap_stamps=%d "
+                        "(%s) — not converged",
+                        len(under_floored),
+                        self._config.min_gap_stamps,
+                        ", ".join(under_floored[:5]),
+                    )
                 return SyncReport(
                     requested=len(inst_list),
                     fetched=fetched,
                     written=written,
                     failed=failed,
                     elapsed_s=time.monotonic() - t0,
-                    converged=True,
+                    converged=not under_floored,
+                    under_floored=under_floored,
                 )
-            gapped = [inst for inst, _ in scan.gaps]
+            gapped = [
+                inst for inst, _ in scan.gaps if inst.symbol not in retried
+            ]
+            if not gapped:
+                break  # everything still gapped is a deterministic failure
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
@@ -221,6 +247,7 @@ class SyncService:
             fetched += part.fetched
             written += part.written
             failed.update(part.failed)
+            retried.update(part.failed)  # failed symbols are not re-selected
             if part.resumable:
                 break
         return SyncReport(

@@ -176,6 +176,47 @@ def test_converge_stops_at_budget() -> None:
     assert report.resumable is True
 
 
+def test_converge_does_not_refetch_a_deterministic_failure() -> None:
+    """A truncated response reproduces on every pass, so re-fetching it only
+    burns the budget. converge must try each symbol once and stop."""
+    broker = FakeBroker(partial=True)
+    svc = _service(broker, budget_s=30.0, backoff_s=0.0)
+    report = svc.converge([_eq("X")], START, END)
+    assert report.converged is False
+    assert report.resumable is True
+    assert report.failed.get("X") == "partial_response"
+    assert broker._calls["X"] == 1  # not 10 passes of the same partial
+
+
+def _frame_missing_interior(inst, start, end, drop_from, minutes):
+    """A full session's frame with a short interior run removed."""
+    from tradex_market_data.simple_sync import series_to_frame
+
+    df = series_to_frame(_full_series(inst, start, end), inst.symbol)
+    ts = pd.to_datetime(df["timestamp"])
+    drop = (ts >= pd.Timestamp(drop_from)) & (
+        ts < pd.Timestamp(drop_from) + pd.Timedelta(minutes=minutes)
+    )
+    return df[~drop]
+
+
+def test_converge_does_not_report_clean_over_a_floored_hole() -> None:
+    """A real hole under min_gap_stamps is not a clean lake — converge must say
+    so instead of returning converged=True (the blind spot CLAUDE.md records)."""
+    inst = _eq("X")
+    store = _MemStore()
+    store.frames.append(
+        _frame_missing_interior(inst, START, END, datetime(2026, 8, 3, 10, 0), 5)
+    )
+    svc = SyncService(
+        FakeBroker(), store, SyncConfig(timeframe="1m", min_gap_stamps=15)
+    )
+    report = svc.converge([inst], START, END)
+    assert report.converged is False
+    assert report.under_floored == ("X",)
+    assert report.resumable is False  # a rerun at this floor changes nothing
+
+
 def test_coverage_accepts_utc_candles_at_ist_instants() -> None:
     """A broker returning tz-aware UTC candles at the correct instants for a
     09:15-15:30 IST window must pass coverage — not be flagged partial_response.
