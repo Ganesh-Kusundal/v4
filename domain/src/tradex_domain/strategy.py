@@ -9,7 +9,6 @@ from typing import Any
 from tradex_domain.enums import OrderSide, Timeframe
 from tradex_domain.execution import Position
 from tradex_domain.instruments import Instrument
-from tradex_domain.protocols import SessionFacade
 from tradex_domain.serialization import Serializable
 from tradex_domain.value_objects import Money, Quantity
 
@@ -46,13 +45,10 @@ class Signal(Serializable):
 class StrategyContext(Serializable):
     """Context passed to strategy callbacks.
 
-    **Deprecated:** ``session`` is a live ``SessionFacade`` exposing
-    trade/portfolio/stream/scanner/state/bus — a leaky boundary that lets a
-    strategy reach services it has no business holding. Prefer the read-only
-    views below (``market``, ``position``, ``portfolio``, ``analytics``),
-    populated by the engine from its own state. ``session`` is retained as a
-    fallback during the migration and will be removed once every strategy
-    reads through the views.
+    Strategies read through the views below (``market``, ``position``,
+    ``portfolio``, ``analytics``), populated by the engine from its own
+    state. The engine owns the state and hands the strategy something it can
+    read but not write — no live service handle crosses this boundary.
 
     **Deprecated, and unpopulated:** the ``positions``/``balance`` fields
     predate the ``portfolio`` view and are not filled by ``_make_context``.
@@ -62,7 +58,6 @@ class StrategyContext(Serializable):
     them, so they are dead weight and slated for removal.
     """
 
-    session: SessionFacade | None = None
     instruments: tuple[Instrument, ...] = ()
     #: Deprecated: superseded by ``portfolio.positions``; never populated.
     positions: tuple[Position, ...] = ()
@@ -76,12 +71,11 @@ class StrategyContext(Serializable):
     #: values from this view instead of computing them locally.
     analytics: Any = None
     #: Read-only market view: the latest quote per instrument as tracked by
-    #: the engine, or None when no quote has been seen. Replaces the
-    #: ``context.session.stream`` read path.
+    #: the engine, or None when no quote has been seen.
     market: Any = None
     #: Read-only portfolio view: a balance + positions snapshot taken when
     #: the context is built, or None when no positions/balance provider is
-    #: wired. Replaces the ``context.session.portfolio`` read path.
+    #: wired.
     portfolio: Any = None
 
 

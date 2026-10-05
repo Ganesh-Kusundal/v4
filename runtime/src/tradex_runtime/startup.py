@@ -813,8 +813,8 @@ def _boot_tail(
             sizer=strategy_sizer,
             pending_max_age_bars=cfg.execution.pending_max_age_bars,
             # Read-only context views (Phase 6-7): strategies read
-            # position/portfolio/market off the context instead of reaching
-            # through ``context.session`` at the live session services.
+            # position/portfolio/market off the context — no live session
+            # handle crosses the strategy boundary.
             positions_provider=lambda: engine.cache.all_positions(),
             balance_provider=lambda: Money(amount=engine.cash_snapshot().cash),
         )

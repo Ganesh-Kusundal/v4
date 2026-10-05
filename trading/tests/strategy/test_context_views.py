@@ -1,14 +1,13 @@
 """Tests for the read-only context views (market, position, portfolio).
 
 Phase 6-7: StrategyContext carries read-only views populated by the engine,
-so strategies stop reaching through ``context.session`` (a live SessionFacade)
-for reads. Covered here:
+so strategies read through the context instead of reaching for live session
+services. Covered here:
 
-- the views default to ``None`` (backward compat during migration)
+- the views default to ``None`` when no provider is wired
 - the engine populates them from its wired providers
 - the views are read-only (no mutator surface)
 - a strategy reading the views gets the right data
-- ``context.session`` still works as a fallback
 """
 
 from __future__ import annotations
@@ -110,13 +109,6 @@ def test_views_default_to_none() -> None:
     assert ctx.position is None
 
 
-def test_session_field_still_settable() -> None:
-    """context.session survives the migration as a fallback."""
-    sentinel = object()
-    ctx = StrategyContext(session=sentinel)
-    assert ctx.session is sentinel
-
-
 # ---------------------------------------------------------------------------
 # Population
 # ---------------------------------------------------------------------------
@@ -138,7 +130,7 @@ def test_make_context_populates_views_from_providers() -> None:
 
 
 def test_make_context_without_providers_leaves_views_none() -> None:
-    """No providers → position/portfolio stay None (session fallback path)."""
+    """No providers → position/portfolio stay None."""
     engine = _engine()
     ctx = engine._make_context(instrument=Equity.of("NSE", "RELIANCE"))
     assert ctx.position is None

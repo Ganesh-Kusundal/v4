@@ -1,10 +1,10 @@
 """Read-only context views the engine hands to strategies (Phase 6-7).
 
-``StrategyContext`` used to carry a live ``SessionFacade``
-(``context.session``) exposing trade/portfolio/stream/scanner/state/bus — a
-leaky boundary through which a strategy could reach services it has no
-business holding. These views are the read-only replacement: the engine
-owns the state and hands the strategy something it can read but not write.
+``StrategyContext`` used to carry a live ``SessionFacade`` exposing
+trade/portfolio/stream/scanner/state/bus — a leaky boundary through which a
+strategy could reach services it has no business holding. That field is
+gone: these views are the read-only replacement, and the engine owns the
+state and hands the strategy something it can read but not write.
 
 - :class:`MarketView` — the latest quote per instrument, as the engine saw
   it on the bus. A read-only window onto the engine's live store.

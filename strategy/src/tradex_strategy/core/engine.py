@@ -120,8 +120,7 @@ class ReactiveStrategyEngine:
                 positions (e.g. ``cache.all_positions``). When wired, the
                 context carries the read-only ``position``/``portfolio`` views
                 resolved for the event's instrument. ``None`` (default)
-                leaves those fields ``None`` — the ``context.session``
-                fallback path.
+                leaves those fields ``None``.
             balance_provider: optional zero-arg callable returning the account
                 balance as ``Money`` (e.g. ``lambda: engine.cash_snapshot().cash``).
                 Feeds the ``portfolio`` view's ``balance``.
