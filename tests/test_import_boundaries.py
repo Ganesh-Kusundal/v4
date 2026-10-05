@@ -269,7 +269,7 @@ def test_extracted_packages_respect_allowed_internals() -> None:
 # HTTP interface has stopped being a strategy and become a back door around the
 # one order path. A leaf that imports a concrete analytics *implementation*
 # has bypassed the shared analytics seam (``context.analytics``) that Phase 2
-# built to stop five strategies recomputing the same indicator five ways. These
+# built to stop six strategies recomputing the same indicator six ways. These
 # rules hold the leaf small.
 
 _STRATEGY_EXT_SRC = _ROOT / "strategy/src/tradex_strategy/extensions/strategies"
@@ -298,6 +298,10 @@ _STRATEGY_EXT_ANALYTICS_FALLBACK = {
     "strategy/src/tradex_strategy/extensions/strategies/bollinger_breakout.py",
     "strategy/src/tradex_strategy/extensions/strategies/ema_ribbon_pullback.py",
     "strategy/src/tradex_strategy/extensions/strategies/macd_cross.py",
+    # Quant P1 reference strategy: view-first like the study strategies, but
+    # the parity gate and its integrated fill-flow tests drive it directly
+    # without an AnalyticsRuntime, so it keeps the same fallback seam.
+    "strategy/src/tradex_strategy/extensions/strategies/regime_filtered_supertrend.py",
     "strategy/src/tradex_strategy/extensions/strategies/rsi_reversal.py",
     "strategy/src/tradex_strategy/extensions/strategies/supertrend_flip.py",
 }

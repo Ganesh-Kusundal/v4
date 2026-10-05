@@ -14,10 +14,10 @@ questions open, and this file answers them as contracts:
    more.
 
 2. **No concrete analytics.** Phase 2 built ``context.analytics`` (the
-   ``AnalyticsView`` protocol in ``tradex_analytics.views``) so five strategies
-   stop recomputing the same indicator five ways. An extension strategy reads
+   ``AnalyticsView`` protocol in ``tradex_analytics.views``) so six strategies
+   stop recomputing the same indicator six ways. An extension strategy reads
    indicators through that view. The only concrete import that is approved is
-   ``tradex_analytics.indicators`` in the five study strategies that keep it as
+   ``tradex_analytics.indicators`` in the six study strategies that keep it as
    a *fallback* for standalone/unit-test use — the decision, its rationale and
    its scope are documented on ``_STRATEGY_EXT_ANALYTICS_FALLBACK`` in
    ``tests/test_import_boundaries.py``.
