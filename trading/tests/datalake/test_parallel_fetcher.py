@@ -55,6 +55,14 @@ def _make_broker(name: str, delay: float = 0.0, fail_symbols: set[str] | None = 
     return broker
 
 
+def _eq(symbol: str) -> Equity:
+    return Equity.of("NSE", symbol)
+
+
+START = datetime(2026, 8, 1)
+END = datetime(2026, 8, 2)
+
+
 class TestConstructor:
     def test_exactly_one_broker_required(self):
         with pytest.raises(ValueError, match="exactly one broker"):
@@ -257,3 +265,48 @@ def test_fetch_with_backoff_fails_fast_on_permanent_error() -> None:
     )
     assert time.monotonic() - t0 < 1.0
     assert out == {}
+
+
+def test_fetch_with_backoff_uses_configurable_initial_sleep(monkeypatch) -> None:
+    """initial_backoff_s replaces the hardcoded 30s first sleep."""
+    slept: list[float] = []
+    monkeypatch.setattr(
+        "tradex_market_data.parallel_fetcher.time.sleep", slept.append
+    )
+
+    class _Fetcher:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fetch(self, pending, tf, s, e, ranges=None):
+            self.calls += 1
+            if self.calls == 1:
+                return {}, ["NSE:X: 429 rate limited"]
+            return {"NSE:X": _series()}, []
+
+    out = fetch_with_backoff(
+        _Fetcher(), [_eq("X")], "1m", START, END,
+        initial_backoff_s=0.5, max_retries=3,
+    )
+    assert "NSE:X" in out
+    assert slept == [0.5]  # the configurable base, not 30.0
+
+
+def test_fetch_with_backoff_stops_at_deadline(monkeypatch) -> None:
+    """A deadline in the past makes the loop give up without sleeping."""
+    slept: list[float] = []
+    monkeypatch.setattr(
+        "tradex_market_data.parallel_fetcher.time.sleep", slept.append
+    )
+
+    class _Fetcher:
+        def fetch(self, pending, tf, s, e, ranges=None):
+            return {}, ["NSE:X: 429 rate limited"]
+
+    out = fetch_with_backoff(
+        _Fetcher(), [_eq("X")], "1m", START, END,
+        initial_backoff_s=30.0, max_retries=6,
+        deadline=time.monotonic() - 1.0,
+    )
+    assert out == {}
+    assert slept == []  # deadline already passed => no sleep

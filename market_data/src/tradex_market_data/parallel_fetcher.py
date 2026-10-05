@@ -78,11 +78,13 @@ def fetch_with_backoff(
     max_retries: int = 6,
     ranges: dict[str, list[tuple[datetime, datetime]]] | None = None,
     dead_symbols: set[str] | None = None,
+    initial_backoff_s: float = 30.0,
+    deadline: float | None = None,
 ) -> dict[str, HistoricalSeries]:
     """Fetch a batch with exponential backoff on rate-limit bursts."""
     pending = list(batch)
     merged: dict[str, HistoricalSeries] = {}
-    backoff = 30.0
+    backoff = initial_backoff_s
     zero_progress_streak = 0
     if dead_symbols is None:
         dead_symbols = set()
@@ -108,7 +110,7 @@ def fetch_with_backoff(
             break
         if len(still_pending) < len(pending):
             zero_progress_streak = 0
-            backoff = 30.0
+            backoff = initial_backoff_s
         else:
             zero_progress_streak += 1
             if zero_progress_streak >= 2:
@@ -126,11 +128,21 @@ def fetch_with_backoff(
             )
             dead_symbols.update(str(i.instrument_id) for i in still_pending)
             break
+        if deadline is not None and time.monotonic() >= deadline:
+            log.warning(
+                "fetch_with_backoff: budget exhausted — giving up on %d symbol(s)",
+                len(still_pending),
+            )
+            break
+        sleep_for = backoff
+        if deadline is not None:
+            sleep_for = min(backoff, max(0.0, deadline - time.monotonic()))
         log.warning(
-            "fetch_with_backoff: rate-limited (attempt %d/%d) — sleeping %.0fs",
-            attempt, max_retries, backoff,
+            "fetch_with_backoff: rate-limited (attempt %d/%d) — sleeping %.1fs",
+            attempt, max_retries, sleep_for,
         )
-        time.sleep(backoff)
+        if sleep_for > 0:
+            time.sleep(sleep_for)
         backoff = min(backoff * 2, 480.0)
         pending = still_pending
     return merged
