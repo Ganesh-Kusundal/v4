@@ -518,7 +518,6 @@ def cmd_sync(args: Any) -> int:
 
     # Lazy imports to avoid circular deps
     from tradex_config.env import load_env_file
-    from tradex_market_data.gap_detector import GapDetector
     from tradex_market_data.parquet_storage import ParquetStorage
     from tradex_market_data.paths import datalake_root
     from tradex_market_data.universe import load_universe
@@ -596,39 +595,43 @@ def cmd_sync(args: Any) -> int:
     print(f"Universe: {args.universe} ({len(instruments)} instruments)")
     print(f"Window:   {start.date()} -> {end.date()} ({args.timeframe})")
 
-    from tradex_market_data.simple_sync import simple_sync
+    from tradex_domain.market_calendar import NSE_HOLIDAYS_2026
+    from tradex_market_data.sync_service import SyncConfig, SyncService
 
-    ranges = None
-    targets = instruments
-    if args.skip_existing:
-        # Single-sourced bar-frequency vocabulary (domain/constants).
-        from tradex_domain.constants import BAR_FREQ_MAP
-
-        bar_freq = BAR_FREQ_MAP.get(args.timeframe, "1min")
-        found = GapDetector(store).scan(
-            instruments, start=start, end=end,
-            timeframe=args.timeframe, bar_freq=bar_freq,
-        )
-        targets = [inst for inst, _ in found.gaps]
-        ranges = {str(inst.instrument_id): r for inst, r in found.gaps} or None
-        print(f"Gaps:     {len(targets)} symbols need fetch")
-
-    result = simple_sync(
-        broker, store, targets, args.timeframe, start, end,
-        batch_size=args.batch_size,
-        max_workers=args.workers,
-        ranges=ranges,
+    svc = SyncService(
+        broker, store,
+        SyncConfig(
+            timeframe=args.timeframe,
+            batch_size=args.batch_size,
+            max_workers=args.workers,
+            min_gap_stamps=args.min_gap_stamps,
+            initial_backoff_s=args.backoff_base,
+        ),
     )
+
+    if args.skip_existing:
+        # converge scans, fetches only the holes, and re-scans until clean or
+        # the budget is spent — one path, bounded, instead of a bare fetch.
+        result = svc.converge(instruments, start, end, holidays=NSE_HOLIDAYS_2026)
+        if result.under_floored:
+            print(f"  Under floor ({args.min_gap_stamps} stamps): "
+                  f"{len(result.under_floored)} symbols — lower --min-gap-stamps "
+                  f"to fetch them")
+    else:
+        result = svc.sync(instruments, start, end)
 
     print("\nSync complete:")
     print(f"  Requested: {result.requested}")
     print(f"  Fetched:   {result.fetched}")
     print(f"  Written:   {result.written} rows")
+    print(f"  Elapsed:   {result.elapsed_s:.0f}s")
+    if args.skip_existing:
+        print(f"  Converged: {result.converged}")
     if result.skipped:
         print(f"  Skipped:   {len(result.skipped)} (no data)")
     if result.failed:
         print(f"  Failed:    {len(result.failed)} symbols")
-        print(f"  Examples:  {result.failed[:5]}")
+        print(f"  Examples:  {list(result.failed)[:5]}")
 
     return 0 if not result.failed else 1
 

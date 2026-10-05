@@ -206,19 +206,33 @@ class TestRunCli:
         This is the safety guarantee of the command: --dry-run swaps in the
         paper broker and can be run without credentials.
         """
-        with patch("tradex_market_data.simple_sync.simple_sync") as simple:
-            simple.return_value = MagicMock(
-                requested=50, fetched=0, written=0, failed=[], skipped=[]
+        # --skip-existing (the default) routes to converge; patch that seam so
+        # no broker call is made, and capture the broker the service is built
+        # with. The point is which broker the command hands to the sync path.
+        from tradex_market_data.sync_service import SyncService
+
+        seen: dict = {}
+        real_init = SyncService.__init__
+
+        def _capture_init(self, broker, store, config):
+            seen["broker"] = broker
+            real_init(self, broker, store, config)
+
+        with patch.object(SyncService, "__init__", _capture_init), patch.object(
+            SyncService, "converge"
+        ) as converge:
+            converge.return_value = MagicMock(
+                requested=50, fetched=0, written=0, failed={}, skipped=[],
+                converged=True, elapsed_s=0.0, under_floored=(),
             )
             result = run_cli(
                 ["sync", "--dry-run", "--universe", "nifty50",
                  "--start", "2026-09-01", "--end", "2026-09-02"]
             )
         assert result == 0
-        simple.assert_called_once()
-        # The broker handed to the pipeline must be a PaperBroker, not dhan.
-        broker_arg = simple.call_args.args[0]
-        assert type(broker_arg).__name__ == "PaperBroker"
+        converge.assert_called_once()
+        # The broker handed to the service must be a PaperBroker, not dhan.
+        assert type(seen["broker"]).__name__ == "PaperBroker"
 
     def test_serve_reuses_runtime_session(self) -> None:
         """main() must pass its own session to serve — never boot a second."""
