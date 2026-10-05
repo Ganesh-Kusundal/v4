@@ -67,6 +67,10 @@ def validate_strategy_spec(
                 f"strategy {spec.id!r} declares unsupported timeframe {value!r}"
             )
 
+    # Coarse warmup check: ``IndicatorSpec`` has no ``warmup_bars`` field
+    # yet, so this can only require a positive declaration — it cannot
+    # prove the declared warmup covers the longest declared indicator.
+    # Full per-indicator warmup needs ``IndicatorSpec.warmup_bars``.
     if spec.required_indicators and spec.warmup_bars <= 0:
         problems.append(
             f"strategy {spec.id!r} declares indicators "

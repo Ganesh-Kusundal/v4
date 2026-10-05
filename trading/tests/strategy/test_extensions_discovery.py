@@ -11,6 +11,7 @@ from tradex_domain.enums import ExchangeId, Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.strategy import ScannerDefinition, StrategyContext
 from tradex_domain.value_objects import Price, Quantity
+from tradex_strategy.core.definitions import StrategyDefinition
 from tradex_strategy.core.protocols import Strategy
 from tradex_strategy.extensions import all_scanners, all_strategies
 from trading.tests.risk_support import permissive_risk
@@ -39,6 +40,30 @@ class TestExtensionsDiscovery:
 
         assert pkg_strategies == all_strategies
         assert pkg_scanners == all_scanners
+
+
+class TestAllDefinitions:
+    """``all_definitions`` discovers the StrategyDefinition factory/spec pairs."""
+
+    def test_finds_sma_cross_definition(self) -> None:
+        from tradex_strategy.extensions import all_definitions
+        from tradex_strategy.extensions.strategies.sma_cross import (
+            sma_cross_definition,
+        )
+
+        assert len(all_definitions) >= 1
+        assert sma_cross_definition in all_definitions
+        assert all(isinstance(d, StrategyDefinition) for d in all_definitions)
+
+    def test_sma_cross_definition_shape(self) -> None:
+        from tradex_strategy.extensions import all_definitions
+
+        by_id = {d.spec.id: d for d in all_definitions}
+        assert "sma_cross" in by_id
+        definition = by_id["sma_cross"]
+        assert definition.spec.required_indicators == ("sma",)
+        assert definition.spec.warmup_bars > 0
+        assert definition.create is not None
 
 
 class TestExampleSmaCross:
