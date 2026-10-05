@@ -233,6 +233,33 @@ class _RecordingBroker(FakeBroker):
         return super().history(inst, timeframe, start, end)
 
 
+class _NoHistoryBroker:
+    """A broker that advertises it cannot serve history (e.g. PaperBroker)."""
+
+    supports_history = False
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.rate_limiter = None
+
+    def history(self, inst, timeframe, start, end):
+        self.calls += 1
+        raise RuntimeError("paper broker has no historical data source")
+
+
+def test_sync_skips_a_broker_without_history_instead_of_retrying() -> None:
+    """The broker's own supports_history guard must short-circuit the batch:
+    calling history() at all here is the bug (it retries forever otherwise)."""
+    broker = _NoHistoryBroker()
+    svc = _service(broker, budget_s=30.0)
+    t0 = time.monotonic()
+    report = svc.sync([_eq("X"), _eq("Y")], START, END)
+    assert time.monotonic() - t0 < 2.0
+    assert broker.calls == 0
+    assert sorted(report.skipped) == ["X", "Y"]
+    assert report.failed == {}
+
+
 def test_sync_range_scoped_fetch_asks_only_for_the_ranges() -> None:
     """A range-scoped sync must not widen the request to the whole window —
     asking Dhan for a full session to fill a tail hole returns the wrong bars."""

@@ -148,7 +148,15 @@ def fetch_with_backoff(
 
 
 def _is_transient_error(error_msg: str) -> bool:
-    permanent_markers = ("empty stitched", "empty series", "empty failover")
+    permanent_markers = (
+        "empty stitched",
+        "empty series",
+        "empty failover",
+        # A broker that cannot serve history at all (PaperBroker) will never
+        # start serving it; retrying it with backoff burns the whole budget.
+        "no historical data source",
+        "not implemented",
+    )
     if any(m in error_msg for m in permanent_markers):
         return False
     return True

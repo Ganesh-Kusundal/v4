@@ -267,6 +267,33 @@ def test_fetch_with_backoff_fails_fast_on_permanent_error() -> None:
     assert out == {}
 
 
+def test_fetch_with_backoff_fails_fast_on_unsupported_history() -> None:
+    """A broker that cannot serve history at all is permanent, not throttled —
+    retrying it six times with backoff burns the whole sync budget."""
+
+    class _NoHistoryFaker:
+        def fetch(self, instruments, tf, start, end, ranges=None):
+            return {}, [
+                f"{i.instrument_id}: paper broker has no historical data source "
+                f"({i.instrument_id} 1m); guard with PaperBroker.supports_history "
+                f"or catch this explicitly"
+                for i in instruments
+            ]
+
+    inst = Equity.of("NSE", "PAPERONLY")
+    slept: list[float] = []
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(time, "sleep", slept.append)
+        t0 = time.monotonic()
+        out = fetch_with_backoff(
+            _NoHistoryFaker(), [inst], Timeframe.M1,
+            BASE, BASE + timedelta(days=1), max_retries=6,
+        )
+    assert time.monotonic() - t0 < 1.0
+    assert slept == []  # no backoff at all — it can never succeed
+    assert out == {}
+
+
 def test_fetch_with_backoff_uses_configurable_initial_sleep(monkeypatch) -> None:
     """initial_backoff_s replaces the hardcoded 30s first sleep."""
     slept: list[float] = []

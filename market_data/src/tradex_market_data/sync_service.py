@@ -195,6 +195,22 @@ class SyncService:
         fetched = written = batches = 0
         failed: dict[str, str] = {}
         skipped: list[str] = []
+        # A broker that advertises it cannot serve history (PaperBroker) is
+        # asked nothing: calling history() would raise per symbol and the retry
+        # loop would spend the entire budget discovering it cannot work.
+        if getattr(self._broker, "supports_history", True) is False:
+            log.warning(
+                "sync: broker %s does not support history — %d symbol(s) skipped",
+                type(self._broker).__name__,
+                len(inst_list),
+            )
+            return SyncReport(
+                requested=len(inst_list),
+                fetched=0,
+                written=0,
+                skipped=[i.symbol for i in inst_list],
+                elapsed_s=time.monotonic() - t0,
+            )
         batches_list = list(batched(inst_list, self._config.batch_size))
         for bi, batch in enumerate(batches_list, 1):
             if time.monotonic() >= deadline:
@@ -248,7 +264,7 @@ class SyncService:
             resumable=exhausted,
         )
 
-    def converge(self, instruments, start, end) -> SyncReport:
+    def converge(self, instruments, start, end, *, holidays=None) -> SyncReport:
         inst_list = list(instruments)
         t0 = time.monotonic()
         deadline = t0 + self._config.budget_seconds
@@ -259,7 +275,7 @@ class SyncService:
         #: the budget; track it and stop re-selecting it.
         retried: set[str] = set()
         for _ in range(10):  # bounded passes; budget is the real cap
-            scan = self.scan(inst_list, start, end)
+            scan = self.scan(inst_list, start, end, holidays=holidays)
             if not scan.gaps:
                 # A floored hole is invisible to ``gaps`` but is not a clean
                 # lake. Do not declare convergence over it — a rerun at the
@@ -308,6 +324,16 @@ class SyncService:
             failed.update(part.failed)
             retried.update(part.failed)  # failed symbols are not re-selected
             if part.resumable:
+                break
+            if not part.fetched and not part.written and not part.failed:
+                # The pass achieved nothing and blamed nothing (e.g. a broker
+                # with no history, or a symbol the broker serves empty). The
+                # next scan would find the same gaps and do the same nothing,
+                # so stop rather than re-scanning to the pass cap.
+                log.warning(
+                    "converge: pass made no progress (%d skipped) — stopping",
+                    len(part.skipped),
+                )
                 break
         return SyncReport(
             requested=len(inst_list),
