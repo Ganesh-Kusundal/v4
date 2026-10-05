@@ -70,13 +70,14 @@ class SyncService:
         self._store = store
         self._config = config
 
-    def scan(self, instruments, start, end) -> GapScan:
+    def scan(self, instruments, start, end, *, holidays=None) -> GapScan:
         return GapDetector(self._store).scan(
             instruments,
             start=start,
             end=end,
             timeframe=self._config.timeframe,
             bar_freq="1min",
+            holidays=holidays,
             min_gap_stamps=self._config.min_gap_stamps,
             tail_days=self._config.tail_days,
             include_open_stamps=self._config.include_open_stamps,
@@ -98,6 +99,26 @@ class SyncService:
         last = to_ist_naive(series.candles[-1].timestamp)
         return first <= start + _EDGE_SLACK and last >= end - _EDGE_SLACK
 
+    def _covers_ranges(
+        self,
+        series: HistoricalSeries,
+        ranges: list[tuple[datetime, datetime]],
+    ) -> bool:
+        """Every requested range has a candle at or after its start.
+
+        Only the start is checked: a broker's range convention can end a
+        window early (Dhan's ``fromDate`` is exclusive), and requiring the
+        exact end would reject the very responses the range-scoped path is
+        meant to accept. A range with no candle at all is the failure.
+        """
+        if not series.candles:
+            return False
+        stamps = [to_ist_naive(c.timestamp) for c in series.candles]
+        return all(
+            any(t >= r_start - _EDGE_SLACK for t in stamps)
+            for r_start, _ in ranges
+        )
+
     def _fetch_bounded(
         self,
         fetcher: ParallelHistoryFetcher,
@@ -105,6 +126,7 @@ class SyncService:
         start: datetime,
         end: datetime,
         deadline: float,
+        ranges: dict[str, list[tuple[datetime, datetime]]] | None = None,
     ) -> dict[str, HistoricalSeries]:
         """Fetch one batch, abandoning it at the wall-clock deadline.
 
@@ -129,6 +151,7 @@ class SyncService:
                 max_retries=self._config.max_attempts,
                 initial_backoff_s=self._config.initial_backoff_s,
                 deadline=deadline,
+                ranges=ranges,
             )
             return future.result(timeout=remaining)
         except TimeoutError:
@@ -140,7 +163,14 @@ class SyncService:
         finally:
             pool.shutdown(wait=False)
 
-    def sync(self, instruments, start, end) -> SyncReport:
+    def sync(
+        self,
+        instruments,
+        start,
+        end,
+        *,
+        ranges: dict[str, list[tuple[datetime, datetime]]] | None = None,
+    ) -> SyncReport:
         inst_list = list(instruments)
         if not inst_list:
             return SyncReport(0, 0, 0)
@@ -158,18 +188,28 @@ class SyncService:
             if time.monotonic() >= deadline:
                 break
             batches = bi
-            results = self._fetch_bounded(fetcher, list(batch), start, end, deadline)
+            results = self._fetch_bounded(
+                fetcher, list(batch), start, end, deadline, ranges,
+            )
             frames: list[pd.DataFrame] = []
             for inst in batch:
                 series = results.get(str(inst.instrument_id))
                 if series is None or not series.candles:
                     skipped.append(inst.symbol)
                     continue
-                if self._config.validate_coverage and not self._validate_coverage(
-                    series, start, end
-                ):
-                    failed[inst.symbol] = "partial_response"
-                    continue
+                if self._config.validate_coverage:
+                    # A ranged fetch returns only the requested hole, so
+                    # coverage is checked against those ranges — not the whole
+                    # window, which it deliberately never asked for.
+                    inst_ranges = (ranges or {}).get(str(inst.instrument_id))
+                    covered = (
+                        self._covers_ranges(series, inst_ranges)
+                        if inst_ranges
+                        else self._validate_coverage(series, start, end)
+                    )
+                    if not covered:
+                        failed[inst.symbol] = "partial_response"
+                        continue
                 frames.append(series_to_frame(series, inst.symbol))
                 fetched += 1
             if frames:

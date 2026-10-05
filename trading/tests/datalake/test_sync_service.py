@@ -176,6 +176,55 @@ def test_converge_stops_at_budget() -> None:
     assert report.resumable is True
 
 
+class _RecordingBroker(FakeBroker):
+    """FakeBroker that remembers the exact windows it was asked for."""
+
+    def __init__(self, **kw) -> None:
+        super().__init__(**kw)
+        self.windows: list[tuple[datetime, datetime]] = []
+
+    def history(self, inst, timeframe, start, end):
+        self.windows.append((start, end))
+        return super().history(inst, timeframe, start, end)
+
+
+def test_sync_range_scoped_fetch_asks_only_for_the_ranges() -> None:
+    """A range-scoped sync must not widen the request to the whole window —
+    asking Dhan for a full session to fill a tail hole returns the wrong bars."""
+    broker = _RecordingBroker()
+    svc = _service(broker)
+    inst = _eq("X")
+    hole = [(datetime(2026, 8, 3, 10, 0), datetime(2026, 8, 3, 10, 5))]
+    report = svc.sync([inst], START, END, ranges={str(inst.instrument_id): hole})
+    assert report.failed == {}
+    assert report.fetched == 1
+    assert report.written > 0
+    assert broker.windows == [(datetime(2026, 8, 3, 10, 0), datetime(2026, 8, 3, 10, 5))]
+
+
+def test_scan_honours_holidays() -> None:
+    """A holiday is not an expected session, so a symbol with no bars that day
+    is complete, not gapped. The scan window spans three weekdays and the
+    store holds the first and third — the middle one is the holiday."""
+    from tradex_market_data.simple_sync import series_to_frame
+
+    inst = _eq("X")
+    aug5 = datetime(2026, 8, 5, 9, 15)
+    end = datetime(2026, 8, 5, 15, 30)
+    holiday = datetime(2026, 8, 4).date()  # Tue, between the two stored days
+
+    store = _MemStore()
+    store.frames.append(series_to_frame(_full_series(inst, START, END), inst.symbol))
+    store.frames.append(
+        series_to_frame(_full_series(inst, aug5, end), inst.symbol)
+    )
+    svc = SyncService(FakeBroker(), store, SyncConfig(timeframe="1m"))
+
+    assert svc.scan([inst], START, end, holidays={holiday}).gaps == []
+    # control: without the exclusion the holiday IS an expected session
+    assert len(svc.scan([inst], START, end).gaps) == 1
+
+
 def test_converge_does_not_refetch_a_deterministic_failure() -> None:
     """A truncated response reproduces on every pass, so re-fetching it only
     burns the budget. converge must try each symbol once and stop."""
