@@ -4,6 +4,8 @@
 
 **Goal:** Replace the fragile "scripts call `simple_sync` and hope" flow with one bounded, resumable `SyncService` (scan → plan → sync → validate coverage → converge) so `tradex sync`, `repair_gaps`, `fill_gaps` all run through a single robust path that cannot hang and does retry rate limits.
 
+> **Status (2026-10-05): DONE.** `SyncService` is the path for `tradex sync`, `repair_gaps`, and `fill_gaps` (`205f589`, `6ba2b9c`); `backfill_parquet` is deliberately left multi-broker. One caveat survives the goal's wording: "cannot hang" is bounded for *retries*, but a blocked broker socket still leaves a worker thread running (`_fetch_bounded`), so the process can hang on exit. See Hardening below.
+
 **Architecture:** `SyncService` composes the existing `GapDetector` (detection), `ParallelHistoryFetcher` + `fetch_with_backoff` (fetch), and `ParquetStorage` (store). A total wall-clock `deadline` is threaded through every retry so a run is bounded by `budget_seconds`. A post-fetch coverage check rejects truncated responses. `converge()` re-scans until clean or the budget is spent. The scripts/CLI become thin wrappers.
 
 **Tech Stack:** Python 3.12, pandas, pytest, `tradex_market_data` (`GapDetector`, `ParallelHistoryFetcher`, `ParquetStorage`, `simple_sync`).
@@ -615,19 +617,19 @@ Add to `SyncService`:
 
 ---
 
-- [ ] **Step 0: Delete `repair_tail`.** It routes through `self.sync` (Dhan), which cannot serve the tail it exists to repair; no Upstox tail broker is wired and no standalone script exists. Deleting it removes a no-op whose name promises a guarantee it does not provide. Also fix `simple_sync.py`'s docstring line "Upstox tail repair is a separate script" — no such script exists. If tail repair is genuinely wanted, it is a **new** task with a second broker, not this one.
+- [x] **Step 0: Delete `repair_tail`.** — ✅ `8a7ba84`. It routed through `self.sync` (Dhan), which cannot serve the tail it exists to repair; no Upstox tail broker is wired and no standalone script exists. Docstrings in `simple_sync.py` / `parallel_fetcher.py` corrected — the "Upstox tail repair is a separate script" line described a script that does not exist.
 
 - [x] **Step 1: Extend `SyncService` to a superset of `simple_sync`** — ✅ `badd663`. `sync(..., ranges=)` forwards ranges to the fetcher and validates coverage against those ranges (not the full window) via `_covers_ranges`; `scan(..., holidays=)` forwards holidays. Tests: `test_sync_range_scoped_fetch_asks_only_for_the_ranges`, `test_scan_honours_holidays`.
 
-- [ ] **Step 2: Route the drivers.** Map each driver's existing args onto `SyncConfig` — do **not** drop flags:
+- [x] **Step 2: Route the drivers.** — ✅ `205f589` (cli), `6ba2b9c` (scripts). `backfill_parquet` deliberately **not** routed (see below). Map each driver's existing args onto `SyncConfig` — do **not** drop flags:
   - `repair_gaps`: `--budget`→`budget_seconds`; `--timeframe`→`timeframe`; `--min-gap-stamps`→`min_gap_stamps`; `--no-open-stamps`→`include_open_stamps=False`; `--chunk`→`batch_size`; `--tail-days`→`tail_days`; pass `holidays=NSE_HOLIDAYS_2026`; build `ranges` from `gap_map`; keep the cluster ordering (`_ORDER`, `_kind`) in the driver — it is policy, not sync.
   - `fill_gaps`: same mapping; `--tail-days`→`tail_days`; keep the cluster loop; pass `ranges=`.
   - `backfill_parquet`: the bespoke requeue/backoff loop (lines ~258–310) is exactly what `fetch_with_backoff` already does — replace it with `SyncService.sync`. Keep `--skip-existing` → `converge`, `--no-skip-existing` → `sync`. Note this driver currently supports **two** brokers via `_make_fetchers`; `SyncService` is single-broker, so either pass one fetcher at a time or leave this driver's multi-broker path until `SyncService` grows a broker pair.
   - `cli.cmd_sync`: `--skip-existing` (default true) → `converge`, `--no-skip-existing` → `sync`; `--min-gap-stamps`, `--batch-size`, `--workers`→`max_workers`, `--backoff-base`→`initial_backoff_s`. `--dry-run` uses `PaperBroker`, which has no `rate_limiter` attribute — `ParallelHistoryFetcher` already falls back to the paper table (`parallel_fetcher.py:206-215`), so confirm the dry-run path still works.
 
-- [ ] **Step 3: Verify no driver changed behavior.** For each driver, diff the *args* it accepts against the `SyncConfig` fields it sets; a dropped flag is the regression to catch. Run `.venv/bin/python -m pytest trading/tests/interface trading/tests/datalake -q` — green.
+- [x] **Step 3: Verify no driver changed behavior.** — ✅ `851 passed, 1 skipped` on `trading/tests/datalake trading/tests/interface market_data/tests`; both scripts `--help` cleanly. The `backfill_parquet` multi-broker path is unchanged by design.
 
-- [ ] **Step 4: Commit** — `refactor(sync): route drivers through SyncService`.
+- [x] **Step 4: Commit** — ✅ `205f589`, `6ba2b9c`.
 
 ---
 
@@ -651,10 +653,12 @@ Add to `SyncService`:
 
 Recommended order:
 
-1. ~~**Harden `converge`**~~ — ✅ done in `4bb551a`.
-2. ~~**Task 4 Step 1**~~ — ✅ done in `badd663`.
-3. **Task 4 Steps 2–3** — route drivers one at a time, diffing accepted args against `SyncConfig` fields; run the interface + datalake suites after each.
-4. **Task 4 Step 0** — delete `repair_tail` and correct the `simple_sync` docstring; it can land any time before the drivers do.
+1. ~~**Harden `converge`**~~ — ✅ `4bb551a`.
+2. ~~**Task 4 Step 1**~~ — ✅ `badd663` (`ranges`/`holidays`); the venue-tail coverage fix `cbf3efa` landed with it, without which routing would have marked every symbol `partial_response`.
+3. ~~**Task 4 Step 0**~~ — ✅ `8a7ba84`.
+4. ~~**Task 4 Steps 2–4**~~ — ✅ `205f589`, `6ba2b9c`. `tradex sync`, `repair_gaps`, `fill_gaps` all run through `SyncService`.
+
+**Not routed, by decision:** `backfill_parquet` stays on its own path. It is genuinely multi-broker (`_make_fetchers` builds one fetcher per broker) and `SyncService` is single-broker; unifying it means either looping brokers per batch or giving `SyncService` a broker pair — both larger than this task. Its bespoke requeue/backoff loop is now the only copy of that logic left outside `fetch_with_backoff`; fold it in if that driver is ever consolidated.
 
 Two execution options:
 
