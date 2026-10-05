@@ -2,8 +2,7 @@
 
 One broker per fetcher. Long intraday ranges are auto-chunked (Dhan 90d /
 Upstox 30d) and stitched. No failover, no clipped-tail merge — those
-lived here when multi-broker sync was the path; sync is Dhan-only now,
-and Upstox tail repair is a separate script.
+lived here when multi-broker sync was the path; sync is Dhan-only now.
 """
 
 from __future__ import annotations

@@ -116,19 +116,19 @@ class SyncService:
         series: HistoricalSeries,
         ranges: list[tuple[datetime, datetime]],
     ) -> bool:
-        """Every requested range has a candle at or after its start.
+        """Every requested range is reached at both ends.
 
-        Only the start is checked: a broker's range convention can end a
-        window early (Dhan's ``fromDate`` is exclusive), and requiring the
-        exact end would reject the very responses the range-scoped path is
-        meant to accept. A range with no candle at all is the failure.
+        A hole's endpoints are interior session stamps (the unservable 15:30
+        close never enters ``gaps``), so both are required — checking only the
+        start would accept a response truncated halfway through the hole.
         """
         if not series.candles:
             return False
         stamps = [to_ist_naive(c.timestamp) for c in series.candles]
         return all(
-            any(t >= r_start - _EDGE_SLACK for t in stamps)
-            for r_start, _ in ranges
+            any(t <= r_start + _EDGE_SLACK for t in stamps)
+            and any(t >= r_end - _EDGE_SLACK for t in stamps)
+            for r_start, r_end in ranges
         )
 
     def _fetch_bounded(
@@ -282,18 +282,25 @@ class SyncService:
                     converged=not under_floored,
                     under_floored=under_floored,
                 )
-            gapped = [
-                inst for inst, _ in scan.gaps if inst.symbol not in retried
+            fresh = [
+                (inst, rngs) for inst, rngs in scan.gaps
+                if inst.symbol not in retried
             ]
-            if not gapped:
+            if not fresh:
                 break  # everything still gapped is a deterministic failure
+            gapped = [inst for inst, _ in fresh]
+            # Fetch only the detected holes. Widening to the whole window would
+            # re-request 30 days per symbol to fill a five-minute gap, and (on
+            # Dhan) turns a tail fetch into a full-session request that returns
+            # the wrong bars.
+            gap_map = {str(inst.instrument_id): rngs for inst, rngs in fresh}
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
             saved = self._config
             object.__setattr__(self, "_config", replace(saved, budget_seconds=remaining))
             try:
-                part = self.sync(gapped, start, end)
+                part = self.sync(gapped, start, end, ranges=gap_map)
             finally:
                 object.__setattr__(self, "_config", saved)
             fetched += part.fetched
@@ -311,26 +318,5 @@ class SyncService:
             converged=False,
             resumable=True,
         )
-
-    def repair_tail(self, instruments, start, end) -> SyncReport:
-        # The detector classifies the unrepairable close; the open is
-        # repairable. Compose the Upstox pass over the edge-only symbols.
-        scan = GapDetector(self._store).scan(
-            instruments,
-            start=start,
-            end=end,
-            timeframe=self._config.timeframe,
-            bar_freq="1min",
-            include_open_stamps=True,
-        )
-        edge_symbols = {s for s in scan.edge_only} | set(scan.sub_threshold_symbols)
-        targets = [i for i in instruments if i.symbol in edge_symbols]
-        if not targets:
-            return SyncReport(0, 0, 0, converged=True)
-        # The tail pass uses the same sync machinery against the Upstox broker
-        # when one is configured; here it reuses self._broker so the service
-        # stays single-broker until the tail broker is wired at the driver.
-        return self.sync(targets, start, end)
-
 
 __all__ = ["SyncConfig", "SyncReport", "SyncService"]

@@ -3,7 +3,8 @@
 Caller owns the gap plan: scan once, pass ``ranges=``. Sync never
 re-detects. One broker; no failover / clip-merge. Empty series →
 ``skipped``; 429/network → ``failed``. Dhan's ~15:14 ceiling is not a
-sync error — Upstox tail repair is a separate script.
+sync error: no broker's intraday endpoint serves the 15:30 close, so it is a
+reported edge count, not a repairable gap.
 """
 import logging
 from dataclasses import dataclass
