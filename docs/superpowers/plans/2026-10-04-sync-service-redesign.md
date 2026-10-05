@@ -617,7 +617,7 @@ Add to `SyncService`:
 
 - [ ] **Step 0: Delete `repair_tail`.** It routes through `self.sync` (Dhan), which cannot serve the tail it exists to repair; no Upstox tail broker is wired and no standalone script exists. Deleting it removes a no-op whose name promises a guarantee it does not provide. Also fix `simple_sync.py`'s docstring line "Upstox tail repair is a separate script" — no such script exists. If tail repair is genuinely wanted, it is a **new** task with a second broker, not this one.
 
-- [ ] **Step 1: Extend `SyncService` to a superset of `simple_sync`** (add `ranges` and `holidays` as above). Write the failing tests first: a range-scoped sync must call the broker only for the requested ranges; a scan with `holidays=` must not flag the holiday. Run `.venv/bin/python -m pytest trading/tests/datalake/test_sync_service.py -q`.
+- [x] **Step 1: Extend `SyncService` to a superset of `simple_sync`** — ✅ `badd663`. `sync(..., ranges=)` forwards ranges to the fetcher and validates coverage against those ranges (not the full window) via `_covers_ranges`; `scan(..., holidays=)` forwards holidays. Tests: `test_sync_range_scoped_fetch_asks_only_for_the_ranges`, `test_scan_honours_holidays`.
 
 - [ ] **Step 2: Route the drivers.** Map each driver's existing args onto `SyncConfig` — do **not** drop flags:
   - `repair_gaps`: `--budget`→`budget_seconds`; `--timeframe`→`timeframe`; `--min-gap-stamps`→`min_gap_stamps`; `--no-open-stamps`→`include_open_stamps=False`; `--chunk`→`batch_size`; `--tail-days`→`tail_days`; pass `holidays=NSE_HOLIDAYS_2026`; build `ranges` from `gap_map`; keep the cluster ordering (`_ORDER`, `_kind`) in the driver — it is policy, not sync.
@@ -652,7 +652,7 @@ Add to `SyncService`:
 Recommended order:
 
 1. ~~**Harden `converge`**~~ — ✅ done in `4bb551a`.
-2. **Task 4 Step 1** — `ranges`/`holidays` on `SyncService`, with failing tests first.
+2. ~~**Task 4 Step 1**~~ — ✅ done in `badd663`.
 3. **Task 4 Steps 2–3** — route drivers one at a time, diffing accepted args against `SyncConfig` fields; run the interface + datalake suites after each.
 4. **Task 4 Step 0** — delete `repair_tail` and correct the `simple_sync` docstring; it can land any time before the drivers do.
 
