@@ -16,6 +16,7 @@ from tradex_market_data.simple_sync import (
     simple_sync,
 )
 from tradex_market_data.symbol_resolve import ResolveResult, resolve_universe_symbols
+from tradex_market_data.sync_service import SyncConfig, SyncReport, SyncService
 from tradex_market_data.universe import available_universes, load_universe
 from tradex_market_data.window_loader import MarketWindowLoader
 
@@ -29,6 +30,9 @@ __all__ = [
     "simple_sync",
     "series_to_frame",
     "SyncResult",
+    "SyncConfig",
+    "SyncReport",
+    "SyncService",
     "ResolveResult",
     "resolve_universe_symbols",
     "load_universe",
