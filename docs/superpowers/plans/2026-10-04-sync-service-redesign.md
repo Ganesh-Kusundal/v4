@@ -602,9 +602,9 @@ Add to `SyncService`:
 
 ---
 
-### Task 4: Route the drivers through `SyncService` — ❌ NOT STARTED
+### Task 4: Route the drivers through `SyncService` — ✅ DONE (`205f589`, `6ba2b9c`)
 
-**This is the only task that delivers the goal.** It is not a mechanical delegation: `SyncService` is not yet a superset of `simple_sync`, so routing the range-scoped drivers first regresses them.
+**This was the task that delivered the goal.** It was not a mechanical delegation: `SyncService` was not a superset of `simple_sync` until Step 1, so routing the range-scoped drivers first would have regressed them.
 
 **Files:**
 - Modify: `market_data/src/tradex_market_data/sync_service.py` (Steps 0–1)
@@ -636,7 +636,7 @@ Add to `SyncService`:
 
 ## Self-Review (post-reconciliation)
 
-**1. Spec coverage:** F1 backoff wired → ✅ Task 1+2 shipped; F2 converge → ✅ Task 3 shipped (but spins on deterministic failures — hardening owed); F3 tail composition → ❌ `repair_tail` shipped as a no-op and is deleted in Task 4 Step 0; F4 coverage → ✅ shipped via `to_ist_naive`, **not** the plan's buggy `.replace(tzinfo=None)`; F5–F7 progress/resumable → ✅ `SyncReport` shipped. Drivers → **❌ Task 4, not started — this is the whole remaining job.**
+**1. Spec coverage:** F1 backoff wired → ✅ Task 1+2 shipped; F2 converge → ✅ Task 3 shipped, spin fixed in `4bb551a`; F3 tail composition → ✅ `repair_tail` (a no-op) deleted in `8a7ba84`, docstrings corrected; F4 coverage → ✅ shipped via `to_ist_naive`, **not** the plan's buggy `.replace(tzinfo=None)`, plus the venue-tail fix `cbf3efa`; F5–F7 progress/resumable → ✅ `SyncReport` shipped, `under_floored` added in `4bb551a`. Drivers → ✅ Task 4 done (`205f589`, `6ba2b9c`); `backfill_parquet` left multi-broker by decision.
 
 **2. Placeholder scan:** Tasks 1–3 code blocks are superseded (see Reconciliation). Task 4 is deliberately prose + interfaces, because each driver's edit depends on its current arg parsing and the mapping must be checked flag-by-flag.
 
