@@ -178,12 +178,6 @@ def _compose_live_feed(
         status_of=_master_status,
         metrics=metrics,
     )
-    feed_monitor = FeedStaleMonitor(
-        market_feed,
-        metrics=metrics,
-        order_watchdog=order_watchdog,
-        cadence_monitor=cadence_monitor,
-    )
     try:
         history_provider: Any = ParquetHistoryProvider()
     except Exception:
@@ -198,6 +192,18 @@ def _compose_live_feed(
         max_missing_bars=cfg.feed.max_missing_bars,
     )
     market_feed.set_recovery(feed_recovery)
+    # The monitor owns the recovery *trigger*: a DEGRADED feed is handed to the
+    # coordinator on the next poll, so a stale tape has a path back to READY
+    # instead of a terminal DEGRADED that rejects every order for the life of
+    # the session. Built after the coordinator so the same instance is wired on
+    # both the monitor (poll trigger) and the feed (reconnect/cold-start path).
+    feed_monitor = FeedStaleMonitor(
+        market_feed,
+        metrics=metrics,
+        order_watchdog=order_watchdog,
+        cadence_monitor=cadence_monitor,
+        feed_recovery=feed_recovery,
+    )
     master_scheduler: Any = None
     loader = getattr(broker, "master_loader", None)
     refresh_hook = getattr(broker, "ensure_master_fresh", None)

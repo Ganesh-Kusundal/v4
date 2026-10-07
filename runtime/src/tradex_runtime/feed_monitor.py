@@ -43,6 +43,8 @@ from tradex_domain.instrument_lifecycle import (
 from tradex_domain.market_calendar import IST, MARKET_CLOSE, MARKET_OPEN
 from tradex_domain.timeframe import bucket_start
 
+from tradex_runtime.feed_supervisor import FeedState
+
 log = logging.getLogger(__name__)
 
 #: Numeric encoding of ``FeedState`` for the ``feed_state`` gauge.
@@ -92,6 +94,7 @@ class FeedStaleMonitor:
         clock: Callable[[], datetime] | None = None,
         order_watchdog: OrderStreamWatchdog | None = None,
         cadence_monitor: SymbolCadenceMonitor | None = None,
+        feed_recovery: Any | None = None,
     ) -> None:
         self._feed = feed
         # The order stream is checked by this same owned thread rather than a
@@ -103,6 +106,13 @@ class FeedStaleMonitor:
         # but the timer, the stop path and the failure semantics are identical,
         # so a second thread would buy nothing and could disagree with this one.
         self._cadence_monitor = cadence_monitor
+        #: Optional fail-closed recovery coordinator (``FeedRecoveryCoordinator``).
+        #: When wired, a DEGRADED feed is handed to it on the poll after the one
+        #: that detected staleness: recovery reconciles history and writes READY,
+        #: or fails closed and writes HALTED. Without one, a stale feed stays
+        #: DEGRADED and the order gate stays shut — the safe direction, and the
+        #: backward-compatible default.
+        self._feed_recovery = feed_recovery
         self._interval = float(
             interval_seconds if interval_seconds is not None else _default_interval(feed)
         )
@@ -170,9 +180,24 @@ class FeedStaleMonitor:
         Safe on any thread. Never raises: a broker-side failure while checking
         staleness must not kill the monitor (the feed stays DEGRADED, which is
         the safe direction).
+
+        Recovery is driven here too, and on the poll *after* the one that
+        demoted the feed. The supervisor's state is read before this poll's
+        staleness check, so a feed this poll just marked DEGRADED is not also
+        recovered in the same tick: detection and recovery are two observable
+        steps, and the DEGRADED window is real rather than instantaneous.
+        Reading the state (rather than requiring a fresh ``StaleFeed``) is also
+        what recovers a feed whose ticks resumed on their own but whose
+        supervisor was never returned to READY — otherwise that is a permanent
+        DEGRADED with a healthy tape and no path out.
         """
         stale: list[Any] = []
         feed = self._feed
+        supervisor = getattr(feed, "supervisor", None) if feed is not None else None
+        was_degraded = (
+            supervisor is not None
+            and getattr(supervisor, "state", None) is FeedState.DEGRADED
+        )
         if feed is not None and bool(getattr(feed, "active", False)):
             check = getattr(feed, "check_stale", None)
             if callable(check):
@@ -180,6 +205,16 @@ class FeedStaleMonitor:
                     stale = list(check())
                 except Exception:  # noqa: BLE001 - monitoring must not crash
                     log.warning("feed check_stale failed", exc_info=True)
+        # Recovery runs before the watchdog/cadence checks so a DEGRADED feed is
+        # handed to the fail-closed coordinator on the first poll that can act on
+        # it. The coordinator writes RESYNCHRONIZING then READY/HALTED itself;
+        # this method never sets the state, so the fail-closed decision stays in
+        # one place. A coordinator that raises must not take the poll down.
+        if was_degraded and self._feed_recovery is not None:
+            try:
+                self._feed_recovery.recover()
+            except Exception:  # noqa: BLE001 - monitoring must not crash
+                log.warning("feed recovery failed", exc_info=True)
         watchdog = self._order_watchdog
         if watchdog is not None:
             try:
