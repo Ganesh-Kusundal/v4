@@ -32,7 +32,10 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from datetime import time as dt_time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from tradex_runtime.feed_recovery import FeedRecoveryCoordinator
 
 from tradex_domain.constants import CADENCE_WINDOW, ORDER_FEED_STALE_AFTER
 from tradex_domain.instrument_lifecycle import (
@@ -94,7 +97,7 @@ class FeedStaleMonitor:
         clock: Callable[[], datetime] | None = None,
         order_watchdog: OrderStreamWatchdog | None = None,
         cadence_monitor: SymbolCadenceMonitor | None = None,
-        feed_recovery: Any | None = None,
+        feed_recovery: FeedRecoveryCoordinator | None = None,
     ) -> None:
         self._feed = feed
         # The order stream is checked by this same owned thread rather than a
@@ -107,11 +110,12 @@ class FeedStaleMonitor:
         # so a second thread would buy nothing and could disagree with this one.
         self._cadence_monitor = cadence_monitor
         #: Optional fail-closed recovery coordinator (``FeedRecoveryCoordinator``).
-        #: When wired, a DEGRADED feed is handed to it on the poll after the one
-        #: that detected staleness: recovery reconciles history and writes READY,
-        #: or fails closed and writes HALTED. Without one, a stale feed stays
-        #: DEGRADED and the order gate stays shut — the safe direction, and the
-        #: backward-compatible default.
+        #: Its presence is what enables the poll trigger; the trigger itself is
+        #: routed through the feed's own ``request_recovery()`` so it shares the
+        #: feed's in-flight guard and daemon-thread dispatch. Recovery reconciles
+        #: history and writes READY, or fails closed and writes HALTED. Without
+        #: one, a stale feed stays DEGRADED and the order gate stays shut — the
+        #: safe direction, and the backward-compatible default.
         self._feed_recovery = feed_recovery
         self._interval = float(
             interval_seconds if interval_seconds is not None else _default_interval(feed)
@@ -186,10 +190,6 @@ class FeedStaleMonitor:
         staleness check, so a feed this poll just marked DEGRADED is not also
         recovered in the same tick: detection and recovery are two observable
         steps, and the DEGRADED window is real rather than instantaneous.
-        Reading the state (rather than requiring a fresh ``StaleFeed``) is also
-        what recovers a feed whose ticks resumed on their own but whose
-        supervisor was never returned to READY — otherwise that is a permanent
-        DEGRADED with a healthy tape and no path out.
         """
         stale: list[Any] = []
         feed = self._feed
@@ -210,9 +210,51 @@ class FeedStaleMonitor:
         # it. The coordinator writes RESYNCHRONIZING then READY/HALTED itself;
         # this method never sets the state, so the fail-closed decision stays in
         # one place. A coordinator that raises must not take the poll down.
-        if was_degraded and self._feed_recovery is not None:
+        #
+        # Recovery fires only on a DEGRADED cause the *quote* path owns: the
+        # supervisor must have been DEGRADED before this poll *and* this poll's
+        # `check_stale()` must have returned stale events. `check_stale()` is the
+        # only thing that writes a quote-side DEGRADED; the order-stream watchdog
+        # marks the same supervisor through a different door, and recovering that
+        # would silently flip a dead order socket to READY — the one failure the
+        # watchdog exists to prevent. Requiring a fresh `StaleFeed` is also what
+        # keeps a healthy-but-previously-degraded tape from being recovered on
+        # state alone.
+        #
+        # The `feed.active` check prevents recovery after a deliberate stop:
+        # `MarketFeed.stop()`/`unsubscribe` set DEGRADED via `disconnected()`,
+        # and recovering an empty feed would fail closed to HALTED (sticky).
+        #
+        # The order-socket check closes the co-occurring-cause hole in the
+        # `stale` gate above: if the quote tape is stale *and* the order stream
+        # is dead, the quote-side StaleFeed would otherwise authorize a recovery
+        # that writes READY while the order socket is still silent, and the
+        # watchdog's one-shot latch would never re-degrade it. The watchdog is
+        # consulted live here rather than by its return value, because its
+        # `_reported` latch is consumed by the poll below.
+        #
+        # The work is dispatched through the feed's own `request_recovery()`
+        # (daemon thread, shared in-flight guard) rather than calling
+        # `coordinator.recover()` here: that keeps the poll thread off datalake
+        # I/O and stops this trigger from interleaving with a reconnect or
+        # integrity-violation recovery.
+        watchdog = self._order_watchdog
+        is_stale_fn = getattr(watchdog, "is_stale", None) if watchdog is not None else None
+        order_stream_stale = bool(callable(is_stale_fn) and is_stale_fn())
+        if (
+            was_degraded
+            and bool(stale)
+            and not order_stream_stale
+            and feed is not None
+            and bool(getattr(feed, "active", False))
+            and self._feed_recovery is not None
+        ):
+            trigger = getattr(feed, "request_recovery", None)
             try:
-                self._feed_recovery.recover()
+                if callable(trigger):
+                    trigger()
+                else:  # pragma: no cover - non-MarketFeed feeds (legacy shape)
+                    self._feed_recovery.recover()
             except Exception:  # noqa: BLE001 - monitoring must not crash
                 log.warning("feed recovery failed", exc_info=True)
         watchdog = self._order_watchdog
@@ -381,21 +423,28 @@ class OrderStreamWatchdog:
             return None
         return max(0.0, (self._clock() - last).total_seconds())
 
+    def is_stale(self) -> bool:
+        """Whether the order stream is too quiet to be trusted right now.
+
+        The single staleness predicate this watchdog and the recovery gate
+        share. ``False`` for a disabled watchdog and for a stream that has
+        **never** delivered a frame — it is started-at-boot and may
+        legitimately carry no updates; it is the *silence after* a live stream
+        that is the failure mode, and ageing a stream that was never up would
+        mark every quiet session DEGRADED.
+        """
+        if not self._enabled:
+            return False
+        age = self.age_seconds()
+        return age is not None and age > self._stale_after
+
     def check(self) -> bool:
         """Mark the feed DEGRADED if the order stream is too quiet.
 
         Returns ``True`` when this call is the one that degraded. Never
         raises: a watchdog that dies is a watchdog that stopped watching.
-
-        A stream that has **never** delivered a frame is not aged — it is
-        started-at-boot and may legitimately carry no updates. It is the
-        *silence after* a live stream that is the failure mode, and ageing a
-        stream that was never up would mark every quiet session DEGRADED.
         """
-        if not self._enabled:
-            return False
-        age = self.age_seconds()
-        if age is None or age <= self._stale_after:
+        if not self.is_stale():
             return False
         with self._lock:
             if self._reported:
@@ -408,7 +457,7 @@ class OrderStreamWatchdog:
         log.warning(
             "order stream silent for %.1fs (> %.1fs): marking feed DEGRADED — "
             "a resting order cannot be believed live on a dead socket",
-            age, self._stale_after,
+            self.age_seconds() or 0.0, self._stale_after,
         )
         return True
 

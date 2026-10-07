@@ -290,6 +290,21 @@ class MarketFeed:
         self._supervisor.connected()
         self._supervisor.recovery_started()
 
+    def request_recovery(self) -> bool:
+        """Ask for a fail-closed recovery, sharing this feed's in-flight guard.
+
+        The owned stale-feed monitor calls this instead of the coordinator
+        directly, so a poll-triggered recovery and a socket-reconnect (or
+        integrity-violation) recovery cannot run at the same time: both go
+        through :meth:`_trigger_recovery`, whose :meth:`_claim_recovery` admits
+        one at a time. The work runs in a daemon thread, so the caller's thread
+        is never blocked on datalake I/O.
+
+        Returns ``True`` when the recovery slot was claimed and a worker was
+        started, ``False`` when one was already in flight.
+        """
+        return self._trigger_recovery()
+
     def _on_broker_reconnect(self) -> None:
         """Broker reconnect hook: demote readiness, then run fail-closed recovery."""
         self.notify_reconnect()
@@ -554,16 +569,17 @@ class MarketFeed:
         if trigger_recovery:
             self._trigger_recovery()
 
-    def _trigger_recovery(self) -> None:
+    def _trigger_recovery(self) -> bool:
         """Trigger the recovery coordinator in a daemon thread (non-blocking).
 
         Guards against double-triggering with an in-flight flag — not by reading
         ``RESYNCHRONIZING``, because reconnect already demotes to that state
-        before recovery is kicked.
+        before recovery is kicked. Returns ``True`` when this call claimed the
+        slot and started the worker, ``False`` when one was already in flight.
         """
         recovery = self._claim_recovery()
         if recovery is None:
-            return
+            return False
 
         def _run() -> None:
             try:
@@ -576,6 +592,7 @@ class MarketFeed:
             daemon=True,
             name="feed-auto-recovery",
         ).start()
+        return True
 
     # -- readiness -----------------------------------------------------------
 

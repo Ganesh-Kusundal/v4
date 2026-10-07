@@ -8,188 +8,359 @@ fail-closed ``FeedRecoveryCoordinator`` on the poll *after* the one that detecte
 staleness: the coordinator reconciles history and writes READY, or fails closed
 and writes HALTED.
 
-These are integration tests: a real ``MarketFeed``, a real ``ReactiveBus``, a
-real ``FeedSupervisor`` and a real ``FeedRecoveryCoordinator``. Only the broker
-transport and the history source are replaced at the process boundary — the
-decision under test is the monitor's, not the network's.
+The recovery trigger is deliberately narrow, and two negative controls here hold
+it that way:
+
+* it fires only on a DEGRADED cause the *quote* path owns — a fresh ``StaleFeed``
+  from ``check_stale()``. A DEGRADED written by ``OrderStreamWatchdog`` (a dead
+  order socket) must **not** be recovered, or the one failure the watchdog exists
+  to catch would be flipped to READY one poll later;
+* it fires only while the feed is ``active``. ``MarketFeed.stop()`` sets DEGRADED
+  via ``disconnected()``, and recovering the now-empty feed would fail closed to
+  HALTED, which is sticky.
+
+These are integration tests with real components end to end: a real ``MarketFeed``
+on a real ``PaperBroker``, a real ``ReactiveBus``, a real ``FeedSupervisor``, a
+real ``OrderStreamWatchdog``, and a real ``ParquetHistoryProvider`` reading a real
+``ParquetStorage`` over a temp lake. No broker transport and no history source is
+faked; the only thing the tests reach for is the clock the staleness checks read.
 """
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
 
-from tradex_domain.instruments import Equity, Instrument
+import pandas as pd
+from tradex_brokers.paper import PaperBroker
+from tradex_domain.instruments import Equity
+from tradex_market_data.parquet_storage import ParquetStorage
 from tradex_reactive.bus import ReactiveBus
-from tradex_runtime.bar_aggregator import BarFrame
-from tradex_runtime.feed_monitor import FeedStaleMonitor
-from tradex_runtime.feed_recovery import FeedRecoveryCoordinator
-from tradex_runtime.feed_supervisor import FeedState
+from tradex_runtime.feed_monitor import FeedStaleMonitor, OrderStreamWatchdog
+from tradex_runtime.feed_recovery import FeedRecoveryCoordinator, ParquetHistoryProvider
+from tradex_runtime.feed_supervisor import FeedState, FeedSupervisor
 from tradex_runtime.market_feed import MarketFeed
 
 _RELIANCE = Equity.of("NSE", "RELIANCE")
+#: 2026-09-24T10:00Z — a Thursday session minute, the stamp the lake is seeded on.
 _EVENT_AT = datetime(2026, 9, 24, 10, 0, tzinfo=UTC)
-_EPOCH = int(_EVENT_AT.timestamp())
 
 
-class _FakeBroker:
-    """Broker shape ``MarketFeed.subscribe`` needs, with no transport."""
-
-    def subscribe_quotes(self, instruments: object, handler: object) -> object:
-        return object()
-
-    def unsubscribe(self, subscription: object) -> None:
-        return None
-
-    def unsubscribe_instruments(self, instruments: object) -> None:
-        return None
-
-    def set_reconnect_hook(self, cb: object) -> None:
-        return None
+def _wait_until(predicate: object, timeout: float = 3.0) -> bool:
+    """Spin until *predicate* is true; recovery is dispatched on a daemon thread."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():  # type: ignore[operator]
+            return True
+        time.sleep(0.01)
+    return predicate()  # type: ignore[operator]
 
 
-class _Provider:
-    """History source that answers with *bars* or raises *error*."""
-
-    def __init__(self, bars: object = ()) -> None:
-        self.bars = bars
-        self.calls: list[str] = []
-
-    def fetch_bars(
-        self, instrument: Instrument, timeframe: str, start: datetime, end: datetime
-    ) -> object:
-        self.calls.append(str(instrument.instrument_id))
-        if isinstance(self.bars, Exception):
-            raise self.bars
-        return self.bars
-
-
-def _bar(epoch: int) -> BarFrame:
-    return BarFrame(
-        instrument="NSE:RELIANCE",
-        timeframe="1m",
-        time=epoch,
-        open=100.0,
-        high=101.0,
-        low=99.0,
-        close=100.5,
-        volume=10.0,
-        closed=True,
+def _seed_minute(store: ParquetStorage, stamp: str, *, symbol: str = "RELIANCE") -> None:
+    store.upsert(
+        pd.DataFrame(
+            [
+                dict(
+                    symbol=symbol,
+                    exchange="NSE",
+                    kind="equity",
+                    timeframe="1m",
+                    timestamp=stamp,
+                    open=100.0,
+                    high=101.0,
+                    low=99.0,
+                    close=100.5,
+                    volume=10.0,
+                )
+            ]
+        )
     )
 
 
-def _ready_stale_feed() -> MarketFeed:
-    """A feed that is READY, subscribed, and has a stale last tick."""
-    feed = MarketFeed(broker=_FakeBroker(), bus=ReactiveBus(), stale_after=0.05)
+def _history_provider(tmp_path) -> ParquetHistoryProvider:
+    """A real provider over a real temp lake seeded with one session bar."""
+    store = ParquetStorage(tmp_path)
+    _seed_minute(store, "2026-09-24 10:00:00")
+    return ParquetHistoryProvider(store=store)
+
+
+def _ready_feed(*, stale_after: float = 0.05) -> MarketFeed:
+    """A real feed on a real paper broker, subscribed and READY."""
+    feed = MarketFeed(broker=PaperBroker(), bus=ReactiveBus(), stale_after=stale_after)
     feed.subscribe([_RELIANCE])
     supervisor = feed.supervisor
     supervisor.connected()
     supervisor.recovery_started()
-    supervisor.recovery_succeeded(
-        last_event_at=_EVENT_AT, recovered_through=_EVENT_AT
-    )
-    feed._last_tick[_RELIANCE.instrument_id] = datetime.now(UTC) - timedelta(
-        seconds=1
-    )
+    supervisor.recovery_succeeded(last_event_at=_EVENT_AT, recovered_through=_EVENT_AT)
     return feed
 
 
-def test_degraded_feed_triggers_recovery_on_next_poll() -> None:
-    feed = _ready_stale_feed()
-    supervisor = feed.supervisor
-    provider = _Provider([_bar(_EPOCH)])
+def _make_stale(feed: MarketFeed) -> None:
+    feed._last_tick[_RELIANCE.instrument_id] = datetime.now(UTC) - timedelta(seconds=1)
+
+
+# ---------------------------------------------------------------------------
+# The recovery path
+# ---------------------------------------------------------------------------
+
+
+def test_degraded_feed_triggers_recovery_on_next_poll(tmp_path) -> None:
+    feed = _ready_feed()
     coordinator = FeedRecoveryCoordinator(
-        feed, supervisor=supervisor, history_provider=provider
+        feed, supervisor=feed.supervisor, history_provider=_history_provider(tmp_path)
     )
+    feed.set_recovery(coordinator)
     monitor = FeedStaleMonitor(feed, interval_seconds=0.05, feed_recovery=coordinator)
+    _make_stale(feed)
 
     # Poll 1 detects staleness and demotes the feed; it does not yet recover.
     stale = monitor.poll_once()
     assert stale
-    assert supervisor.state is FeedState.DEGRADED
-    assert provider.calls == []
+    assert feed.supervisor.state is FeedState.DEGRADED
 
-    # Poll 2 sees the DEGRADED feed and drives the fail-closed coordinator.
+    # Poll 2 hands the quote-side DEGRADED to the coordinator on a daemon thread.
+    _make_stale(feed)  # keep the tape stale across the poll boundary
     monitor.poll_once()
-    assert provider.calls == ["NSE:RELIANCE"]
-    assert supervisor.state is FeedState.READY
-    assert supervisor.ready is True
+    assert _wait_until(lambda: feed.supervisor.state is FeedState.READY)
+    assert feed.supervisor.ready is True
 
 
-def test_failed_recovery_halts_feed() -> None:
-    feed = _ready_stale_feed()
-    supervisor = feed.supervisor
-    provider = _Provider(RuntimeError("datalake read failed"))
+def test_failed_recovery_halts_feed(tmp_path) -> None:
+    feed = _ready_feed()
+    # Two bars five minutes apart with an allowance of zero: history itself proves
+    # a hole, so the coordinator fails closed rather than seeding a blind book.
+    store = ParquetStorage(tmp_path)
+    _seed_minute(store, "2026-09-24 10:00:00")
+    _seed_minute(store, "2026-09-24 10:05:00")
     coordinator = FeedRecoveryCoordinator(
-        feed, supervisor=supervisor, history_provider=provider
+        feed,
+        supervisor=feed.supervisor,
+        history_provider=ParquetHistoryProvider(store=store),
+        max_missing_bars=0,
     )
+    feed.set_recovery(coordinator)
+    feed.set_recovery(coordinator)
     monitor = FeedStaleMonitor(feed, interval_seconds=0.05, feed_recovery=coordinator)
+    _make_stale(feed)
 
     monitor.poll_once()
-    assert supervisor.state is FeedState.DEGRADED
+    assert feed.supervisor.state is FeedState.DEGRADED
 
+    _make_stale(feed)  # keep the tape stale across the poll boundary
     monitor.poll_once()
-    assert provider.calls == ["NSE:RELIANCE"]
-    assert supervisor.state is FeedState.HALTED
-    assert supervisor.ready is False
+    assert _wait_until(lambda: feed.supervisor.state is FeedState.HALTED)
+    assert feed.supervisor.ready is False
 
 
 def test_no_recovery_coordinator_leaves_degraded() -> None:
-    feed = _ready_stale_feed()
-    supervisor = feed.supervisor
+    feed = _ready_feed()
     monitor = FeedStaleMonitor(feed, interval_seconds=0.05)  # no feed_recovery
+    _make_stale(feed)
 
     monitor.poll_once()
-    assert supervisor.state is FeedState.DEGRADED
+    assert feed.supervisor.state is FeedState.DEGRADED
 
+    _make_stale(feed)
     monitor.poll_once()
-    assert supervisor.state is FeedState.DEGRADED  # unchanged, orders stay gated
+    assert feed.supervisor.state is FeedState.DEGRADED  # unchanged, orders stay gated
 
 
-def test_live_boot_wires_the_coordinator_into_the_monitor(
-    named_tape, tmp_path, monkeypatch
-) -> None:
-    """The poll trigger is on the production path, not only in this test.
+# ---------------------------------------------------------------------------
+# Negative control: a dead order socket must not be recovered to READY
+# ---------------------------------------------------------------------------
 
-    ``_compose_live_feed`` constructs the monitor and the coordinator. If the
-    monitor is not handed the coordinator, this whole lane is dead code in the
-    one mode that needs it — a stale live feed would stay DEGRADED forever.
-    Asserted through a real ``boot()``, the same composition the live server
-    uses.
+
+def test_order_stream_degraded_is_not_recovered(tmp_path) -> None:
+    """The Critical fail-open: an order-stream DEGRADED must stay DEGRADED.
+
+    The order watchdog marks the same supervisor the quote path marks. Recovery
+    is gated on ``check_stale()`` returning stale events, so a DEGRADED whose
+    only evidence is a silent order socket is never handed to the coordinator.
     """
-    import tradex_runtime.live as live_mod
-    from tradex_config.schema import AppConfig, PersistenceConfig
-    from tradex_domain import BrokerId
-    from tradex_runtime.startup import boot
-    from trading.tests.risk_support import permissive_risk
+    feed = _ready_feed()
+    coordinator = FeedRecoveryCoordinator(
+        feed, supervisor=feed.supervisor, history_provider=_history_provider(tmp_path)
+    )
+    feed.set_recovery(coordinator)
+    watchdog = OrderStreamWatchdog(feed.supervisor, stale_after=0.01)
+    # A frame long ago and no frame since: the socket is answering nothing.
+    watchdog.record_frame(at=datetime.now(UTC) - timedelta(seconds=30))
+    monitor = FeedStaleMonitor(
+        feed,
+        interval_seconds=0.05,
+        order_watchdog=watchdog,
+        feed_recovery=coordinator,
+    )
+    # The quote tape is healthy: a fresh tick, so check_stale() returns nothing.
+    feed._last_tick[_RELIANCE.instrument_id] = datetime.now(UTC)
 
-    broker = MagicMock()
-    backend = MagicMock()
-    backend.subscribe_orders = MagicMock()
-    broker.stream_backend.return_value = backend
-    broker.get_orderbook.return_value = []
-    broker.get_positions.return_value = []
-    broker.get_account.return_value = None
-    broker.master_loader = None
-    broker.trade_book.return_value = []
-    monkeypatch.setattr(
-        live_mod, "build_broker_from_env", lambda _broker_id, **_kw: broker
+    # Poll 1: the watchdog is what demotes the feed.
+    assert monitor.poll_once() == []
+    assert feed.supervisor.state is FeedState.DEGRADED
+
+    # Poll 2: state is DEGRADED but this poll produced no StaleFeed — no recovery.
+    assert monitor.poll_once() == []
+    assert feed.supervisor.state is FeedState.DEGRADED
+    assert feed.supervisor.ready is False
+
+    # Once the order socket answers again, a real quote staleness opens the path
+    # back to READY: the gate is not permanently stuck, only fail-closed while
+    # the order stream is provably dead.
+    watchdog.record_frame()
+    _make_stale(feed)
+    monitor.poll_once()
+    assert _wait_until(lambda: feed.supervisor.state is FeedState.READY)
+
+
+def test_order_dead_with_stale_tape_is_not_recovered(tmp_path) -> None:
+    """Co-occurring causes: a stale tape must not paper over a dead order socket.
+
+    With both a fresh ``StaleFeed`` and a silent order stream, the quote-side
+    evidence alone would authorize recovery and write READY while the order
+    socket is still dead. The watchdog's one-shot latch would not re-degrade it,
+    so the gate refuses whenever the order stream is provably stale.
+    """
+    feed = _ready_feed()
+    coordinator = FeedRecoveryCoordinator(
+        feed, supervisor=feed.supervisor, history_provider=_history_provider(tmp_path)
+    )
+    feed.set_recovery(coordinator)
+    watchdog = OrderStreamWatchdog(feed.supervisor, stale_after=0.01)
+    watchdog.record_frame(at=datetime.now(UTC) - timedelta(seconds=30))
+    monitor = FeedStaleMonitor(
+        feed,
+        interval_seconds=0.05,
+        order_watchdog=watchdog,
+        feed_recovery=coordinator,
     )
 
-    session = boot(
-        AppConfig(
-            risk=permissive_risk(),
-            broker_id=BrokerId.DHAN,
-            mode="live",
-            live_enabled=True,
-            persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
-        )
+    _make_stale(feed)  # quote tape stale AND order socket dead
+    monitor.poll_once()
+    _make_stale(feed)
+    monitor.poll_once()
+    time.sleep(0.1)  # give any (wrong) recovery time to land
+
+    assert feed.supervisor.state is FeedState.DEGRADED
+    assert feed.supervisor.ready is False
+
+
+# ---------------------------------------------------------------------------
+# Negative control: a deliberate stop must not be recovered into HALTED
+# ---------------------------------------------------------------------------
+
+
+def test_stopped_feed_is_not_recovered_into_halted(tmp_path) -> None:
+    """After ``stop()`` the feed is DEGRADED and empty; recovery would HALT it.
+
+    ``MarketFeed.stop()`` clears the wanted set and calls ``disconnected()``.
+    Recovering the empty feed fails closed to HALTED, and HALTED is sticky, so a
+    teardown would leave a session that can never trade again.
+    """
+    feed = _ready_feed()
+    coordinator = FeedRecoveryCoordinator(
+        feed, supervisor=feed.supervisor, history_provider=_history_provider(tmp_path)
     )
+    feed.set_recovery(coordinator)
+    monitor = FeedStaleMonitor(feed, interval_seconds=0.05, feed_recovery=coordinator)
+
+    feed.stop()
+    assert feed.active is False
+    assert feed.supervisor.state is FeedState.DEGRADED
+
+    monitor.poll_once()
+    monitor.poll_once()
+    time.sleep(0.1)  # give any (wrong) daemon recovery time to land
+    assert feed.supervisor.state is FeedState.DEGRADED
+
+
+# ---------------------------------------------------------------------------
+# The in-flight guard is shared with the feed's own recovery path
+# ---------------------------------------------------------------------------
+
+
+def test_request_recovery_returns_false_while_one_is_in_flight(tmp_path) -> None:
+    """A second recovery request while one runs is refused, not queued.
+
+    ``request_recovery()`` delegates to ``MarketFeed._trigger_recovery``, so the
+    poll trigger and the reconnect/integrity triggers share one in-flight flag.
+    The slot is claimed here the way the reconnect path claims it — through the
+    feed's own guard — with no stub standing in for any component.
+    """
+    feed = _ready_feed()
+    coordinator = FeedRecoveryCoordinator(
+        feed, supervisor=feed.supervisor, history_provider=_history_provider(tmp_path)
+    )
+    feed.set_recovery(coordinator)
+
+    claimed = feed._claim_recovery()  # an in-flight recovery, as reconnect holds it
+    assert claimed is coordinator
     try:
-        monitor = session.feed_monitor
-        assert monitor is not None
-        assert monitor._feed_recovery is session.feed_recovery
-        assert session.feed_recovery is not None
+        assert feed.request_recovery() is False  # refused: one is already running
     finally:
-        session.stop()
+        feed._release_recovery()
 
+    assert feed.request_recovery() is True  # slot free again
+    assert _wait_until(lambda: feed._recovery_in_flight is False)
+
+
+def test_monitor_trigger_is_refused_while_the_feed_guard_is_held(tmp_path) -> None:
+    """The poll trigger cannot start a second recovery while one is in flight.
+
+    This is what routing the monitor through the feed's own trigger buys: if the
+    monitor called ``coordinator.recover()`` directly (the bypass the review
+    flagged), it would recover even with the guard held. Held here through the
+    feed's real ``_claim_recovery`` — the same door a socket reconnect uses.
+    """
+    feed = _ready_feed()
+    coordinator = FeedRecoveryCoordinator(
+        feed, supervisor=feed.supervisor, history_provider=_history_provider(tmp_path)
+    )
+    feed.set_recovery(coordinator)
+    monitor = FeedStaleMonitor(feed, interval_seconds=0.05, feed_recovery=coordinator)
+
+    assert feed._claim_recovery() is coordinator  # reconnect holds the slot
+    feed.supervisor.mark_stale()  # …and the quote tape goes quiet meanwhile
+    _make_stale(feed)
+
+    monitor.poll_once()
+    time.sleep(0.1)  # give any (wrong) recovery time to land
+    assert feed.supervisor.state is FeedState.DEGRADED, (
+        "the monitor must not recover while a recovery is already in flight"
+    )
+
+    feed._release_recovery()
+    _make_stale(feed)
+    monitor.poll_once()
+    assert _wait_until(lambda: feed.supervisor.state is FeedState.READY)
+
+
+# ---------------------------------------------------------------------------
+# The poll trigger is wired on the production path
+# ---------------------------------------------------------------------------
+
+
+def test_live_compose_wires_the_coordinator_into_the_monitor(tmp_path) -> None:
+    """``_compose_live_feed`` constructs the monitor and the coordinator.
+
+    If the monitor is not handed the coordinator, this whole lane is dead code in
+    the one mode that needs it — a stale live feed would stay DEGRADED forever.
+    Asserted through the real composition function with a real ``PaperBroker``,
+    the same wiring the live server uses.
+    """
+    from tradex_config.schema import AppConfig
+    from tradex_domain import BrokerId
+    from tradex_runtime.metrics import MetricsRegistry
+    from tradex_runtime.startup import _compose_live_feed
+
+    supervisor = FeedSupervisor()
+    bundle = _compose_live_feed(
+        cfg=AppConfig(broker_id=BrokerId.DHAN, mode="live", live_enabled=True),
+        broker=PaperBroker(),
+        bus=ReactiveBus(),
+        feed_supervisor=supervisor,
+        metrics=MetricsRegistry(),
+        order_watchdog=OrderStreamWatchdog(supervisor),
+    )
+
+    assert bundle.feed_recovery is not None
+    assert bundle.feed_monitor._feed_recovery is bundle.feed_recovery

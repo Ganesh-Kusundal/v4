@@ -22,6 +22,7 @@ documented workflow that needs the deadline just as much.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 #: Seconds a websocket read waits for a frame before failing. Per-test
@@ -31,6 +32,16 @@ DEFAULT_WS_RECEIVE_TIMEOUT = 5.0
 
 try:
     import anyio
+    from starlette.exceptions import StarletteDeprecationWarning
+
+    # Starlette 1.6.0 warns while importing ``starlette.testclient`` when the
+    # httpx shim is not installed. The import below is the deadline shim's only
+    # purpose and is unrelated to the suites, but the warning fires while this
+    # conftest is still being imported — before any ``filterwarnings`` ini entry
+    # is active — so it cannot be silenced from ``pyproject.toml``. Filter it
+    # here, ahead of the one import that emits it.
+    warnings.filterwarnings("ignore", category=StarletteDeprecationWarning)
+
     from starlette.testclient import WebSocketTestSession
 except ImportError:  # pragma: no cover - starlette is an optional test dep
     WebSocketTestSession = None  # type: ignore[assignment,misc]

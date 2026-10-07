@@ -133,8 +133,12 @@ class TradingSession:
         #: stopped in ``stop()`` (never by a client release).
         self._feed_monitor = feed_monitor
         #: Fail-closed reconnect recovery coordinator (history replay → READY).
-        #: Invoked explicitly via ``session.recover_feed()`` by the owner of the
-        #: reconnect signal, never automatically on a socket reconnect alone.
+        #: Driven from three places, all sharing ``MarketFeed``'s in-flight
+        #: guard: a socket reconnect (broker hook), an integrity violation
+        #: (``FeedGapDetected``), and the owned stale-feed monitor's poll — which
+        #: hands a quote-side DEGRADED feed to it on the poll after detection, so
+        #: a stale tape is not a terminal DEGRADED. ``session.recover_feed()``
+        #: remains the explicit manual entry point.
         self._feed_recovery = feed_recovery
         #: Daily instrument-master refresh daemon (live brokers only). Passed
         #: in by ``TradingSession.live()`` when the broker carries a cached
