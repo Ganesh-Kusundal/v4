@@ -40,6 +40,7 @@ about a P&L guard overrides the field back to a real value.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -123,8 +124,26 @@ def app_config(**overrides: Any) -> AppConfig:
     return AppConfig(**overrides)
 
 
+class FrozenClock:
+    """Deterministic ``Clock`` for tests that call ``check()`` without ``now=``.
+
+    ``RiskManager`` no longer samples wall time: it uses the injected clock or
+    raises. Tests whose subject is not time pass this so the rate window and the
+    daily-loss baseline have a fixed, reproducible instant. Defaults to the
+    instant of construction, which matches the ``datetime.now(UTC)`` marks the
+    position fixtures stamp, so the stale-mark guard reads a ~zero age.
+    """
+
+    def __init__(self, instant: datetime | None = None) -> None:
+        self._instant = instant or datetime.now(UTC)
+
+    def now(self) -> datetime:
+        return self._instant
+
+
 __all__ = [
     "app_config",
+    "FrozenClock",
     "permissive_risk",
     "risk_section",
     "unbounded_risk",

@@ -77,11 +77,15 @@ def test_consistent_naive_passes() -> None:
 
 
 def test_default_now_is_aware() -> None:
-    """Calling check() without `now` uses an aware default — same as today."""
+    """Without a clock or now=, check() refuses rather than sampling wall time.
+
+    This used to assert an aware wall-clock default; that default is the
+    non-determinism the clock seam removed. The contract now: a manager with no
+    time source raises, so a backtest cannot silently read the host clock.
+    """
     rm = RiskManager(max_orders_per_minute=10)
-    # No exception, both calls succeed.
-    rm.check(_request())
-    rm.check(_request())
+    with pytest.raises(RuntimeError, match="no injected clock"):
+        rm.check(_request())
 
 
 def test_window_does_not_carry_across_managers() -> None:

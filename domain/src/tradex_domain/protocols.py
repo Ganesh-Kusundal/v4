@@ -9,7 +9,7 @@ than by separate protocols.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
@@ -238,6 +238,17 @@ class Clock(Protocol):
     """
 
     def now(self) -> datetime: ...
+
+
+class SystemClock:
+    """Wall-clock ``Clock`` for live/paper sessions.
+
+    Backtests inject ``FakeClock`` (or pass ``now=``) instead — RiskManager
+    refuses to evaluate without an explicit clock or instant.
+    """
+
+    def now(self) -> datetime:
+        return datetime.now(UTC)
 
 
 @runtime_checkable

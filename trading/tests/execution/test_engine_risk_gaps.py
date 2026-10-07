@@ -20,14 +20,16 @@ from tradex_execution.engine import ExecutionEngine, RiskManager
 from tradex_execution.fill_sources import SimulatedFillSource
 from tradex_execution.idempotency import MemoryIdempotencyGuard
 from tradex_reactive.bus import ReactiveBus
+from trading.tests.risk_support import FrozenClock
 
-#: A single fixed mark timestamp for the positions these guard tests build.
-#: Captured once at import: a helper that stamps ``datetime.now(UTC)`` on every
-#: call would produce a mark NEWER than the RiskManager evaluation instant
-#: captured microseconds earlier, which the stale-mark guard correctly reads as
-#: a clock skew and refuses. The daily-loss/drawdown arithmetic is what these
-#: tests are about, so the mark is pinned rather than moving.
-_MARK_STAMP = datetime.now(UTC)
+#: One clock instant shared by the risk managers and the pinned mark below, so
+#: the stale-mark guard sees ~zero age regardless of how long the suite ran.
+_CLOCK = FrozenClock()
+#: The pinned mark instant is the clock's own instant, so the stale-mark guard
+#: sees ~zero age regardless of how long the suite ran. A mark stamped
+#: ``datetime.now(UTC)`` after the clock was captured would read as a negative
+#: (future) age and be refused as a clock skew.
+_MARK_STAMP = _CLOCK.now()
 
 
 def _make_request(
@@ -171,6 +173,7 @@ def test_risk_manager_daily_loss_denies_open_allows_reduce() -> None:
         # The pinned mark is stamped at import; widen the window so the test is
         # about the loss arithmetic, not how fast the suite reached this line.
         max_mark_age_seconds=86400,
+        clock=_CLOCK,
     )
     buy = _make_request(price="100", quantity="10")  # increases long
     sell = OrderRequest(
@@ -202,6 +205,7 @@ def test_risk_manager_drawdown_denies_open_allows_reduce() -> None:
         max_drawdown_pct=Decimal("0.5"),
         positions_provider=positions,
         max_mark_age_seconds=86400,
+        clock=_CLOCK,
     )
     buy = _make_request(price="100", quantity="10")
     sell = OrderRequest(
@@ -241,7 +245,7 @@ def test_risk_manager_market_open_counts_against_position_value() -> None:
 
 def test_risk_manager_rate_limit_rejects_after_cap() -> None:
     """RiskManager(max_orders_per_minute=3) rejects the 4th call."""
-    rm = RiskManager(max_orders_per_minute=3)
+    rm = RiskManager(max_orders_per_minute=3, clock=_CLOCK)
     req = _make_request()
     assert rm.check(req) is True
     assert rm.check(req) is True

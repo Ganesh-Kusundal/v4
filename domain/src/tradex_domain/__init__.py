@@ -71,6 +71,7 @@ from tradex_domain.protocols import (
     Clock,
     IndicatorComputer,
     SessionFacade,
+    SystemClock,
 )
 from tradex_domain.risk_budget import (
     REQUIRED_RISK_LIMITS,
@@ -179,6 +180,7 @@ __all__ = [
     "BrokerAdapter",
     "BrokerCapabilities",
     "Clock",
+    "SystemClock",
     "IndicatorComputer",
     "InstrumentRegistry",
     "SessionFacade",

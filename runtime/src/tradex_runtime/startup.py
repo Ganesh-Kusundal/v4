@@ -642,6 +642,8 @@ def _boot_tail(
     # sentinel here, so the documented opt-out actually means unbounded instead
     # of -1, which would deny everything. See ``RiskConfig.effective_limits``.
     limits = cfg.risk.effective_limits()
+    from tradex_domain import SystemClock
+
     risk_manager = RiskManager(
         max_order_value=limits["max_order_value"],
         max_position_value=limits["max_position_value"],
@@ -655,6 +657,9 @@ def _boot_tail(
         max_gross_exposure=cfg.risk.max_gross_exposure,
         max_net_exposure=cfg.risk.max_net_exposure,
         allow_short=cfg.risk.allow_short,
+        # Live/paper evaluate risk on wall time. Backtests bind FakeClock
+        # (or pass now=) — RiskManager raises without an explicit clock.
+        clock=SystemClock(),
         # AC-10 / lane 2f: the master gate. When False, ``check()`` refuses
         # EVERY submit before any other gate runs. Bound to the same
         # ``AppConfig.live_orders_enabled`` the session gate reads, so the

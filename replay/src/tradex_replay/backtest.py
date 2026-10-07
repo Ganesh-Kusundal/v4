@@ -192,6 +192,10 @@ class FakeClock:
         """Return current time."""
         return self._now
 
+    def set(self, instant: datetime) -> None:
+        """Jump to an absolute instant (e.g. the bar under evaluation)."""
+        self._now = instant
+
     def advance(self, delta: timedelta) -> None:
         """Advance clock by a timedelta.
 
@@ -732,10 +736,9 @@ class BacktestEngine:
         )
         strategy_engine.register(strategy)
 
-        # Risk manager binds to the SAME positions the engine fills, and resets
-        # its rate window so each run is reproducible (parity area #8). Its cash
-        # gate reads the engine's ledger — the same balance the equity curve
-        # below reports and the same one `require_debit` floors.
+        # Bind the OMS cache and the run clock BEFORE any order is submitted,
+        # so the risk manager's rate window is anchored to backtest time, not
+        # wall time (parity review area #8 / Task 4 clock fix).
         if self._risk_manager is not None:
             if not getattr(self._risk_manager, "positions_provider_bound", False):
                 self._risk_manager.set_positions_provider(
@@ -745,6 +748,7 @@ class BacktestEngine:
                 self._risk_manager.bind_cash_provider(
                     lambda: engine.cash_snapshot().cash,
                 )
+            self._risk_manager.set_clock(self._clock)
             self._risk_manager.reset_rate_window()
 
         # Corp actions: applied to the shared PositionManager (and the ledger's
@@ -931,6 +935,7 @@ class BacktestEngine:
                 break
             if isinstance(event, Candle):
                 # Apply due corporate actions BEFORE the bar's open fill.
+                self._clock.set(event.timestamp)
                 _apply_ca_for(event.timestamp)
                 _flush_bridge_pending(event)
                 bus.publish(event)
@@ -946,6 +951,7 @@ class BacktestEngine:
                     + self._mark_to_market(positions_now, candles_by_id, event.timestamp)
                 )
             elif isinstance(event, Quote):
+                self._clock.set(event.timestamp)
                 bus.publish(event)
                 _capture_claimed()
                 _capture_recorded(event.instrument.instrument_id)

@@ -26,7 +26,9 @@ from tradex_execution.risk import RiskManager
 from tradex_execution.trading_cache import TradingCache
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.metrics import MetricsRegistry
-from trading.tests.risk_support import permissive_risk
+from trading.tests.risk_support import FrozenClock, permissive_risk
+
+_CLOCK = FrozenClock()
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -158,6 +160,7 @@ class TestRejectionReasonCounters:
             max_position_value=Decimal("500"),  # 10*100 + 1*2500 > 500
             positions_provider=lambda: pos,
             metrics=reg,
+            clock=_CLOCK,
         )
         assert rm.check(_req()) is False
         assert reg.get("orders.rejection_reason.position_value_exceeded") == 1
@@ -397,6 +400,7 @@ class TestRiskExposureGauges:
             positions_provider=lambda: pos,
             price_provider=lambda _: _quote(ltp="110"),
             metrics=reg,
+            clock=_CLOCK,
         )
         approved = rm.check(_req(qty="1", price="110"))
         assert approved is True
@@ -408,6 +412,7 @@ class TestRiskExposureGauges:
         rm = RiskManager(
             positions_provider=lambda: [],
             metrics=reg,
+            clock=_CLOCK,
         )
         rm.check(_req())
         assert reg.get("exposure_notional") == 0.0

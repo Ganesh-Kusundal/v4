@@ -172,7 +172,9 @@ def test_memory_guard_duplicate_returns_recorded_result() -> None:
 
 
 def test_risk_deny_with_rate_limit() -> None:
-    risk = RiskManager(max_orders_per_minute=1)
+    from trading.tests.risk_support import FrozenClock
+
+    risk = RiskManager(max_orders_per_minute=1, clock=FrozenClock())
     engine = _make_engine(risk_manager=risk)
 
     receipt1 = engine.submit(_request())

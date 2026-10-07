@@ -27,7 +27,9 @@ from tradex_execution.risk_baseline_store import (
     SQLiteRiskBaselineStore,
     StrategyBaseline,
 )
+from trading.tests.risk_support import FrozenClock
 
+_CLOCK = FrozenClock()
 _INST = Equity.of("NSE", "TEST")
 
 
@@ -128,6 +130,7 @@ def test_a_restart_keeps_the_drawdown_breaker_tripped(tmp_path) -> None:
         max_drawdown_pct=Decimal("0.5"),
         baseline_store=store1,
         positions_provider=lambda: _book("alpha", pnl[0], now),
+        clock=_CLOCK,
     )
     rm1.check(_buy(tag="alpha@1.0.0"), now=now)          # baseline 0
     pnl[0] = Decimal("1000")
@@ -144,6 +147,7 @@ def test_a_restart_keeps_the_drawdown_breaker_tripped(tmp_path) -> None:
         max_drawdown_pct=Decimal("0.5"),
         baseline_store=store2,
         positions_provider=lambda: _book("alpha", pnl[0], now),
+        clock=_CLOCK,
     )
     assert rm2.check(_buy(tag="alpha@1.0.0"), now=now) is False, (
         "a tripped drawdown breaker must survive a restart"
@@ -160,6 +164,7 @@ def test_without_the_store_a_restart_forgets_the_peak(tmp_path) -> None:
     rm1 = RiskManager(
         max_drawdown_pct=Decimal("0.5"),
         positions_provider=lambda: _book("alpha", pnl[0], now),
+        clock=_CLOCK,
     )
     rm1.check(_buy(tag="alpha@1.0.0"), now=now)
     pnl[0] = Decimal("1000")
@@ -188,6 +193,7 @@ def test_a_previous_days_baseline_is_not_reused(tmp_path) -> None:
         max_drawdown_pct=Decimal("0.5"),
         baseline_store=store,
         positions_provider=lambda: _book("alpha", Decimal("0"), now),
+        clock=_CLOCK,
     )
     # No peak was carried over, so there is no drawdown to act on.
     assert rm.check(_buy(tag="alpha@1.0.0"), now=now) is True
@@ -204,6 +210,7 @@ def test_two_strategies_do_not_share_a_baseline(tmp_path) -> None:
         max_drawdown_pct=Decimal("0.5"),
         baseline_store=store,
         positions_provider=lambda: _book("alpha", Decimal("1000"), now),
+        clock=_CLOCK,
     )
     # A peaks at 1000 on its first evaluation.
     rm.check(_buy(tag="alpha@1.0.0"), now=now)

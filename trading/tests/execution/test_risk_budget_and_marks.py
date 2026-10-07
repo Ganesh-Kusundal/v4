@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from trading.tests.risk_support import FrozenClock
+
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
 from tradex_domain.execution import OrderRequest, Position
 from tradex_domain.instruments import Equity
@@ -17,6 +19,7 @@ from tradex_domain.value_objects import Money, Price, Quantity
 from tradex_execution.risk import RiskBudget, RiskManager
 
 _INST = Equity.of("NSE", "TEST")
+_CLOCK = FrozenClock()
 
 
 def _request(
@@ -178,6 +181,7 @@ def test_stale_mark_ten_minutes_old_fails_the_guard_closed() -> None:
         positions_provider=lambda: [
             _position(qty="100", unrealized="0", marked_at=ten_min_ago)
         ],
+        clock=_CLOCK,
     )
     assert rm.check(_request(side=OrderSide.BUY, qty="10")) is False
     assert rm._last_deny_reason == "marks_not_fresh"
@@ -187,13 +191,14 @@ def test_a_fresh_mark_lets_the_daily_loss_guard_read_the_real_loss() -> None:
     """Negative control for the refusal above: with a current mark the same
     guard evaluates normally, so a stale mark is what denied it and not the
     gate being wired shut."""
-    stamp = datetime.now(UTC)
+    stamp = _CLOCK.now()
     rm = RiskManager(
         max_daily_loss_amt=Decimal("1000"),
         max_mark_age_seconds=5.0,
         positions_provider=lambda: [
             _position(qty="100", unrealized="0", marked_at=stamp)
         ],
+        clock=_CLOCK,
     )
     assert rm.check(_request(side=OrderSide.BUY, qty="10")) is True
 
@@ -205,6 +210,7 @@ def test_an_unmarked_open_position_fails_closed() -> None:
         max_daily_loss_amt=Decimal("1000"),
         max_mark_age_seconds=5.0,
         positions_provider=lambda: [_position(qty="100", mark=None)],
+        clock=_CLOCK,
     )
     assert rm.check(_request(side=OrderSide.BUY, qty="10")) is False
     assert rm._last_deny_reason == "marks_not_fresh"
@@ -220,6 +226,7 @@ def test_a_reduction_is_still_allowed_while_the_mark_is_stale() -> None:
         positions_provider=lambda: [
             _position(qty="100", mark=None, marked_at=stale)
         ],
+        clock=_CLOCK,
     )
     assert rm.check(_request(side=OrderSide.SELL, qty="100")) is True
 
@@ -230,5 +237,6 @@ def test_a_flat_position_is_never_stale() -> None:
     rm = RiskManager(
         max_daily_loss_amt=Decimal("1000"),
         positions_provider=lambda: [_position(qty="0", mark=None)],
+        clock=_CLOCK,
     )
     assert rm._stale_marks(None) is False

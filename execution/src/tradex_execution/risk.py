@@ -344,6 +344,15 @@ class RiskManager:
         """
         self._price_provider = provider
 
+    def set_clock(self, clock: Clock) -> None:
+        """Bind a deterministic clock for rate-limit window evaluation.
+
+        Required for reproducible backtests: without an explicit clock or an
+        explicit ``now=`` on each ``check()``, the manager raises rather than
+        sampling wall time.
+        """
+        self._clock = clock
+
     def set_mark_policy(
         self, *, require_fresh_marks: bool, max_mark_age_seconds: float = 5.0
     ) -> None:
@@ -359,7 +368,10 @@ class RiskManager:
             return value
         if self._clock is not None:
             return self._clock.now()
-        return datetime.now(UTC)
+        raise RuntimeError(
+            "RiskManager has no injected clock; "
+            "pass clock= or now= to evaluate risk deterministically"
+        )
 
     def _fresh_marks_available(
         self, request: OrderRequest, now: datetime | None,
