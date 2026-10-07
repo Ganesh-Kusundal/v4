@@ -158,7 +158,9 @@ class SimulatedFillSource(FillModel):
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
         self.submit_calls += 1
-        order = _make_order(request, status=OrderStatus.FILLED)
+        # ACK + fill: the OMS owns ACK → FILLED via on_order_filled.
+        # Pre-marking FILLED made transition_to() raise FILLED → FILLED.
+        order = _make_order(request, status=OrderStatus.ACK)
 
         # Shared FillModel: request/trigger price -> positive-price guard ->
         # slippage. A zero-priced fill silently corrupts every downstream P&L
@@ -236,7 +238,8 @@ class PaperFillSource(FillModel):
         self._cache = cache
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
-        order = _make_order(request, status=OrderStatus.FILLED)
+        # ACK + fill: OMS transitions to FILLED (see SimulatedFillSource).
+        order = _make_order(request, status=OrderStatus.ACK)
 
         # Paper-specific: prefer the LTP from the cache quote (mode-specific
         # market reference). Resolved through the shared FillModel so slippage
@@ -453,7 +456,8 @@ class ReplayFillSource(FillModel):
 
         fill = self._fills[index]
         self._index += 1
-        order = _make_order(request, status=OrderStatus.FILLED)
+        # ACK + fill: OMS transitions to FILLED (see SimulatedFillSource).
+        order = _make_order(request, status=OrderStatus.ACK)
         # Replay-specific: preserve the recorded fill but re-stamp its
         # order_id to match the freshly minted order (via the shared FillModel).
         fill = self.restamp_fill(fill, order.order_id)

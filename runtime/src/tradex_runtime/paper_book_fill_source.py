@@ -311,12 +311,11 @@ class PaperBookFillSource:
         broker_order = self._broker.get_order(order_id)
         if broker_order is None:  # pragma: no cover - the broker registers every submit
             raise RuntimeError(f"paper broker lost order {order_id}")
-        # A FRESH OMS order, exactly as PaperFillSource/SimulatedFillSource
-        # return via ``make_order``: the engine transitions it to FILLED and
+        # A FRESH OMS order at ACK: the engine transitions ACK → FILLED and
         # sets filled_quantity itself. Returning the broker's already-filled
         # order would make on_order_filled see remaining=0 and clamp the fill
         # to zero — the engine, not the broker, owns the OMS projection here.
-        order = make_order(request, status=OrderStatus.FILLED, order_id=order_id)
+        order = make_order(request, status=OrderStatus.ACK, order_id=order_id)
 
         key = str(order_id.value)
         already = self._last_seen_filled.get(key, Decimal(0))

@@ -39,7 +39,7 @@ class TestSimulatedFillSource:
         fill_source = SimulatedFillSource()
         req = _make_request(price=Decimal("2500.00"))
         order, fill = fill_source.submit(req)
-        assert order.status == OrderStatus.FILLED
+        assert order.status == OrderStatus.ACK
         assert fill is not None
         assert fill.price.value == Decimal("2500.00")
 

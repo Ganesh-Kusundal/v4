@@ -810,7 +810,7 @@ class ExecutionEngine:
             if not getattr(self._fill, "position_projection_owned", False):
                 charged_fee = self._fee_for_fill(fill)
             try:
-                self._apply_fill_to_book(order, fill, charged_fee, cid)
+                order = self._apply_fill_to_book(order, fill, charged_fee, cid)
             except Exception:
                 # The fill did not take effect. Release the reservation so the
                 # client can retry: leaving it reserved makes every later
@@ -886,13 +886,15 @@ class ExecutionEngine:
 
     def _apply_fill_to_book(
         self, order: Order, fill: Fill, charged_fee: Decimal, cid: CorrelationId | None
-    ) -> None:
+    ) -> Order:
         """Make one fill's effect real: book, charge, advance the OMS, publish.
 
         Split out of ``_run_pipeline`` so the whole effect is one unit the
         caller can compensate on: anything raised here means the fill did not
         take effect, and the caller releases the idempotency reservation so
-        the request stays retryable (M-3).
+        the request stays retryable (M-3). Returns the OMS order after the
+        fill transition (FILLED/PARTIALLY_FILLED) so a sync receipt reports
+        the terminal state rather than the pre-fill ACK.
         """
         _filled_event = OrderFilled(fill=fill, fee_amount=charged_fee)
         # Persist BEFORE mutating. The event is authoritative and the cache
@@ -910,7 +912,7 @@ class ExecutionEngine:
                 "Fill not durable; leaving the book unchanged for %s",
                 fill.order_id,
             )
-            return
+            return order
 
         if not getattr(self._fill, "position_projection_owned", False):
             # Position, notional and fee as ONE operation under the ledger's
@@ -918,7 +920,7 @@ class ExecutionEngine:
             # apply_fill, so it cannot be separated from the debits it guards
             # by a concurrent submit that read the same balance.
             self._apply_fill_effect(fill, charged_fee)
-        self._order_manager.on_order_filled(order, fill)
+        order = self._order_manager.on_order_filled(order, fill)
         # G3: record the fingerprint in the applied-fills set BEFORE
         # publishing so that any re-publish from the live-fill bridge
         # (which subscribes to OrderFilled) is short-circuited by
@@ -931,6 +933,7 @@ class ExecutionEngine:
         # order, making the divergence permanent (M-3).
         if self._guard is not None and cid is not None:
             self._guard.record_result(cid, order.order_id)
+        return order
 
     def _require_cash_for_fill(self, fill: Fill, charged_fee: Decimal) -> None:
         """Prove the ledger can pay for *fill* before anything is booked.

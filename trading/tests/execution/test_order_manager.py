@@ -20,7 +20,7 @@ from tradex_execution.trading_cache import TradingCache
 
 def _make_order(
     quantity: Decimal = Decimal("100"),
-    status: OrderStatus = OrderStatus.NEW,
+    status: OrderStatus = OrderStatus.ACK,
 ) -> Order:
     return Order(
         order_id=OrderId(value="test-order-1"),

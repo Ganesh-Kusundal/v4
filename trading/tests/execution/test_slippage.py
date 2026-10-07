@@ -96,7 +96,7 @@ class TestSlippageAwareFillSource:
         req = _make_request(side=OrderSide.BUY, price=Decimal("100.00"))
         order, fill = fill_source.submit(req)
 
-        assert order.status == OrderStatus.FILLED
+        assert order.status == OrderStatus.ACK
         assert fill is not None
         # Original price 100.00 + 0.25 slippage = 100.25
         assert fill.price.value == Decimal("100.25")

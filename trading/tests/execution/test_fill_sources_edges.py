@@ -61,10 +61,12 @@ def _make_fill(order_id: str = "f-1", price: int = 100) -> Fill:
 # ---------------------------------------------------------------------------
 
 
-def test_simulated_source_returns_filled_order_with_fill() -> None:
+def test_simulated_source_returns_ack_order_with_fill() -> None:
     source = SimulatedFillSource()
     order, fill = source.submit(_request())
-    assert order.status is OrderStatus.FILLED
+    # The fill source returns the order at ACK; the engine owns ACK → FILLED
+    # via on_order_filled (the OMS projection is the engine's, not the venue's).
+    assert order.status is OrderStatus.ACK
     assert fill is not None
     assert fill.price.value == Decimal("100")
 
@@ -74,10 +76,10 @@ def test_simulated_source_returns_filled_order_with_fill() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_paper_source_returns_filled_order() -> None:
+def test_paper_source_returns_ack_order() -> None:
     source = PaperFillSource()
     order, fill = source.submit(_request())
-    assert order.status is OrderStatus.FILLED
+    assert order.status is OrderStatus.ACK
     assert fill is not None
     # Without a cache, falls back to request price
     assert fill.price.value == Decimal("100")
@@ -123,7 +125,7 @@ def test_replay_source_replays_historical_fills() -> None:
     historical_fill = _make_fill("replay-1", price=95)
     source = ReplayFillSource(fills=[historical_fill])
     order, fill = source.submit(_request())
-    assert order.status is OrderStatus.FILLED
+    assert order.status is OrderStatus.ACK
     assert fill is not None
     assert fill.price.value == Decimal("95")
 

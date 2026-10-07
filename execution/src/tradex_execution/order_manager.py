@@ -32,7 +32,7 @@ class OrderManager:
         log.info("Order %s: %s -> %s", order.order_id, old_status, OrderStatus.ACK)
         self._cache.update_order(acked)
 
-    def on_order_filled(self, order: Order, fill: Fill) -> None:
+    def on_order_filled(self, order: Order, fill: Fill) -> Order:
         """Transition order to FILLED, update filled_quantity, and cache."""
         old_status = order.status
         remaining = order.quantity.value - order.filled_quantity.value
@@ -51,9 +51,20 @@ class OrderManager:
             if new_filled.value >= order.quantity.value
             else OrderStatus.PARTIALLY_FILLED
         )
-        filled_order = order.transition_to(new_status, filled_quantity=new_filled)
+        # A fill advances filled_quantity; it does not always advance status.
+        # A repeated partial, or a duplicate full fill re-delivered by the
+        # venue, leaves the status unchanged — that is a fill application, not
+        # a transition, so the FSM must not be asked to re-enter its own state
+        # (FILLED/PARTIALLY_FILLED have no outgoing edge by design). Bypassing
+        # transition_to here only when the status is identical keeps the FSM
+        # strict for real transitions while making fill application idempotent.
+        if new_status is order.status:
+            filled_order = replace(order, filled_quantity=new_filled)
+        else:
+            filled_order = order.transition_to(new_status, filled_quantity=new_filled)
         self._cache.update_order(filled_order)
         log.info("Order %s: %s -> %s", order.order_id, old_status, new_status)
+        return filled_order
 
     def on_order_cancelled(self, order: Order) -> None:
         """Transition order to CANCELLED and update cache."""
