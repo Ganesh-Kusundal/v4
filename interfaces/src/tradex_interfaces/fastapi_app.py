@@ -494,7 +494,7 @@ def serve_app() -> FastAPI:
     elif mode == "live":
         config = replace(config, broker_id=BrokerId(broker), live_enabled=True)
         session = boot(
-            config, wire_strategies=False,
+            config, wire_strategies=True,
             reconciliation_monitor_factory=build_reconciliation_monitor,
         )
     else:

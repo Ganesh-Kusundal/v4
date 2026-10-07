@@ -990,6 +990,17 @@ def _boot_tail(
                     f"platform cannot meet: {'; '.join(problems)}"
                 )
 
+        # Fail-closed: a live session with no strategies is a no-op that wastes
+        # a broker connection. Raise before connecting so the operator learns
+        # the real problem, not a downstream feed/auth error.
+        if cfg.mode == "live" and strategy_engine is not None:
+            count = len(strategy_engine.strategies)
+            if count == 0:
+                raise ValueError(
+                    "live mode has no strategies registered; "
+                    "set auto_register_examples=True or register strategies explicitly"
+                )
+
     # 7. Connect broker (loads instruments/registry for live brokers)
     broker.connect()
     # Live must prove wire auth before the session is READY. connect() only

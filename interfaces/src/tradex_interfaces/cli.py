@@ -477,7 +477,7 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
             # factory is defined here rather than in tradex_runtime.
             session = boot(
                 config,
-                wire_strategies=False,
+                wire_strategies=True,
                 reconciliation_monitor_factory=build_reconciliation_monitor,
             )
         assert session is not None
