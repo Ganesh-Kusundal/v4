@@ -139,17 +139,16 @@ def protective_request(
         if is_valid_bracket(signal.direction, entry, stop, target):
             legs = {STOP_KEY: stop, TARGET_KEY: target}
         else:
-            log.warning(
-                "signal %r declared protective levels that do not bracket the entry "
-                "(%s=%s, entry=%s, %s=%s); submitting unprotected",
-                getattr(signal, "reason", "") or "?",
-                STOP_KEY, stop.value, entry.value, TARGET_KEY, target.value,
+            raise ValueError(
+                f"signal {getattr(signal, 'reason', '')!r} declared protective levels "
+                f"that do not bracket the entry ({STOP_KEY}={stop.value}, "
+                f"entry={entry.value}, {TARGET_KEY}={target.value})"
             )
     elif stop is not None or target is not None:
-        log.warning(
-            "signal declared only one protective level (%s=%s, %s=%s); the venue "
-            "carries stops as a pair, so both are dropped",
-            STOP_KEY, stop, TARGET_KEY, target,
+        raise ValueError(
+            f"signal declared only one protective level ({STOP_KEY}={stop}, "
+            f"{TARGET_KEY}={target}); the venue carries stops as a pair, so both "
+            "are required"
         )
 
     cls = BracketOrderRequest if legs else OrderRequest
