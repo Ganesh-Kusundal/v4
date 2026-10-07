@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from tradex_domain import OHLC, Candle, Equity, Price, Quantity, Timeframe
 from tradex_domain.enums import OrderSide
+from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Fill, OrderId
 from tradex_domain.market import Quote
 from tradex_strategy.core.engine import ReactiveStrategyEngine
@@ -177,6 +178,6 @@ def test_fill_routes_by_owning_strategy() -> None:
         price=Price(value=Decimal("100")),
         strategy_id="s1",
     )
-    engine._bus.publish(fill)
+    engine._bus.publish(OrderFilled(fill=fill))
     assert len(s1.fills) == 1
     assert len(s2.fills) == 0

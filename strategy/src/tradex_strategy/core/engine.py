@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
-from tradex_domain.events import ErrorOccurred, OrderCancelled
+from tradex_domain.events import ErrorOccurred, OrderCancelled, OrderFilled
 from tradex_domain.execution import Order, OrderReceipt, OrderRequest, Position
 from tradex_domain.instruments import InstrumentId
 from tradex_domain.market import Candle, Depth, Quote
@@ -530,9 +530,10 @@ class ReactiveStrategyEngine:
 
     def _wrap_on_fill(self, strategy: Any) -> Any:
         """Wrap strategy.on_fill to inject context."""
-        def handler(fill: Any) -> Any:
+        def handler(event: Any) -> Any:
             if strategy.strategy_id in self._gated:
                 return None
+            fill = event.fill
             # Fills route by owning strategy, not instrument. A fill with
             # no strategy_id (manual/legacy) goes to all strategies.
             if fill.strategy_id is not None and fill.strategy_id != strategy.strategy_id:
@@ -679,7 +680,7 @@ class ReactiveStrategyEngine:
         """
         self._strategies[strategy.strategy_id] = strategy
 
-        from tradex_domain import Candle, Fill, Quote
+        from tradex_domain import Candle, Quote
         from tradex_domain.market import Depth
 
         # Build the routing index. Strategies declaring instruments are
@@ -707,7 +708,7 @@ class ReactiveStrategyEngine:
             self._bus.of_type(Candle).subscribe(self._wrap_on_bar(strategy)),
             self._bus.of_type(Quote).subscribe(self._wrap_on_quote(strategy)),
             self._bus.of_type(Depth).subscribe(self._wrap_on_depth(strategy)),
-            self._bus.of_type(Fill).subscribe(self._wrap_on_fill(strategy)),
+            self._bus.of_type(OrderFilled).subscribe(self._wrap_on_fill(strategy)),
         ])
 
     def unregister(self, strategy_id: str) -> None:
