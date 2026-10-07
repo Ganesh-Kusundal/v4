@@ -139,16 +139,24 @@ def protective_request(
         if is_valid_bracket(signal.direction, entry, stop, target):
             legs = {STOP_KEY: stop, TARGET_KEY: target}
         else:
-            raise ValueError(
-                f"signal {getattr(signal, 'reason', '')!r} declared protective levels "
-                f"that do not bracket the entry ({STOP_KEY}={stop.value}, "
-                f"entry={entry.value}, {TARGET_KEY}={target.value})"
+            # Documented contract (CLAUDE.md): an invalid pair degrades to an
+            # unprotected order rather than raising mid-run — a strategy
+            # declaration mistake must not discard a whole backtest or silently
+            # drop a live order. Loud, because a missing bracket is a real loss
+            # of protection; never inferred, because a lone leg is not a pair.
+            log.warning(
+                "signal %r declared protective levels that do not bracket the entry "
+                "(%s=%s, entry=%s, %s=%s); submitting unprotected",
+                getattr(signal, "reason", "") or "?",
+                STOP_KEY, stop.value, entry.value, TARGET_KEY, target.value,
             )
     elif stop is not None or target is not None:
-        raise ValueError(
-            f"signal declared only one protective level ({STOP_KEY}={stop}, "
-            f"{TARGET_KEY}={target}); the venue carries stops as a pair, so both "
-            "are required"
+        # The venue's composite endpoint is the only carrier, so a lone leg is
+        # dropped loudly — never fabricated into a pair.
+        log.warning(
+            "signal declared only one protective level (%s=%s, %s=%s); the venue "
+            "carries stops as a pair, so both are dropped",
+            STOP_KEY, stop, TARGET_KEY, target,
         )
 
     cls = BracketOrderRequest if legs else OrderRequest
