@@ -51,7 +51,7 @@ class OrderManager:
             if new_filled.value >= order.quantity.value
             else OrderStatus.PARTIALLY_FILLED
         )
-        filled_order = replace(order, filled_quantity=new_filled, status=new_status)
+        filled_order = order.transition_to(new_status, filled_quantity=new_filled)
         self._cache.update_order(filled_order)
         log.info("Order %s: %s -> %s", order.order_id, old_status, new_status)
 
