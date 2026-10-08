@@ -41,6 +41,8 @@ import logging
 import os
 from pathlib import Path
 
+from tradex_config.schema import default_runtime_dir_str
+
 log = logging.getLogger(__name__)
 
 # Errors meaning "someone else already holds the flock".
@@ -64,9 +66,17 @@ class SingleWriterLock:
     """
 
     def __init__(self, path: Path | str) -> None:
-        self._path = Path(path)
+        raw = Path(path)
+        if not raw.is_absolute():
+            from tradex_config.schema import default_runtime_dir_str
+            raw = Path(default_runtime_dir_str()) / raw
+        self._path = raw
         self._held = False
         self._fd: int | None = None
+
+    @property
+    def path(self) -> Path:
+        return self._path
 
     def acquire(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
