@@ -508,6 +508,25 @@ def boot(
         guard = SQLiteIdempotencyGuard(cfg.persistence.path)
         order_store = SQLiteOrderStore(cfg.persistence.path)
         event_store = SQLiteEventStore(cfg.persistence.path)
+    elif cfg.mode == "paper":
+        # Paper mode uses SQLiteIdempotencyGuard even without an explicit
+        # persistence path, so duplicate order submissions are rejected
+        # across process restarts. The DB lives under the runtime dir.
+        from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
+
+        guard = SQLiteIdempotencyGuard(
+            str(Path(cfg.runtime_dir) / f"{cfg.broker_id.value.lower()}.idempotency.db")
+        )
+    elif cfg.mode in ("paper", "live"):
+        # Paper/live always use SQLiteIdempotencyGuard so duplicate order
+        # submissions are rejected across process restarts, even when no
+        # explicit persistence path is configured. The guard lives under the
+        # runtime dir so it is repo-anchored, not cwd-relative.
+        from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
+
+        guard = SQLiteIdempotencyGuard(
+            Path(cfg.runtime_dir) / f"{cfg.broker_id.value.lower()}.idempotency.db"
+        )
 
     # 4c. Single-writer guard (R2) — live only. Rate limiters are per-process;
     # two live writers on one account can jointly breach provider limits.
@@ -516,7 +535,7 @@ def boot(
         from tradex_runtime.writer_lock import SingleWriterLock
 
         writer_lock = SingleWriterLock(
-            Path("runtime/live") / f"{cfg.broker_id.value.lower()}.writer.lock"
+            Path(cfg.runtime_dir) / "live" / f"{cfg.broker_id.value.lower()}.writer.lock"
         )
         writer_lock.acquire()  # fail-closed if another live process is running
         atexit.register(writer_lock.release)  # stale-PID auto-clear covers crashes
