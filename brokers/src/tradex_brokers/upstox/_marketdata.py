@@ -53,7 +53,7 @@ def _candles_from_rows(
     end: datetime,
 ) -> list[Candle]:
     """Parse Upstox candle rows (``[ts, o, h, l, c, v, oi]``) into ``Candle``s."""
-    from tradex_brokers.common.market_builders import make_candle
+    from tradex_shared import make_candle
 
     candles: list[Candle] = []
     for row in rows if isinstance(rows, list) else []:
@@ -175,7 +175,7 @@ class MarketDataMixin(Protocol):
 
     def depth(self: UptoxFacade, instrument: Instrument) -> Depth:
         """Market depth via GET /market-quote/quotes."""
-        from tradex_brokers.common.market_builders import build_depth
+        from tradex_shared import build_depth
 
         key = provider_key(self._registry, instrument.instrument_id)
         body = self._request(

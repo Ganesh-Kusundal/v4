@@ -35,7 +35,6 @@ from tradex_brokers.common.resilience import (
     CircuitBreaker,
     CircuitState,
     MultiBucketRateLimiter,
-    RateLimitConfig,
     ResiliencePipeline,
     RetryableHttpClient,
     RetryConfig,
@@ -45,6 +44,7 @@ from tradex_brokers.common.resilience import (
     limiter_for_provider,
     table_for_provider,
 )
+from tradex_shared import RateLimitConfig
 
 HISTORICAL_URL = "https://api.dhan.co/v2/charts/intraday/2885/1/2026-08-01/2026-08-05"
 
@@ -314,7 +314,7 @@ def test_wait_cooldown_blocks_until_cooldown_lifts() -> None:
     """wait_cooldown=True makes acquire() wait out the cooldown instead of
     raising — the safety net that lets a backfill absorb a 429 rather than
     fail the whole batch."""
-    from tradex_brokers.common.resilience import RateLimitConfig
+    from tradex_shared import RateLimitConfig
 
     cfg = RateLimitConfig(
         rate_per_second=10.0, capacity=5, cooldown_seconds=0.2, wait_cooldown=True,

@@ -21,13 +21,13 @@ from tradex_domain.events import (
     OrderRejected,
 )
 from tradex_domain.execution import OrderRequest
-from tradex_domain.marketing import select_mark
 from tradex_domain.protective import stop_hit, target_hit
 from tradex_domain.utils import q2
 from tradex_domain.value_objects import CorrelationId, Money, Price, Quantity
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fees import FeeCalculator
 from tradex_execution.fill_sources import FillSource, SimulatedFillSource
+from tradex_execution.mark_to_market import MarkToMarketService
 from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.slippage import SlippageModel
 from tradex_execution.trading_cache import TradingCache
@@ -1205,7 +1205,8 @@ class BacktestEngine:
                 ltp=Price(value=last_close),
                 timestamp=as_of or inst_candles[-1].timestamp,
             )
-            mark = select_mark(pos, quote)
+            selected = MarkToMarketService.select_mark(pos, quote)
+            mark = selected[0].value if selected is not None else last_close
             mtm += qty * mark
         return mtm
 

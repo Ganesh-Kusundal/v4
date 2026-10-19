@@ -17,7 +17,7 @@ from tradex_analytics.indicators import (
     get_indicator_spec,
     indicator_catalogue,
 )
-from tradex_brokers.common.market_builders import make_candle
+from tradex_shared import make_candle
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
 

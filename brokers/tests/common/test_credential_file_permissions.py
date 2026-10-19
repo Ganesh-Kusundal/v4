@@ -26,7 +26,7 @@ from pathlib import Path
 
 import pytest
 
-from tradex_brokers.common import paths as broker_paths
+from tradex_domain import paths as broker_paths
 from tradex_brokers.common import token_lifecycle as tl
 from tradex_brokers.common.token_lifecycle import (
     SECRET_FILE_MODE,

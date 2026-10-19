@@ -196,7 +196,7 @@ def create_app(
         # — the same seam broker token/totp state uses. The old fallback here
         # was a bare ``"runtime"`` (cwd-relative), so launching the API from a
         # different directory silently forked workspace.sqlite.
-        from tradex_brokers.common.paths import default_runtime_dir
+        from tradex_domain.paths import default_runtime_dir
 
         workspace_db = str(default_runtime_dir() / "workspace.sqlite")
     app.include_router(create_chart_router(session, workspace_db_path=workspace_db))

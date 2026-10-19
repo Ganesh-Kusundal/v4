@@ -77,7 +77,7 @@ def row_to_quote(
     # ponytail: depth construction single-sourced via build_depth (SMELL-04)
     depth_obj: Depth | None = None
     if buys or sells:
-        from tradex_brokers.common.market_builders import build_depth
+        from tradex_shared import build_depth
 
         depth_obj = build_depth(
             instrument,

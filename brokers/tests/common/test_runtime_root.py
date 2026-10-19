@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tradex_brokers.common.paths import (
+from tradex_domain.paths import (
     default_runtime_dir,
     default_token_state_path,
     default_totp_cooldown_path,

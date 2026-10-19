@@ -10,13 +10,13 @@ from tradex_market_data.gap_detector import GapDetector
 from tradex_market_data.market_provider import ParquetMarketProvider  # noqa: F401
 from tradex_market_data.parallel_fetcher import ParallelHistoryFetcher
 from tradex_market_data.parquet_storage import ParquetStorage
-from tradex_market_data.simple_sync import (
-    SyncResult,
-    series_to_frame,
-    simple_sync,
-)
 from tradex_market_data.symbol_resolve import ResolveResult, resolve_universe_symbols
-from tradex_market_data.sync_service import SyncConfig, SyncReport, SyncService
+from tradex_market_data.sync_service import (
+    SyncConfig,
+    SyncReport,
+    SyncService,
+    series_to_frame,
+)
 from tradex_market_data.universe import available_universes, load_universe
 from tradex_market_data.window_loader import MarketWindowLoader
 
@@ -27,9 +27,7 @@ __all__ = [
     "ParallelHistoryFetcher",
     "ParquetStorage",
     "GapDetector",
-    "simple_sync",
     "series_to_frame",
-    "SyncResult",
     "SyncConfig",
     "SyncReport",
     "SyncService",

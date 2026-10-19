@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tradex_brokers.common.paths import default_runtime_dir as broker_default_runtime_dir
+from tradex_domain.paths import default_runtime_dir as broker_default_runtime_dir
 from tradex_config.env import from_env
 from tradex_config.schema import AppConfig
 from tradex_domain.paths import default_runtime_dir as domain_default_runtime_dir

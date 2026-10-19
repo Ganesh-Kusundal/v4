@@ -278,7 +278,7 @@ def test_scan_honours_holidays() -> None:
     """A holiday is not an expected session, so a symbol with no bars that day
     is complete, not gapped. The scan window spans three weekdays and the
     store holds the first and third — the middle one is the holiday."""
-    from tradex_market_data.simple_sync import series_to_frame
+    from tradex_market_data.sync_service import series_to_frame
 
     inst = _eq("X")
     aug5 = datetime(2026, 8, 5, 9, 15)
@@ -311,7 +311,7 @@ def test_converge_does_not_refetch_a_deterministic_failure() -> None:
 
 def _frame_missing_interior(inst, start, end, drop_from, minutes):
     """A full session's frame with a short interior run removed."""
-    from tradex_market_data.simple_sync import series_to_frame
+    from tradex_market_data.sync_service import series_to_frame
 
     df = series_to_frame(_full_series(inst, start, end), inst.symbol)
     ts = pd.to_datetime(df["timestamp"])

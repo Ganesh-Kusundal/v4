@@ -155,7 +155,7 @@ def assert_runtime_secret_permissions(
     """Check every credential file under the broker runtime state directory.
 
     Boot-time sweep for the C6 finding.  Scans ``<runtime_dir>/*/*.json`` —
-    the layout :func:`tradex_brokers.common.paths.default_token_state_path`
+    the layout :func:`tradex_domain.paths.default_token_state_path`
     produces (``<runtime>/<broker>/token_state.json``) — and tightens
     anything that is world-readable.
 
@@ -175,7 +175,7 @@ def assert_runtime_secret_permissions(
         runtime directory does not exist yet (a fresh checkout has never
         authenticated, so there is nothing to check).
     """
-    from tradex_brokers.common.paths import default_runtime_dir
+    from tradex_domain.paths import default_runtime_dir
 
     root = Path(runtime_dir) if runtime_dir is not None else default_runtime_dir()
     checked: list[Path] = []

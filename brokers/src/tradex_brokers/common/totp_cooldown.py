@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import ClassVar
 
 from tradex_domain import RateLimitError
+from tradex_domain.paths import default_totp_cooldown_path
 
-from tradex_brokers.common.paths import default_totp_cooldown_path
 from tradex_brokers.common.token_lifecycle import (
     _atomic_write_text,
     _exclusive_file_lock,

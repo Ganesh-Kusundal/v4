@@ -14,8 +14,7 @@ from typing import Any
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_brokers.common.market_builders import build_depth
+from tradex_shared import build_depth
 
 # Wire layout constants
 HEADER_SIZE = 12

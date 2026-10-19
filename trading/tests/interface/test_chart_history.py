@@ -69,7 +69,7 @@ class TestHistoryContract:
         from datetime import timedelta
         from zoneinfo import ZoneInfo
 
-        from tradex_brokers.common.market_builders import candles_from_dataframe
+        from tradex_shared import candles_from_dataframe
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import HistoricalSeries

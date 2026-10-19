@@ -9,6 +9,12 @@ Re-exports the key types so that adapters can do::
     )
 """
 
+from tradex_domain.paths import (
+    default_runtime_dir,
+    default_token_state_path,
+    default_totp_cooldown_path,
+)
+
 from tradex_brokers.common.auth import (
     jwt_expiry,
     totp_code,
@@ -24,11 +30,6 @@ from tradex_brokers.common.mixins import (
     ProviderFacade,
     SharedAdminMixin,
     SharedPortfolioMixin,
-)
-from tradex_brokers.common.paths import (
-    default_runtime_dir,
-    default_token_state_path,
-    default_totp_cooldown_path,
 )
 from tradex_brokers.common.provider_client import (
     ProviderHttpClient,

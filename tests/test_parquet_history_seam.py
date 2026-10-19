@@ -44,16 +44,15 @@ def test_the_lake_converter_is_patchable_at_the_seam_production_reads(monkeypatc
     call time, so a double installed on any other module is dead code: the real
     converter runs, raises on the test's fake frame, and the route answers with
     an error frame the test is not waiting for. That is not hypothetical —
-    when the helper left ``tradex_brokers.common.market_builders`` (3747a86),
+    when the helper left the broker layer (3747a86),
     seven replay doubles silently stopped intercepting and 18 tests blocked in
     ``receive_json`` for 353s instead of failing. This asserts the seam, so the
     next move breaks one test here rather than hanging a whole file.
     """
-    # Import the brokers shim FIRST, deliberately. It does a module-level
-    # ``from tradex_shared import candles_from_dataframe``, so if it is imported
-    # after the patch below it would bind the double and this assertion would
-    # pass even against a call site that reads the shim instead of the seam.
-    import tradex_brokers.common.market_builders as _shim
+    # Import a helper module FIRST, deliberately: importing before the patch
+    # below proves the double is read off ``tradex_shared`` at call time
+    # (a stale module-level binding elsewhere cannot mask a seam regression).
+    import tradex_market_data.market_provider as _seam_module
     import tradex_shared
     from tradex_market_data.market_provider import ParquetMarketProvider
 
@@ -63,7 +62,7 @@ def test_the_lake_converter_is_patchable_at_the_seam_production_reads(monkeypatc
         seen.append(instrument)
         return ["sentinel"]
 
-    assert _shim.candles_from_dataframe is not _double
+    assert getattr(_seam_module, "candles_from_dataframe", None) is not _double
     monkeypatch.setattr(tradex_shared, "candles_from_dataframe", _double)
 
     assert ParquetMarketProvider._to_candles("NSE:TEST", object()) == ["sentinel"]

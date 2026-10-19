@@ -63,9 +63,43 @@ def default_runtime_dir(*, create: bool = True) -> Path:
     return path
 
 
+def default_token_state_path(broker_id: str) -> Path:
+    """Return the default path for persisting a broker's token state.
+
+    ``<runtime_dir>/<broker_id>/token_state.json``. Moved here from
+    ``brokers/common/paths.py`` so the runtime resolver is single-owned.
+    """
+    path = default_runtime_dir() / broker_id.lower()
+    path.mkdir(parents=True, exist_ok=True, mode=SECRET_DIR_MODE)
+    return path / "token_state.json"
+
+
+def default_totp_cooldown_path(broker: str) -> Path:
+    """Return the default path for a broker's TOTP cooldown state.
+
+    ``<runtime_dir>/<broker>/totp_cooldown.json``. Moved here from
+    ``brokers/common/paths.py`` so the runtime resolver is single-owned.
+    """
+    path = default_runtime_dir() / broker.lower()
+    path.mkdir(parents=True, exist_ok=True, mode=SECRET_DIR_MODE)
+    return path / "totp_cooldown.json"
+
+
 __all__ = [
     "DEFAULT_RUNTIME_DIR",
     "REPO_ROOT",
     "RUNTIME_DIR_ENV_VAR",
+    "SECRET_DIR_MODE",
     "default_runtime_dir",
+    "default_token_state_path",
+    "default_totp_cooldown_path",
 ]
+
+
+#: Mode for freshly created per-broker state directories, which hold
+#: credentials (``token_state.json``) and cooldown state. Owner-only instead
+#: of the umask's 0755. ``exist_ok=True`` deliberately leaves pre-existing
+#: directories alone: this never chmods a directory the user (or a prior run)
+#: already has. The file mode set by the atomic writer is the actual control;
+#: the directory is defense in depth for freshly created paths.
+SECRET_DIR_MODE = 0o700

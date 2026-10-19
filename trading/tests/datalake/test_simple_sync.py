@@ -1,4 +1,4 @@
-"""Tests for simple_sync — Dhan-only datalake fill path."""
+"""Tests for the datalake sync write path — SyncService + series_to_frame."""
 
 from __future__ import annotations
 
@@ -10,7 +10,12 @@ import pandas as pd
 from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.value_objects import Price, Quantity
-from tradex_market_data.simple_sync import SyncResult, series_to_frame, simple_sync
+from tradex_market_data.sync_service import (
+    SyncConfig,
+    SyncReport,
+    SyncService,
+    series_to_frame,
+)
 
 INSTRUMENTS = [Equity.of("NSE", f"SYM{i}") for i in range(3)]
 BASE = datetime(2026, 8, 1, 9, 15, tzinfo=UTC)
@@ -50,89 +55,62 @@ def _store(rows_per_call: int = 10) -> MagicMock:
     return store
 
 
-class TestSimpleSync:
+class TestSyncService:
+    """Sync path tests — SyncService is the one write path (simple_sync deleted)."""
+
+    def _run(self, results: dict, errors: list, instruments=None, ranges=None):
+        insts = INSTRUMENTS if instruments is None else instruments
+        store = _store()
+        with patch(
+            "tradex_market_data.sync_service.ParallelHistoryFetcher"
+        ) as phf, patch(
+            "tradex_market_data.sync_service.fetch_with_backoff",
+            return_value=results,
+        ) as fwb:
+            phf.return_value = _patched_fetcher(results, errors)
+            svc = SyncService(MagicMock(), store, SyncConfig(timeframe="1m"))
+            report = svc.sync(insts, START, END, ranges=ranges)
+        return report, phf, fwb, store
+
     def test_empty_universe_requests_nothing(self) -> None:
         store = _store()
-        result = simple_sync(MagicMock(), store, [], "1m", START, END)
-        assert result == SyncResult(0, 0, 0, [], [])
+        svc = SyncService(MagicMock(), store, SyncConfig())
+        report = svc.sync([], START, END)
+        assert report == SyncReport(0, 0, 0)
         store.upsert.assert_not_called()
 
     def test_syncs_all_symbols(self) -> None:
         results = {str(i.instrument_id): _series(instrument=i) for i in INSTRUMENTS}
-        with patch(
-            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
-        ) as phf:
-            phf.return_value = _patched_fetcher(results, [])
-            result = simple_sync(MagicMock(), _store(10), INSTRUMENTS, "1m", START, END)
-        assert result.fetched == 3
-        assert result.failed == []
-        assert result.skipped == []
+        report, phf, _, _ = self._run(results, [])
+        assert report.fetched == 3
+        assert report.failed == {}
+        assert report.skipped == []
         brokers = phf.call_args.args[0]
         assert list(brokers.keys()) == ["dhan"]
 
-    def test_uses_parallel_history_fetcher(self) -> None:
+    def test_uses_parallel_history_fetcher_max_workers(self) -> None:
         results = {str(i.instrument_id): _series(instrument=i) for i in INSTRUMENTS}
-        with patch(
-            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
-        ) as phf:
-            phf.return_value = _patched_fetcher(results, [])
-            simple_sync(MagicMock(), _store(10), INSTRUMENTS, "1m", START, END)
-        assert phf.call_args.kwargs["max_workers"] == 5
+        _, phf, _, _ = self._run(results, [])
+        assert phf.call_args.kwargs["max_workers"] == 2  # SyncConfig default
 
     def test_ranges_passed_to_fetcher(self) -> None:
         results = {str(INSTRUMENTS[0].instrument_id): _series(instrument=INSTRUMENTS[0])}
         ranges = {str(INSTRUMENTS[0].instrument_id): [(START, END)]}
-        with patch(
-            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
-        ) as phf:
-            phf.return_value = _patched_fetcher(results, [])
-            result = simple_sync(
-                MagicMock(), _store(10), [INSTRUMENTS[0]], "1m", START, END,
-                ranges=ranges,
-            )
-        assert result.fetched == 1
-        _, kw = phf.return_value.fetch.call_args
+        report, _, fwb, _ = self._run(results, [], instruments=[INSTRUMENTS[0]], ranges=ranges)
+        assert report.fetched == 1
+        _, kw = fwb.call_args
         assert kw.get("ranges") == ranges
 
     def test_empty_is_skipped_not_failed(self) -> None:
-        empty_err = [
-            f"{INSTRUMENTS[0].instrument_id}: empty series for {INSTRUMENTS[0].instrument_id}"
-        ]
-        with patch(
-            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
-        ) as phf:
-            phf.return_value = _patched_fetcher({}, empty_err)
-            result = simple_sync(
-                MagicMock(), _store(10), [INSTRUMENTS[0]], "1m", START, END,
-            )
-        assert result.failed == []
-        assert INSTRUMENTS[0].symbol in result.skipped
-
-    def test_transient_failure_lands_in_failed(self) -> None:
-        err = [f"{INSTRUMENTS[0].instrument_id}: 429 rate limit"]
-        with patch(
-            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
-        ) as phf:
-            phf.return_value = _patched_fetcher({}, err)
-            result = simple_sync(
-                MagicMock(), _store(10), [INSTRUMENTS[0]], "1m", START, END,
-            )
-        assert INSTRUMENTS[0].symbol in result.failed
-        assert result.skipped == []
+        report, _, _, _ = self._run({}, [], instruments=[INSTRUMENTS[0]])
+        assert report.failed == {}
+        assert INSTRUMENTS[0].symbol in report.skipped
 
     def test_present_but_empty_series_is_skipped(self) -> None:
-        results = {
-            str(INSTRUMENTS[0].instrument_id): _series(n=0, instrument=INSTRUMENTS[0])
-        }
-        with patch(
-            "tradex_market_data.simple_sync.ParallelHistoryFetcher"
-        ) as phf:
-            phf.return_value = _patched_fetcher(results, [])
-            result = simple_sync(
-                MagicMock(), _store(10), [INSTRUMENTS[0]], "1m", START, END,
-            )
-        assert result.failed == []
-        assert INSTRUMENTS[0].symbol in result.skipped
+        results = {str(INSTRUMENTS[0].instrument_id): _series(n=0, instrument=INSTRUMENTS[0])}
+        report, _, _, _ = self._run(results, [], instruments=[INSTRUMENTS[0]])
+        assert report.failed == {}
+        assert INSTRUMENTS[0].symbol in report.skipped
 
 
 class TestSeriesToFrame:

@@ -52,7 +52,6 @@ from typing import Any, cast
 from tradex_domain import BrokerUnavailableError, RateLimitError
 from tradex_shared.rate_limiting import (
     MultiBucketRateLimiter,
-    RateLimitConfig,
     RollingWindowCounter,
     TokenBucketRateLimiter,
     bucket_for_path,
@@ -792,7 +791,6 @@ __all__ = [
     "CircuitBreakerConfig",
     "CircuitState",
     "MultiBucketRateLimiter",
-    "RateLimitConfig",
     "ResiliencePipeline",
     "RetryConfig",
     "RetryExhaustedError",

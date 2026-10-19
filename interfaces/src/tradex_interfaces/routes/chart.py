@@ -1134,8 +1134,8 @@ def _candles_for_bars(instrument: Any, bars: list[dict[str, Any]]) -> list[Any]:
     off domain Candles; this rebuilds them from the exact dicts the response
     serves so compute and chart data are index-aligned by construction.
     """
-    from tradex_brokers.common.market_builders import make_candle
     from tradex_domain.enums import Timeframe
+    from tradex_shared import make_candle
 
     tf = Timeframe.M1  # timeframe label only; indicators never bucket on it
     return [

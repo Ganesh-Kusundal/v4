@@ -25,11 +25,32 @@ from tradex_market_data.parallel_fetcher import (
     ParallelHistoryFetcher,
     fetch_with_backoff,
 )
-from tradex_market_data.simple_sync import series_to_frame
 
 log = logging.getLogger(__name__)
 
 _EDGE_SLACK = timedelta(minutes=1)
+
+
+def series_to_frame(series: HistoricalSeries, symbol: str) -> pd.DataFrame:
+    """Convert HistoricalSeries to storage DataFrame (tz-naive IST)."""
+    if not series.candles:
+        return pd.DataFrame()
+
+    candles = series.candles
+    timestamps = [to_ist_naive(c.timestamp) for c in candles]
+    return pd.DataFrame({
+        "symbol": symbol,
+        "exchange": [c.instrument.exchange.value if hasattr(c.instrument, "exchange") else "NSE"
+                     for c in candles],
+        "kind": "equity",
+        "timeframe": str(series.timeframe.value),
+        "timestamp": timestamps,
+        "open": [float(c.ohlc.open.value) for c in candles],
+        "high": [float(c.ohlc.high.value) for c in candles],
+        "low": [float(c.ohlc.low.value) for c in candles],
+        "close": [float(c.ohlc.close.value) for c in candles],
+        "volume": [float(c.volume.value) if c.volume else 0.0 for c in candles],
+    })
 
 #: Dhan's NSE 1m series stops at 15:14 (measured, see CLAUDE.md); Upstox serves
 #: to 15:29. A window ending at the session close can therefore never be

@@ -22,8 +22,6 @@ from tradex_brokers import DhanBroker, UpstoxBroker
 from tradex_brokers.common import (
     MintTokenManager,
     TotpCooldownGuard,
-    default_runtime_dir,
-    default_token_state_path,
     dhan_totp_mint,
     upstox_refresh_mint,
     upstox_totp_mint,
@@ -47,6 +45,7 @@ from tradex_domain.constants import (
     REDIRECT_URI,
     REFRESH_BUFFER_SECONDS,
 )
+from tradex_domain.paths import default_runtime_dir, default_token_state_path
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_runtime.master_lifecycle import MasterFileCache, MasterLoader

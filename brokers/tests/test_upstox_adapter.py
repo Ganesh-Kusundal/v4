@@ -40,7 +40,8 @@ from tradex_domain.value_objects import (
 )
 from tradex_domain.wire import InstrumentRegistry
 
-from tradex_brokers.common.resilience import MultiBucketRateLimiter, RateLimitConfig
+from tradex_brokers.common.resilience import MultiBucketRateLimiter
+from tradex_shared import RateLimitConfig
 from tradex_brokers.upstox.adapter import UpstoxBroker
 from tradex_brokers.upstox.client import UpstoxApiClient
 
