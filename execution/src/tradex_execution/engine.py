@@ -807,7 +807,8 @@ class ExecutionEngine:
             # _apply_fill: the order is FILLED before OrderFilled is published.
             charged_fee = Decimal(0)
             if not getattr(self._fill, "position_projection_owned", False):
-                charged_fee = self._fee_for_fill(fill)
+                recorded = getattr(self._fill, "recorded_fee_for", None)
+                charged_fee = self._fee_processor.fee_for_fill(fill, recorded)
             try:
                 order = self._apply_fill_to_book(order, fill, charged_fee, cid)
             except Exception:
@@ -865,9 +866,9 @@ class ExecutionEngine:
         self._cash_manager.restore(cash, total_fees, re_anchor=re_anchor)
 
     @property
-    def _brokerage_accrued(self) -> dict[str, Decimal]:
-        """Brokerage accrual state, owned by the FeeProcessor."""
-        return self._fee_processor._brokerage_accrued
+    def accrued(self) -> dict[str, Decimal]:
+        """Per-order brokerage accrual, owned by the FeeProcessor (H2 replay state)."""
+        return self._fee_processor.accrued
 
     @property
     def _cash_ledger(self) -> CashLedger | None:
@@ -973,26 +974,17 @@ class ExecutionEngine:
         debit = notional if fill.side is OrderSide.BUY else Decimal(0)
         self._cash_ledger.require_debit(debit + charged_fee, f"fill {fill.order_id}")
 
-    def _compute_fee(self, fill: Fill) -> Decimal:
-        """Compute *fill*'s fee. Delegates to :class:`FeeProcessor`."""
-        return self._fee_processor.compute_fee(fill)
-
-    def _fee_for_fill(self, fill: Fill) -> Decimal:
-        """The fee to charge for *fill*. Delegates to :class:`FeeProcessor`."""
-        recorded = getattr(self._fill, "recorded_fee_for", None)
-        return self._fee_processor.fee_for_fill(fill, recorded)
-
     def _apply_fee(self, fill: Fill, charged: Decimal | None = None) -> None:
         """Deduct *fill*'s fee from the position's realized P&L and cash.
 
-        *charged* is the already-computed amount from :meth:`_compute_fee`;
+        *charged* is the already-computed amount from :class:`FeeProcessor`;
         omit it to compute and apply in one step.
 
         Failures propagate loudly — a silently-swallowed fee bug is exactly the
         accounting divergence the parity work exists to prevent.
         """
         if charged is None:
-            charged = self._compute_fee(fill)
+            charged = self._fee_processor.compute_fee(fill)
         if charged <= 0:
             return
         fee = Money(amount=charged)
@@ -1144,7 +1136,7 @@ class ExecutionEngine:
             charged_fee = (
                 Decimal(0)
                 if getattr(self._fill, "position_projection_owned", False)
-                else self._compute_fee(fill)
+                else self._fee_processor.compute_fee(fill)
             )
         owns_projection = getattr(self._fill, "position_projection_owned", False)
         # AC-21: hold the ledger's ONE lock across this door's entire critical

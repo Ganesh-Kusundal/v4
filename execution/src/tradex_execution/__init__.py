@@ -17,7 +17,6 @@ from tradex_execution.fill_sources import (
 )
 from tradex_execution.order_manager import OrderManager
 from tradex_execution.position_accountant import PositionAccountant
-from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.projection import execution_projection
 from tradex_execution.slippage import (
     FixedSlippageModel,

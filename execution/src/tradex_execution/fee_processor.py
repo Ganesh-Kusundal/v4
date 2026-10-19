@@ -26,6 +26,11 @@ class FeeProcessor:
         self._brokerage_accrued: dict[str, Decimal] = {}
         self._brokerage_lock = threading.Lock()
 
+    @property
+    def accrued(self) -> dict[str, Decimal]:
+        """Per-order brokerage accrual read surface (H2: replay cannot re-derive it)."""
+        return self._brokerage_accrued
+
     def compute_fee(self, fill: Fill) -> Decimal:
         """Compute *fill*'s fee and advance the capped-brokerage accrual.
 

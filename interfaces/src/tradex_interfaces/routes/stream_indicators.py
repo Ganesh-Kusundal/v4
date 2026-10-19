@@ -33,14 +33,19 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import Any
 
+from tradex_domain.constants import (
+    POINTS_PER_PUSH as _POINTS_PER_PUSH,
+)
+from tradex_domain.constants import (
+    TAIL_LIMIT as _TAIL_LIMIT,
+)
+from tradex_domain.constants import (
+    TICK_THROTTLE_SECONDS as _TICK_THROTTLE_SECONDS,
+)
 from tradex_domain.timeframe import interval_seconds
 from tradex_domain.timezones import IST_ZONE
 
 log = logging.getLogger(__name__)
-
-_TAIL_LIMIT = 400
-_TICK_THROTTLE_SECONDS = 1.0
-_POINTS_PER_PUSH = 2
 
 #: Hard ceiling on distinct ``(instrument, timeframe)`` tails held in memory.
 #: One tail is at most ``_TAIL_LIMIT`` bars of six floats, so the default cap
@@ -864,3 +869,91 @@ class IndicatorStreamRegistry:
             "id": indicator_id,
             "points": points,
         })
+
+
+# ---------------------------------------------------------------------------
+# WS sub/unsub message handling (merged from routes/indicator_stream.py)
+# ---------------------------------------------------------------------------
+
+class IndicatorStream:
+
+    """Handle indicator sub/unsub websocket messages.
+
+    Parameters
+    ----------
+    registry:
+        The indicator stream registry tracking active subscriptions.
+    ack:
+        Callable that sends a websocket message back to the client.
+    """
+
+    def __init__(
+        self,
+        registry: IndicatorStreamRegistry,
+        ack: Any,
+    ) -> None:
+        self._registry = registry
+        self._ack = ack
+
+    def sub(self, msg: dict[str, Any]) -> None:
+        """Handle an indicator-sub message."""
+        items = msg.get("indicators")
+        if not isinstance(items, list) or not items:
+            self._ack({
+                "type": "error",
+                "message": (
+                    "indicator-sub needs 'indicators': "
+                    "[{instrument, interval, ids, mode?}]"
+                ),
+            })
+            return
+        accepted = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                ids = self._registry.add(
+                    str(item.get("instrument", "")),
+                    str(item.get("interval", "1m")),
+                    [str(i) for i in (item.get("ids") or [])],
+                    str(item.get("mode", "bar-close")),
+                )
+            except ValueError as exc:
+                self._ack({"type": "error", "message": str(exc)})
+                return
+            accepted.append({
+                "instrument": str(item.get("instrument", "")),
+                "interval": str(item.get("interval", "1m")),
+                "ids": ids,
+                "mode": str(item.get("mode", "bar-close")),
+            })
+        self._ack({"type": "indicator-subscribed", "indicators": accepted})
+
+    def unsub(self, msg: dict[str, Any]) -> None:
+        """Handle an indicator-unsub message."""
+        items = msg.get("indicators")
+        if not isinstance(items, list) or not items:
+            self._ack({
+                "type": "error",
+                "message": (
+                    "indicator-unsub needs 'indicators': "
+                    "[{instrument, interval, ids?}]"
+                ),
+            })
+            return
+        removed = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            ids = item.get("ids")
+            dropped_ids = self._registry.remove(
+                str(item.get("instrument", "")),
+                str(item.get("interval", "1m")),
+                [str(i) for i in ids] if ids else None,
+            )
+            removed.append({
+                "instrument": str(item.get("instrument", "")),
+                "interval": str(item.get("interval", "1m")),
+                "ids": dropped_ids,
+            })
+        self._ack({"type": "indicator-unsubscribed", "indicators": removed})

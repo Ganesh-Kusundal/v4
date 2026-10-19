@@ -53,8 +53,10 @@ from tradex_interfaces.queueing import (
     outbound_queue_stats,
 )
 from tradex_interfaces.replay_guard import ReplayGuard
-from tradex_interfaces.routes.indicator_stream import IndicatorStream
-from tradex_interfaces.routes.stream_indicators import IndicatorStreamRegistry
+from tradex_interfaces.routes.stream_indicators import (
+    IndicatorStream,
+    IndicatorStreamRegistry,
+)
 
 log = logging.getLogger(__name__)
 

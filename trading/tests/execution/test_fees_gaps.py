@@ -103,7 +103,7 @@ def test_brokerage_cap_per_order_not_per_fill() -> None:
         fee_calculator=FeeCalculator(),
     )
     # Ensure engine has tracking dict (fails before fix)
-    assert hasattr(engine, "_brokerage_accrued"), "engine must track _brokerage_accrued per order"
+    assert hasattr(engine, "accrued"), "engine must expose FeeProcessor.accrued per order"
 
     oid = OrderId(value="cap-test-order")
     inst = Equity.of("NSE", "RELIANCE")
@@ -136,11 +136,11 @@ def test_brokerage_cap_per_order_not_per_fill() -> None:
 
     # Apply fees through engine (capped)
     engine._apply_fee(fill1)
-    after1 = engine._brokerage_accrued.get(oid.value, Decimal("0"))
+    after1 = engine.accrued.get(oid.value, Decimal("0"))
     assert after1 == Decimal("15"), f"first fill brokerage should be 15, got {after1}"
 
     engine._apply_fee(fill2)
-    total = engine._brokerage_accrued.get(oid.value, Decimal("0"))
+    total = engine.accrued.get(oid.value, Decimal("0"))
     assert total == Decimal("20"), f"total brokerage {total} should be capped at 20"
     assert total <= Decimal("20")
 
