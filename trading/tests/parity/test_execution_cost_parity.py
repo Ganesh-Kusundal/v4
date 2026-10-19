@@ -3,7 +3,7 @@
 BacktestEngine deducts fees and applies slippage when configured; the reactive
 paper/live path must book the SAME costs so net P&L is identical across modes.
 ExecutionEngine now takes an optional ``fee_calculator`` (fees deducted from
-each position's realized P&L via PositionManager.on_fee) and the fill sources
+each position's realized P&L via PositionAccountant.on_fee) and the fill sources
 apply the same slippage models — both wired from ``AppConfig.execution`` by
 ``runtime.startup.boot``.
 

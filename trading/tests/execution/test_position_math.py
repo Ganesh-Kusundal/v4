@@ -1,7 +1,7 @@
 """Contract tests for the shared position-accounting model (CRITICAL-1).
 
 ``execution.position_math.apply_fill`` is the single weighted-average +
-realized-PnL model used by both the reactive pipeline (PositionManager) and
+realized-PnL model used by both the reactive pipeline (PositionAccountant) and
 BacktestEngine. These tests pin its contract directly so the shared model is
 a first-class, auditable artifact — and prove that identical fill streams
 produce identical Position state through either accounting engine.
@@ -17,7 +17,7 @@ from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
 from tradex_domain.position_math import apply_fill
 from tradex_domain.value_objects import Money, OrderId, Price, Quantity
-from tradex_execution.position_manager import PositionManager
+from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.trading_cache import TradingCache
 
 
@@ -100,12 +100,12 @@ class TestSharedModelContract:
 
 
 class TestSharedModelUsedByBothEngines:
-    """PositionManager (reactive/live) and apply_fill are one model — the
+    """PositionAccountant (reactive/live) and apply_fill are one model — the
     same fill stream produces the same Position state through both paths."""
 
     def test_position_manager_delegates_to_shared_model(self) -> None:
         cache = TradingCache()
-        pm = PositionManager(cache)
+        pm = PositionAccountant(cache)
         pm.on_fill(_fill(OrderSide.BUY, "2", "100"))
         pm.on_fill(_fill(OrderSide.BUY, "1", "110"))
         pm.on_fill(_fill(OrderSide.SELL, "1", "120"))
@@ -124,10 +124,10 @@ class TestSharedModelUsedByBothEngines:
         assert pos.realized_pnl.amount == expected.realized_pnl.amount
 
     def test_on_fee_deducts_from_realized_pnl(self) -> None:
-        """PositionManager.on_fee makes reactive net P&L consistent with
+        """PositionAccountant.on_fee makes reactive net P&L consistent with
         BacktestEngine's net cash accounting (HIGH-6b)."""
         cache = TradingCache()
-        pm = PositionManager(cache)
+        pm = PositionAccountant(cache)
         pm.on_fill(_fill(OrderSide.BUY, "10", "100"))
         pos = pm.on_fee(_fill(OrderSide.BUY, "10", "100"), Money(amount=Decimal("5.50")))
         assert pos is not None
@@ -138,5 +138,5 @@ class TestSharedModelUsedByBothEngines:
 
     def test_on_fee_no_position_is_safe(self) -> None:
         cache = TradingCache()
-        pm = PositionManager(cache)
+        pm = PositionAccountant(cache)
         assert pm.on_fee(_fill(OrderSide.BUY, "10", "100"), Money(amount=Decimal("1"))) is None

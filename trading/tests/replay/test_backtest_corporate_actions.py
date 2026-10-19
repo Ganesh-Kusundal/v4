@@ -3,7 +3,7 @@
 
 **What was already here, and what was not.** The wiring the lane asks for is
 *not* absent: ``_apply_actions_due`` has always delegated to
-``PositionManager.on_corporate_action`` (the same ``position_math.apply_split``
+``PositionAccountant.on_corporate_action`` (the same ``position_math.apply_split``
 / ``apply_dividend`` kernel the reactive pipeline uses), and the on-a-bar
 ex-date case was already covered. Three things were still wrong, and all three
 make a run look better than the venue would allow:

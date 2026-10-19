@@ -6,12 +6,12 @@ Paper path:
     TradingSession.paper() → ReactiveStrategyEngine.register(discovered strategy)
         → bus.publish(Candle) → Signal → PlaceOrderCommand
         → ExecutionEngine (PaperFillSource) → OrderPlaced + OrderFilled
-        → OMS cache + PositionManager
+        → OMS cache + PositionAccountant
 
 Backtest path (mode parity through the composition root):
 
     boot(AppConfig(mode="backtest")) → same flow via SimulatedFillSource
-        → OMS cache + PositionManager
+        → OMS cache + PositionAccountant
 
 Every order-producing path asserts the exact documented CQRS event spine
 on the bus — PlaceOrderCommand → OrderPlaced → OrderFilled. ReactiveBus
@@ -161,7 +161,7 @@ class TestPaperSessionLiveParity:
             assert fetched.order_id == order.order_id
             assert session.engine.all_orders() == [order]
 
-            # PositionManager recorded the fill — public portfolio surface.
+            # PositionAccountant recorded the fill — public portfolio surface.
             positions = session.engine.cache.all_positions()
             assert any(
                 p.instrument.instrument_id == strategy.instrument.instrument_id
@@ -175,7 +175,7 @@ class TestPaperSessionLiveParity:
     def test_mean_reversion_sell_lands_as_short_position(self) -> None:
         """The discovered mean-reversion example emits SELL on overbought;
         the paper fill opens a short position (negative quantity) in the
-        PositionManager — the SELL mirror of the BUY case above.
+        PositionAccountant — the SELL mirror of the BUY case above.
 
         NOTE: like test 1, this registers the module-level discovered
         singleton, whose close history accumulates across on_bar calls. Only

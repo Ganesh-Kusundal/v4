@@ -152,7 +152,7 @@ class TestGoldenReactiveParity:
             order = session.engine.cache.all_orders()[0]
             assert order.correlation_id is not None
             assert order.correlation_id.value.startswith("strat-")
-            # PositionManager recorded the fill at the fill price.
+            # PositionAccountant recorded the fill at the fill price.
             pos = session.engine.cache.all_positions()[0]
             assert pos.quantity.value == 1
             assert pos.avg_price.value == fill.price.value
@@ -368,13 +368,13 @@ class TestAccountingConvergence:
                 Decimal("110"), Decimal("120"),
             ]
             position = engine.cache.all_positions()[0]
-            # Realized P&L from the shared PositionManager accounting: +10.
+            # Realized P&L from the shared PositionAccountant accounting: +10.
             assert position.realized_pnl.amount == Decimal("10")
         finally:
             strategy_engine.dispose_all()
             engine.shutdown()
 
-        # Convergence: backtest equity gain == PositionManager realized P&L.
+        # Convergence: backtest equity gain == PositionAccountant realized P&L.
         assert bt.equity_curve[-1] - 100000.0 == float(position.realized_pnl.amount)
 
     def test_exact_fill_price_equals_backtest_next_open(self) -> None:

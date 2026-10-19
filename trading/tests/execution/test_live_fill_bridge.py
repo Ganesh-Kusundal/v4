@@ -91,7 +91,7 @@ def _fill(
 
 
 class TestLiveFillBridge:
-    """Broker async fills reach PositionManager via the bus bridge."""
+    """Broker async fills reach PositionAccountant via the bus bridge."""
 
     def test_broker_receipt_order_id_is_wrapped(self) -> None:
         """Broker-returned order ids must be OrderId-wrapped for the OMS."""

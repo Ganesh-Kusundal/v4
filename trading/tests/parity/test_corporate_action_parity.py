@@ -3,7 +3,7 @@ consistently").
 
 A mid-holding SPLIT/BONUS re-bases quantity and average price, and a DIVIDEND
 credits cash + realized P&L. Both BacktestEngine (point-in-time, at the first
-fill bar on/after the ex-date) and the reactive PositionManager must apply the
+fill bar on/after the ex-date) and the reactive PositionAccountant must apply the
 same action through the *same* shared math (``position_math.apply_split`` /
 ``apply_dividend``), so a stock split mid-backtest cannot silently corrupt
 P&L and live cannot diverge from backtest.
@@ -20,7 +20,7 @@ from decimal import Decimal
 from tradex_domain import OHLC, Candle, OrderSide, Signal, Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-from tradex_execution.position_manager import PositionManager
+from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.trading_cache import TradingCache
 from tradex_market_data.corporate_actions import CorporateAction, CorporateActionStore
 from tradex_replay.backtest import BacktestEngine
@@ -145,10 +145,10 @@ class TestSplitParity:
         assert result.equity_curve[-1] == 96000.0
 
     def test_reactive_split_matches_backtest_realized_pnl(self) -> None:
-        """With a fully-closing SELL, PositionManager's realized P&L equals
+        """With a fully-closing SELL, PositionAccountant's realized P&L equals
         the backtest's equity gain exactly — both through the same split math."""
         cache = TradingCache()
-        pm = PositionManager(cache)
+        pm = PositionAccountant(cache)
         pm.on_fill(_fill(OrderSide.BUY, Decimal("100"), Decimal("100")))
         pm.on_corporate_action(INSTRUMENT, "SPLIT", ratio=2.0)
         pos = pm.on_fill(_fill(OrderSide.SELL, Decimal("200"), Decimal("60")))
@@ -190,7 +190,7 @@ class TestDividendParity:
 
     def test_reactive_dividend_matches_backtest(self) -> None:
         cache = TradingCache()
-        pm = PositionManager(cache)
+        pm = PositionAccountant(cache)
         pm.on_fill(_fill(OrderSide.BUY, Decimal("100"), Decimal("100")))
         pm.on_corporate_action(INSTRUMENT, "DIVIDEND", per_share=2.0)
         pos = pm.on_fill(_fill(OrderSide.SELL, Decimal("100"), Decimal("110")))
@@ -240,7 +240,7 @@ class TestDividendParity:
         )
         cache = TradingCache()
         cache.update_position(pos)
-        pm = PositionManager(cache)
+        pm = PositionAccountant(cache)
         out = pm.on_corporate_action(INSTRUMENT, "DIVIDEND", per_share=2.0)
         assert out is not None
         assert out.realized_pnl.amount == Decimal("-200")

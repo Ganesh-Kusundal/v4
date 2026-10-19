@@ -1,4 +1,4 @@
-"""Gap tests for PositionManager — flips, multi-position, zero-qty edge."""
+"""Gap tests for PositionAccountant — flips, multi-position, zero-qty edge."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from tradex_domain.enums import OrderSide
 from tradex_domain.execution import Fill
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
-from tradex_execution.position_manager import PositionManager
+from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.trading_cache import TradingCache
 
 
@@ -33,7 +33,7 @@ def _make_fill(
 def test_short_to_long_flip() -> None:
     """SELL then BUY flips position from short to long."""
     cache = TradingCache()
-    pm = PositionManager(cache)
+    pm = PositionAccountant(cache)
     # Open short: SELL 10
     pm.on_fill(_make_fill("FLIP", OrderSide.SELL, "10", price="100"))
     pos = pm.get_position(Equity.of("NSE", "FLIP"))
@@ -49,7 +49,7 @@ def test_short_to_long_flip() -> None:
 def test_all_positions_returns_multiple() -> None:
     """all_positions returns positions for multiple instruments."""
     cache = TradingCache()
-    pm = PositionManager(cache)
+    pm = PositionAccountant(cache)
     pm.on_fill(_make_fill("AAA", OrderSide.BUY, "5"))
     pm.on_fill(_make_fill("BBB", OrderSide.BUY, "10"))
     positions = pm.all_positions()
@@ -62,7 +62,7 @@ def test_all_positions_returns_multiple() -> None:
 def test_on_fill_zero_quantity_edge_case() -> None:
     """Fill with zero quantity results in zero position."""
     cache = TradingCache()
-    pm = PositionManager(cache)
+    pm = PositionAccountant(cache)
     # BUY 10
     pm.on_fill(_make_fill("ZERO", OrderSide.BUY, "10", price="100"))
     # SELL 10 — position goes to zero
@@ -77,7 +77,7 @@ def test_concurrent_same_instrument_fills_atomic() -> None:
     import threading
 
     cache = TradingCache()
-    pm = PositionManager(cache)
+    pm = PositionAccountant(cache)
     instrument = Equity.of("NSE", "RELIANCE")
 
     def _fill() -> Fill:
@@ -114,7 +114,7 @@ def test_concurrent_same_instrument_fills_atomic() -> None:
     # accountant: the cache owns the position book, so a mark service and this
     # accountant must take the SAME lock or a concurrent re-mark overwrites a
     # committed fill (M-1). A lock map per component serialises nothing.
-    # PositionManager is an alias of PositionAccountant
+    # PositionAccountant is an alias of PositionAccountant
     # (execution/position_manager.py), so the accountant IS `pm` — there is no
     # `.accountant` wrapper attribute. `_lock` is a method that returns the
     # per-instrument RLock, not a stored lock object.

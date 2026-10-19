@@ -28,7 +28,7 @@ from tradex_domain.value_objects import CorrelationId, Money, Price, Quantity
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fees import FeeCalculator
 from tradex_execution.fill_sources import FillSource, SimulatedFillSource
-from tradex_execution.position_manager import PositionManager
+from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.slippage import SlippageModel
 from tradex_execution.trading_cache import TradingCache
 from tradex_market_data.corporate_actions import CorporateActionStore
@@ -294,7 +294,7 @@ class BacktestEngine:
                 provided, SPLIT/BONUS/DIVIDEND actions whose ex-date falls on
                 or before a fill bar are applied to the open position at that
                 point — point-in-time, once each, through the same shared
-                accounting math as ``PositionManager`` (parity review area
+                accounting math as ``PositionAccountant`` (parity review area
                 #4: corporate actions modeled consistently across modes).
             stop_gap_bps: Adverse fill beyond a triggered stop, in basis
                 points. See :data:`DEFAULT_STOP_GAP_BPS` for the default and why
@@ -496,17 +496,17 @@ class BacktestEngine:
         # Backtest is now a *bus driver*: it publishes historical events onto a
         # ReactiveBus; the strategy (via ReactiveStrategyEngine, next_open) sizes
         # its signal and hands the order to ExecutionEngine.submit() at the next
-        # bar's open; the SAME ExecutionEngine + PositionManager + FeeCalculator
+        # bar's open; the SAME ExecutionEngine + PositionAccountant + FeeCalculator
         # + RiskManager that live uses processes the order (AC-22: `submit()` is
         # the only door to the venue — the bus carries market data in and
         # observations out, never an order). Fills/risk/fees/positions are
         # therefore computed by one code path in every mode (parity review
         # CRITICAL-1). Backtest-specific reporting (cash ledger, point-in-time
-        # MTM, sharpe/drawdown) is derived from PositionManager + CashLedger
+        # MTM, sharpe/drawdown) is derived from PositionAccountant + CashLedger
         # state after the stream completes.
         bus = ReactiveBus()
         cache = TradingCache()
-        position_manager = PositionManager(cache)
+        position_manager = PositionAccountant(cache)
         # ``self._fill_source`` is deliberately ``Any`` (fill sources vary). The
         # original ``self._fill_source or SimulatedFillSource(...)`` was ``Any``
         # only because the left operand was; with a supplied source the value
@@ -751,7 +751,7 @@ class BacktestEngine:
             self._risk_manager.set_clock(self._clock)
             self._risk_manager.reset_rate_window()
 
-        # Corp actions: applied to the shared PositionManager (and the ledger's
+        # Corp actions: applied to the shared PositionAccountant (and the ledger's
         # cash effects mirrored) at each bar's ex-date — before that bar's fill.
         applied_actions: dict[str, set[str]] = {}
         def _apply_ca_for(ts: datetime) -> None:
@@ -1088,11 +1088,11 @@ class BacktestEngine:
         rebase_bracket: Callable[[Any, Decimal], None] | None = None,
     ) -> None:
         """Apply corporate actions with ex-date <= *as_of* to the shared
-        PositionManager (and mirror their cash effects onto the ledger).
+        PositionAccountant (and mirror their cash effects onto the ledger).
 
         Point-in-time: only actions already effective by *as_of* are applied,
         in ex-date order, and each action exactly once per run. The position
-        math is delegated to ``PositionManager.on_corporate_action`` — the same
+        math is delegated to ``PositionAccountant.on_corporate_action`` — the same
         ``apply_split`` / ``apply_dividend`` model the reactive pipeline uses
         (parity review area #4), so backtest, replay, paper, and live book
         corporate actions identically. *apply_cash_delta* is called with the

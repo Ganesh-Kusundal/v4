@@ -844,7 +844,7 @@ def create_chart_router(
 
         Body: {exchange, symbol, interval, from?, to?, strategy, params?,
         initial_capital?}. The engine is the SAME spine live uses
-        (ExecutionEngine + PositionManager + fees); this endpoint only wires
+        (ExecutionEngine + PositionAccountant + fees); this endpoint only wires
         datalake bars into it. Trades come back as chart markers; the equity
         curve as an overlayable line.
 

@@ -521,7 +521,7 @@ def test_research_package_never_imports_trading_brokers_or_ops() -> None:
 #
 # This is a small structural guard, not a full architectural lint. It watches the
 # named authority symbols that the 2026-09-04 reviews treated as the live spine:
-#   - execution: ExecutionEngine / PositionManager / TradingCache
+#   - execution: ExecutionEngine / PositionAccountant / TradingCache
 #   - money path: position_math.apply_fill
 #
 # If the repo later adopts a new spine, this guard must be revisited explicitly.

@@ -6,7 +6,7 @@ names as mapped by each client's ``_stream_order_from_row``) are replayed
 through the production chain —
 
     provider row → adapter mapping → LiveFillBridge → OrderFilled on the bus
-                 → ExecutionEngine OMS/PositionManager
+                 → ExecutionEngine OMS/PositionAccountant
 
 — and the resulting engine state is compared against (a) golden expectations
 derived from the tape itself and (b) the PaperBroker simulating the same

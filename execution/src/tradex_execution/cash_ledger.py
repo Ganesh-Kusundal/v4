@@ -5,7 +5,7 @@ Pure Decimal accounting used only by BacktestEngine. BUY debits
 effects (split basis restatement, dividend credit) are applied explicitly by
 the backtest orchestrator so the ledger's cash matches the legacy private
 loop to the paisa. ``equity(mark)`` adds a caller-supplied mark-to-market of
-open positions (BacktestEngine snapshots PositionManager at each bar).
+open positions (BacktestEngine snapshots PositionAccountant at each bar).
 
 **Concurrency (AC-21).** One ``RLock`` per ledger guards every read-modify-write
 of ``_cash``/``_fees``. ``apply_fill`` is the ONLY way a fill moves money: it

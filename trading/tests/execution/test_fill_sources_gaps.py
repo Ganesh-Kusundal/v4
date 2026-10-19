@@ -18,7 +18,7 @@ from tradex_execution.fill_sources import (
     ReplayFillSource,
     SimulatedFillSource,
 )
-from tradex_execution.position_manager import PositionManager
+from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.reconciliation import (
     DriftSeverity,
     ReconciliationEngine,
@@ -315,13 +315,13 @@ def test_avg_price_drift_fields() -> None:
 
 
 # ===========================================================================
-# PositionManager apply() / _reconcile_with_broker (tests 19-22)
+# PositionAccountant apply() / _reconcile_with_broker (tests 19-22)
 # ===========================================================================
 
 
-def _pm() -> tuple[PositionManager, TradingCache]:
+def _pm() -> tuple[PositionAccountant, TradingCache]:
     cache = TradingCache()
-    return PositionManager(cache), cache
+    return PositionAccountant(cache), cache
 
 
 def test_apply_returns_position() -> None:

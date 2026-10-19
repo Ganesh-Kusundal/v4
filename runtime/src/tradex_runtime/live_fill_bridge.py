@@ -5,7 +5,7 @@ stream later pushes updates carrying a *cumulative* filled quantity. This
 bridge watches those updates and publishes an ``OrderFilled`` event for each
 newly-filled delta, which the ExecutionEngine's fill subscription
 (``_apply_fill``) applies to the OMS idempotently — so live fills reach the
-PositionManager just like simulated/paper fills.
+PositionAccountant just like simulated/paper fills.
 
 Per-trade price (AC-7). A cumulative row carries the order's total filled
 quantity and its *running average* traded price, so a delta booked at that

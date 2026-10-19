@@ -1,4 +1,4 @@
-"""WS-E contract tests: PositionManager — ported from v3.
+"""WS-E contract tests: PositionAccountant — ported from v3.
 
 Adapted for v4 API: on_fill() (not apply_fill()), no apply() method,
 cache uses string-keyed positions.
@@ -17,7 +17,7 @@ from tradex_domain import (
     Price,
     Quantity,
 )
-from tradex_execution.position_manager import PositionManager
+from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.trading_cache import TradingCache
 
 
@@ -36,9 +36,9 @@ def _fill(order_id: str, side: OrderSide, qty: int, price: int) -> Fill:
     )
 
 
-def _manager() -> tuple[PositionManager, TradingCache]:
+def _manager() -> tuple[PositionAccountant, TradingCache]:
     cache = TradingCache()
-    return PositionManager(cache), cache
+    return PositionAccountant(cache), cache
 
 
 def test_open_long_weighted_average() -> None:

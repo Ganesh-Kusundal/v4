@@ -11,7 +11,7 @@ from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
 from tradex_execution.fill_model import FillModel
 from tradex_execution.order_manager import OrderManager
-from tradex_execution.position_manager import PositionManager
+from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.slippage import PercentageSlippageModel
 from tradex_execution.trading_cache import TradingCache
 
@@ -73,7 +73,7 @@ def test_overfill_clamped() -> None:
     # and checking quantity — the order_manager must not have allowed 5 to leak.
     # Direct position check: fresh cache, apply clamped fill
     cache2 = TradingCache()
-    pm2 = PositionManager(cache2)
+    pm2 = PositionAccountant(cache2)
     clamped_fill = Fill(
         order_id=order.order_id,
         instrument=instrument,

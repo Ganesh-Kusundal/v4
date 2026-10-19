@@ -315,10 +315,10 @@ def recover_trading_cache(
     cache.clear()
 
     from tradex_execution.order_manager import OrderManager
-    from tradex_execution.position_manager import PositionManager
+    from tradex_execution.position_accountant import PositionAccountant
 
     order_manager = OrderManager(cache)
-    position_manager = PositionManager(cache)
+    position_manager = PositionAccountant(cache)
     events = tuple(event_store.replay("orders"))
     order_totals = _order_totals(events)
     seen: set[str] = set()

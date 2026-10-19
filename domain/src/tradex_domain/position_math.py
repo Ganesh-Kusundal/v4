@@ -1,7 +1,7 @@
 """Shared position accounting — the single weighted-average + realized-PnL model.
 
 Every execution mode books positions and realized P&L through exactly the same
-math here: the reactive pipeline (``PositionManager``), the backtester
+math here: the reactive pipeline (``PositionAccountant``), the backtester
 (``BacktestEngine``), the paper broker (``PaperBroker``), and corporate-action
 adjustments (``apply_split`` / ``apply_dividend``) — so there is no duplicated
 accounting logic that could diverge between backtest, replay, paper, and live
@@ -26,7 +26,7 @@ def apply_split(position: Position, ratio: Decimal) -> Position:
 
     Share count scales by *ratio*; the average price divides by *ratio* so
     the position's market value is unchanged at the ex-date (splits are
-    value-neutral). Realized P&L is untouched. Shared by ``PositionManager``,
+    value-neutral). Realized P&L is untouched. Shared by ``PositionAccountant``,
     ``BacktestEngine``, and ``PaperBroker`` so backtest, paper, and live book
     splits identically (review area #4: corporate actions modeled consistently).
     """
@@ -70,7 +70,7 @@ def apply_dividend(position: Position, per_share: Decimal) -> Position:
 
     Long positions receive ``per_share * qty``; short positions pay it
     (``per_share * negative qty`` debits realized P&L) — matching real-world
-    short-dividend settlement. Shared by ``PositionManager``,
+    short-dividend settlement. Shared by ``PositionAccountant``,
     ``BacktestEngine``, and ``PaperBroker`` so dividends book identically in
     every mode.
     """
