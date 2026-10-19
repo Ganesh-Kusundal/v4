@@ -6,18 +6,24 @@ from tradex_domain import constants as C
 
 
 class TestSessionConstants:
-    def test_session_open(self):
-        assert C.SESSION_OPEN == "09:15:00"
+    def test_market_open(self):
+        from tradex_domain.market_calendar import MARKET_OPEN_STR
 
-    def test_session_close(self):
-        assert C.SESSION_CLOSE == "15:30:00"
+        assert MARKET_OPEN_STR == "09:15:00"
 
-    def test_ist_timezone(self):
+    def test_market_close(self):
+        from tradex_domain.market_calendar import MARKET_CLOSE_STR
+
+        assert MARKET_CLOSE_STR == "15:30:00"
+
+    def test_ist(self):
         # A fixed +05:30 offset, not ZoneInfo: see the note on the constant.
         # ZoneInfo answers utcoffset(None) with None, which the session-grid
         # arithmetic depends on being answerable.
-        assert C.IST_TIMEZONE.utcoffset(None) == timedelta(hours=5, minutes=30)
-        assert C.IST_TIMEZONE is not ZoneInfo("Asia/Kolkata")
+        from tradex_domain.market_calendar import IST
+
+        assert IST.utcoffset(None) == timedelta(hours=5, minutes=30)
+        assert IST is not ZoneInfo("Asia/Kolkata")
 
 
 class TestTradingConstants:

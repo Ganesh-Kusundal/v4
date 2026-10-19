@@ -4,28 +4,7 @@ Single source of truth for all shared literals across the codebase.
 Eliminates 300+ scattered constant definitions.
 """
 
-from datetime import timedelta, timezone
 from decimal import Decimal
-
-#: NSE/BSE cash session wall-clock bounds.
-#:
-#: These are SESSION bounds, not bar stamps. The session runs 09:15-15:30, so
-#: the last 1m bar is stamped 15:29 (it covers 15:29-15:30) and 15:30 is never
-#: itself a stamp. Deriving an interior window means shifting these, not
-#: reading them: ``datalake_stats`` measures 09:16-15:29 by nudging both ends
-#: one minute inward.
-SESSION_OPEN = "09:15:00"
-SESSION_CLOSE = "15:30:00"
-
-#: Canonical Indian market timezone.
-#:
-#: A fixed +05:30 offset, deliberately not ``ZoneInfo("Asia/Kolkata")``. The two
-#: agree on every instant after 1945 (India has observed no DST since), but a
-#: ``ZoneInfo`` answers ``utcoffset(None)`` with ``None`` because its offset is
-#: date-dependent, and callers that ask the zone for its offset without a
-#: datetime get nothing back. A fixed offset answers, which is what the session
-#: grid arithmetic relies on.
-IST_TIMEZONE = timezone(timedelta(hours=5, minutes=30))
 
 DEFAULT_INITIAL_CAPITAL = Decimal("100000")
 DEFAULT_BPS_DIVISOR = Decimal("10000")
@@ -672,9 +651,6 @@ UNSETTLED_ORDER_STATUSES = {"NEW", "PENDING", "ACK", "SUBMITTED", "PARTIALLY_FIL
 
 
 __all__ = [
-    "SESSION_OPEN",
-    "SESSION_CLOSE",
-    "IST_TIMEZONE",
     "DEFAULT_INITIAL_CAPITAL",
     "DEFAULT_BPS_DIVISOR",
     "DEFAULT_FILL_DEDUP_LRU",

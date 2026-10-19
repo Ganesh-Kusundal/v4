@@ -1,6 +1,6 @@
 """Tests for the canonical order status set definitions."""
 from tradex_domain.enums import OrderStatus
-from tradex_domain.order_status import (
+from tradex_execution.kill_switch import (
     ACTIVE_STATUSES,
     PENDING_STATUSES,
     TERMINAL_STATUSES,

@@ -78,9 +78,10 @@ from types import MappingProxyType
 from typing import TextIO
 
 from tradex_brokers.common.instruments import instrument_from_id
-from tradex_domain.constants import IST_TIMEZONE, MAX_TAPE_BYTES, TAPE_RECORD_ENV_VAR
+from tradex_domain.constants import MAX_TAPE_BYTES, TAPE_RECORD_ENV_VAR
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Quote
+from tradex_domain.market_calendar import IST as _CALENDAR_IST
 from tradex_domain.paths import default_runtime_dir
 from tradex_domain.value_objects import InstrumentId, Price, Quantity
 
@@ -98,7 +99,7 @@ DEFAULT_MAX_BYTES = MAX_TAPE_BYTES
 RECORD_KEYS = frozenset({"broker", "symbol", "ts", "price", "qty"})
 
 #: IST, the platform's storage convention (CLAUDE.md).
-IST = IST_TIMEZONE
+IST = _CALENDAR_IST
 
 _UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 _SEGMENT = re.compile(r"\.(\d+)\.jsonl$")

@@ -41,9 +41,9 @@ from tradex_replay.backtest import BacktestEngine, BacktestResult
 from tradex_strategy.extensions.strategies.sma_cross import SmaCrossStrategy
 
 #: 09:15 IST — the session open the write chokepoint admits, both bounds inclusive.
-SESSION_OPEN = datetime(2026, 7, 1, 9, 15)
+SESSION_START = datetime(2026, 7, 1, 9, 15)
 #: 15:30 IST — the session close.
-SESSION_CLOSE = datetime(2026, 7, 1, 15, 30)
+SESSION_END = datetime(2026, 7, 1, 15, 30)
 #: Minutes in one NSE session, 09:15 through 15:30 inclusive.
 SESSION_MINUTES = 376
 #: Wed 2026-07-01, Thu 07-02, Fri 07-03 — three consecutive weekdays. Starting
@@ -156,7 +156,7 @@ class TestDatalakeToBacktest:
         window argument meaningless.
         """
         _store, loader = lake
-        window = loader.load(instrument, Timeframe.M1, SESSION_OPEN, SESSION_CLOSE)
+        window = loader.load(instrument, Timeframe.M1, SESSION_START, SESSION_END)
 
         assert len(window.candles) == SESSION_MINUTES
         assert {s.date() for s in [c.timestamp for c in window.candles]} == {

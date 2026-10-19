@@ -24,7 +24,6 @@ from pydantic import BaseModel
 from tradex_domain.constants import DEFAULT_INITIAL_CAPITAL
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
-from tradex_domain.intervals import normalize_interval
 from tradex_domain.timeframe import INTERVAL_TO_TIMEFRAME
 from tradex_domain.timezones import IST_ZONE
 from tradex_execution.projection import execution_projection
@@ -865,13 +864,12 @@ def create_chart_router(
         exchange = str(body.get("exchange", "NSE"))
         if not symbol:
             raise HTTPException(status_code=422, detail="'symbol' required")
-        # One normalization path (domain/intervals): the WS-style "1d" alias
-        # folds onto the REST "D" the table keys on, so a Tier-2 fetch that
-        # rides the same interval string the WebSocket layer uses does not
-        # 422 here.
+        # One normalization path (domain/timeframe INTERVAL_TO_TIMEFRAME): the
+        # table already carries every daily spelling ("1d", "1D", "d", "D"),
+        # and Timeframe members compare equal to their string values, so the
+        # alias maps straight onto the canonical member — no second lookup.
         raw_interval = str(body.get("interval", "D"))
-        interval = normalize_interval(raw_interval)
-        tf = INTERVAL_TIMEFRAME.get(interval)
+        tf = INTERVAL_TIMEFRAME.get(raw_interval)
         if tf is None:
             raise HTTPException(status_code=422, detail="unsupported interval")
         instrument = _resolve_instrument(exchange, symbol)

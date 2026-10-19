@@ -23,7 +23,7 @@ now refuses the three things a live venue refuses:
   by it, and an unguarded scalar approves unaffordable strategies.
 * **A session gate.**  :meth:`PaperBroker._market_session_open` refuses fills
   outside the NSE/BSE cash session, using the shared
-  :class:`tradex_domain.trading_calendar.NSETradingCalendar` rather than an
+  :class:`tradex_domain.market_calendar.NSETradingCalendar` rather than an
   invented local calendar.
 
 The clock is injectable (``clock=``) precisely so the session gate is
@@ -60,11 +60,10 @@ from tradex_domain.execution import (
 )
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, HistoricalSeries, Quote, require_depth_supported
-from tradex_domain.market_calendar import NSE_HOLIDAYS_2026, to_ist_naive
+from tradex_domain.market_calendar import NSE_HOLIDAYS_2026, NSETradingCalendar, to_ist_naive
 from tradex_domain.options import OptionChain
 from tradex_domain.position_math import apply_fill as _domain_apply_fill
 from tradex_domain.protocols import TradingCacheProtocol
-from tradex_domain.trading_calendar import NSETradingCalendar
 from tradex_domain.value_objects import AccountId, InstrumentId, Money, OrderId, Price, Quantity
 
 from tradex_brokers.common.base import BaseBroker
@@ -231,7 +230,7 @@ class PaperBroker(BaseBroker):
             default; ``False`` restores 24x7 filling.
         calendar:
             Session calendar.  Defaults to
-            :class:`~tradex_domain.trading_calendar.NSETradingCalendar` with
+            :class:`~tradex_domain.market_calendar.NSETradingCalendar` with
             the published 2026 NSE holiday list, so weekends and exchange
             holidays are both refused.  Inject your own for a different
             venue or a pinned holiday set.
@@ -997,7 +996,7 @@ class PaperBroker(BaseBroker):
         A live venue does not fill a resting order at 3am on a Sunday, so a
         simulator that does will book fills — and therefore approve
         strategies — that could never have happened.  The calendar is the
-        shared :class:`~tradex_domain.trading_calendar.NSETradingCalendar`
+        shared :class:`~tradex_domain.market_calendar.NSETradingCalendar`
         (09:15-15:30 IST, weekdays, minus the 2026 NSE holiday list), not a
         local literal, so paper and live agree on when the market is shut.
 

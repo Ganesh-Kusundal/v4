@@ -28,6 +28,27 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+#: Orders that are still working the venue — the kill switch must cancel
+#: these (moved here from the deleted domain status module so the halt logic
+#: owns the one definition of "open"; ``UNKNOWN`` is absent for the same
+#: reason it is absent from TERMINAL: the venue may hold it, so it must
+#: be reached, not skipped).
+ACTIVE_STATUSES = frozenset({
+    OrderStatus.NEW,
+    OrderStatus.PENDING,
+    OrderStatus.SUBMITTED,
+    OrderStatus.ACK,
+    OrderStatus.PARTIALLY_FILLED,
+})
+
+#: The subset of ACTIVE that has never seen a venue fill.
+PENDING_STATUSES = frozenset({
+    OrderStatus.NEW,
+    OrderStatus.PENDING,
+    OrderStatus.SUBMITTED,
+    OrderStatus.ACK,
+})
+
 #: An order in one of these states is settled; the kill switch does not cancel it.
 #:
 #: ``UNKNOWN`` is deliberately absent. It means the submission crossed the
@@ -39,6 +60,14 @@ TERMINAL_STATUSES = frozenset({
     OrderStatus.CANCELLED,
     OrderStatus.REJECTED,
 })
+
+
+__all__ = [
+    "ACTIVE_STATUSES",
+    "PENDING_STATUSES",
+    "TERMINAL_STATUSES",
+    "KillSwitch",
+]
 
 
 class KillSwitch:

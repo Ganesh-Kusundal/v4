@@ -86,10 +86,9 @@ from decimal import Decimal
 from typing import Any
 
 from tradex_domain.bar_source import BarSource
-from tradex_domain.constants import IST_TIMEZONE
 from tradex_domain.enums import Timeframe
 from tradex_domain.market import OHLC, Candle, Quote
-from tradex_domain.market_calendar import to_ist_naive
+from tradex_domain.market_calendar import IST, to_ist_naive
 from tradex_domain.timeframe import bucket_start, interval_seconds
 from tradex_domain.value_objects import Price, Quantity
 
@@ -411,11 +410,11 @@ class BarAggregator:
             raise ValueError("bar seed values must be finite")
 
     def _seed_start(self, chart_time: int) -> datetime:
-        aware = datetime.fromtimestamp(int(chart_time), tz=IST_TIMEZONE)
+        aware = datetime.fromtimestamp(int(chart_time), tz=IST)
         return bucket_start(aware.replace(tzinfo=None), self._seconds)
 
     def _chart_time(self, start: datetime) -> int:
-        return int(start.replace(tzinfo=IST_TIMEZONE).timestamp())
+        return int(start.replace(tzinfo=IST).timestamp())
 
     def on_quote(
         self,

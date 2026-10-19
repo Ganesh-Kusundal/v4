@@ -227,7 +227,7 @@ class TestRecordFormat:
         (tick,) = read_tape(path)
         assert tick.ts == ts
         assert tick.ts == ts.astimezone(IST)
-        # The production tape recorder uses IST_TIMEZONE (a fixed +05:30
+        # The production tape recorder uses market_calendar.IST (a fixed +05:30
         # offset), not ZoneInfo. The intent is that the timestamp carries the
         # IST offset, not that it is the same object as the test's IST.
         assert tick.ts.tzinfo.utcoffset(None) == timedelta(hours=5, minutes=30)

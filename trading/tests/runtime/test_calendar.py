@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from tradex_runtime.calendar import NSETradingCalendar
+from tradex_domain.market_calendar import NSETradingCalendar
 
 
 def test_holiday_is_not_a_trading_day() -> None:

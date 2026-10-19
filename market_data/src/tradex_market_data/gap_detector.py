@@ -47,12 +47,12 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import pandas as pd
-from tradex_domain.constants import SESSION_CLOSE, SESSION_OPEN
+from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 
 from tradex_market_data.parquet_storage import ParquetStorage
 
-_SESSION_OPEN = time.fromisoformat(SESSION_OPEN)
-_SESSION_CLOSE = time.fromisoformat(SESSION_CLOSE)
+_MARKET_OPEN = MARKET_OPEN
+_MARKET_CLOSE = MARKET_CLOSE
 
 
 def _session_grid(
@@ -81,8 +81,8 @@ def _session_grid(
     day = start.date()
     while day <= end.date():
         if day.weekday() < 5 and day not in holidays:
-            lo = max(datetime.combine(day, _SESSION_OPEN), start)
-            hi = min(datetime.combine(day, _SESSION_CLOSE), end)
+            lo = max(datetime.combine(day, _MARKET_OPEN), start)
+            hi = min(datetime.combine(day, _MARKET_CLOSE), end)
             if lo <= hi:
                 stamps.extend(pd.date_range(start=lo, end=hi, freq=bar_freq))
         day += timedelta(days=1)

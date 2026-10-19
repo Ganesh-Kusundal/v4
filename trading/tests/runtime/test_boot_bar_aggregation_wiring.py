@@ -40,12 +40,12 @@ _PRICE = 100.0
 _INSTRUMENT = Equity.of(ExchangeId.NSE, "RELIANCE")
 _IST = timezone(timedelta(hours=5, minutes=30))
 #: The 09:15 IST session open — bucket zero for every 1m bar that follows.
-_SESSION_OPEN = datetime(2026, 9, 24, 9, 15, tzinfo=_IST)
+_SESSION_START = datetime(2026, 9, 24, 9, 15, tzinfo=_IST)
 
 
 def _ts(minutes_from_open: int) -> datetime:
     """A UTC timestamp for *minutes_from_open* past the 09:15 IST open."""
-    return (_SESSION_OPEN + timedelta(minutes=minutes_from_open)).astimezone(UTC)
+    return (_SESSION_START + timedelta(minutes=minutes_from_open)).astimezone(UTC)
 
 
 def _quote(index: int) -> Quote:

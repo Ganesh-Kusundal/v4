@@ -54,10 +54,11 @@ from decimal import Decimal
 from types import MappingProxyType
 from typing import Any
 
-from tradex_domain.constants import AVG_PRICE_FALLBACK_PREFIX, IST_TIMEZONE
+from tradex_domain.constants import AVG_PRICE_FALLBACK_PREFIX
 from tradex_domain.enums import OrderStatus
 from tradex_domain.events import OrderCancelled, OrderFilled, OrderPlaced
 from tradex_domain.execution import Fill, Order
+from tradex_domain.market_calendar import IST as _CALENDAR_IST
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
 
 log = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ _FILL_STATUSES = frozenset({OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED})
 #: (and the backtest's own reference timestamps are not), so a naive value
 #: mixed into one position would make ``fill.timestamp - lot_time`` in the
 #: analytics raise TypeError.
-IST = IST_TIMEZONE
+IST = _CALENDAR_IST
 
 #: Metric name for the fallback counter (so the platform can report how often
 #: it had no per-trade detail).

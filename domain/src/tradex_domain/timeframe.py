@@ -123,7 +123,7 @@ _WALL_EPOCH = datetime(1970, 1, 1)
 
 #: Seconds from IST midnight to the session open, read from the one copy of
 #: 09:15 in the calendar rather than restated here.
-_SESSION_OPEN_WALL = (
+_MARKET_OPEN_WALL = (
     MARKET_OPEN.hour * 3600 + MARKET_OPEN.minute * 60 + MARKET_OPEN.second
 )
 
@@ -177,8 +177,8 @@ def bucket_wall_seconds(wall: int, seconds: int) -> int:
         midnight = wall - (wall % _DAY_WALL)
         weekday = (midnight // _DAY_WALL + _EPOCH_WEEKDAY) % 7
         return midnight - weekday * _DAY_WALL
-    return _SESSION_OPEN_WALL + (
-        (wall - _SESSION_OPEN_WALL) // seconds
+    return _MARKET_OPEN_WALL + (
+        (wall - _MARKET_OPEN_WALL) // seconds
     ) * seconds
 
 

@@ -148,18 +148,29 @@ def test_sizing_fallback_tick_has_one_home() -> None:
 
 
 def test_domain_constants_are_assigned_only_in_domain_constants() -> None:
-    """``DEFAULT_TICK_SIZE``, the session bounds, the bar-frequency map and the
-    segment maps may only be *declared* in ``domain/constants.py``; consumers
-    import them. (Usages and imports elsewhere stay legal.)"""
+    """``DEFAULT_TICK_SIZE``, the bar-frequency map and the segment maps may
+    only be *declared* in ``domain/constants.py``; consumers import them.
+    (Usages and imports elsewhere stay legal. The session bounds live in
+    ``domain/market_calendar.py`` as ``MARKET_OPEN``/``MARKET_CLOSE``.)"""
     patterns = {
         "DEFAULT_TICK_SIZE": re.compile(r"\bDEFAULT_TICK_SIZE\s*[:=][^=]"),
-        "SESSION_OPEN/SESSION_CLOSE": re.compile(r"\b(SESSION_OPEN|SESSION_CLOSE)\s*[:=][^=]"),
+        "MARKET_OPEN/MARKET_CLOSE": re.compile(r"\b(MARKET_OPEN|MARKET_CLOSE)\s*=\s*time\("),
         "bar-freq map": re.compile(r'"1m"\s*:\s*"1min"'),
         "SEGMENT_CANONICAL maps": re.compile(
             r"\b(SEGMENT_CANONICAL_DHAN|SEGMENT_CANONICAL_UPSTOX)\s*[:=][^=]"
         ),
     }
     for label, pattern in patterns.items():
+        if label == "MARKET_OPEN/MARKET_CLOSE":
+            # The session bounds live in domain/market_calendar.py, not
+            # domain/constants.py.
+            bad = [
+                h
+                for h in _scan_hits(pattern)
+                if not h.startswith("domain/src/tradex_domain/market_calendar.py")
+            ]
+            assert not bad, f"{label} declared outside market_calendar.py:\n" + "\n".join(bad)
+            continue
         bad = [h for h in _scan_hits(pattern) if not h.startswith(_DOMAIN_CONSTANTS)]
         assert not bad, f"{label} declared outside {_DOMAIN_CONSTANTS}:\n" + "\n".join(bad)
 

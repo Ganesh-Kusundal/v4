@@ -25,12 +25,12 @@ from datetime import datetime, time
 from enum import StrEnum
 from typing import Any
 
-from tradex_domain.constants import DEDUP_WINDOW, IST_TIMEZONE
+from tradex_domain.constants import DEDUP_WINDOW
 from tradex_domain.enums import Timeframe
-from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
+from tradex_domain.market_calendar import IST, MARKET_CLOSE, MARKET_OPEN
 from tradex_domain.timeframe import bucket_seconds
 
-_IST = IST_TIMEZONE
+_IST = IST
 
 #: Exchanges whose cash session is 09:15-15:30 IST.
 _CASH_EXCHANGES = frozenset({"NSE", "BSE", "IDX"})

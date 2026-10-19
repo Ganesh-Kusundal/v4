@@ -5,15 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from tradex_analytics.indicators import get_indicator_spec
-from tradex_domain.enums import Timeframe
 from tradex_domain.execution import Fill
 from tradex_domain.market import Candle, Depth, Quote
 from tradex_domain.strategy import StrategySpec
-
-#: Every timeframe the platform can serve. A strategy's declared timeframes
-#: must be a subset of this set; an empty declaration is valid (the strategy
-#: may be quote-driven and never request a bar series).
-_SUPPORTED_TIMEFRAMES = frozenset(tf.value for tf in Timeframe)
+from tradex_domain.timeframe import TIMEFRAMES
 
 #: Event types a strategy may subscribe to, by class name.
 _KNOWN_SUBSCRIPTIONS = frozenset(cls.__name__ for cls in (Candle, Quote, Depth, Fill))
@@ -62,7 +57,10 @@ def validate_strategy_spec(
 
     for timeframe in spec.timeframes:
         value = getattr(timeframe, "value", timeframe)
-        if value not in _SUPPORTED_TIMEFRAMES:
+        # Every timeframe the platform can serve is a TIMEFRAMES key; an
+        # empty declaration is valid (the strategy may be quote-driven and
+        # never request a bar series).
+        if value not in TIMEFRAMES:
             problems.append(
                 f"strategy {spec.id!r} declares unsupported timeframe {value!r}"
             )

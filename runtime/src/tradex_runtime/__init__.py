@@ -4,7 +4,7 @@ Provides boot composition root, trading calendar, metrics, and live
 broker construction.
 """
 
-from tradex_runtime.calendar import NSETradingCalendar
+from tradex_domain.market_calendar import NSETradingCalendar
 from tradex_runtime.live import (
     build_broker_from_env,
     build_dhan_from_env,

@@ -16,16 +16,16 @@ from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument, Option
 from tradex_domain.market import Depth, HistoricalSeries, Quote
 from tradex_domain.market_calendar import (
-    DHAN_SESSION_CLOSE as _SESSION_CLOSE,
+    DHAN_SEGMENT_CLOSE as _SEGMENT_CLOSE,
 )
 from tradex_domain.market_calendar import (
-    DHAN_SESSION_OPEN as _SESSION_OPEN,
+    DHAN_SEGMENT_OPEN as _SEGMENT_OPEN,
 )
 from tradex_domain.market_calendar import (
-    MARKET_CLOSE_STR as _DEFAULT_SESSION_CLOSE,
+    MARKET_CLOSE_STR as _DEFAULT_SEGMENT_CLOSE,
 )
 from tradex_domain.market_calendar import (
-    MARKET_OPEN_STR as _DEFAULT_SESSION_OPEN,
+    MARKET_OPEN_STR as _DEFAULT_SEGMENT_OPEN,
 )
 from tradex_domain.options import Expiry, OptionChain, OptionPair
 from tradex_domain.value_objects import InstrumentId, Price
@@ -199,8 +199,8 @@ class MarketDataMixin(Protocol):
         security_id = self._security_id(instrument.instrument_id)
         native_type = self._history_instrument_type(instrument)
         if dhan_int is not None:
-            session_open = _SESSION_OPEN.get(segment, _DEFAULT_SESSION_OPEN)
-            session_close = _SESSION_CLOSE.get(segment, _DEFAULT_SESSION_CLOSE)
+            session_open = _SEGMENT_OPEN.get(segment, _DEFAULT_SEGMENT_OPEN)
+            session_close = _SEGMENT_CLOSE.get(segment, _DEFAULT_SEGMENT_CLOSE)
             path = "/charts/intraday"
             # During market hours, use the actual end time so we get bars
             # up to "now" instead of waiting for session close.

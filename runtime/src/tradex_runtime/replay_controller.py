@@ -41,9 +41,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from tradex_domain.enums import Timeframe
-from tradex_domain.intervals import normalize_interval
 from tradex_domain.market import Candle
-from tradex_domain.timeframe import candle_epoch, interval_seconds, to_timeframe
+from tradex_domain.timeframe import TIMEFRAMES, candle_epoch, interval_seconds, to_timeframe
 from tradex_domain.timezones import IST_ZONE
 
 log = logging.getLogger(__name__)
@@ -141,11 +140,6 @@ class ReplayTransitionError(RuntimeError):
     """
 
 
-#: Intervals a replay may run at. ``1d`` is excluded because a synthetic
-#: intrabar path over a daily bucket has nothing to walk.
-_REPLAY_INTERVALS = frozenset({"1m", "5m", "15m", "30m", "1h"})
-
-
 @dataclass(frozen=True)
 class ReplayStartParams:
     """Validated ``replay_start`` parameters.
@@ -211,15 +205,17 @@ def parse_replay_start(msg: dict[str, Any]) -> ReplayStartParams:
         raise ValueError("replay instrument must be EXCHANGE:SYMBOL")
 
     raw_interval = str(msg.get("interval", "1m"))
-    # One normalization path (domain/intervals) and one interval->Timeframe
-    # table (domain/timeframe): "D"/"1D"/"d"/"1d" all land on Timeframe.D1,
-    # which the exclusion below then refuses — a daily replay has no intrabar
-    # path to walk, and it must be refused after normalising, not before.
+    # One normalization path (domain/timeframe): "D"/"1D"/"d"/"1d" all land
+    # on Timeframe.D1, which the exclusion below then refuses — a daily
+    # replay has no intrabar path to walk, and it must be refused after
+    # normalising, not before.
     try:
-        timeframe = to_timeframe(normalize_interval(raw_interval))
+        timeframe = to_timeframe(raw_interval)
     except ValueError as exc:
         raise ValueError(f"unsupported replay interval {raw_interval!r}") from exc
-    if timeframe.value not in _REPLAY_INTERVALS:
+    # A synthetic intrabar path over a daily+ bucket has nothing to walk, so
+    # only the registry's intraday rows may run a replay.
+    if not TIMEFRAMES[timeframe.value].get("intraday"):
         raise ValueError(f"unsupported replay interval {raw_interval!r}")
 
     method = msg.get("method", "ohlc")

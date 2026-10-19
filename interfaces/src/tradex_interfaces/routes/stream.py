@@ -35,7 +35,6 @@ from tradex_domain.constants import (
     WS_SUBSCRIBE_BARS,
 )
 from tradex_domain.errors import CapabilityNotSupportedError
-from tradex_domain.intervals import normalize_interval
 from tradex_domain.timeframe import to_timeframe
 from tradex_domain.timezones import IST_ZONE
 from tradex_runtime.replay_controller import (
@@ -615,15 +614,15 @@ async def ws_stream(
             """REST daily is ``D``; domain Timeframe / WS is ``1d``.
 
             Both spellings go through the one domain path —
-            :func:`normalize_interval` folds every daily alias onto ``D`` and
-            :func:`to_timeframe` resolves that onto the canonical Timeframe,
-            whose ``.value`` is the wire form. Total on purpose: an
-            unresolvable interval passes through unchanged so the refusal
-            still happens where the aggregator is built (inside the subscribe
-            try), exactly as when this was a pure string mapping.
+            :func:`to_timeframe` resolves every daily alias onto the
+            canonical Timeframe, whose ``.value`` is the wire form. Total
+            on purpose: an unresolvable interval passes through unchanged
+            so the refusal still happens where the aggregator is built
+            (inside the subscribe try), exactly as when this was a pure
+            string mapping.
             """
             try:
-                return to_timeframe(normalize_interval(interval)).value
+                return to_timeframe(interval).value
             except ValueError:
                 return interval
 
