@@ -259,7 +259,8 @@ class RiskManager:
             return None
         try:
             quote = self._price_provider(instrument)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            log.warning("risk mark price provider failed: %s", exc)
             return None
         if quote is None:
             return None
@@ -289,7 +290,8 @@ class RiskManager:
                 bid = Decimal(str(bid)) if bid is not None else None
                 if bid is not None and bid > 0:
                     return max(price.value, bid) if price is not None and price.value > 0 else bid
-            except Exception:
+            except Exception as exc:  # noqa: BLE001
+                log.warning("risk bid lookup failed: %s", exc)
                 pass
         if price is not None and price.value > 0:
             return price.value

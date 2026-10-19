@@ -32,8 +32,8 @@ log = logging.getLogger(__name__)
 #:
 #: ``UNKNOWN`` is deliberately absent. It means the submission crossed the
 #: broker boundary and the venue never answered, so the order may be live right
-#: now — halting is exactly when it must be reached. One definition, shared with
-#: ``recovery._TERMINAL_AFTER_FILL``.
+#: now — halting is exactly when it must be reached. This set is intentionally
+#: distinct from ``recovery._TERMINAL_AFTER_FILL`` (which excludes FILLED).
 TERMINAL_STATUSES = frozenset({
     OrderStatus.FILLED,
     OrderStatus.CANCELLED,

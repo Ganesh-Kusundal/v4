@@ -49,7 +49,6 @@ from tradex_domain.execution import (
     Position,
 )
 from tradex_domain.order_factory import create_order
-from tradex_domain.protocols import Clock
 from tradex_domain.value_objects import CorrelationId, Money, OrderId
 from tradex_observability.tracing import (
     reset_correlation_id,
@@ -228,7 +227,6 @@ class ExecutionEngine:
         cash: Decimal | None = None,
         allow_negative_cash: bool = False,
         applied_fills_max: int = 50_000,
-        clock: Clock | None = None,
         feed_supervisor: FeedReady | None = None,
         event_store: EventStore | None = None,
         require_risk: bool = False,
@@ -254,7 +252,6 @@ class ExecutionEngine:
         self._guard = idempotency_guard
         self._cache = cache or TradingCache()
         self._metrics = metrics
-        self._clock = clock
         self._feed_supervisor = feed_supervisor
         self._event_store = event_store
         self._require_risk = require_risk
@@ -752,11 +749,13 @@ class ExecutionEngine:
                 # the reservation blocks a retry of THIS request, but other
                 # strategies would keep adding exposure to a book whose true
                 # state is unknown — so halt admission until it is reconciled.
-                self._kill_switch.trip(
+                failures = self._kill_switch.trip(
                     "unknown_broker_outcome: the venue may have accepted an "
                     f"order this process cannot account for ({exc})",
                     cancel=self.cancel,
                 )
+                if failures:
+                    log.error("kill-switch could not cancel orders: %s", failures)
                 raise OrderSubmissionUnknownError(
                     f"Order submission failed after crossing broker boundary: {exc}"
                 ) from exc

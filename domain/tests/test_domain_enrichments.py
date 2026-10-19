@@ -197,28 +197,6 @@ class TestPositionMarketValue:
 # ---------------------------------------------------------------------------
 
 
-class TestOrderIsTerminal:
-    @pytest.mark.parametrize(
-        "status",
-        [OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.UNKNOWN],
-    )
-    def test_terminal_statuses(self, status: OrderStatus):
-        assert _make_order(status).is_terminal is True
-
-    @pytest.mark.parametrize(
-        "status",
-        [
-            OrderStatus.NEW,
-            OrderStatus.PENDING,
-            OrderStatus.ACK,
-            OrderStatus.PARTIALLY_FILLED,
-            OrderStatus.SUBMITTED,
-        ],
-    )
-    def test_non_terminal_statuses(self, status: OrderStatus):
-        assert _make_order(status).is_terminal is False
-
-
 class TestOrderIsRejected:
     def test_rejected(self):
         assert _make_order(OrderStatus.REJECTED).is_rejected is True

@@ -16,25 +16,10 @@ import json
 import struct
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from urllib.parse import urlencode
 
 from tradex_domain import AuthenticationError
-
-if TYPE_CHECKING:
-    # The mint factories are re-exported lazily by the module-level
-    # ``__getattr__`` below (to keep the broker adapters out of the import
-    # graph of this stdlib-only auth module). A PEP 562 ``__getattr__`` is
-    # typed ``-> object``, so mypy would otherwise see ``dhan_totp_mint`` &
-    # friends as bare ``object`` and report ``"object" not callable`` at every
-    # call site. Importing them here — for the type checker only — gives it the
-    # real callable signatures. At runtime this block is never executed and the
-    # lazy ``__getattr__`` below is what resolves the names.
-    from tradex_brokers.dhan.auth_flow import dhan_totp_mint
-    from tradex_brokers.upstox.auth_flow import (
-        upstox_refresh_mint,
-        upstox_totp_mint,
-    )
 
 # ---------------------------------------------------------------------------
 # Rate-limit message detection
@@ -184,10 +169,7 @@ def __getattr__(name: str) -> object:
 
 
 __all__ = [
-    "dhan_totp_mint",
     "jwt_expiry",
     "totp_code",
     "totp_window_wait",
-    "upstox_refresh_mint",
-    "upstox_totp_mint",
 ]
