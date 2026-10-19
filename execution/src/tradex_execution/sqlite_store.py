@@ -1,5 +1,8 @@
 """Order persistence seam: SQLite store, in-memory variant, and bus wiring.
 
+PROJECTION, not authority: rows here are rebuilt from / kept in step with the
+``sqlite_event_store`` log, which owns recovery. Do not derive balances from here.
+
 The single home for "where does an order get persisted": ``SQLiteOrderStore``
 (production), ``InMemoryOrderStore`` + the ``OrderStore`` protocol (tests and
 single-process use), ``attach_order_persistence`` (event-driven cache mirroring),

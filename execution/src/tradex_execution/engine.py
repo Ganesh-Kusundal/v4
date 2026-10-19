@@ -872,8 +872,12 @@ class ExecutionEngine:
 
     @property
     def _cash_ledger(self) -> CashLedger | None:
-        """The cash ledger, owned by the CashManager."""
-        return self._cash_manager._ledger
+        """The cash balance ledger — delegated from its owner, the CashManager.
+
+        Reads only: the engine never constructs or mutates a ledger directly
+        (CashManager owns creation, anchoring and restore).
+        """
+        return self._cash_manager.balance_ledger
 
     @property
     def cash_anchor_missing(self) -> bool:

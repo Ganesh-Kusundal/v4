@@ -38,6 +38,11 @@ from tradex_strategy.core.spec_validator import validate_strategy_spec
 if TYPE_CHECKING:
     from tradex_runtime.session_impl import TradingSession
     from tradex_runtime.writer_lock import SingleWriterLock
+if TYPE_CHECKING:
+    from tradex_runtime.feed_monitor import FeedStaleMonitor
+    from tradex_runtime.feed_recovery import FeedRecoveryCoordinator
+    from tradex_runtime.feed_supervisor import FeedSupervisor
+    from tradex_runtime.market_feed import MarketFeed
 
 from tradex_config.permissions import assert_secret_file_mode
 from tradex_config.schema import FEED_INSTRUMENTS_ENV, AppConfig
@@ -118,12 +123,17 @@ def _broker_matches_config(config: AppConfig, broker: Any) -> bool:
 
 @dataclass(frozen=True, slots=True)
 class _LiveFeedBundle:
-    """Mode-composer output for live feed + recovery + tape services."""
+    """Mode-composer output for live feed + recovery + tape services.
 
-    market_feed: Any
+    The four feed components are typed (not ``Any``): the feed quartet's
+    cooperation is the readiness gate, and mistyped wiring fails at boot
+    instead of at the first stale tick.
+    """
+
+    market_feed: MarketFeed
     master_scheduler: Any
-    feed_monitor: Any
-    feed_recovery: Any
+    feed_monitor: FeedStaleMonitor
+    feed_recovery: FeedRecoveryCoordinator
     tape_recorder: Any
 
 
@@ -132,7 +142,7 @@ def _compose_live_feed(
     cfg: AppConfig,
     broker: Any,
     bus: ReactiveBus | ThreadSafeReactiveBus,
-    feed_supervisor: Any,
+    feed_supervisor: FeedSupervisor | None,
     metrics: MetricsRegistry,
     order_watchdog: Any,
 ) -> _LiveFeedBundle:
@@ -1155,8 +1165,8 @@ def _boot_tail(
     # only after the session is READY.
     market_feed: Any = None
     master_scheduler: Any = None
-    feed_monitor: Any = None
-    feed_recovery: Any = None
+    feed_monitor: FeedStaleMonitor | None = None
+    feed_recovery: FeedRecoveryCoordinator | None = None
     tape_recorder: Any = None
     if cfg.mode == "live":
         live = _compose_live_feed(

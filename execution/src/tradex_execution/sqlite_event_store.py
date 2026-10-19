@@ -1,5 +1,9 @@
 """Durable SQLite-backed event store for the OMS.
 
+AUTHORITY: this append-only, hash-chained log is the source of truth the boot
+recovery folds (order of record = ``sequence``). ``sqlite_store.py`` mirrors
+orders into queryable rows — a projection, never an authority.
+
 Implements the ``EventStore`` protocol from ``recovery.py`` with a persistent
 append-only log.  All writes go through WAL mode so an unclean shutdown never
 leaves a partial write visible to the next reader.

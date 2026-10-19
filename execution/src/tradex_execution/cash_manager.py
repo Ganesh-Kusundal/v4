@@ -106,6 +106,16 @@ class CashManager:
         self._anchor_appended = False
 
     @property
+    def balance_ledger(self) -> CashLedger | None:
+        """The balance ledger this manager owns (None before first restore).
+
+        Public delegate for the engine's affordability/fee/fill reads — the
+        engine reaches the balance only through its owner, never by holding a
+        second ledger of its own.
+        """
+        return self._ledger
+
+    @property
     def anchor_missing(self) -> bool:
         """True when no opening anchor has been written for this ledger.
 
