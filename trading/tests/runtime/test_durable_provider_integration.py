@@ -3,7 +3,6 @@
 Ported from v3 ``test_durable_provider_integration.py``.
 
 v4 API differences:
-- No ``SQLiteOrderStore`` or ``SQLiteIdempotencyGuard`` in v4
 - v4 has ``MemoryIdempotencyGuard`` and ``IdempotencyDuplicate``
 - Skip broker-specific instrument loading (stubs)
 - Port idempotency and execution engine integration parts

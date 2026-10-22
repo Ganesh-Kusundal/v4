@@ -19,8 +19,6 @@ PUBLIC_SURFACE: dict[str, tuple[str, ...]] = {
         "ExecutionEngine",
         "RiskManager",
         "RiskCheckResult",
-        "OrderStore",
-        "InMemoryOrderStore",
         "MemoryIdempotencyGuard",
         "IdempotencyDuplicate",
         "IdempotencyKeyReuseMismatch",

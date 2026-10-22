@@ -93,40 +93,33 @@ def test_bracket_dedup_single_broker_mutation_and_replay() -> None:
 
 
 def test_bracket_survives_restart_and_still_super_cancels(tmp_path) -> None:
-    """A bracket mirrored into SQLite keeps its protective legs across a
-    process restart, so engine.cancel on the recovered order still reaches
-    the venue's cancel_super_order instead of the plain cancel."""
-    from tradex_execution.sqlite_store import SQLiteOrderStore, attach_order_persistence
+    """The event log keeps the protective legs across a restart, so a
+    recovered bracket still cancels through the super-order endpoint."""
+    from tradex_execution.recovery import recover_trading_cache
+    from tradex_execution.sqlite_event_store import SQLiteEventStore
 
-    db = str(tmp_path / "bracket-restart.db")
-
-    # Engine 1 — place the bracket; the persistence mirror writes it (legs
-    # included) to SQLite when OrderPlaced is published.
+    db = tmp_path / "bracket-restart.db"
     broker1 = _SuperBroker()
-    bus1 = ReactiveBus()
+    store1 = SQLiteEventStore(db)
     engine1 = ExecutionEngine(
-        bus=bus1,
+        bus=ReactiveBus(),
         fill_source=BrokerFillSource(broker1),
         idempotency_guard=MemoryIdempotencyGuard(),
+        event_store=store1,
+        require_durable_events=True,
     )
-    store = SQLiteOrderStore(db)
-    attach_order_persistence(bus1, engine1.cache, store)
     try:
         receipt = engine1.submit(_bracket_request("bracket-cid-restart"))
         assert isinstance(receipt, OrderReceipt)
     finally:
         engine1.shutdown()
-        store.close()
+        store1.close()
 
-    # Engine 2 — "process restart": recover the cached order from SQLite.
     broker2 = _SuperBroker()
-    engine2 = ExecutionEngine(
-        bus=ReactiveBus(),
-        fill_source=BrokerFillSource(broker2),
-    )
-    recovered_store = SQLiteOrderStore(db)
+    store2 = SQLiteEventStore(db)
+    engine2 = ExecutionEngine(bus=ReactiveBus(), fill_source=BrokerFillSource(broker2))
     try:
-        recovered_store.load_into(engine2.cache)
+        recover_trading_cache(store2, engine2.cache)
         recovered = engine2.cache.get_order("super-1")
         assert recovered is not None
         # Legs survived the round trip -> the order is still a bracket.
@@ -140,48 +133,39 @@ def test_bracket_survives_restart_and_still_super_cancels(tmp_path) -> None:
         assert cached.status is OrderStatus.CANCELLED
     finally:
         engine2.shutdown()
-        recovered_store.close()
+        store2.close()
 
 
 def test_bracket_modify_after_restart_reaches_super_endpoint(tmp_path) -> None:
-    """A bracket recovered from SQLite keeps its protective legs, so
-    engine.modify on the reloaded order still dispatches the composite to
-    the venue's modify_super_order and projects the new legs onto the OMS.
-    """
-    from tradex_execution.sqlite_store import SQLiteOrderStore, attach_order_persistence
+    """A bracket recovered from the event log keeps its protective legs, so
+    engine.modify still dispatches the composite to the venue."""
+    from tradex_execution.recovery import recover_trading_cache
+    from tradex_execution.sqlite_event_store import SQLiteEventStore
 
-    db = str(tmp_path / "bracket-modify-restart.db")
-
-    # Engine 1 — place the bracket; the persistence mirror writes it (legs
-    # included) to SQLite when OrderPlaced is published.
+    db = tmp_path / "bracket-modify-restart.db"
     broker1 = _SuperBroker()
-    bus1 = ReactiveBus()
+    store1 = SQLiteEventStore(db)
     engine1 = ExecutionEngine(
-        bus=bus1,
+        bus=ReactiveBus(),
         fill_source=BrokerFillSource(broker1),
         idempotency_guard=MemoryIdempotencyGuard(),
+        event_store=store1,
+        require_durable_events=True,
     )
-    store = SQLiteOrderStore(db)
-    attach_order_persistence(bus1, engine1.cache, store)
     try:
         receipt = engine1.submit(_bracket_request("bracket-cid-modify-restart"))
         assert isinstance(receipt, OrderReceipt)
     finally:
         engine1.shutdown()
-        store.close()
+        store1.close()
 
-    # Engine 2 — "process restart": recover the cached order from SQLite.
     broker2 = _SuperBroker()
-    engine2 = ExecutionEngine(
-        bus=ReactiveBus(),
-        fill_source=BrokerFillSource(broker2),
-    )
-    recovered_store = SQLiteOrderStore(db)
+    store2 = SQLiteEventStore(db)
+    engine2 = ExecutionEngine(bus=ReactiveBus(), fill_source=BrokerFillSource(broker2))
     try:
-        recovered_store.load_into(engine2.cache)
+        recover_trading_cache(store2, engine2.cache)
         recovered = engine2.cache.get_order("super-1")
         assert recovered is not None
-        # Legs survived the round trip -> the order is still a bracket.
         assert recovered.stop_loss_price == Price(value=Decimal("2450.00"))
         assert recovered.target_price == Price(value=Decimal("2600.00"))
 
@@ -206,7 +190,7 @@ def test_bracket_modify_after_restart_reaches_super_endpoint(tmp_path) -> None:
         assert cached.target_price == Price(value=Decimal("2650.00"))
     finally:
         engine2.shutdown()
-        recovered_store.close()
+        store2.close()
 
 
 def test_bracket_different_keys_are_distinct() -> None:

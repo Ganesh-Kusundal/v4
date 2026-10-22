@@ -548,40 +548,23 @@ def boot(
         cfg, broker, slippage_model, paper_clock
     )
 
-    # 4b. Durability (R1/R2) — opt-in via cfg.persistence.path:
-    #   - SQLiteIdempotencyGuard: correlation IDs survive restarts.
-    #   - SQLiteOrderStore: every order lifecycle event mirrors the OMS state
-    #     into SQLite; on boot the store is restored into the cache BEFORE the
-    #     session starts, then reconciled against the broker book post-start.
-    #   - SQLiteEventStore (B2): append-only event log for full OMS event
-    #     sourcing; replayed at boot to rebuild the OMS projection before
-    #     broker reconciliation. All three share the same DB file.
+    # 4b. Durability (R1/R2) — the event log is the single persistence
+    # authority. When a persistence path is configured, the idempotency guard
+    # and the event log share that file; paper and live always get a guard so
+    # duplicate submissions are refused across process restarts. The order
+    # table and its bus mirror are gone: OMS recovery replays the log alone.
     guard: Any = MemoryIdempotencyGuard()
-    order_store: Any = None
     event_store: Any = None
     if cfg.persistence.path:
         from tradex_execution.sqlite_event_store import SQLiteEventStore
-        from tradex_execution.sqlite_store import (
-            SQLiteIdempotencyGuard,
-            SQLiteOrderStore,
-        )
-        guard = SQLiteIdempotencyGuard(cfg.persistence.path)
-        order_store = SQLiteOrderStore(cfg.persistence.path)
-        event_store = SQLiteEventStore(cfg.persistence.path)
-    elif cfg.mode == "paper":
-        # Paper mode uses SQLiteIdempotencyGuard even without an explicit
-        # persistence path, so duplicate order submissions are rejected
-        # across process restarts. The DB lives under the runtime dir.
         from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 
-        guard = SQLiteIdempotencyGuard(
-            str(Path(cfg.runtime_dir) / f"{cfg.broker_id.value.lower()}.idempotency.db")
-        )
+        guard = SQLiteIdempotencyGuard(cfg.persistence.path)
+        event_store = SQLiteEventStore(cfg.persistence.path)
     elif cfg.mode in ("paper", "live"):
-        # Paper/live always use SQLiteIdempotencyGuard so duplicate order
-        # submissions are rejected across process restarts, even when no
-        # explicit persistence path is configured. The guard lives under the
-        # runtime dir so it is repo-anchored, not cwd-relative.
+        # No explicit path: paper still gets a durable guard under the runtime
+        # dir. Live boot has already refused to reach here without a path
+        # (`live mode requires persistence path`).
         from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 
         guard = SQLiteIdempotencyGuard(
@@ -603,7 +586,7 @@ def boot(
             return _boot_tail(
                 cfg, bus, broker, wire_strategies, writer_lock,
                 fill_source=fill_source, metrics=metrics, guard=guard,
-                fee_calculator=fee_calculator, order_store=order_store,
+                fee_calculator=fee_calculator,
                 event_store=event_store, feed_instruments=feed_instruments,
                 validation_report_store=validation_report_store,
                 reconciliation_monitor=reconciliation_monitor,
@@ -624,7 +607,7 @@ def boot(
         return _boot_tail(
             cfg, bus, broker, wire_strategies, None,
             fill_source=fill_source, metrics=metrics, guard=guard,
-            fee_calculator=fee_calculator, order_store=order_store,
+            fee_calculator=fee_calculator,
             event_store=event_store, feed_instruments=feed_instruments,
             validation_report_store=validation_report_store,
             reconciliation_monitor=reconciliation_monitor,
@@ -687,7 +670,6 @@ def _boot_tail(
     metrics: MetricsRegistry,
     guard: Any,
     fee_calculator: FeeCalculator | None,
-    order_store: Any,
     event_store: Any = None,
     feed_instruments: Sequence[Instrument] | None = None,
     validation_report_store: Any = None,
@@ -709,7 +691,7 @@ def _boot_tail(
     # AC-9: the per-strategy budgets are resolved by the strategy identifier,
     # not the ``name@version`` text, and are persisted so a restart does not
     # reset a tripped daily-loss/drawdown breaker. The baseline store shares
-    # the same SQLite file as the order store (persistence.path) — one DB, one
+    # the same SQLite file as the event log (persistence.path) — one DB, one
     # subsystem. In-memory (no persistence path) it stays None and the in-RAM
     # baseline is used, exactly as before.
     baseline_store = None
@@ -765,6 +747,7 @@ def _boot_tail(
 
     # 6. Create execution engine
     live_fail_closed = cfg.mode == "live"
+    durable_mode = cfg.mode in ("paper", "live") and event_store is not None
     engine = ExecutionEngine(
         bus=bus, fill_source=fill_source, risk_manager=risk_manager, metrics=metrics,
         idempotency_guard=guard, fee_calculator=fee_calculator,
@@ -772,7 +755,7 @@ def _boot_tail(
         event_store=event_store,
         require_risk=live_fail_closed,
         require_feed=live_fail_closed,
-        require_durable_events=live_fail_closed,
+        require_durable_events=durable_mode,
     )
     # Bind the OMS cache as the position source so ``max_position_value`` is
     # enforced against live cumulative exposure (qty * avg_price + incoming).
@@ -821,23 +804,10 @@ def _boot_tail(
         # the bus.subscribe() raw form would receive every event.
         bus.of_type(ErrorOccurred).subscribe(on_next=_on_error)
 
-    # 6a. Order durability (R1) — restore persisted orders into the OMS cache
-    # BEFORE the session starts, then mirror every lifecycle event into the
-    # store. Subscriptions die with bus.dispose() on session.stop().
-    if order_store is not None:
-        from tradex_execution.sqlite_store import attach_order_persistence
-
-        order_store.load_into(engine.cache)
-        # metrics= so a store that stops being written shows up as a counter
-        # rather than only in the log: attach_order_persistence deliberately
-        # swallows persistence failures so they cannot break trading, which
-        # otherwise leaves a dead store indistinguishable from a healthy one.
-        attach_order_persistence(bus, engine.cache, order_store, metrics=metrics)
-
     # 6b. Event-sourced OMS recovery (B2/C1) — replay the durable event log to
-    # rebuild the OMS projection. Runs after the snapshot restore (6a) so
-    # event-derived state takes precedence; runs BEFORE broker reconciliation
-    # (step 9) so the diff is computed against the freshest local book.
+    # rebuild the OMS projection. Runs BEFORE broker reconciliation (step 9)
+    # so the diff is computed against the freshest local book. There is no
+    # snapshot restore to follow; the log is the single persistence authority.
     # New lifecycle events are appended by ExecutionEngine._append (store is
     # injected above) — do not also bus-subscribe or classic events double-append.
     if event_store is not None:

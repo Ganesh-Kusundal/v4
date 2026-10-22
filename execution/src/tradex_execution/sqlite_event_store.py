@@ -467,8 +467,11 @@ ALLOWED_PICKLE_CLASSES: frozenset[tuple[str, str]] = frozenset({
     # -- tradex_domain.execution ----------------------------------------------
     # Order: the payload of the whole order lifecycle. OrderRequest: the
     # payload of the request-intent events (RiskDecision, PlaceOrderCommand,
-    # BrokerOrderRequested, UnknownSubmission). Fill / Position: OrderFilled
-    # and PositionUpdated.
+    # BrokerOrderRequested, UnknownSubmission). BracketOrderRequest: the
+    # payload of bracket order events (OrderPlaced/Modified carry the
+    # composite, whose protective legs must survive replay). Fill / Position:
+    # OrderFilled and PositionUpdated.
+    ("tradex_domain.execution", "BracketOrderRequest"),
     ("tradex_domain.execution", "Fill"),
     ("tradex_domain.execution", "Order"),
     ("tradex_domain.execution", "OrderRequest"),

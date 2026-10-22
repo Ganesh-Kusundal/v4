@@ -90,10 +90,6 @@ from tradex_execution.risk import (
     RiskCheckResult,  # noqa: F401 — re-exported for callers of engine
     RiskManager,
 )
-from tradex_execution.sqlite_store import (  # noqa: F401 — re-exported
-    InMemoryOrderStore,
-    OrderStore,
-)
 from tradex_execution.trading_cache import TradingCache
 
 if TYPE_CHECKING:

@@ -404,35 +404,8 @@ def test_upstox_stop_tape_fills_granular() -> None:
 
 
 # ---------------------------------------------------------------------------
-# R1/R2 unit contracts: FileOrderStore semantics and writer-lock behavior
+# R1/R2 unit contracts: writer-lock behavior
 # ---------------------------------------------------------------------------
-
-
-def test_sqlite_order_store_round_trip(tmp_path) -> None:
-    from tradex_execution.sqlite_store import SQLiteOrderStore
-
-    store = SQLiteOrderStore(tmp_path / "orders.db")
-    order = Order(
-        order_id=OrderId(value="persist-1"),
-        instrument=_RELIANCE,
-        side=OrderSide.BUY,
-        order_type=OrderType.LIMIT,
-        quantity=Quantity(value=Decimal("10")),
-        price=Price(value=Decimal("2500.00")),
-        time_in_force=TimeInForce.DAY,
-        correlation_id=CorrelationId(value=_CORR),
-        status=OrderStatus.ACK,
-    )
-    store.upsert(order)
-    # New instance over the same DB = restart simulation.
-    reopened = SQLiteOrderStore(tmp_path / "orders.db")
-    loaded = reopened.get("persist-1")
-    assert loaded is not None
-    assert loaded.status == OrderStatus.ACK
-    assert loaded.price.value == Decimal("2500.00")
-    assert loaded.correlation_id is not None
-    assert loaded.correlation_id.value == _CORR
-    assert len(reopened.all_orders()) == 1
 
 
 def test_writer_lock_excludes_second_holder_and_allows_reacquire(tmp_path) -> None:

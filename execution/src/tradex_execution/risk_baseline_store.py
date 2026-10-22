@@ -9,10 +9,10 @@ and the peak per strategy so a restart reads them back instead of recomputing a
 lossy zero.
 
 It reuses the **existing** SQLite path — the same database file as
-``SQLiteOrderStore`` (``AppConfig.persistence.path``) — so there is no new
+the event log (``AppConfig.persistence.path``) — so there is no new
 subsystem and no new config knob. The table is created lazily and independently
-so a database that only holds orders still opens cleanly, and two stores on the
-same file coexist (each owns its own table).
+so a database that only holds events still opens cleanly, and the baseline
+store and the event log on the same file coexist (each owns its own table).
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class SQLiteRiskBaselineStore:
 
     One row per ``strategy_id``. The primary key is the strategy, so a restart
     reads back the last known baseline and peak. Money is stored as TEXT
-    (Decimal ``str``) to match the convention ``SQLiteOrderStore`` uses for
+    (Decimal ``str``) to match the convention the event log uses for
     prices and quantities — never a float.
     """
 
