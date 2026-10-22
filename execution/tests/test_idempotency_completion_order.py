@@ -108,9 +108,9 @@ def test_retry_after_a_failed_fill_is_not_replayed_as_success() -> None:
         engine.submit(_request(_CID))
 
     # Fund the account and retry: the request must actually execute, not
-    # replay a receipt for an order that never took effect. A replay comes back
-    # as a bare OrderId (the idempotency-replay return shape) rather than an
-    # OrderReceipt, so the type is the tell.
+    # replay a receipt for an order that never took effect. A replay comes
+    # back with the recorded status (SUBMITTED) rather than FILLED, so the
+    # status is the tell.
     engine.restore_cash(Decimal("100000"))
     result = engine.submit(_request(_CID))
     assert isinstance(result, OrderReceipt), (

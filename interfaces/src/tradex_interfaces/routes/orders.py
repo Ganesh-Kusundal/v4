@@ -38,7 +38,6 @@ from tradex_domain.constants import (
     IDEMPOTENCY_KEY_HEADER,
     IDEMPOTENCY_KEY_REQUIRED_MESSAGE,
     IDEMPOTENCY_KEY_TOO_LONG_MESSAGE,
-    IDEMPOTENCY_REPLAY,
     INSTRUMENT_ID_FORMAT_MESSAGE,
     INSTRUMENT_ID_OR_EXCHANGE_SYMBOL_MESSAGE,
     MISSING_REQUIRED_FIELD_MESSAGE,
@@ -46,7 +45,6 @@ from tradex_domain.constants import (
     NO_SESSION_BOUND,
     ORDER_NOT_FOUND_MESSAGE,
     ORDERS_DISABLED_DURING_REPLAY_MESSAGE,
-    SUBMITTED_STATUS,
     UNKNOWN_SYMBOL_MESSAGE,
 )
 from tradex_domain.enums import ProductType
@@ -98,19 +96,12 @@ def _parse_product(body: dict) -> ProductType:
 
 
 def _map_receipt(receipt: Any) -> OrderResponse:
-    """Map an engine OrderReceipt (or idempotency-replay OrderId) → OrderResponse.
+    """Map an engine ``OrderReceipt`` → ``OrderResponse``.
 
-    The engine's submit() can return either:
-    - ``OrderReceipt`` — first submission, or
-    - ``OrderId``      — idempotency replay (duplicate key, same fingerprint).
-    An in-flight receipt is surfaced as 409 before reaching this helper.
+    ``submit()`` returns one type for a first submission and for an
+    idempotency replay (the recorded receipt); an in-flight reservation is
+    surfaced as 409 before reaching this helper.
     """
-    if isinstance(receipt, OrderId):
-        return OrderResponse(
-            order_id=receipt.value,
-            status=SUBMITTED_STATUS,
-            message=IDEMPOTENCY_REPLAY,
-        )
     if getattr(receipt, "message", None) == IDEMPOTENCY_IN_FLIGHT:
         raise HTTPException(status_code=409, detail="idempotency key is being processed")
     return OrderResponse(

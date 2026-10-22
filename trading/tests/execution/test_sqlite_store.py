@@ -186,7 +186,9 @@ class TestSQLiteIdempotencyGuardCrossEngine:
             # Second engine, same DB file, same correlation id — no new order.
             second = engine2.submit(request)
             assert len(engine2.cache.all_orders()) == 0
-            assert second == OrderId(value="" + engine1.all_orders()[0].order_id.value)
+            from tradex_domain.execution import OrderReceipt
+            assert isinstance(second, OrderReceipt)
+            assert second.order_id.value == engine1.all_orders()[0].order_id.value
         finally:
             engine1.shutdown()
             engine2.shutdown()

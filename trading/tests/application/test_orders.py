@@ -108,8 +108,9 @@ def test_submit_order_delegates_to_engine():
     assert receipt.order_id.value in all_ids
 
 
-def test_submit_order_idempotency_replay_returns_order_id():
-    """Second call with same correlation id returns the original OrderId."""
+def test_submit_order_idempotency_replay_returns_the_recorded_receipt():
+    """Second call with the same correlation id returns the first receipt."""
+    from tradex_domain.execution import OrderReceipt
     from tradex_execution.idempotency import MemoryIdempotencyGuard
 
     guard = MemoryIdempotencyGuard()
@@ -119,10 +120,9 @@ def test_submit_order_idempotency_replay_returns_order_id():
     cid = "submit-idem-1"
     first = submit_order(engine, _submit_request(cid))
     second = submit_order(engine, _submit_request(cid))
-    # First is a receipt; second is the replayed OrderId.
-    assert hasattr(first, "order_id")
-    assert isinstance(second, OrderId)
-    assert second.value == first.order_id.value
+    assert isinstance(first, OrderReceipt)
+    assert isinstance(second, OrderReceipt)
+    assert second.order_id == first.order_id
 
 
 # ---------------------------------------------------------------------------

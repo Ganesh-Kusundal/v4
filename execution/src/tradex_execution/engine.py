@@ -835,7 +835,14 @@ class ExecutionEngine:
             # the asynchronous fill stream.
             if reserved_cid is not None and self._guard is not None:
                 with self._guard_lock:
-                    self._guard.record_result(reserved_cid, order.order_id)
+                    self._guard.record_result(
+                        reserved_cid,
+                        OrderReceipt(
+                            order_id=order.order_id,
+                            status=order.status,
+                            message="submitted",
+                        ),
+                    )
             if self._metrics is not None:
                 self._metrics.counter("orders.submitted").inc()
 
@@ -936,7 +943,14 @@ class ExecutionEngine:
         # failure left the client replaying a receipt for a partly-applied
         # order, making the divergence permanent (M-3).
         if self._guard is not None and cid is not None:
-            self._guard.record_result(cid, order.order_id)
+            self._guard.record_result(
+                cid,
+                OrderReceipt(
+                    order_id=order.order_id,
+                    status=order.status,
+                    message="submitted",
+                ),
+            )
         return order
 
     def _require_cash_for_fill(self, fill: Fill, charged_fee: Decimal) -> None:

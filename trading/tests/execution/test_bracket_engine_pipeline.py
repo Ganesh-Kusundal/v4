@@ -85,8 +85,9 @@ def test_bracket_dedup_single_broker_mutation_and_replay() -> None:
     assert broker.submitted[0].correlation_id == CorrelationId(value="bracket-cid-1")
 
     replay = engine.submit(_bracket_request("bracket-cid-1"))
-    assert isinstance(replay, OrderId)
-    assert replay.value == "super-1"
+    assert isinstance(replay, OrderReceipt)
+    assert replay.order_id.value == "super-1"
+    assert replay.status is OrderStatus.ACK
     assert len(broker.submitted) == 1  # no second mutation
     assert len(engine.all_orders()) == 1  # no second OMS record
 

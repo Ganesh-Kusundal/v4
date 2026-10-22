@@ -229,9 +229,16 @@ def test_bracket_routes_through_engine_pipeline() -> None:
 
 
 def test_bracket_idempotent_replay_returns_original_id() -> None:
-    """A completed-key replay surfaces the original OrderId from the guard —
-    the same contract as POST /orders."""
-    session = _FakeSession(engine=_FakeEngine(result=OrderId(value="bracket-original")))
+    """A completed-key replay surfaces the recorded receipt — the same
+    contract as POST /orders."""
+    session = _FakeSession(
+        engine=_FakeEngine(
+            result=OrderReceipt(
+                order_id=OrderId(value="bracket-original"),
+                message="idempotency_replay",
+            )
+        )
+    )
     client = TestClient(create_app(session=session))
     resp = _post_bracket(client, "bracket-replay")
     assert resp.status_code == 200, resp.text

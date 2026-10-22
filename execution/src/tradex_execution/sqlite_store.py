@@ -29,7 +29,7 @@ from tradex_domain.events import (
     OrderPlaced,
     OrderRejected,
 )
-from tradex_domain.execution import Order, OrderRequest
+from tradex_domain.execution import Order, OrderReceipt, OrderRequest
 from tradex_domain.instruments import Instrument
 from tradex_domain.order_factory import create_order
 from tradex_domain.value_objects import CorrelationId, OrderId, Price, Quantity
@@ -40,7 +40,7 @@ from tradex_execution.sqlite_event_store import (
     _restricted_unpickle,
 )
 
-#: Marker prefix for pickle-encoded idempotency results (Order objects).
+#: Marker prefix for pickle-encoded idempotency results (Order/OrderReceipt objects).
 _PICKLE_PREFIX = "__tradex_pickle__:"
 
 #: Extra ``orders`` columns carrying bracket protective legs. Stored as
@@ -53,23 +53,24 @@ _ORDER_LEG_COLUMNS = ("stop_loss_price", "target_price", "trailing_jump")
 # ---------------------------------------------------------------------------
 # Restricted unpickling of idempotency results (C3)
 # ---------------------------------------------------------------------------
-# ``record_result`` pickles an ``Order`` so a restart replays the exact
+# ``record_result`` pickles an ``Order`` or ``OrderReceipt`` so a restart replays the exact
 # post-mutation record. That made the ``result`` column a second pickle sink:
 # ``pickle.loads`` there resolved whatever the column named, so anyone able to
 # write a row got code execution the next time a correlation id was replayed.
 #
 # The allowlist is deliberately NARROWER than the event store's. This column
-# only ever holds the one type :meth:`SQLiteIdempotencyGuard.record_result`
-# chooses to pickle — an ``Order`` — plus the value objects, enums and
+# only ever holds the types :meth:`SQLiteIdempotencyGuard.record_result`
+# chooses to pickle — an ``Order`` or ``OrderReceipt`` — plus the value objects, enums and
 # instrument dataclasses that ride inside one. It reuses the event store's
 # restricted unpickler rather than a second implementation, so there is one
 # allowlist to audit and one place to widen deliberately.
-#: Classes an idempotency result may legitimately name: an Order's closure.
+#: Classes an idempotency result may legitimately name: an Order's or OrderReceipt's closure.
 #: The stdlib leaves (``datetime``/``date``/``Decimal``) and the domain
 #: instruments/enums/value-objects are shared with the event store and are
 #: listed there; the set below is what is added on top of it.
 _IDEMPOTENCY_EXTRA_CLASSES: frozenset[tuple[str, str]] = frozenset({
     ("tradex_domain.execution", "Order"),
+    ("tradex_domain.execution", "OrderReceipt"),
 })
 
 
@@ -494,7 +495,7 @@ class SQLiteIdempotencyGuard:
                             "durable result; refusing to submit or replay"
                         )
                     if isinstance(row[1], str) and row[1].startswith(_PICKLE_PREFIX):
-                        # Full domain-object results (Order for modify/cancel)
+                        # Full domain-object results (Order/OrderReceipt for submit/modify/cancel)
                         # are pickled with a marker; anything else is legacy
                         # JSON (a scalar, a dict, or an OrderId marker).
                         try:
@@ -512,7 +513,11 @@ class SQLiteIdempotencyGuard:
                     except (TypeError, json.JSONDecodeError):
                         decoded = row[1]
                     if isinstance(decoded, dict) and "__tradex_order_id__" in decoded:
-                        decoded = OrderId(value=str(decoded["__tradex_order_id__"]))
+                        decoded = OrderReceipt(
+                            order_id=OrderId(value=str(decoded["__tradex_order_id__"])),
+                            status=OrderStatus.SUBMITTED,
+                            message="idempotency_replay",
+                        )
                     return IdempotencyDuplicate(result=decoded)
                 raise IdempotencyInflight(
                     f"idempotency key {key} is reserved but incomplete "
@@ -523,12 +528,9 @@ class SQLiteIdempotencyGuard:
     def record_result(self, correlation_id: CorrelationId, result: object) -> None:
         """Mark a reserved correlation id as completed."""
         key = str(correlation_id.value)
-        if isinstance(result, OrderId):
-            encoded = json.dumps({"__tradex_order_id__": result.value})
-        elif isinstance(result, Order):
-            # Full fidelity for modify/cancel replays: the domain Order is
-            # pickled (local trusted store) so a restart replays the exact
-            # post-mutation record, not a stringified shell.
+        if isinstance(result, (Order, OrderReceipt)):
+            # Full fidelity: the domain object is pickled (local trusted store)
+            # so a restart replays the exact record the first call returned.
             encoded = _PICKLE_PREFIX + base64.b64encode(
                 pickle.dumps(result)
             ).decode("ascii")
