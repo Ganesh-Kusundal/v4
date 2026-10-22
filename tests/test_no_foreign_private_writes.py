@@ -11,35 +11,22 @@ Generated protobuf modules are exempt.
 from __future__ import annotations
 
 import ast
+import tomllib
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-# Every workspace package's ``src`` root. The scan originally covered only
-# domain / brokers / trading and left the other 14 extracted packages unchecked,
-# so a foreign private write anywhere in config, research, operations,
-# observability, analytics, reactive, execution, strategy, replay,
-# application, market_data, interfaces, runtime or persistence passed silently.
-# All 17 roots are now scanned; keep this list in sync with the package set.
-_SRC_DIRS = [
-    _ROOT / "domain/src",
-    _ROOT / "brokers/src",
-    _ROOT / "trading/src",
-    _ROOT / "config/src",
-    _ROOT / "research/src",
-    _ROOT / "operations/src",
-    _ROOT / "observability/src",
-    _ROOT / "analytics/src",
-    _ROOT / "reactive/src",
-    _ROOT / "execution/src",
-    _ROOT / "strategy/src",
-    _ROOT / "replay/src",
-    _ROOT / "application/src",
-    _ROOT / "market_data/src",
-    _ROOT / "interfaces/src",
-    _ROOT / "runtime/src",
-    _ROOT / "persistence/src",
-]
+
+def _workspace_src_dirs() -> list[Path]:
+    data = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    members = data["tool"]["uv"]["workspace"]["members"]
+    dirs = [_ROOT / member / "src" for member in members]
+    if (_ROOT / "shared/src").is_dir():
+        dirs.append(_ROOT / "shared/src")
+    return sorted(path for path in dirs if path.is_dir())
+
+
+_SRC_DIRS = _workspace_src_dirs()
 
 
 class _ForeignPrivateWriteChecker(ast.NodeVisitor):
@@ -82,3 +69,13 @@ def test_no_foreign_private_writes() -> None:
             checker.visit(tree)
             violations.extend(checker.violations)
     assert not violations, "foreign private writes found:\n" + "\n".join(violations)
+
+
+def test_the_scan_covers_every_workspace_source_root() -> None:
+    data = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    members = data["tool"]["uv"]["workspace"]["members"]
+    expected = {(_ROOT / member / "src") for member in members if (_ROOT / member / "src").is_dir()}
+    if (_ROOT / "shared/src").is_dir():
+        expected.add(_ROOT / "shared/src")
+    assert set(_SRC_DIRS) == expected
+    assert all(path.is_dir() for path in _SRC_DIRS), "a scan root does not exist"
