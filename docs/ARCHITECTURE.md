@@ -1,12 +1,13 @@
 # TradeX v4 — Architecture, Tree & Flows
 
-> **How this document was produced.** §2 is a complete git-tracked file tree
-> (1,220 leaves, duplicates included, nothing deduplicated). §2.1 and §2.2 each
-> list all 378 production `src/` leaves again under architecture layers and
-> component ownership — intentional triple listing. §2.2.1 names every duplicate
-> basename and every path that carries it. Gate numbers in §9 were measured on
-> this tree. Where this document and `README.md` disagree, this document is
-> correct (see §11).
+> **How this document was produced.** §2 is the git-tracked file tree as of the
+> 2026-09-29 audit (1,220 leaves, duplicates included, nothing deduplicated).
+> §2.1 and §2.2 map the production `src/` leaves by architecture layer and by
+> component ownership; they are grouped maps, not exhaustive manifests. Run
+> `git ls-files '*/src'` for the authoritative list (394 leaves at the last
+> count). §2.2.1 names every duplicate basename and every path that carries it.
+> Where this document and `README.md` disagree, this document is correct
+> (see §11).
 
 ---
 
@@ -25,7 +26,7 @@ Core design commitments:
 | Capability-loud adapters — closed by default, typed `SDKError` on the unsupported | `brokers/common/capabilities.py` | `trading/tests/parity` |
 | `FillSource` seam — swap Simulated/Paper/Broker without touching the engine | `execution/fill_sources.py` | parity gate |
 | **One path to the venue** — `ExecutionEngine.submit()` is the only door (AC-22) | `execution/engine.py` | `tests/test_import_boundaries.py`, parity gate |
-| Shared trading calendar, not per-mode literals | `domain/trading_calendar.py` | `brokers/tests/test_paper_realism_gates.py` |
+| Shared trading calendar, not per-mode literals | `domain/market_calendar.py` | `trading/tests/runtime/test_calendar.py` |
 
 ---
 
@@ -539,7 +540,6 @@ v4/  (1,220 git-tracked files, listed as-is — duplicates included)
 │   │       ├── strategy.py
 │   │       ├── timeframe.py
 │   │       ├── timezones.py
-│   │       ├── trading_calendar.py
 │   │       ├── universe.py
 │   │       ├── utils.py
 │   │       ├── value_objects.py
@@ -1353,12 +1353,13 @@ v4/  (1,220 git-tracked files, listed as-is — duplicates included)
 
 ### 2.1 Architecture map (production `src/` leaves)
 
-The 378 installable source leaves, grouped by §4.2 layer. Same files also appear
-in §2 above under their package paths — **intentional duplicate listing**.
+The production `src/` leaves, grouped by §4.2 layer (394 at the last count).
+The files also appear in §2 above under their package paths. These are grouped
+maps, not exhaustive manifests; `git ls-files '*/src'` is authoritative.
 
 ```
 L0  kernel/
-├── domain/src/tradex_domain/  (26 files)
+├── domain/src/tradex_domain/
 │   ├── __init__.py
 │   ├── capabilities.py
 │   ├── datetime_formats.py
@@ -1380,31 +1381,30 @@ L0  kernel/
 │   ├── strategy.py
 │   ├── timeframe.py
 │   ├── timezones.py
-│   ├── trading_calendar.py
 │   ├── universe.py
 │   ├── utils.py
 │   ├── value_objects.py
 │   └── wire.py
-├── observability/src/tradex_observability/  (4 files)
+├── observability/src/tradex_observability/
 │   ├── __init__.py
 │   ├── metrics.py
 │   ├── py.typed
 │   └── tracing.py
 
 L1  adapters/
-├── reactive/src/tradex_reactive/  (5 files)
+├── reactive/src/tradex_reactive/
 │   ├── __init__.py
 │   ├── bus.py
 │   ├── event_log.py
 │   ├── py.typed
 │   └── thread_safe_bus.py
-├── config/src/tradex_config/  (5 files)
+├── config/src/tradex_config/
 │   ├── __init__.py
 │   ├── env.py
 │   ├── permissions.py
 │   ├── py.typed
 │   └── schema.py
-├── brokers/src/tradex_brokers/  (60 files)
+├── brokers/src/tradex_brokers/
 │   ├── common/
 │   │   ├── __init__.py
 │   │   ├── auth.py
@@ -1470,7 +1470,7 @@ L1  adapters/
 │   │   └── ws_streams.py
 │   ├── __init__.py
 │   └── py.typed
-└── analytics/src/tradex_analytics/  (129 files)
+└── analytics/src/tradex_analytics/
     ├── goldens/
     │   ├── adl.json
     │   ├── adx.json
@@ -1607,7 +1607,7 @@ L1  adapters/
     └── validation_report.py
 
 L2  engines/
-├── execution/src/tradex_execution/  (24 files)
+├── execution/src/tradex_execution/
 │   ├── __init__.py
 │   ├── cash_ledger.py
 │   ├── engine.py
@@ -1632,11 +1632,11 @@ L2  engines/
 │   ├── sqlite_store.py
 │   ├── trading_cache.py
 │   └── validation_report_store.py
-├── application/src/tradex_application/  (3 files)
+├── application/src/tradex_application/
 │   ├── __init__.py
 │   ├── orders.py
 │   └── py.typed
-└── strategy/src/tradex_strategy/  (30 files)
+└── strategy/src/tradex_strategy/
     ├── core/
     │   ├── __init__.py
     │   ├── brackets.py
@@ -1674,7 +1674,7 @@ L2  engines/
     └── runtime.py
 
 L3  data & replay/
-├── market_data/src/tradex_market_data/  (12 files)
+├── market_data/src/tradex_market_data/
 │   ├── __init__.py
 │   ├── backtest_loader.py
 │   ├── catalog.py
@@ -1687,7 +1687,7 @@ L3  data & replay/
 │   ├── py.typed
 │   ├── simple_sync.py
 │   └── symbol_resolve.py
-├── replay/src/tradex_replay/  (7 files)
+├── replay/src/tradex_replay/
 │   ├── __init__.py
 │   ├── backtest.py
 │   ├── optimization.py
@@ -1695,7 +1695,7 @@ L3  data & replay/
 │   ├── synthetic_ticks.py
 │   ├── validation.py
 │   └── walk_forward.py
-└── services/duckdb-analytics/src/duck_analytics/  (12 files)
+└── services/duckdb-analytics/src/duck_analytics/
     ├── mcp/
     │   ├── __init__.py
     │   └── server.py
@@ -1711,7 +1711,7 @@ L3  data & replay/
     └── testing.py
 
 L4  composition/
-└── runtime/src/tradex_runtime/  (23 files)
+└── runtime/src/tradex_runtime/
     ├── __init__.py
     ├── bar_aggregator.py
     ├── calendar.py
@@ -1737,7 +1737,7 @@ L4  composition/
     └── writer_lock.py
 
 L5  interfaces/
-└── interfaces/src/tradex_interfaces/  (30 files)
+└── interfaces/src/tradex_interfaces/
     ├── auth/
     │   ├── __init__.py
     │   ├── csrf.py
@@ -1772,16 +1772,16 @@ L5  interfaces/
     └── workspace_store.py
 ```
 
-**378 production src leaves.**
+**394 production `src/` leaves at the last count.**
 
 ### 2.2 Component map (production `src/` leaves, full paths)
 
-Same 378 files regrouped by ownership (§6). Full paths shown — no
-basename-only collapse. Files listed in §2.1 appear again here under their
-component owner.
+The same layers regrouped by ownership (§6). Full paths shown — no
+basename-only collapse. The groups are representative, not exhaustive; files
+listed in §2.1 appear again here under their component owner.
 
 ```
-InstrumentRegistry / domain kernel/  (26 files)
+InstrumentRegistry / domain kernel/
 ├── domain/src/tradex_domain/__init__.py
 ├── domain/src/tradex_domain/capabilities.py
 ├── domain/src/tradex_domain/datetime_formats.py
@@ -1803,13 +1803,12 @@ InstrumentRegistry / domain kernel/  (26 files)
 ├── domain/src/tradex_domain/strategy.py
 ├── domain/src/tradex_domain/timeframe.py
 ├── domain/src/tradex_domain/timezones.py
-├── domain/src/tradex_domain/trading_calendar.py
 ├── domain/src/tradex_domain/universe.py
 ├── domain/src/tradex_domain/utils.py
 ├── domain/src/tradex_domain/value_objects.py
 └── domain/src/tradex_domain/wire.py
 
-BrokerAdapter / BaseBroker / common resilience/  (20 files)
+BrokerAdapter / BaseBroker / common resilience/
 ├── brokers/src/tradex_brokers/common/__init__.py
 ├── brokers/src/tradex_brokers/common/auth.py
 ├── brokers/src/tradex_brokers/common/base.py
@@ -1831,7 +1830,7 @@ BrokerAdapter / BaseBroker / common resilience/  (20 files)
 ├── brokers/src/tradex_brokers/common/ws_reconnect.py
 └── brokers/src/tradex_brokers/common/ws_shared.py
 
-Dhan adapter + client mixins/  (16 files)
+Dhan adapter + client mixins/
 ├── brokers/src/tradex_brokers/dhan/__init__.py
 ├── brokers/src/tradex_brokers/dhan/_admin.py
 ├── brokers/src/tradex_brokers/dhan/_facade.py
@@ -1849,7 +1848,7 @@ Dhan adapter + client mixins/  (16 files)
 ├── brokers/src/tradex_brokers/dhan/tick_parser.py
 └── brokers/src/tradex_brokers/dhan/ws_streams.py
 
-Upstox adapter + client mixins/  (16 files)
+Upstox adapter + client mixins/
 ├── brokers/src/tradex_brokers/upstox/__init__.py
 ├── brokers/src/tradex_brokers/upstox/_admin.py
 ├── brokers/src/tradex_brokers/upstox/_alerts.py
@@ -1867,35 +1866,35 @@ Upstox adapter + client mixins/  (16 files)
 ├── brokers/src/tradex_brokers/upstox/ws_decoder.py
 └── brokers/src/tradex_brokers/upstox/ws_streams.py
 
-PaperBroker simulator/  (4 files)
+PaperBroker simulator/
 ├── brokers/src/tradex_brokers/paper/__init__.py
 ├── brokers/src/tradex_brokers/paper/adapter.py
 ├── brokers/src/tradex_brokers/paper/capabilities.py
 └── brokers/src/tradex_brokers/paper/rate_table.py
 
-Broker protobuf (generated)/  (2 files)
+Broker protobuf (generated)/
 ├── brokers/src/tradex_brokers/proto/MarketDataFeed_pb2.py
 └── brokers/src/tradex_brokers/proto/__init__.py
 
-Broker package root/  (2 files)
+Broker package root/
 ├── brokers/src/tradex_brokers/__init__.py
 └── brokers/src/tradex_brokers/py.typed
 
-ReactiveBus / event log/  (5 files)
+ReactiveBus / event log/
 ├── reactive/src/tradex_reactive/__init__.py
 ├── reactive/src/tradex_reactive/bus.py
 ├── reactive/src/tradex_reactive/event_log.py
 ├── reactive/src/tradex_reactive/py.typed
 └── reactive/src/tradex_reactive/thread_safe_bus.py
 
-Config / secret permissions/  (5 files)
+Config / secret permissions/
 ├── config/src/tradex_config/__init__.py
 ├── config/src/tradex_config/env.py
 ├── config/src/tradex_config/permissions.py
 ├── config/src/tradex_config/py.typed
 └── config/src/tradex_config/schema.py
 
-Analytics indicators & studies/  (129 files)
+Analytics indicators & studies/
 ├── analytics/src/tradex_analytics/__init__.py
 ├── analytics/src/tradex_analytics/band_overlays.py
 ├── analytics/src/tradex_analytics/breadth.py
@@ -2026,7 +2025,7 @@ Analytics indicators & studies/  (129 files)
 ├── analytics/src/tradex_analytics/volume/volume_profile.py
 └── analytics/src/tradex_analytics/volume/volume_simple.py
 
-ExecutionEngine / OMS / risk / event store/  (24 files)
+ExecutionEngine / OMS / risk / event store/
 ├── execution/src/tradex_execution/__init__.py
 ├── execution/src/tradex_execution/cash_ledger.py
 ├── execution/src/tradex_execution/engine.py
@@ -2052,12 +2051,12 @@ ExecutionEngine / OMS / risk / event store/  (24 files)
 ├── execution/src/tradex_execution/trading_cache.py
 └── execution/src/tradex_execution/validation_report_store.py
 
-Application order use-cases/  (3 files)
+Application order use-cases/
 ├── application/src/tradex_application/__init__.py
 ├── application/src/tradex_application/orders.py
 └── application/src/tradex_application/py.typed
 
-Strategy engine / sizing / scanners / plugins/  (30 files)
+Strategy engine / sizing / scanners / plugins/
 ├── strategy/src/tradex_strategy/__init__.py
 ├── strategy/src/tradex_strategy/artifacts.py
 ├── strategy/src/tradex_strategy/core/__init__.py
@@ -2089,7 +2088,7 @@ Strategy engine / sizing / scanners / plugins/  (30 files)
 ├── strategy/src/tradex_strategy/registry.py
 └── strategy/src/tradex_strategy/runtime.py
 
-Market data / parquet / PIT loader/  (12 files)
+Market data / parquet / PIT loader/
 ├── market_data/src/tradex_market_data/__init__.py
 ├── market_data/src/tradex_market_data/backtest_loader.py
 ├── market_data/src/tradex_market_data/catalog.py
@@ -2103,7 +2102,7 @@ Market data / parquet / PIT loader/  (12 files)
 ├── market_data/src/tradex_market_data/simple_sync.py
 └── market_data/src/tradex_market_data/symbol_resolve.py
 
-Backtest / walk-forward / replay/  (7 files)
+Backtest / walk-forward / replay/
 ├── replay/src/tradex_replay/__init__.py
 ├── replay/src/tradex_replay/backtest.py
 ├── replay/src/tradex_replay/optimization.py
@@ -2112,7 +2111,7 @@ Backtest / walk-forward / replay/  (7 files)
 ├── replay/src/tradex_replay/validation.py
 └── replay/src/tradex_replay/walk_forward.py
 
-DuckDB analytics service/  (12 files)
+DuckDB analytics service/
 ├── services/duckdb-analytics/src/duck_analytics/__init__.py
 ├── services/duckdb-analytics/src/duck_analytics/catalog.py
 ├── services/duckdb-analytics/src/duck_analytics/config.py
@@ -2126,7 +2125,7 @@ DuckDB analytics service/  (12 files)
 ├── services/duckdb-analytics/src/duck_analytics/screener.py
 └── services/duckdb-analytics/src/duck_analytics/testing.py
 
-boot() / TradingSession / MarketFeed / monitors/  (23 files)
+boot() / TradingSession / MarketFeed / monitors/
 ├── runtime/src/tradex_runtime/__init__.py
 ├── runtime/src/tradex_runtime/bar_aggregator.py
 ├── runtime/src/tradex_runtime/calendar.py
@@ -2151,7 +2150,7 @@ boot() / TradingSession / MarketFeed / monitors/  (23 files)
 ├── runtime/src/tradex_runtime/tape_recorder.py
 └── runtime/src/tradex_runtime/writer_lock.py
 
-CLI / FastAPI / safety surface/  (30 files)
+CLI / FastAPI / safety surface/
 ├── interfaces/src/tradex_interfaces/__init__.py
 ├── interfaces/src/tradex_interfaces/_helpers.py
 ├── interfaces/src/tradex_interfaces/auth/__init__.py
@@ -2183,7 +2182,7 @@ CLI / FastAPI / safety surface/  (30 files)
 ├── interfaces/src/tradex_interfaces/safety_report_store.py
 └── interfaces/src/tradex_interfaces/workspace_store.py
 
-Observability metrics & tracing/  (4 files)
+Observability metrics & tracing/
 ├── observability/src/tradex_observability/__init__.py
 ├── observability/src/tradex_observability/metrics.py
 ├── observability/src/tradex_observability/py.typed
@@ -2845,26 +2844,26 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 
 | Layer | Package path | Leaf files |
 |---|---|---:|
-| L0 | `domain/src/tradex_domain/` | 26 |
+| L0 | `domain/src/tradex_domain/` | 36 |
 | L0 | `observability/src/tradex_observability/` | 4 |
 | L1 | `reactive/src/tradex_reactive/` | 5 |
 | L1 | `config/src/tradex_config/` | 5 |
-| L1 | `brokers/src/tradex_brokers/` | 60 |
-| L1 | `analytics/src/tradex_analytics/` | 129 |
-| L2 | `execution/src/tradex_execution/` | 24 |
+| L1 | `brokers/src/tradex_brokers/` | 64 |
+| L1 | `analytics/src/tradex_analytics/` | 130 |
+| L2 | `execution/src/tradex_execution/` | 25 |
 | L2 | `application/src/tradex_application/` | 3 |
-| L2 | `strategy/src/tradex_strategy/` | 30 |
+| L2 | `strategy/src/tradex_strategy/` | 38 |
 | L3 | `market_data/src/tradex_market_data/` | 12 |
 | L3 | `replay/src/tradex_replay/` | 7 |
-| L3 | `services/duckdb-analytics/src/duck_analytics/` | 12 |
-| L4 | `runtime/src/tradex_runtime/` | 23 |
+| L3 | `services/duckdb-analytics/src/duck_analytics/` | 13 |
+| L4 | `runtime/src/tradex_runtime/` | 22 |
 | L5 | `interfaces/src/tradex_interfaces/` | 30 |
-| | **Total production src** | **378** |
+| | **Total production src** | **394** |
 | | **Total git-tracked (§2)** | **1220** |
 
-§2 lists all 1220 tracked files. §2.1 and §2.2 each list all
-378 production `src/` leaves — the same paths appear in three places
-by design, not by error.
+§2 lists all 1220 tracked files. §2.1 and §2.2 map the production `src/`
+leaves (394 at the last count); the same paths appear in more than one place
+by design, not by error. Where a map and the tree disagree, the tree wins.
 
 ### 2.3 Runtime wiring (composition graph)
 
@@ -3456,8 +3455,8 @@ paper refused to fill PAPER-b51e5711fe58 (BUY 10 x MKT): market closed at
 ```
 
 The design already has the right seam (`clock=` injection); the tests have not
-been migrated to it. The new `brokers/tests/test_paper_realism_gates.py` does
-pin a clock, which is why it passes.
+been migrated to it. The tests added with that work pinned a clock, which is
+why they passed.
 
 **Cause 2 — 12 new mypy errors**, one of which lands in `tradex_brokers`, a
 package CI hard-fails on and which was at 0 on HEAD:

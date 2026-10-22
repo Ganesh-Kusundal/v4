@@ -1351,7 +1351,22 @@ def _boot_tail(
             if master_scheduler is not None:
                 master_scheduler.start()
         except BaseException:
-            session.stop()
+            try:
+                session.stop()
+            except Exception:  # pragma: no cover – defensive teardown
+                log.warning(
+                    "session rollback after a failed boot failed", exc_info=True
+                )
+            if market_feed is not None:
+                # ``stop()`` returns early for a session that never reached
+                # READY, so the feed cold started above would keep streaming.
+                try:
+                    market_feed.stop()
+                except Exception:  # pragma: no cover – defensive teardown
+                    log.warning(
+                        "market feed rollback after a failed boot failed",
+                        exc_info=True,
+                    )
             raise
     else:
         # Leave session in NEW; caller can stop() to release resources.

@@ -83,6 +83,10 @@ class SQLiteIdempotencyGuard:
     """
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
+        if db_path != ":memory:":
+            # A fresh runtime directory has no parent for this file, and
+            # sqlite3.connect creates the database but never its directory.
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(
             str(db_path) if db_path != ":memory:" else ":memory:",
             check_same_thread=False,

@@ -178,3 +178,20 @@ def test_a_failed_session_start_stops_the_session(monkeypatch) -> None:
         startup_mod.boot(cfg)
 
     assert stopped == [1], "the failed boot must stop the session it started"
+
+
+def test_a_failing_rollback_does_not_mask_the_boot_error(monkeypatch) -> None:
+    """The teardown's own failure must never replace the boot exception."""
+    from tradex_runtime.session_impl import TradingSession
+
+    def _start_boom(self) -> None:
+        raise RuntimeError("simulated session.start failure")
+
+    def _stop_boom(self) -> None:
+        raise RuntimeError("simulated stop failure")
+
+    monkeypatch.setattr(TradingSession, "start", _start_boom)
+    monkeypatch.setattr(TradingSession, "stop", _stop_boom)
+
+    with pytest.raises(RuntimeError, match="simulated session.start failure"):
+        startup_mod.boot(AppConfig(risk=permissive_risk(), mode="paper"))

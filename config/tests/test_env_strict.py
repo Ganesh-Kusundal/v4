@@ -61,13 +61,17 @@ def test_serve_config_live_enables_the_gate_and_defaults_persistence(tmp_path) -
     assert live.mode == "live"
     assert live.live_enabled is True
     assert live.persistence.path == str(tmp_path / "live" / "dhan.sqlite")
-    # A fresh runtime directory has no ``live/`` child. The store must be able
-    # to open its file there, or live boot dies on ``unable to open database
-    # file`` before the writer lock gets a chance to mkdir.
+    # A fresh runtime directory has no ``live/`` child, and the config layer
+    # must not create it as a side effect. The guard is the first store boot
+    # opens, so it must create the parent itself — otherwise live boot dies on
+    # ``unable to open database file`` before the writer lock's mkdir runs.
     assert live.persistence.path is not None
-    assert Path(live.persistence.path).parent.is_dir()
+    assert not (tmp_path / "live").exists()
     guard = SQLiteIdempotencyGuard(live.persistence.path)
-    guard.close()
+    try:
+        assert Path(live.persistence.path).parent.is_dir()
+    finally:
+        guard.close()
 
 
 def test_serve_config_live_keeps_an_explicit_persistence_path(tmp_path) -> None:

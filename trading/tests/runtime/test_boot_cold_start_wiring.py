@@ -480,3 +480,35 @@ def test_live_bridge_counts_avg_price_fallbacks_on_the_served_registry(
         )
     finally:
         session.stop()
+
+
+def test_a_failed_session_start_stops_the_cold_started_feed(
+    tmp_path, monkeypatch
+) -> None:
+    """A failed ``session.start()`` must not leave the proven feed streaming.
+
+    The feed is cold started *before* ``session.start()``. ``TradingSession.stop``
+    early-returns for a session that never reached READY, so without an explicit
+    feed stop the rollback would leave the subscription live behind a boot that
+    already failed.
+    """
+    from tradex_runtime.session_impl import TradingSession
+
+    monkeypatch.setattr(
+        ParquetHistoryProvider, "fetch_bars", _RecordingHistory([_bar()])
+    )
+
+    def _boom(self) -> None:
+        raise RuntimeError("simulated session.start failure")
+
+    monkeypatch.setattr(TradingSession, "start", _boom)
+    calls = _spy_on_feed(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="simulated session.start failure"):
+        _boot_live(tmp_path, monkeypatch, feed_instruments=[INSTRUMENT])
+
+    assert len(calls["built"]) == 1
+    feed = calls["built"][0]
+    assert feed.snapshot_instruments() == (), (
+        "the rollback must stop the cold-started feed"
+    )

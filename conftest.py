@@ -114,7 +114,8 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     print("\nhermeticity violation: the suite wrote into the repository's runtime/")
     for path in offenders:
         print(f"  runtime/{path}")
-    session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    if exitstatus == pytest.ExitCode.OK:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 @pytest.fixture(scope="session")
