@@ -1,9 +1,7 @@
 """WS-E contract tests: fee calculator + pricing — ported from v3.
 
-REWRITTEN for v4 API: FeeCalculator.calculate(fill) → Money,
-PricingService.total_cost(fill) → Money.  v3 had FeeBreakdown,
-static methods, PricingService.vwap()/slippage_bps() — none of
-those exist in v4.
+REWRITTEN for v4 API: FeeCalculator.calculate(fill) → Money.
+v3 had FeeBreakdown, static methods — none of those exist in v4.
 """
 
 from __future__ import annotations
@@ -20,7 +18,7 @@ from tradex_domain import (
     Price,
     Quantity,
 )
-from tradex_execution.fees import FeeCalculator, PricingService
+from tradex_execution.fees import FeeCalculator
 
 
 def _eq() -> Equity:
@@ -73,20 +71,6 @@ def test_higher_trade_value_higher_fees() -> None:
     small = calc.calculate(_fill(OrderSide.BUY, 100, 10))
     large = calc.calculate(_fill(OrderSide.BUY, 1000, 10))
     assert large.amount > small.amount
-
-
-def test_pricing_service_total_cost_buy() -> None:
-    svc = PricingService()
-    cost = svc.total_cost(_fill(OrderSide.BUY, 100, 10))
-    # Buy cost should be positive (money spent + fees)
-    assert cost.amount > Decimal("1000")  # trade value is 1000
-
-
-def test_pricing_service_total_cost_sell() -> None:
-    svc = PricingService()
-    cost = svc.total_cost(_fill(OrderSide.SELL, 100, 10))
-    # Sell cost should be negative (money received minus fees)
-    assert cost.amount < Decimal("-900")
 
 
 def test_custom_fee_calculator() -> None:

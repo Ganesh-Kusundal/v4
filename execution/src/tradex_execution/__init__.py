@@ -7,12 +7,11 @@ in their respective submodules — import from there directly.
 """
 
 from tradex_execution.engine import ExecutionEngine, RiskManager
-from tradex_execution.fees import FeeCalculator, PricingService
+from tradex_execution.fees import FeeCalculator
 from tradex_execution.fill_sources import (
     BrokerFillSource,
     FillSource,
     PaperFillSource,
-    ReplayFillSource,
     SimulatedFillSource,
 )
 from tradex_execution.order_manager import OrderManager
@@ -22,7 +21,6 @@ from tradex_execution.slippage import (
     FixedSlippageModel,
     NoSlippageModel,
     PercentageSlippageModel,
-    SlippageAwareFillSource,
     SlippageModel,
 )
 from tradex_execution.trading_cache import TradingCache
@@ -38,12 +36,8 @@ __all__ = [
     "PaperFillSource",
     "PercentageSlippageModel",
     "PositionAccountant",
-    "PositionAccountant",
-    "PricingService",
-    "ReplayFillSource",
     "RiskManager",
     "SimulatedFillSource",
-    "SlippageAwareFillSource",
     "SlippageModel",
     "TradingCache",
     "execution_projection",

@@ -1,9 +1,9 @@
 """FillModel — the single fill-resolution path shared by every execution mode.
 
-CROSS-MODE PARITY: backtest (SimulatedFillSource), paper (PaperFillSource),
-live (BrokerFillSource) and replay (ReplayFillSource) all build their Fill from
-the same price-resolution + slippage + timestamp rules, so the same input
-events produce identical fill prices and quantities in every mode (HIGH-6b).
+CROSS-MODE PARITY: backtest (SimulatedFillSource), paper (PaperFillSource) and
+live (BrokerFillSource) all build their Fill from the same price-resolution +
+slippage + timestamp rules, so the same input events produce identical fill
+prices and quantities in every mode (HIGH-6b).
 """
 
 from __future__ import annotations
@@ -12,16 +12,16 @@ from datetime import UTC, datetime
 
 from tradex_domain.enums import OrderSide, OrderType
 from tradex_domain.execution import Fill, Order, OrderRequest
-from tradex_domain.value_objects import OrderId, Price
+from tradex_domain.value_objects import Price
 
 
 class FillModel:
     """Encapsulates the COMMON fill logic shared by all fill sources.
 
     Each fill source keeps only its mode-specific concerns — Paper's LTP
-    cache lookup, Broker's ACK-only submission, Replay's recorded-fill
-    re-stamp — and delegates price resolution, slippage, the
-    ValueError-on-zero-price guard, and deterministic Fill construction here.
+    cache lookup, Broker's ACK-only submission — and delegates price
+    resolution, slippage, the ValueError-on-zero-price guard, and
+    deterministic Fill construction here.
     """
 
     def __init__(
@@ -92,15 +92,10 @@ class FillModel:
         order: Order,
         price: Price,
         timestamp: datetime,
-        order_id_override: OrderId | None = None,
     ) -> Fill:
-        """Build a Fill from an order + resolved price.
-
-        ``order_id_override`` lets a source re-stamp the fill with a different
-        order id (Replay matches the fill to the replayed order).
-        """
+        """Build a Fill from an order + resolved price."""
         return Fill(
-            order_id=order_id_override or order.order_id,
+            order_id=order.order_id,
             instrument=order.instrument,
             side=order.side,
             quantity=order.quantity,
@@ -113,41 +108,6 @@ class FillModel:
             # Same reason: attribution is only knowable from the order, so it
             # is stamped here rather than inferred downstream.
             strategy_id=order.strategy_id,
-        )
-
-    @staticmethod
-    def restamp_fill(fill: Fill, order_id: OrderId) -> Fill:
-        """Rebuild a fill with a new order id, preserving its recorded identity
-        (instrument/side/quantity/price/timestamp/product). Used by ReplayFillSource to
-        match a historical fill to the freshly minted order."""
-        return Fill(
-            order_id=order_id,
-            instrument=fill.instrument,
-            side=fill.side,
-            quantity=fill.quantity,
-            price=fill.price,
-            timestamp=fill.timestamp,
-            # Preserved, not re-derived: this fill was already priced once, and
-            # dropping the label here would re-charge it at the intraday rate.
-            product_type=fill.product_type,
-            # Preserved for the same reason — re-deriving attribution from a
-            # different order id would misattribute a replayed fill.
-            strategy_id=fill.strategy_id,
-        )
-
-    @staticmethod
-    def reprice_fill(fill: Fill, new_price: Price) -> Fill:
-        """Rebuild a fill at a new price, preserving its recorded identity
-        (instrument/side/quantity/timestamp/product/strategy)."""
-        return Fill(
-            order_id=fill.order_id,
-            instrument=fill.instrument,
-            side=fill.side,
-            quantity=fill.quantity,
-            price=new_price,
-            timestamp=fill.timestamp,
-            product_type=fill.product_type,
-            strategy_id=fill.strategy_id,
         )
 
 

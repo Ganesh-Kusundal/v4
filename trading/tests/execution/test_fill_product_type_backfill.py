@@ -1,4 +1,4 @@
-"""AC-6 — a fill carries the product of the order it came from, at all five
+"""AC-6 — a fill carries the product of the order it came from, at all three
 sites that build a ``Fill``.
 
 ``Fill.product_type`` is nullable and was added so the fee model can price a
@@ -10,12 +10,10 @@ mattered. Every producer of a ``Fill`` in the tree left the field unset, so
 intraday schedule. A DELIVERY round trip was billed 0.025% sell-side STT where
 the regime in force since 1 October 2024 charges 0.1% on both sides.
 
-Five sites, one line each:
+Three sites, one line each:
 
 ======================================  =========================================
 ``FillModel.make_fill``                 the shared builder every fill source uses
-``FillModel.restamp_fill``              replay re-stamping a recorded fill
-``SlippageAwareFillSource.submit``      re-prices a fill, so it rebuilds it
 ``LiveFillBridge._publish``             the live path, from the venue's own order
 ``PaperBroker._update_position``        the paper book
 ======================================  =========================================
@@ -52,10 +50,6 @@ from tradex_domain.value_objects import (
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fill_model import FillModel
 from tradex_execution.fill_sources import BrokerFillSource
-from tradex_execution.slippage import (
-    FixedSlippageModel,
-    SlippageAwareFillSource,
-)
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.live_fill_bridge import LiveFillBridge
 
@@ -131,62 +125,6 @@ class TestFillModelCarriesTheOrderProduct:
             for p in (ProductType.DELIVERY, ProductType.INTRADAY)
         }
         assert labels == {ProductType.DELIVERY, ProductType.INTRADAY}
-
-    def test_restamp_preserves_a_recorded_products_label(self) -> None:
-        """Replay re-stamps recorded fills; a re-stamp must not re-price them."""
-        restamped = FillModel.restamp_fill(
-            _fill(ProductType.DELIVERY), OrderId(value="replayed"),
-        )
-        assert restamped.product_type is ProductType.DELIVERY
-
-    def test_restamp_does_not_invent_a_label_it_was_not_given(self) -> None:
-        """Honest about the null: re-stamping cannot recover a dropped label, so
-        the null survives and the counter still sees it."""
-        restamped = FillModel.restamp_fill(
-            _fill(None), OrderId(value="replayed"),
-        )
-        assert restamped.product_type is None
-
-
-# ---------------------------------------------------------------------------
-# 3 — SlippageAwareFillSource, which rebuilds the fill to re-price it
-# ---------------------------------------------------------------------------
-
-
-class _LabelledSource:
-    """Inner fill source returning a fill whose product is set by the request."""
-
-    reaches_venue = False
-    position_projection_owned = False
-
-    def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
-        return _order(request.product_type), _fill(request.product_type)
-
-    def cancel(self, order_id: OrderId) -> None:
-        pass
-
-    def modify(self, order_id: OrderId, request: OrderRequest) -> None:
-        pass
-
-
-class TestSlippageWrapperPreservesTheProduct:
-    def test_the_repriced_fill_keeps_its_product(self) -> None:
-        source = SlippageAwareFillSource(
-            _LabelledSource(), FixedSlippageModel(Decimal("1")),
-        )
-        request = OrderRequest(
-            instrument=INSTRUMENT,
-            side=OrderSide.BUY,
-            order_type=OrderType.LIMIT,
-            quantity=Quantity(value=Decimal("10")),
-            price=Price(value=Decimal("2500")),
-            time_in_force=TimeInForce.DAY,
-            product_type=ProductType.DELIVERY,
-        )
-        _order_out, fill = source.submit(request)
-        assert fill is not None
-        assert fill.price.value == Decimal("2501"), "the wrapper did re-price it"
-        assert fill.product_type is ProductType.DELIVERY
 
 
 # ---------------------------------------------------------------------------

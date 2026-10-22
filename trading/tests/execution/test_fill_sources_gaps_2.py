@@ -1,20 +1,18 @@
-"""Gap tests for fill sources — PaperFillSource cache, BrokerFillSource, ReplayFillSource."""
+"""Gap tests for fill sources — PaperFillSource cache, BrokerFillSource."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
 
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-from tradex_domain.execution import Fill, OrderRequest
+from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.market import Quote
 from tradex_domain.value_objects import OrderId, Price, Quantity
 from tradex_execution.fill_sources import (
     BrokerFillSource,
     PaperFillSource,
-    ReplayFillSource,
 )
 
 
@@ -54,23 +52,3 @@ def test_broker_fill_source_position_projection_properties() -> None:
     assert source.position_projection_owned is True
     assert source.position_projection_cache == "mock_cache"
     assert source.submission_boundary_crossed is False
-
-
-def test_replay_fill_source_overrides_order_id() -> None:
-    """ReplayFillSource assigns new order_id to replayed fill."""
-    instrument = Equity.of("NSE", "REPLAY")
-    historical_fill = Fill(
-        order_id=OrderId(value="old-order-id"),
-        instrument=instrument,
-        side=OrderSide.BUY,
-        quantity=Quantity(value=Decimal("5")),
-        price=Price(value=Decimal("200")),
-        timestamp=datetime.now(UTC),
-    )
-    source = ReplayFillSource(fills=[historical_fill])
-    req = _make_request(symbol="REPLAY")
-    order, fill = source.submit(req)
-    assert fill is not None
-    # Fill's order_id should match the new order, not the historical one
-    assert fill.order_id == order.order_id
-    assert fill.order_id.value != "old-order-id"

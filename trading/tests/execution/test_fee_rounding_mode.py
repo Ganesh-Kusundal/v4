@@ -29,7 +29,7 @@ from tradex_domain import (
     Quantity,
 )
 from tradex_domain.utils import q2
-from tradex_execution.fees import FeeCalculator, PricingService
+from tradex_execution.fees import FeeCalculator
 
 _TS = datetime(2026, 8, 1, tzinfo=UTC)
 
@@ -141,7 +141,7 @@ class TestCappedBranchRoundingMode:
 
 
 class TestEveryFeePathRoundsHalfUp:
-    """equity_intraday / calculate / calculate_capped / total_cost all use q2."""
+    """equity_intraday / calculate / calculate_capped all use q2."""
 
     def test_equity_intraday_components_are_half_up(self) -> None:
         bd = FeeCalculator.equity_intraday(
@@ -160,25 +160,6 @@ class TestEveryFeePathRoundsHalfUp:
         )
         fee = FeeCalculator().calculate(_fill(OrderSide.SELL, "1234.56", "17"))
         assert fee.amount == q2(bd.total)
-
-    def test_total_cost_buy_half_paisa_rounds_up(self) -> None:
-        """``price * quantity`` can carry a true half-paisa digit: 1.005 * 1."""
-        svc = PricingService(FeeCalculator())
-        cost = svc.total_cost(_fill(OrderSide.BUY, "1.005", "1"))
-        assert cost.amount == Decimal("1.01")  # banker's would give 1.00
-
-    def test_total_cost_sell_half_paisa_rounds_away_from_zero(self) -> None:
-        """-1.005 rounds away from zero to -1.01, not to -1.00."""
-        svc = PricingService(FeeCalculator())
-        cost = svc.total_cost(_fill(OrderSide.SELL, "1.005", "1"))
-        assert cost.amount == Decimal("-1.01")
-
-    def test_total_cost_matches_half_up_reference(self) -> None:
-        svc = PricingService(FeeCalculator())
-        for price, qty in (("1.005", "1"), ("0.005", "1"), ("2.675", "3")):
-            fill = _fill(OrderSide.BUY, price, qty)
-            raw = Decimal(price) * Decimal(qty) + svc._fees.calculate(fill).amount
-            assert svc.total_cost(fill).amount == _half_up(raw), (price, qty)
 
     def test_fees_module_has_no_bare_two_dp_quantize(self) -> None:
         """Guard against reintroducing the context-default rounding.

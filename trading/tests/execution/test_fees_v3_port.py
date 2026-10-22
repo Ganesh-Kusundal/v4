@@ -1,7 +1,4 @@
-"""Tests for v3-ported fee symbols.
-
-Covers FeeBreakdown, equity_delivery, equity_intraday, vwap, slippage_bps.
-"""
+"""Tests for v3-ported fee symbols (FeeBreakdown, equity_delivery, equity_intraday)."""
 
 from __future__ import annotations
 
@@ -13,7 +10,6 @@ from tradex_domain.utils import q2
 from tradex_execution.fees import (
     FeeBreakdown,
     FeeCalculator,
-    PricingService,
 )
 
 #: Statutory delivery STT, written out here rather than imported from
@@ -137,53 +133,3 @@ class TestFeeCalculatorEquity:
             quantity=Decimal("20"),
         )
         assert fb.stt == Decimal("0")
-
-
-# ---------------------------------------------------------------------------
-# PricingService.vwap / slippage_bps
-# ---------------------------------------------------------------------------
-
-
-class TestPricingServiceStatic:
-    """Static pricing helpers."""
-
-    def test_vwap_basic(self) -> None:
-        prices = [Decimal("100"), Decimal("200")]
-        quantities = [Decimal("10"), Decimal("10")]
-        assert PricingService.vwap(prices, quantities) == Decimal("150")
-
-    def test_vwap_weighted(self) -> None:
-        prices = [Decimal("100"), Decimal("200")]
-        quantities = [Decimal("30"), Decimal("10")]
-        # (100*30 + 200*10) / (30+10) = 5000/40 = 125
-        assert PricingService.vwap(prices, quantities) == Decimal("125")
-
-    def test_vwap_empty_raises(self) -> None:
-        with pytest.raises(ValueError, match="non-empty"):
-            PricingService.vwap([], [])
-
-    def test_vwap_length_mismatch_raises(self) -> None:
-        with pytest.raises(ValueError, match="non-empty"):
-            PricingService.vwap([Decimal("1")], [])
-
-    def test_slippage_bps_positive(self) -> None:
-        # Fill price higher than expected → positive slippage for a BUY
-        result = PricingService.slippage_bps(
-            expected_price=Decimal("100"),
-            fill_price=Decimal("101"),
-        )
-        assert result == Decimal("100")  # 1% = 100 bps
-
-    def test_slippage_bps_negative(self) -> None:
-        result = PricingService.slippage_bps(
-            expected_price=Decimal("100"),
-            fill_price=Decimal("99"),
-        )
-        assert result == Decimal("-100")
-
-    def test_slippage_bps_zero_expected_raises(self) -> None:
-        with pytest.raises(ValueError, match="must not be zero"):
-            PricingService.slippage_bps(
-                expected_price=Decimal("0"),
-                fill_price=Decimal("100"),
-            )

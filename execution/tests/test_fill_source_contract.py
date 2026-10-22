@@ -31,7 +31,6 @@ from tradex_execution.fill_sources import (
     BrokerFillSource,
     FillSource,
     PaperFillSource,
-    ReplayFillSource,
     SimulatedFillSource,
 )
 
@@ -48,7 +47,7 @@ def _request() -> OrderRequest:
     )
 
 
-ALL_SOURCES = (SimulatedFillSource, PaperFillSource, ReplayFillSource)
+ALL_SOURCES = (SimulatedFillSource, PaperFillSource)
 
 
 @pytest.mark.parametrize("cls", ALL_SOURCES)

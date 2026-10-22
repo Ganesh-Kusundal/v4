@@ -1,19 +1,17 @@
-"""Tests for slippage models and SlippageAwareFillSource."""
+"""Tests for slippage models."""
 
 from __future__ import annotations
 
 from decimal import Decimal
 
-from tradex_domain.enums import OrderSide, OrderStatus, OrderType, ProductType, TimeInForce
+from tradex_domain.enums import OrderSide, OrderType, ProductType, TimeInForce
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity
-from tradex_execution.fill_sources import SimulatedFillSource
 from tradex_execution.slippage import (
     FixedSlippageModel,
     NoSlippageModel,
     PercentageSlippageModel,
-    SlippageAwareFillSource,
 )
 
 
@@ -83,53 +81,3 @@ class TestPercentageSlippageModel:
         result = model.apply(price, OrderSide.SELL, Quantity(value=Decimal("10")))
         # SELL: 1% of 100 = 1.00 subtracted
         assert result.value == Decimal("99.00")
-
-
-class TestSlippageAwareFillSource:
-    """SlippageAwareFillSource wraps an inner fill source and applies slippage."""
-
-    def test_applies_slippage_to_fill(self) -> None:
-        inner = SimulatedFillSource()
-        slippage = FixedSlippageModel(constant=Decimal("0.25"))
-        fill_source = SlippageAwareFillSource(inner, slippage)
-
-        req = _make_request(side=OrderSide.BUY, price=Decimal("100.00"))
-        order, fill = fill_source.submit(req)
-
-        assert order.status == OrderStatus.ACK
-        assert fill is not None
-        # Original price 100.00 + 0.25 slippage = 100.25
-        assert fill.price.value == Decimal("100.25")
-
-    def test_preserves_order_when_no_fill(self) -> None:
-        """When inner returns no fill, slippage wrapper also returns no fill."""
-
-        class NoFillSource:
-            def submit(self, request: OrderRequest):
-                import uuid
-
-                from tradex_domain.enums import OrderStatus
-                from tradex_domain.execution import Order
-                from tradex_domain.value_objects import OrderId
-
-                order = Order(
-                    order_id=OrderId(value=str(uuid.uuid4())),
-                    instrument=request.instrument,
-                    side=request.side,
-                    order_type=request.order_type,
-                    quantity=request.quantity,
-                    price=request.price,
-                    time_in_force=request.time_in_force,
-                    status=OrderStatus.ACK,
-                )
-                return order, None
-
-        inner = NoFillSource()
-        slippage = FixedSlippageModel(constant=Decimal("0.25"))
-        fill_source = SlippageAwareFillSource(inner, slippage)
-
-        req = _make_request()
-        order, fill = fill_source.submit(req)
-
-        assert order.status == OrderStatus.ACK
-        assert fill is None

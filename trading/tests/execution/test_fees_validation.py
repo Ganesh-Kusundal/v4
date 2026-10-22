@@ -14,7 +14,7 @@ from tradex_domain import (
     Price,
     Quantity,
 )
-from tradex_execution.fees import FeeCalculator, PricingService
+from tradex_execution.fees import FeeCalculator
 
 
 def _eq() -> Equity:
@@ -53,14 +53,6 @@ def test_equity_delivery_with_zero_price_raises() -> None:
         )
 
 
-def test_vwap_with_all_zero_quantities_raises() -> None:
-    with pytest.raises(ValueError, match="total quantity must not be zero"):
-        PricingService.vwap(
-            prices=[Decimal("100"), Decimal("200")],
-            quantities=[Decimal(0), Decimal(0)],
-        )
-
-
 def test_fee_gst_base_includes_sebi_canonical() -> None:
     """Canonical GST includes SEBI in base; legacy excludes — pinned for H1."""
     from tradex_domain.utils import q2
@@ -82,9 +74,3 @@ def test_valid_inputs_still_work() -> None:
         quantity=Decimal(10),
     )
     assert breakdown.total > 0
-
-    vwap = PricingService.vwap(
-        prices=[Decimal("100"), Decimal("200")],
-        quantities=[Decimal("10"), Decimal("10")],
-    )
-    assert vwap == Decimal("150")

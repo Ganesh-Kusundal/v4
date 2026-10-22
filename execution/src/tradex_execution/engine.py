@@ -807,8 +807,7 @@ class ExecutionEngine:
             # _apply_fill: the order is FILLED before OrderFilled is published.
             charged_fee = Decimal(0)
             if not getattr(self._fill, "position_projection_owned", False):
-                recorded = getattr(self._fill, "recorded_fee_for", None)
-                charged_fee = self._fee_processor.fee_for_fill(fill, recorded)
+                charged_fee = self._fee_processor.compute_fee(fill)
             try:
                 order = self._apply_fill_to_book(order, fill, charged_fee, cid)
             except Exception:

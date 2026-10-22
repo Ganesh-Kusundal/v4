@@ -48,18 +48,3 @@ class FeeProcessor:
                 fill, accrued,
             )
         return fee.amount
-
-    def fee_for_fill(
-        self, fill: Fill, recorded_fee_for: Any | None = None
-    ) -> Decimal:
-        """The fee to charge for *fill*: recorded if replaying, else computed.
-
-        A replay source carries the fee actually charged on the original run.
-        Using it keeps replayed history equal to the run it replays; recomputing
-        from today's rate table would silently rewrite past costs.
-        """
-        if recorded_fee_for is not None:
-            fee = recorded_fee_for(fill)
-            if fee is not None:
-                return fee
-        return self.compute_fee(fill)

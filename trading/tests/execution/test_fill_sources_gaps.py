@@ -15,7 +15,6 @@ from tradex_execution.fees import FeeCalculator
 from tradex_execution.fill_sources import (
     BrokerFillSource,
     PaperFillSource,
-    ReplayFillSource,
     SimulatedFillSource,
 )
 from tradex_execution.position_accountant import PositionAccountant
@@ -83,10 +82,6 @@ def test_simulated_cancel_is_noop() -> None:
 
 def test_paper_cancel_is_noop() -> None:
     PaperFillSource().cancel(OrderId(value="x"))
-
-
-def test_replay_cancel_is_noop() -> None:
-    ReplayFillSource(fills=[]).cancel(OrderId(value="x"))
 
 
 def test_broker_cancel_delegates_to_adapter() -> None:

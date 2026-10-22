@@ -1,17 +1,16 @@
 """Fill source abstraction — the key seam between execution modes.
 
 A FillSource is what turns an OrderRequest into an Order + optional Fill.
-Different implementations serve backtesting, paper trading, live broker
-execution, and historical replay. All price-resolving sources delegate to the
-shared ``FillModel`` so identical input events fill identically in every mode
-(cross-mode parity, HIGH-6b).
+Different implementations serve backtesting, paper trading, and live broker
+execution. All price-resolving sources delegate to the shared ``FillModel``
+so identical input events fill identically in every mode (cross-mode parity,
+HIGH-6b).
 """
 
 from __future__ import annotations
 
 import logging
 import uuid
-from decimal import Decimal
 from typing import Any, Protocol, runtime_checkable
 
 from tradex_domain.enums import OrderStatus
@@ -40,10 +39,10 @@ class FillSource(Protocol):
     """
 
     #: True when a submit can leave this process and be accepted by a venue.
-    #: False for backtest/paper/replay, where every failure is definitively
-    #: local. A source that reaches a venue must be failed toward UNKNOWN on
-    #: error: a caller may retry a REJECTED order, and retrying one that the
-    #: venue actually accepted places a second live order.
+    #: False for backtest/paper, where every failure is definitively local.
+    #: A source that reaches a venue must be failed toward UNKNOWN on error:
+    #: a caller may retry a REJECTED order, and retrying one that the venue
+    #: actually accepted places a second live order.
     reaches_venue: bool
 
     #: True when this source already applies fills to its own OMS projection,
@@ -61,7 +60,7 @@ class FillSource(Protocol):
 
     def modify(self, order_id: OrderId, request: OrderRequest) -> None:
         """Forward an order modification to the execution venue (live sources).
-        Simulated/paper/replay sources are no-ops — their OMS projection is
+        Simulated/paper sources are no-ops — their OMS projection is
         the authoritative state."""
 
 
@@ -203,7 +202,7 @@ class PaperFillSource(FillModel):
     quotes — the common case proven by
     ``test_paper_fill_convergence.py``. The divergence is intentional:
     ``PaperFillSource`` participates in the unified FillModel price
-    resolution (shared with backtest/replay), while ``PaperBroker``
+    resolution (shared with backtest), while ``PaperBroker``
     simulates broker-specific order-book mechanics.
     """
 
@@ -407,83 +406,3 @@ class BrokerFillSource(FillModel):
             self._broker.modify_super_order(order_id, request)
             return
         self._broker.modify_order(order_id, request)
-
-
-class ReplayFillSource(FillModel):
-    """Replay fill source — replays historical fills in sequence.
-
-    Fees recorded on the source fills are replayed as charged rather than
-    recomputed. The brokerage cap accrues across a partial-fill sequence, so
-    recomputing from a rate table yields a different number than the one
-    actually charged, and replayed history would then disagree with the run it
-    is replaying.
-    """
-
-    #: Never contacts a venue: every failure here is definitively local, so the
-    #: engine may file it as a rejection rather than an unknown outcome.
-    reaches_venue = False
-    #: Owns no OMS projection, so the engine applies position and cash itself.
-    position_projection_owned = False
-
-    def __init__(
-        self,
-        fills: list[Fill],
-        fees: list[Decimal | None] | None = None,
-    ) -> None:
-        super().__init__()
-        self._fills = list(fills)
-        self._fees = list(fees) if fees is not None else None
-        self._index = 0
-        self._issued: dict[int, Fill] = {}
-
-    @property
-    def replays_recorded_fees(self) -> bool:
-        """True when this source supplies recorded fees the engine must use."""
-        return self._fees is not None
-
-    def fee_for(self, index: int) -> Decimal | None:
-        """The recorded fee for fill *index*, or None when not recorded."""
-        if self._fees is None or index >= len(self._fees):
-            return None
-        return self._fees[index]
-
-    def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
-        index = self._index
-        if index >= len(self._fills):
-            # No more historical fills — return order without fill
-            order = _make_order(request, status=OrderStatus.ACK)
-            return order, None
-
-        fill = self._fills[index]
-        self._index += 1
-        # ACK + fill: OMS transitions to FILLED (see SimulatedFillSource).
-        order = _make_order(request, status=OrderStatus.ACK)
-        # Replay-specific: preserve the recorded fill but re-stamp its
-        # order_id to match the freshly minted order (via the shared FillModel).
-        fill = self.restamp_fill(fill, order.order_id)
-        # Remember what this hand-out cost so recorded_fee_for can answer for
-        # the re-stamped object the engine now holds.
-        self._issued[index] = fill
-        return order, fill
-
-    def recorded_fee_for(self, fill: Fill) -> Decimal | None:
-        """The recorded fee for the fill *fill* was produced from.
-
-        ``restamp_fill`` drops the venue trade id, so the re-stamped object is
-        matched by identity against what ``submit`` last handed out.
-        """
-        if self._fees is None:
-            return None
-        for index, issued in self._issued.items():
-            if issued is fill:
-                return self.fee_for(index)
-        return None
-
-    def cancel(self, order_id: OrderId) -> None:
-        """No-op for replay fills."""
-
-
-    def modify(self, order_id: OrderId, request: OrderRequest) -> None:
-        """No-op for replay fills."""
-
-
