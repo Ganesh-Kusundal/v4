@@ -453,18 +453,18 @@ class SQLiteIdempotencyGuard:
         key = str(correlation_id.value)
         with self._write_lock:
             try:
-                if request_hash is not None:
-                    self._conn.execute(
-                        "INSERT INTO idempotency (correlation_id, status, request_hash) "
-                        "VALUES (?, 'reserved', ?)",
-                        (key, request_hash),
-                    )
-                else:
-                    self._conn.execute(
-                        "INSERT INTO idempotency (correlation_id, status) VALUES (?, 'reserved')",
-                        (key,),
-                    )
-                self._conn.commit()
+                with self._conn:  # commit on success, ROLLBACK on IntegrityError
+                    if request_hash is not None:
+                        self._conn.execute(
+                            "INSERT INTO idempotency (correlation_id, status, request_hash) "
+                            "VALUES (?, 'reserved', ?)",
+                            (key, request_hash),
+                        )
+                    else:
+                        self._conn.execute(
+                            "INSERT INTO idempotency (correlation_id, status) VALUES (?, 'reserved')",
+                            (key,),
+                        )
                 return None  # fresh reservation
             except sqlite3.IntegrityError:
                 # Key exists — completed means replay; reserved-but-not-
@@ -534,23 +534,21 @@ class SQLiteIdempotencyGuard:
             ).decode("ascii")
         else:
             encoded = json.dumps(result, default=str)
-        with self._write_lock:
+        with self._write_lock, self._conn:
             self._conn.execute(
                 "UPDATE idempotency SET status = 'completed', result = ? "
                 "WHERE correlation_id = ?",
                 (encoded, key),
             )
-            self._conn.commit()
 
     def release(self, correlation_id: CorrelationId) -> None:
         """Release a reserved (but not completed) correlation id."""
         key = str(correlation_id.value)
-        with self._write_lock:
+        with self._write_lock, self._conn:
             self._conn.execute(
                 "DELETE FROM idempotency WHERE correlation_id = ? AND status = 'reserved'",
                 (key,),
             )
-            self._conn.commit()
 
     def close(self) -> None:
         """Close the SQLite connection."""
