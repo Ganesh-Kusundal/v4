@@ -1,13 +1,14 @@
 # TradeX v4 — Architecture, Tree & Flows
 
-> **How this document was produced.** §2 is the git-tracked file tree as of the
-> 2026-09-29 audit (1,220 leaves, duplicates included, nothing deduplicated).
-> §2.1 and §2.2 map the production `src/` leaves by architecture layer and by
-> component ownership; they are grouped maps, not exhaustive manifests. Run
-> `git ls-files '*/src'` for the authoritative list (394 leaves at the last
-> count). §2.2.1 names every duplicate basename and every path that carries it.
-> Where this document and `README.md` disagree, this document is correct
-> (see §11).
+> **How this document was produced.** §2 renders the git-tracked tree at the
+> 2026-09-29 audit (1,212 files then; 1,220 today). The rendering is not
+> exhaustive: files added after the audit are absent, and modules deleted since
+> still appear so the audit stays readable (§10 records what changed). §2.1 and
+> §2.2 map the production `src/` leaves by layer and by component ownership as
+> they stood at that audit. Run `git ls-files '*/src/*'` for the authoritative
+> current list (394 leaves at the last count). §2.2.1 names the duplicate
+> basenames in the audit snapshot. Where this document and `README.md`
+> disagree, this document is correct (see §11).
 
 ---
 
@@ -32,13 +33,15 @@ Core design commitments:
 
 ## 2. Repository tree
 
-Complete **git-tracked** inventory to leaf level. Nothing deduplicated — if the
-same basename appears in 53 directories (`__init__.py`), each path is listed
-separately. Untracked local state (`data/`, `.venv/`, token files) is omitted
-because it is not in git.
+Rendering of the **git-tracked** tree at the 2026-09-29 audit, to leaf level.
+Nothing deduplicated — if the same basename appears in 53 directories
+(`__init__.py`), each path is listed separately. Untracked local state (`data/`,
+`.venv/`, token files) is omitted because it is not in git. The rendering is
+hand-maintained and not exhaustive; `git ls-files` is authoritative for the
+current tree.
 
 ```
-v4/  (1,220 git-tracked files, listed as-is — duplicates included)
+v4/  (audit snapshot: 1,212 tracked files then, 1,220 today — duplicates included)
 ├── .agents/
 │   └── skills/
 │       ├── architect/
@@ -1353,9 +1356,9 @@ v4/  (1,220 git-tracked files, listed as-is — duplicates included)
 
 ### 2.1 Architecture map (production `src/` leaves)
 
-The production `src/` leaves, grouped by §4.2 layer (394 at the last count).
-The files also appear in §2 above under their package paths. These are grouped
-maps, not exhaustive manifests; `git ls-files '*/src'` is authoritative.
+The production `src/` leaves at the audit, grouped by §4.2 layer. The files
+also appear in §2 above under their package paths. These are grouped
+maps from the audit snapshot; `git ls-files '*/src/*'` is authoritative.
 
 ```
 L0  kernel/
@@ -1772,7 +1775,7 @@ L5  interfaces/
     └── workspace_store.py
 ```
 
-**394 production `src/` leaves at the last count.**
+**The production `src/` layers at the 2026-09-29 audit.**
 
 ### 2.2 Component map (production `src/` leaves, full paths)
 
@@ -2839,8 +2842,10 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `brokers/src/tradex_brokers/dhan/ws_streams.py`
 - `brokers/src/tradex_brokers/upstox/ws_streams.py`
 
-*134 basenames appear more than once across the 1220 tracked files.*
+*134 basenames appeared more than once in the audit snapshot.*
 ### 2.2.2 Coverage audit
+
+Measured on the current tree on 2026-10-23, not on the audit snapshot above. Counts include every tracked file under `src/` (code, `py.typed`, test data).
 
 | Layer | Package path | Leaf files |
 |---|---|---:|
@@ -2861,9 +2866,10 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 | | **Total production src** | **394** |
 | | **Total git-tracked (§2)** | **1220** |
 
-§2 lists all 1220 tracked files. §2.1 and §2.2 map the production `src/`
-leaves (394 at the last count); the same paths appear in more than one place
-by design, not by error. Where a map and the tree disagree, the tree wins.
+§2 renders the tracked tree (1,220 files today, 1,212 at the audit). §2.1
+and §2.2 map the production `src/` leaves at that audit; §2.2.2 counts them
+on the current tree (394). The same paths appear in more than one place by
+design, not by error. Where a map and the tree disagree, `git ls-files` wins.
 
 ### 2.3 Runtime wiring (composition graph)
 
@@ -3374,10 +3380,12 @@ derived from the `ReconciliationResult` marker — see §7.5.
 
 ### 7.9 Shutdown
 
-`runtime/shutdown.py` runs a registry of teardown callbacks in reverse
-registration order, collecting names instead of aborting on the first error —
-a shutdown must attempt every teardown. `ExecutionEngine` and
-`ReconciliationMonitor` are both context managers, so the common case needs no
+`TradingSession.stop()` runs composition-root stop hooks around its teardown
+body: `before` hooks (strategy shutdown) ahead of feed teardown, `after` hooks
+(tape recorder, bar aggregator) once the feed is down — including when the
+session never left `NEW`, so a failed boot cannot skip them. Every step is
+guarded, so one failing teardown does not abort the rest. `ExecutionEngine`
+and `ReconciliationMonitor` are context managers, so the common case needs no
 explicit call.
 
 ---
