@@ -18,7 +18,7 @@ repos:
 
       - id: no-hardcoded-literals
         name: no hardcoded literals
-        entry: grep -rn 'os.environ.get("TRADEX_' --include='*.py' domain/src/ config/src/ brokers/src/ execution/src/ replay/src/ strategy/src/ runtime/src/ interfaces/src/ analytics/src/ application/src/ services/ reactive/src/ observability/src/ persistence/src/ research/src/ operations/src/ | grep -v 'constants.py\|enums.py\|metrics.py' || true
+        entry: grep -rn 'os.environ.get("TRADEX_' --include='*.py' domain/src/ config/src/ brokers/src/ execution/src/ replay/src/ strategy/src/ runtime/src/ interfaces/src/ analytics/src/ application/src/ services/ reactive/src/ observability/src/ | grep -v 'constants.py\|enums.py\|metrics.py' || true
         language: system
         pass_filenames: false
         types: [python]

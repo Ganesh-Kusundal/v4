@@ -27,7 +27,6 @@ members = [
     "tradex-observability",
     "tradex-reactive",
     "tradex-replay",
-    "tradex-research",
     "tradex-runtime",
     "tradex-strategy",
 ]
@@ -53,7 +52,6 @@ dev = [
     { name = "tradex-observability", editable = "observability" },
     { name = "tradex-reactive", editable = "reactive" },
     { name = "tradex-replay", editable = "replay" },
-    { name = "tradex-research", editable = "research" },
     { name = "tradex-runtime", editable = "runtime" },
     { name = "tradex-strategy", editable = "strategy" },
 ]
@@ -1923,6 +1921,7 @@ dependencies = [
     { name = "duckdb" },
     { name = "pandas" },
     { name = "pyarrow" },
+    { name = "tradex-config" },
     { name = "tradex-domain" },
 ]
 
@@ -1931,6 +1930,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=0.10,<2" },
     { name = "pandas", specifier = ">=2,<3" },
     { name = "pyarrow", specifier = ">=14,<20" },
+    { name = "tradex-config", editable = "config" },
     { name = "tradex-domain", editable = "domain" },
 ]
 
@@ -1974,11 +1974,6 @@ requires-dist = [
     { name = "tradex-reactive", editable = "reactive" },
     { name = "tradex-strategy", editable = "strategy" },
 ]
-
-[[package]]
-name = "tradex-research"
-version = "0.1.0"
-source = { editable = "research" }
 
 [[package]]
 name = "tradex-runtime"

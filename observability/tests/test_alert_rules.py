@@ -46,7 +46,6 @@ SRC_DIRS = (
     "analytics/src",
     "market_data/src",
     "interfaces/src",
-    "research/src",
     "reactive/src",
     "application/src",
     "observability/src",

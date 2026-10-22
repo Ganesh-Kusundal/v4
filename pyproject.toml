@@ -7,7 +7,6 @@ testpaths = [
     "domain/tests",
     "brokers/tests",
     "trading/tests",
-    "research/tests",
     "observability/tests",
     "analytics/tests",
     "reactive/tests",
@@ -31,7 +30,6 @@ pythonpath = [
     "config/src",
     "domain/src",
     "brokers/src",
-    "research/src",
     "observability/src",
     "analytics/src",
     "reactive/src",
@@ -201,20 +199,6 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "market_data layer"
 type = "forbidden"
-# `tradex_research` is deliberately absent here, and that is a recorded decision
-# rather than a gap. The point-in-time universe guard belongs in the loader,
-# because the loader is what every caller (the HTTP route and the CLI) actually
-# goes through: one call site means neither can forget it and a third caller
-# cannot bypass it. The alternative considered and rejected was putting the guard
-# in the route, which would have meant breaking a deliberate rule that interface
-# routes never import research. See `.superpowers/sdd/mk3.py` (lane c4) for the
-# reasoning, and `tests/test_import_boundaries.py::_ALLOWED`, which carries the
-# matching exception.
-#
-# What this costs: `market_data` sits below `research` in the stack, so it is an
-# upward edge, and upward edges are what these contracts exist to catch. It is
-# accepted because the edge is two import lines to stdlib-only validators and
-# frozen dataclasses, not a load-bearing dependency on research behaviour.
 source_modules = ["tradex_market_data"]
 forbidden_modules = [
     "tradex_brokers",
@@ -394,7 +378,8 @@ members = [
     # "trading" was removed with the tradex_trading package: trading/ now holds
     # only tests/ and scripts/ (no installable src/), and its third-party runtime
     # deps moved onto the packages that actually import them (market_data).
-    "research",
+    # "research" was removed (WP5): zero production callers, so its package,
+    # tree, tests and build wires are gone too.
     # "operations" and "persistence" were removed with their packages (REF-15):
     # zero production importers — tradex_operations was a docs-path index and
     # tradex_persistence a re-export shim over tradex_execution.
@@ -420,7 +405,6 @@ tradex-domain = { workspace = true }
 tradex-brokers = { workspace = true }
 tradex-config = { workspace = true }
 # tradex-trading removed (package deleted; see the members comment above).
-tradex-research = { workspace = true }
 tradex-observability = { workspace = true }
 tradex-analytics = { workspace = true }
 tradex-reactive = { workspace = true }
@@ -448,7 +432,6 @@ dev = [
     # tradex-trading[datalake,api,full] removed with the package; the deps its
     # extras carried (duckdb/pandas/pyarrow) now live on tradex-market-data, and
     # the API deps (fastapi/uvicorn/httpx/websockets) on tradex-interfaces.
-    "tradex-research",
     "tradex-observability",
     "tradex-analytics",
     "tradex-reactive",

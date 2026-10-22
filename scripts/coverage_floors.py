@@ -57,7 +57,6 @@ _MEMBERS: dict[str, list[str]] = {
         "tradex_application",
         "tradex_reactive",
         "tradex_observability",
-        "tradex_research",
         "tradex_analytics",
     ],
     "tradex_ingest": ["tradex_brokers", "tradex_market_data"],

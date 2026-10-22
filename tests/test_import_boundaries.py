@@ -15,7 +15,6 @@ _SRC = {
     "domain": _ROOT / "domain/src",
     "brokers": _ROOT / "brokers/src",
     "config": _ROOT / "config/src",
-    "research": _ROOT / "research/src",
     "observability": _ROOT / "observability/src",
     "analytics": _ROOT / "analytics/src",
     "reactive": _ROOT / "reactive/src",
@@ -33,6 +32,10 @@ _INTERNAL = {
     "tradex_brokers",
     "tradex_config",
     "tradex_trading",
+    # ``tradex_research`` was deleted (WP5: zero production importers) together
+    # with its ``research/`` tree, tests and build wires. Kept here so every
+    # negative guard still fails if any package imports it again — same
+    # treatment as ``tradex_trading`` above.
     "tradex_research",
     # ``tradex_operations`` / ``tradex_persistence`` packages were deleted
     # (REF-15: zero production importers). Kept here so every negative guard
@@ -62,7 +65,6 @@ _ALLOWED: dict[str, set[str]] = {
     "domain": set(),
     "brokers": {"tradex_domain"},
     "config": {"tradex_domain"},
-    "research": {"tradex_domain"},
     "observability": set(),
     "analytics": {"tradex_domain"},
     "reactive": {"tradex_domain"},
@@ -233,7 +235,7 @@ def test_trading_composition_root_is_gone() -> None:
 def test_extracted_packages_respect_allowed_internals() -> None:
     """Each extracted package only imports its declared internal dependencies."""
     for pkg, allowed in _ALLOWED.items():
-        if pkg in {"domain", "brokers", "research", "config"}:
+        if pkg in {"domain", "brokers", "config"}:
             continue
         if pkg not in _SRC:
             continue
@@ -494,16 +496,6 @@ def test_runtime_tradex_trading_imports_are_sdk_only() -> None:
     )
 
 
-def test_research_package_never_imports_trading_brokers_or_ops() -> None:
-    forbidden = _INTERNAL - _ALLOWED["research"]
-    for path in _py_files(_SRC["research"]):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        imported = _imported_modules(tree)
-        imported -= {"tradex_research"}
-        violations = imported & forbidden
-        assert not violations, f"{path.relative_to(_ROOT)} imports {sorted(violations)}"
-
-
 # ``test_operations_package_never_imports_internal_packages`` was removed with
 # the ``operations/`` tree itself (REF-15): the package had zero production
 # importers — it only indexed paths under docs/operations/ — so there is no
@@ -677,62 +669,33 @@ def test_retired_events_stack_is_not_imported() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Wave C6 / extraction — research + execution boundary gates
+# Wave C6 / extraction — deleted-research + execution boundary gates
 # ---------------------------------------------------------------------------
 #
-# After Wave-1 strangler extraction, the canonical research tree is
-# ``research/src/tradex_research``. The trading path is a compatibility shim
-# that may import ``tradex_research`` only.
+# The ``research/`` tree and the trading-path research shim are deleted (WP5:
+# neither had a production caller). The surviving Wave-C6 rules are the
+# negative ones, which only get stronger now that the package is gone:
+# interface/routes must never import research again, and execution must never
+# import fastapi.
 #
 # Boundaries:
-#   1. research package must not import fastapi / tradex_brokers / sqlite3
-#   2. interface/routes must not import research (shim or package)
-#   3. execution must not import fastapi
+#   1. interface/routes must not import research (deleted package or old shim)
+#   2. execution must not import fastapi
 
-_RESEARCH_PACKAGE_SRC = _ROOT / "research/src/tradex_research"
-_RESEARCH_SHIM_SRC = _ROOT / "trading/src/tradex_trading/research"
 _ROUTES_SRC = _ROOT / "interfaces/src/tradex_interfaces/routes"
 _EXECUTION_SRC = _ROOT / "execution/src/tradex_execution"
 
-_RESEARCH_FORBIDDEN_TOPLEVEL = {"fastapi", "tradex_brokers", "sqlite3"}
 _EXECUTION_FORBIDDEN_TOPLEVEL = {"fastapi"}
+#: Both names are deleted modules, not live code. Keeping them here is the
+#: negative guard: a route that re-imports either one fails the build.
 _RESEARCH_DOTTED_PREFIXES = (
     "tradex_trading.research",
     "tradex_research",
 )
 
 
-def test_research_does_not_import_fastapi_brokers_or_sqlite() -> None:
-    """Canonical research package must stay offline and store-free."""
-    for path in _py_files(_RESEARCH_PACKAGE_SRC):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        imported = _imported_modules(tree)
-        violations = imported & _RESEARCH_FORBIDDEN_TOPLEVEL
-        assert not violations, (
-            f"{path.relative_to(_ROOT)} imports {sorted(violations)}; "
-            "research must not depend on fastapi, tradex_brokers, or sqlite3"
-        )
-
-
-def test_research_shim_only_imports_tradex_research() -> None:
-    """Compatibility shims may re-export tradex_research; nothing else."""
-    for path in _py_files(_RESEARCH_SHIM_SRC):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        imported = _imported_modules(tree)
-        # Self-package and the extracted package are the only internals allowed.
-        extras = (imported & _INTERNAL) - {"tradex_trading", "tradex_research"}
-        assert not extras, (
-            f"{path.relative_to(_ROOT)} imports {sorted(extras)}; "
-            "research shim must only re-export tradex_research"
-        )
-        violations = imported & _RESEARCH_FORBIDDEN_TOPLEVEL
-        assert not violations, (
-            f"{path.relative_to(_ROOT)} imports {sorted(violations)}"
-        )
-
-
 def test_interface_routes_do_not_import_research() -> None:
-    """interface/routes/* must not import research (package or shim)."""
+    """interface/routes/* must not import research (deleted package or old shim)."""
     offenders: list[str] = []
     for path in _py_files(_ROUTES_SRC):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -772,14 +735,6 @@ def test_execution_does_not_import_fastapi() -> None:
 
 def test_wave_c6_scan_roots_are_not_empty() -> None:
     """Guard the extraction scans against silently passing on missing directories."""
-    assert _py_files(_RESEARCH_PACKAGE_SRC), (
-        f"no .py files found under {_RESEARCH_PACKAGE_SRC.relative_to(_ROOT)}; "
-        "the research package boundary scan is not looking at anything"
-    )
-    # The research compatibility shim under ``trading/src/tradex_trading/research``
-    # was removed with the rest of the ``tradex_trading`` tree, so it is no longer
-    # a scan root; ``_RESEARCH_SHIM_SRC`` stays defined for the negative-path
-    # guard above, which is now a vacuous pass over a directory that is gone.
     assert _py_files(_ROUTES_SRC), (
         f"no .py files found under {_ROUTES_SRC.relative_to(_ROOT)}; "
         "the routes boundary scan is not looking at anything"
