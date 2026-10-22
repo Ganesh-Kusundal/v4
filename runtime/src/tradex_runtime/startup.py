@@ -505,7 +505,10 @@ def boot(
     if broker is None:
         if cfg.mode == "live":
             from tradex_runtime.live import build_broker_from_env
-            broker = build_broker_from_env(cfg.broker_id.value)
+            broker = build_broker_from_env(
+                cfg.broker_id.value,
+                allow_order_operations=cfg.live_orders_enabled,
+            )
         else:
             broker = {
                 BrokerId.PAPER: PaperBroker,

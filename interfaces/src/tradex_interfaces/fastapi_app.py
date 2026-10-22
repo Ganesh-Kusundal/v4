@@ -458,9 +458,8 @@ def serve_app() -> FastAPI:
     factory invocation is outside enforcement of the loopback policy.
     """
     import os
-    from dataclasses import replace
 
-    from tradex_config.env import from_env
+    from tradex_config.env import from_env, serve_config
     from tradex_domain import BrokerId
     from tradex_runtime.startup import boot
 
@@ -485,20 +484,19 @@ def serve_app() -> FastAPI:
     # single composition point that can join the two package halves.
     from tradex_interfaces.cli import build_reconciliation_monitor
 
-    config = from_env()
+    config = serve_config(from_env(), broker_id=BrokerId(broker), mode=mode)
+    wire = bool(config.execution.strategy_ids) if mode == "live" else False
     if mode == "paper":
         session = boot(
             config, wire_strategies=False,
             reconciliation_monitor_factory=build_reconciliation_monitor,
         )
     elif mode == "live":
-        config = replace(config, broker_id=BrokerId(broker), live_enabled=True)
         session = boot(
-            config, wire_strategies=True,
+            config, wire_strategies=wire,
             reconciliation_monitor_factory=build_reconciliation_monitor,
         )
     else:
-        config = replace(config, broker_id=BrokerId(broker), mode=mode)
         session = boot(
             config, wire_strategies=False,
             reconciliation_monitor_factory=build_reconciliation_monitor,

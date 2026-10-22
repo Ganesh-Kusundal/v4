@@ -12,7 +12,6 @@ import argparse
 import json
 import os
 import sys
-from dataclasses import replace
 from decimal import Decimal
 from typing import Any
 
@@ -469,13 +468,9 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
             # can carry one. from_env is the only route that reads the
             # operator's TRADEX_RISK_* policy. The explicit --broker argument
             # is honoured over the env default.
-            from tradex_config.env import from_env
+            from tradex_config.env import from_env, serve_config
 
-            config = replace(
-                from_env(),
-                broker_id=broker_id,
-                live_enabled=broker_id is not BrokerId.PAPER,
-            )
+            config = serve_config(from_env(), broker_id=broker_id, mode=mode)
             # Build the reconciliation daemon from inside the boot, not after
             # it: boot() calls session.start() before it returns, so a monitor
             # assigned post-hoc would never be started. Passing a factory lets
@@ -485,7 +480,9 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
             # factory is defined here rather than in tradex_runtime.
             session = boot(
                 config,
-                wire_strategies=True,
+                wire_strategies=(
+                    bool(config.execution.strategy_ids) if mode == "live" else False
+                ),
                 reconciliation_monitor_factory=build_reconciliation_monitor,
             )
         assert session is not None
