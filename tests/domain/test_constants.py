@@ -484,17 +484,11 @@ class TestErrorMessages:
     def test_unreadable_instrument_placeholder(self):
         assert C.UNREADABLE_INSTRUMENT_PLACEHOLDER == "<unreadable:instrument>"
 
-    def test_idempotency_replay(self):
-        assert C.IDEMPOTENCY_REPLAY == "idempotency_replay"
-
     def test_idempotency_in_flight(self):
         assert C.IDEMPOTENCY_IN_FLIGHT == "idempotency_in_flight"
 
     def test_idempotency_key_header(self):
         assert C.IDEMPOTENCY_KEY_HEADER == "Idempotency-Key"
-
-    def test_submitted_status(self):
-        assert C.SUBMITTED_STATUS == "SUBMITTED"
 
     def test_modified_status(self):
         assert C.MODIFIED_STATUS == "modified"

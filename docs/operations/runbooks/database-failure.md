@@ -1,6 +1,6 @@
 # Runbook: Database / persistence failure (SQLite & workspace)
 
-**Scope:** Optional order/idempotency SQLite (`PersistenceConfig.path`), workspace blob DB (`TRADEX_WORKSPACE_DB`), and runtime directory (`TRADEX_RUNTIME_DIR`).
+**Scope:** Persistence SQLite (event log + idempotency, `PersistenceConfig.path`), workspace blob DB (`TRADEX_WORKSPACE_DB`), and runtime directory (`TRADEX_RUNTIME_DIR`).
 
 **Severity:** HIGH for order SQLite (durability/idempotency); MEDIUM for workspace (layout loss, not trading truth).
 
@@ -16,7 +16,7 @@
 
 | Signal | How to check |
 |--------|----------------|
-| Logs | Exceptions from `SQLiteOrderStore`, `attach_order_persistence`, workspace routes. |
+| Logs | Exceptions from `SQLiteEventStore`, `SQLiteIdempotencyGuard`, workspace routes. |
 | Disk | `df` on volume hosting DB; SQLite WAL growth. |
 | API | Order mutations fail with 5xx; workspace 409/conflict responses. |
 | Files | Configured `persistence.path`; `TRADEX_WORKSPACE_DB` if set. |
@@ -37,7 +37,7 @@ curl -sS http://127.0.0.1:8000/metrics | rg 'engine\.errors|bus\.messages\.subsc
 
 ## Diagnose
 
-1. **Order DB vs workspace DB** — separate concerns; identify which file errors.
+1. **Persistence DB vs workspace DB** — separate concerns; identify which file errors.
 2. **Read-only filesystem / permissions:** User running `serve` must write runtime dir.
 3. **Corruption:** `PRAGMA integrity_check` not `ok`.
 4. **Multi-process:** Two live writers corrupt SQLite — enforce single writer lock (live boot).
@@ -46,13 +46,13 @@ curl -sS http://127.0.0.1:8000/metrics | rg 'engine\.errors|bus\.messages\.subsc
 
 ## Recover
 
-### Order / idempotency SQLite
+### Persistence / idempotency SQLite
 
 1. Stop process cleanly (`session.stop()` / SIGTERM).
 2. Backup `{path}`, `{path}-wal`, `{path}-shm`.
 3. Run `PRAGMA integrity_check`; if corrupt, restore from backup or rebuild empty store **only** after broker reconcile ([oms-recovery.md](./oms-recovery.md)).
 4. For stuck idempotency keys, follow store error guidance: reconcile with broker before `release()`.
-5. Restart with verified `PersistenceConfig.path`; confirm `attach_order_persistence` subscribing.
+5. Restart with verified `PersistenceConfig.path`; confirm the event log opens and boot logs `OMS event-sourced recovery complete` ([oms-recovery.md](./oms-recovery.md)).
 
 ### Workspace DB
 

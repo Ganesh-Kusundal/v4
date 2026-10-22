@@ -14,7 +14,7 @@ from tradex_domain.events import (
     OrderFilled,
 )
 from tradex_domain.execution import Order
-from tradex_domain.protocols import EventStore, OrderRepository
+from tradex_domain.protocols import EventStore
 from tradex_domain.value_objects import Money, Price, Quantity
 
 from tradex_execution.trading_cache import TradingCache
@@ -58,61 +58,6 @@ class InMemoryEventStore:
     def replay(self, stream: str = "orders") -> Iterator[DomainEvent]:
         del stream
         return iter(tuple(self._events))
-
-
-class SessionRecovery:
-    """Rebuild an OMS projection from an event store.
-
-    Wave C1 audit events (``RiskDecision``, ``BrokerOrderRequested``,
-    ``CancelRequested``, ``UnknownSubmission``, ``ReconciliationResult``)
-    are replayed and counted in ``events_replayed`` but do not mutate the
-    order repository — only carriers with an ``order`` attribute or
-    ``OrderFilled`` update the projection.
-    """
-
-    def __init__(self, event_store: EventStore, order_repository: OrderRepository) -> None:
-        self._event_store = event_store
-        self._order_repository = order_repository
-
-    def recover(self) -> RecoveryResult:
-        events = 0
-        orders = 0
-        for event in self._event_store.replay("orders"):
-            events += 1
-            # Direct order carrier (OrderPlaced, OrderCancelled, OrderRejected,
-            # BrokerOrderAcknowledged, …)
-            order = getattr(event, "order", None)
-            if order is not None:
-                self._order_repository.save(order)
-                orders += 1
-            elif isinstance(event, OrderFilled):
-                # Fill carrier: reconstruct a minimal Order so the repository
-                # has a record even when the matching OrderPlaced event was lost.
-                fill = event.fill
-                existing = self._order_repository.get(fill.order_id.value)
-                if existing is None:
-
-                    from tradex_domain.enums import OrderStatus, OrderType, TimeInForce
-                    from tradex_domain.value_objects import Price, Quantity
-
-                    stub = Order(
-                        order_id=fill.order_id,
-                        instrument=fill.instrument,
-                        side=fill.side,
-                        order_type=OrderType.MARKET,
-                        quantity=Quantity(value=fill.quantity.value),
-                        price=Price(value=fill.price.value),
-                        time_in_force=TimeInForce.DAY,
-                        status=OrderStatus.FILLED,
-                        filled_quantity=Quantity(value=fill.quantity.value),
-                    )
-                    self._order_repository.save(stub)
-                    orders += 1
-        return RecoveryResult(
-            orders_recovered=orders,
-            events_replayed=events,
-            last_sequence=events,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,10 +232,10 @@ def recover_trading_cache(
 ) -> RecoveryOutcome:
     """Rebuild orders, positions, and cash by replaying *event_store*.
 
-    Order carriers are projected via :class:`SessionRecovery`. Each
-    ``OrderFilled`` is then re-applied through the same OMS helpers used at
-    runtime, so ``filled_quantity`` and open lots match a live engine after a
-    crash. Cash folds through the shared ledger rather than a parallel model.
+    Order carriers are projected in stream order. Each ``OrderFilled`` is then
+    re-applied through the same OMS helpers used at runtime, so
+    ``filled_quantity`` and open lots match a live engine after a crash. Cash
+    folds through the shared ledger rather than a parallel model.
 
     Returns a :class:`RecoveryOutcome`. Its ``cash`` is ``None`` when the log
     carries no opening anchor: the book is still rebuilt — orders and positions

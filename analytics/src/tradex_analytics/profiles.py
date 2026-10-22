@@ -519,33 +519,6 @@ def compute_market_profile(
     return {"sessions": sessions, "options": options}
 
 
-def naked_levels(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """Prior-session levels no later session has traded back through — the
-    "naked" POC / VAH / VAL that so often act as magnets. Oldest first, each
-    tagged with the session it came from."""
-    out: list[dict[str, Any]] = []
-    sessions = result["sessions"]
-    for i in range(len(sessions)):
-        for kind in ("poc", "vah", "val"):
-            price = sessions[i][kind]
-            touched = False
-            for j in range(i + 1, len(sessions)):
-                if price <= sessions[j]["high"] and price >= sessions[j]["low"]:
-                    touched = True
-                    break
-            if not touched:
-                out.append({"time": sessions[i]["startTime"], "price": price, "kind": kind})
-    return out
-
-
-def row_of(price: float, options: dict[str, Any]) -> float:
-    """Round a price onto the profile's row grid — handy for hit-testing."""
-    return bucket_price(
-        price,
-        options["tickSize"] * max(1, math.floor(options["rowTicks"])),
-    )
-
-
 # --- footprint --------------------------------------------------------------
 
 def compute_footprint(
@@ -601,62 +574,6 @@ def compute_footprint(
         out["close"] = prices[-1]
         out["high"] = max(prices)
         out["low"] = min(prices)
-    return out
-
-
-def diagonal_imbalances(cells: list[dict[str, Any]], ratio: float = 3) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for i in range(len(cells)):
-        here = cells[i]
-        below = cells[i + 1] if i + 1 < len(cells) else None
-        above = cells[i - 1] if i - 1 >= 0 else None
-        if below is not None and here["askVol"] >= ratio * max(1, below["bidVol"]):
-            out.append({"price": here["price"], "side": "buy"})
-        if above is not None and here["bidVol"] >= ratio * max(1, above["askVol"]):
-            out.append({"price": here["price"], "side": "sell"})
-    return out
-
-
-def cumulative_delta(bars: list[dict[str, Any]]) -> list[float]:
-    out: list[float] = []
-    acc = 0
-    for b in bars:
-        acc += b["delta"]
-        out.append(acc)
-    return out
-
-
-def stacked_imbalances(
-    cells: list[dict[str, Any]], ratio: float = 3, min_stack: int = 3
-) -> list[dict[str, Any]]:
-    imb = diagonal_imbalances(cells, ratio)
-    by_side: dict[float, str] = {}
-    for i in imb:
-        by_side[i["price"]] = i["side"]
-    out: list[dict[str, Any]] = []
-    run: dict[str, Any] | None = None
-    for c in cells:
-        side = by_side.get(c["price"])
-        if side is not None and (run is None or run["side"] == side):
-            if run is None:
-                run = {"side": side, "prices": []}
-            run["prices"].append(c["price"])
-        else:
-            if run is not None and len(run["prices"]) >= min_stack:
-                out.append({
-                    "startPrice": run["prices"][0],
-                    "endPrice": run["prices"][-1],
-                    "side": run["side"],
-                    "count": len(run["prices"]),
-                })
-            run = {"side": side, "prices": [c["price"]]} if side is not None else None
-    if run is not None and len(run["prices"]) >= min_stack:
-        out.append({
-            "startPrice": run["prices"][0],
-            "endPrice": run["prices"][-1],
-            "side": run["side"],
-            "count": len(run["prices"]),
-        })
     return out
 
 

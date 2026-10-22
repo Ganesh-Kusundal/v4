@@ -11,7 +11,7 @@
 | `GET /health/ready` | Session + feed readiness (503 when not ready) |
 | WS `/ws/stream` `feed_status` | Same readiness facts as UI gate (`live_orders_enabled`) |
 
-**Checklist source:** Target architecture operations requirements (`docs/target-architecture-design.md` §8) and Phase 10 observability list (`docs/deep-refactor-plan.md` — feed age, gaps, drops, resync duration, order latency, rejection reasons, unknown outcomes, slippage, exposure, drawdown, reconciliation drift).
+**Checklist source:** Operations requirements and live gates in [`ARCHITECTURE.md`](../ARCHITECTURE.md), plus the Phase 10 observability list (feed age, gaps, drops, resync duration, order latency, rejection reasons, unknown outcomes, slippage, exposure, drawdown, reconciliation drift).
 
 Legend: **Implemented** = emitted in code today; **Planned** = required by checklist, not yet wired or partial.
 

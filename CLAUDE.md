@@ -444,7 +444,7 @@ What follows are the invariants, which do not drift:
 domain/          → Pure domain types (Equity, Candle, Order, Signal, etc.)
 brokers/         → Broker adapters (Dhan, Upstox, Paper)
 trading/         → Tests + legacy scripts (the `tradex_trading` package was REMOVED; nothing imports it)
-Dependencies/    → Universe CSVs (nifty50/100/200/500) + `nse_delistings.csv` (438 rows)
+Dependencies/    → Universe CSVs (nifty50/100/200/500)
 data/            → Parquet datalake (ohlcv/) + `quarantine/` for unreadable files
 runtime/         → Token state, broker runtime files
 config/          → `tradex_config` (env loading, schema)

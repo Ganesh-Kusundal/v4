@@ -5,7 +5,7 @@ You are a dead code elimination specialist. Your job is to remove provably dead 
 
 ## Context
 - **Repository:** /Users/apple/Downloads/v2-cleanup-remove-dead-temp-legacy-2026-07-31/v4
-- **Plan:** PREDEPLOY_SYSTEM_REVIEW.md identifies 25,000+ lines of dead code
+- **Plan:** `docs/superpowers/specs/2026-10-22-v4-predeploy-remediation-design.md`
 - **Goal:** Delete dead code, verify no regressions, commit changes
 
 ## Tasks (in order)

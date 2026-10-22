@@ -6,9 +6,9 @@
 
 ## When this applies
 
-- Process restart with `PersistenceConfig.path` pointing at SQLite order store.
+- Process restart with `PersistenceConfig.path` pointing at the SQLite event log.
 - Empty or partial order list in UI/API after restart while broker shows working orders.
-- `SessionRecovery.recover()` used in tests/single-process flows (event store replay).
+- Boot replay through `recover_trading_cache()` (event log → `TradingCache`).
 - Startup logs from live reconciliation (`startup drift`, order-book refresh).
 
 ## Detection
@@ -18,8 +18,8 @@
 | API | `GET /orders` / CLI `orders` empty or stale vs broker portal. |
 | Startup | `_run_startup_reconciliation` warnings; session stuck in `NEW` if reconcile tripped kill switch. |
 | Persistence | SQLite file at configured path (default opt-in — in-memory if unset). |
-| Events | Bus persistence via `attach_order_persistence` mirroring lifecycle events. |
-| Recovery result | `SessionRecovery` → `orders_recovered`, `events_replayed` (operator scripts/tests). |
+| Events | The engine appends every order-lifecycle event to `SQLiteEventStore` at `PersistenceConfig.path`. |
+| Recovery result | `recover_trading_cache` → `events_replayed`, `orders_recovered` (boot log line `OMS event-sourced recovery complete`). |
 
 ```bash
 # After serve boot (example)
@@ -38,8 +38,8 @@ ls -la "${TRADEX_RUNTIME_DIR:-.tradex_v4}"  # runtime + optional DB path from co
 
 1. **Persistence enabled?** If `path` is None, OMS is in-memory only — restart loses local state; broker is truth.
 2. **SQLite integrity:** File readable, no corruption errors on boot; check idempotency table for stuck reservations ([unknown-submission.md](./unknown-submission.md)).
-3. **Event replay vs broker reconcile:** Target architecture expects event store authoritative; current production path emphasizes broker orderbook refresh at startup for status alignment.
-4. **Bracket legs:** Verify protective columns restored from SQLite (`stop_loss_price`, `target_price`).
+3. **Event replay then broker reconcile:** the event log is the sole persistence authority; boot replays it before reconciling with the broker orderbook.
+4. **Bracket legs:** Verify protective fields (`stop_loss_price`, `target_price`) restored from the event log.
 5. **Writer lock:** Live mode single-writer — ensure no second live process shares SQLite.
 
 ## Recover
@@ -59,12 +59,10 @@ ls -la "${TRADEX_RUNTIME_DIR:-.tradex_v4}"  # runtime + optional DB path from co
 3. Apply intentional cache updates from broker for status mismatches.
 4. Resolve UNKNOWN orders before clearing kill switch.
 
-### C. Event-backed rebuild (`SessionRecovery`)
+### C. Event-backed rebuild (`recover_trading_cache`)
 
-For deployments with `EventStore` + `OrderRepository` wired:
-
-1. `SessionRecovery(event_store, order_repository).recover()`.
-2. Verify `orders_recovered` vs expected event count.
+1. `recover_trading_cache(event_store, cache)` — boot calls this before broker reconciliation.
+2. Verify the boot log's `events_replayed` / `orders_recovered` against the expected event count.
 3. Still run broker reconcile before live admission — projection alone is not sufficient for money.
 
 ### D. Feed + OMS

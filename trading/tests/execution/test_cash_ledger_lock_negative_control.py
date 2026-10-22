@@ -76,12 +76,12 @@ Check before trusting a mutation run:
 If that prints a path outside the worktree, shadow the install by putting
 the worktree's source roots ahead of the editable ones. ``PYTHONPATH`` is
 colon-separated, and the order matters (``execution/src`` first, then
-``domain/src``, ``reactive/src``, ``brokers/src``, ``research/src``), so build
+``domain/src``, ``reactive/src``, ``brokers/src``), so build
 it per-root rather than as one long literal:
 
     W=<worktree>
     export PYTHONPATH="$W/execution/src:$W/domain/src:$W/reactive/src"
-    export PYTHONPATH="$PYTHONPATH:$W/brokers/src:$W/research/src"
+    export PYTHONPATH="$PYTHONPATH:$W/brokers/src"
 
 Re-run the check and confirm it now names the worktree file. Do this before
 reading any result as evidence, and re-check after any environment change:

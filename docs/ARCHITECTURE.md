@@ -99,8 +99,7 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   ├── nifty100_list.csv
 │   ├── nifty200_list.csv
 │   ├── nifty500_list.csv
-│   ├── nifty50_list.csv
-│   └── nse_delistings.csv
+│   └── nifty50_list.csv
 ├── analytics/
 │   ├── src/
 │   │   └── tradex_analytics/
@@ -516,13 +515,8 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │       ├── 2026-09-24-solid-platform-mega-design.md
 │   │       ├── 2026-09-29-production-readiness-fixes-design.md
 │   │       └── 2026-09-29-production-readiness-programme-design.md
-│   ├── ARCHITECTURAL-AUDIT-2026-09-25.md
 │   ├── ARCHITECTURE.md
-│   ├── README.md
-│   ├── architecture-review.md
-│   ├── deep-refactor-plan.md
-│   ├── proposed-target-architecture.md
-│   └── target-architecture-design.md
+│   └── README.md
 ├── domain/
 │   ├── src/
 │   │   └── tradex_domain/
@@ -688,30 +682,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │   ├── test_metrics_labels_buckets.py
 │   │   └── test_observability_package_import.py
 │   └── pyproject.toml
-├── poc/
-│   ├── data/
-│   │   └── build_0950_dataset.py
-│   ├── research/
-│   │   ├── duckdb/
-│   │   │   ├── backtest_0945.py
-│   │   │   ├── chartink_breakout_backtest.csv
-│   │   │   ├── chartink_breakout_study.py
-│   │   │   ├── condition_breakdown.py
-│   │   │   ├── obv_acceptance_study.py
-│   │   │   ├── open_drive_criteria_study.py
-│   │   │   ├── opening_drive_study.py
-│   │   │   ├── rs_dtw_topgainer_study.py
-│   │   │   ├── run_6criteria_aug31.py
-│   │   │   ├── screener_optimize_study.py
-│   │   │   ├── screener_v2_optimize.py
-│   │   │   ├── select_0945.py
-│   │   │   ├── select_0945_final.py
-│   │   │   └── volume_price_entry_study.py
-│   │   ├── scan_0945_forward.py
-│   │   └── vp_strategy_backtest.py
-│   ├── README.md
-│   ├── rank_0950.py
-│   └── timesfm_0950.py
 ├── reactive/
 │   ├── src/
 │   │   └── tradex_reactive/
@@ -735,17 +705,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │       └── walk_forward.py
 │   ├── tests/
 │   │   └── test_replay_package_import.py
-│   └── pyproject.toml
-├── research/
-│   ├── src/
-│   │   └── tradex_research/
-│   │       ├── __init__.py
-│   │       ├── manifests.py
-│   │       ├── pit.py
-│   │       └── py.typed
-│   ├── tests/
-│   │   ├── test_manifests.py
-│   │   └── test_pit.py
 │   └── pyproject.toml
 ├── runtime/
 │   ├── src/
@@ -1291,9 +1250,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │   │   ├── test_validation_entry_point.py
 │   │   │   ├── test_walk_forward.py
 │   │   │   └── test_walk_forward_validity.py
-│   │   ├── research/
-│   │   │   ├── test_manifests.py
-│   │   │   └── test_pit.py
 │   │   ├── runtime/
 │   │   │   ├── __init__.py
 │   │   │   ├── conftest.py
@@ -1398,8 +1354,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 ├── package.json
 ├── pyproject.toml
 ├── skills-lock.json
-├── trading-predeploy-plan.md
-├── trading-predeploy-review.md
 └── uv.lock
 ```
 
@@ -1442,11 +1396,6 @@ L0  kernel/
 │   ├── metrics.py
 │   ├── py.typed
 │   └── tracing.py
-├── research/src/tradex_research/  (4 files)
-│   ├── __init__.py
-│   ├── manifests.py
-│   ├── pit.py
-│   └── py.typed
 
 L1  adapters/
 ├── reactive/src/tradex_reactive/  (5 files)
@@ -2251,12 +2200,6 @@ Observability metrics & tracing/  (4 files)
 ├── observability/src/tradex_observability/metrics.py
 ├── observability/src/tradex_observability/py.typed
 └── observability/src/tradex_observability/tracing.py
-
-Research PIT / manifests/  (4 files)
-├── research/src/tradex_research/__init__.py
-├── research/src/tradex_research/manifests.py
-├── research/src/tradex_research/pit.py
-└── research/src/tradex_research/py.typed
 ```
 
 ### 2.2.1 Duplicate basenames (as-is)
@@ -2293,7 +2236,6 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `observability/src/tradex_observability/__init__.py`
 - `reactive/src/tradex_reactive/__init__.py`
 - `replay/src/tradex_replay/__init__.py`
-- `research/src/tradex_research/__init__.py`
 - `runtime/src/tradex_runtime/__init__.py`
 - `services/duckdb-analytics/src/duck_analytics/__init__.py`
 - `services/duckdb-analytics/src/duck_analytics/mcp/__init__.py`
@@ -2331,7 +2273,6 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `pyproject.toml`
 - `reactive/pyproject.toml`
 - `replay/pyproject.toml`
-- `research/pyproject.toml`
 - `runtime/pyproject.toml`
 - `services/duckdb-analytics/pyproject.toml`
 - `strategy/pyproject.toml`
@@ -2349,7 +2290,6 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `observability/src/tradex_observability/py.typed`
 - `reactive/src/tradex_reactive/py.typed`
 - `replay/src/tradex_replay/py.typed`
-- `research/src/tradex_research/py.typed`
 - `runtime/src/tradex_runtime/py.typed`
 - `strategy/src/tradex_strategy/py.typed`
 
@@ -2829,14 +2769,6 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `trading/tests/analytics/test_engine_gaps.py`
 - `trading/tests/execution/test_engine_gaps.py`
 
-**`test_manifests.py`** (2 copies)
-- `research/tests/test_manifests.py`
-- `trading/tests/research/test_manifests.py`
-
-**`test_pit.py`** (2 copies)
-- `research/tests/test_pit.py`
-- `trading/tests/research/test_pit.py`
-
 **`test_position_math.py`** (2 copies)
 - `domain/tests/test_position_math.py`
 - `trading/tests/execution/test_position_math.py`
@@ -2928,7 +2860,6 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 |---|---|---:|
 | L0 | `domain/src/tradex_domain/` | 26 |
 | L0 | `observability/src/tradex_observability/` | 4 |
-| L0 | `research/src/tradex_research/` | 4 |
 | L1 | `reactive/src/tradex_reactive/` | 5 |
 | L1 | `config/src/tradex_config/` | 5 |
 | L1 | `brokers/src/tradex_brokers/` | 61 |
@@ -3002,12 +2933,11 @@ flowchart TB
 | `tradex_duckdb` | 12 | 1,673 | Read-only DuckDB analytics service over the datalake |
 | `tradex_config` | 4 | 871 | App config schema, env loading, secret-file permission checks |
 | `tradex_reactive` | 4 | 691 | RxPY bus, thread-safe bus, SQL event log |
-| `tradex_research` | 3 | 622 | Point-in-time / survivorship guards, universe manifests |
 | `tradex_observability` | 3 | 637 | Metrics registry, tracing |
 | `tradex_application` | 2 | 108 | Order use-cases above the engine |
-| **Total** | **~252** | **~74,800** | (excludes generated `_pb2`) |
+| **Total** | **~249** | **~74,200** | (excludes generated `_pb2`) |
 
-Test weight: **~150k LOC across 614 test files**, mostly under `trading/tests/`.
+Test weight: **~150k LOC across 612 test files**, mostly under `trading/tests/`.
 
 ---
 
@@ -3019,24 +2949,24 @@ which is a subset of what `tests/test_import_boundaries.py` *permits*.
 ```
                        tradex_domain            (imports nothing internal)
                             │
-       ┌──────────┬─────────┴───────┬──────────────┬──────────────┐
-       ▼          ▼                 ▼              ▼              ▼
- tradex_     tradex_          tradex_        tradex_       tradex_
-  brokers     config           reactive      analytics     research
-       │          │                 │              │              │
-       │          │                 ▼              │              │
-       │          │          tradex_observability │              │
-       │          │                 │              │              │
-       │          │                 └──────┬───────┘              │
-       │          │                        ▼                      │
-       │          │                tradex_execution ◄────────┐     │
-       │          │                  │    │                  │     │
-       │          │                  ▼    ▼                  │     │
-       │          │          tradex_  tradex_                │     │
-       │          │           strategy analytics ◄─────────────┘     │
-       │          │               │                                  │
-       │          │               └──────────┐        ┌──────────────┘
-       │          │                          ▼        ▼
+       ┌──────────┬─────────┴───────┬──────────────┐
+       ▼          ▼                 ▼              ▼
+ tradex_     tradex_          tradex_        tradex_
+  brokers     config           reactive      analytics
+       │          │                 │              │
+       │          │                 ▼              │
+       │          │          tradex_observability  │
+       │          │                 │              │
+       │          │                 └──────┬───────┘
+       │          │                        ▼
+       │          │                tradex_execution
+       │          │                  │    │
+       │          │                  ▼    ▼
+       │          │          tradex_  tradex_
+       │          │           strategy analytics
+       │          │               │
+       │          │               └──────────┐
+       │          │                          ▼
        │          │                   tradex_replay  tradex_market_data
        │          │                          │        │
        │          └──────────────────────────┼────────┘
@@ -3403,7 +3333,6 @@ snapshot *behind* the log) is merely stale and is handled normally.
 ```
 ParquetBacktestLoader                     market_data/backtest_loader.py
    │  load(universe="nifty100", timeframe=D1, max_workers=4)
-   │  guarded by tradex_research.pit      ← survivorship / point-in-time
    ▼
 candles ──▶ BacktestEngine                replay/backtest.py
    │            resolves sizer (max_order_value, risk_fraction, equity)

@@ -368,19 +368,6 @@ class OrderCommandPort(Protocol):
 
 
 @runtime_checkable
-class OrderRepository(Protocol):
-    """Persistence contract for orders.
-
-    Defined here, not in the execution package, so the domain owns the
-    interface and the infrastructure conforms to it.
-    """
-
-    def save(self, order: Order) -> None: ...
-    def get(self, order_id: str) -> Order | None: ...
-    def all(self) -> Sequence[Order]: ...
-
-
-@runtime_checkable
 class EventStore(Protocol):
     """Append-only domain event stream."""
 
@@ -398,7 +385,6 @@ __all__ = [
     "MasterRefreshProvider",
     "MarketStreamPort",
     "OrderCommandPort",
-    "OrderRepository",
     "OrderStreamPort",
     "SessionFacade",
     "TradingCacheProtocol",

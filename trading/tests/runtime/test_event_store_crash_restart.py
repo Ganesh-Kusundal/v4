@@ -84,7 +84,7 @@ def test_crash_restart_restores_order_and_position_via_boot_recovery(
 
 
 def test_crash_restart_new_engine_after_session_recovery(tmp_path: Path) -> None:
-    """SessionRecovery + fill replay on a fresh engine cache (direct API)."""
+    """Event-log replay into a fresh engine cache (direct API)."""
     db = tmp_path / "oms-events.db"
     order_id, expected_qty = _run_session(db)
 
