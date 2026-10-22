@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import tradex_runtime.startup as startup_mod
-from tradex_config.schema import AppConfig, PersistenceConfig
+from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fill_sources import SimulatedFillSource
@@ -64,6 +64,7 @@ def test_live_boot_reconcile_unavailable_refuses_ready(monkeypatch, tmp_path) ->
         broker_id=BrokerId.DHAN,
         live_enabled=True,
         persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+        execution=ExecutionConfig(strategy_ids=("test_strategy",)),
     )
     session = startup_mod.boot(cfg)
     try:

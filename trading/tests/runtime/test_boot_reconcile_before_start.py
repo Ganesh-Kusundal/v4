@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from tradex_config.schema import AppConfig, PersistenceConfig
+from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_execution.reconciliation import DriftItem, DriftSeverity
 from tradex_runtime import startup as startup_mod
@@ -53,7 +53,8 @@ def _patched_boot_with_drift(
         fake_reconcile,
     )
     cfg = AppConfig(risk=permissive_risk(), mode="live", broker_id=BrokerId.DHAN, live_enabled=True,
-                    persistence=PersistenceConfig(path=str(tmp_path / "orders.db")))
+                    persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+                    execution=ExecutionConfig(strategy_ids=("test_strategy",)))
     return cfg, broker
 
 

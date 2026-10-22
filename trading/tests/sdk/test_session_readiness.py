@@ -20,7 +20,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
-from tradex_config.schema import FEED_INSTRUMENTS_ENV, AppConfig, PersistenceConfig
+from tradex_config.schema import FEED_INSTRUMENTS_ENV, AppConfig, ExecutionConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_domain.instruments import Equity
 from tradex_runtime.session_impl import SessionState, TradingSession
@@ -98,12 +98,13 @@ def test_live_factory_returns_ready(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv(FEED_INSTRUMENTS_ENV, "NSE:RELIANCE")
     _reconcilable_history(monkeypatch)
     monkeypatch.setattr(
-        runtime_live, "build_broker_from_env", lambda _provider: _fake_live_broker()
+        runtime_live, "build_broker_from_env", lambda _provider, **_kw: _fake_live_broker()
     )
     monkeypatch.setattr(
         session_mod,
         "AppConfig",
         lambda **kwargs: AppConfig(risk=permissive_risk(),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
@@ -160,6 +161,7 @@ def test_boot_live_returns_ready(monkeypatch, tmp_path) -> None:
         startup,
         "AppConfig",
         lambda **kwargs: AppConfig(risk=permissive_risk(),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
@@ -170,6 +172,7 @@ def test_boot_live_returns_ready(monkeypatch, tmp_path) -> None:
             mode="live",
             live_enabled=True,
             persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         ),
         feed_instruments=_TAPE,
     )
@@ -193,6 +196,7 @@ def test_boot_live_fails_when_verify_connection_false(monkeypatch, tmp_path) -> 
         startup,
         "AppConfig",
         lambda **kwargs: AppConfig(risk=permissive_risk(),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
@@ -204,6 +208,7 @@ def test_boot_live_fails_when_verify_connection_false(monkeypatch, tmp_path) -> 
                 mode="live",
                 live_enabled=True,
                 persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+                execution=ExecutionConfig(strategy_ids=("test_strategy",)),
             )
         )
     assert fake.connect.called
@@ -232,6 +237,7 @@ def test_boot_live_has_one_feed_supervisor(monkeypatch, tmp_path) -> None:
         startup,
         "AppConfig",
         lambda **kwargs: AppConfig(risk=permissive_risk(),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
@@ -241,6 +247,7 @@ def test_boot_live_has_one_feed_supervisor(monkeypatch, tmp_path) -> None:
             mode="live",
             live_enabled=True,
             persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         ),
         feed_instruments=_TAPE,
     )

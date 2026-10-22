@@ -128,7 +128,7 @@ def test_live_boot_ready_after_recover_when_broker_matches(
 ) -> None:
     """Recover event store then reach READY when broker book matches local."""
     import tradex_runtime.startup as startup_mod
-    from tradex_config.schema import AppConfig, PersistenceConfig
+    from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
     from tradex_domain import BrokerId
     from tradex_runtime.session_impl import SessionState
 
@@ -154,6 +154,7 @@ def test_live_boot_ready_after_recover_when_broker_matches(
             broker_id=BrokerId.DHAN,
             live_enabled=True,
             persistence=PersistenceConfig(path=str(db)),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         )
     )
     try:
@@ -172,7 +173,7 @@ def test_live_boot_refuses_ready_after_recover_on_high_recon_drift(
 ) -> None:
     """Recovered local orders with empty broker book → HIGH drift → not READY."""
     import tradex_runtime.startup as startup_mod
-    from tradex_config.schema import AppConfig, PersistenceConfig
+    from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
     from tradex_domain import BrokerId
     from tradex_runtime.session_impl import SessionState
 
@@ -193,6 +194,7 @@ def test_live_boot_refuses_ready_after_recover_on_high_recon_drift(
             broker_id=BrokerId.DHAN,
             live_enabled=True,
             persistence=PersistenceConfig(path=str(db)),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         )
     )
     try:

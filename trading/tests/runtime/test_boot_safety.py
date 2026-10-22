@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from tradex_brokers.common.capabilities import dhan_capabilities
-from tradex_config.schema import AppConfig, PersistenceConfig
+from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_runtime.startup import boot
 from trading.tests.risk_support import permissive_risk
@@ -62,6 +62,7 @@ class TestBootLiveGates:
         cfg = AppConfig(
             risk=permissive_risk(), mode="live",
             broker_id=BrokerId.PAPER, live_enabled=True,
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         )
         with pytest.raises(ValueError, match="live mode requires a non-paper broker"):
             boot(cfg)
@@ -70,6 +71,7 @@ class TestBootLiveGates:
         cfg = AppConfig(
             risk=permissive_risk(), mode="live",
             broker_id=BrokerId.DHAN, live_enabled=False,
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         )
         with pytest.raises(ValueError, match="live mode requires live_enabled"):
             boot(cfg)
@@ -113,6 +115,7 @@ class TestBootStreamBackendWiring:
             risk=permissive_risk(), mode="live",
             broker_id=BrokerId.DHAN, live_enabled=True,
             persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         )
         session = boot(cfg)
         try:
@@ -132,6 +135,7 @@ class TestBootStreamBackendWiring:
             risk=permissive_risk(), mode="live",
             broker_id=BrokerId.DHAN, live_enabled=True,
             persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         )
         with pytest.raises(RuntimeError, match="order-stream backend"):
             boot(cfg)
@@ -147,6 +151,7 @@ class TestBootStreamBackendWiring:
             risk=permissive_risk(), mode="live",
             broker_id=BrokerId.DHAN, live_enabled=True,
             persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         )
         with pytest.raises(ValueError, match="order-stream backend"):
             boot(cfg)
@@ -180,11 +185,13 @@ class TestBootPersistenceWiring:
 
     def test_default_boot_wires_in_memory_idempotency_guard(self) -> None:
         """Every order endpoint has a guard, even without SQLite durability."""
-        from tradex_execution.idempotency import MemoryIdempotencyGuard
+        from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 
         session = boot(AppConfig(risk=permissive_risk(), mode="paper"))
         try:
-            assert isinstance(session.engine._guard, MemoryIdempotencyGuard)  # noqa: SLF001
+            # Paper mode now gets a durable SQLite guard in the runtime dir
+            # by default (production change from tasks 1-19).
+            assert isinstance(session.engine._guard, SQLiteIdempotencyGuard)  # noqa: SLF001
         finally:
             session.stop()
 
@@ -200,6 +207,7 @@ class TestBootPersistenceWiring:
         cfg = AppConfig(
             risk=permissive_risk(), mode="live",
             broker_id=BrokerId.DHAN, live_enabled=True,
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         )
         with pytest.raises(ValueError, match="persistence"):
             boot(cfg)

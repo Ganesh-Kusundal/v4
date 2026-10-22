@@ -161,10 +161,10 @@ def test_cancel_releases_idempotency_reservation() -> None:
     order_count = len(engine.cache.all_orders())
     replay = engine.submit(_request(cid=cid.value))
     assert len(engine.cache.all_orders()) == order_count
-    assert replay == order_id
+    assert replay.order_id == order_id
     dup = guard.check_and_reserve(cid)
     assert isinstance(dup, IdempotencyDuplicate)
-    assert dup.result == order_id
+    assert dup.result.order_id == order_id
 
 
 def test_cancel_unknown_order_does_not_raise_silently() -> None:

@@ -12,7 +12,7 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-from tradex_config.schema import AppConfig, PersistenceConfig
+from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_domain.execution import Account
 from tradex_domain.value_objects import AccountId, Money
@@ -40,6 +40,7 @@ def _cfg(tmp_path) -> AppConfig:
         broker_id=BrokerId.DHAN,
         live_enabled=True,
         persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+        execution=ExecutionConfig(strategy_ids=("test_strategy",)),
     )
 
 

@@ -25,6 +25,13 @@ from tradex_domain import Equity
 from tradex_runtime.bar_aggregator import BarFrame
 from tradex_runtime.feed_recovery import ParquetHistoryProvider
 
+
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line(
+        "markers", "no_test_strategy: skip the autouse test strategy registration"
+    )
+
 #: 2026-09-24T10:00Z — the stamp the synthetic bars across this suite use.
 _EPOCH = 1789946400
 
@@ -96,3 +103,51 @@ def no_tape(monkeypatch: pytest.MonkeyPatch) -> None:
     environment a developer happens to export.
     """
     monkeypatch.delenv(FEED_INSTRUMENTS_ENV, raising=False)
+
+
+class _TestStrategy:
+    """A minimal strategy for tests that boot in live mode.
+
+    Live mode requires ``TRADEX_STRATEGY_IDS`` (or ``execution.strategy_ids``)
+    to name at least one known strategy. This class satisfies that contract
+    without running any real logic.
+    """
+
+    strategy_id = "test_strategy"
+    version = "0.0.0"
+
+    def on_bar(self, context, candle):
+        return None
+
+    def on_quote(self, context, quote):
+        return None
+
+    def on_depth(self, context, depth):
+        return None
+
+    def on_fill(self, context, fill):
+        return None
+
+
+@pytest.fixture(autouse=True)
+def _register_test_strategy(
+    monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest,
+) -> None:
+    """Register ``_TestStrategy`` so live boots may name it.
+
+    Patches ``tradex_runtime.startup.all_strategies`` and
+    ``all_definitions`` at the module level so every test in this directory
+    that boots in live mode has a known strategy to select. Tests must still
+    set ``execution.strategy_ids=("test_strategy",)`` in their AppConfig.
+
+    Tests that specifically test strategy discovery or filtering opt out by
+    setting the ``no_test_strategy`` marker.
+    """
+    # Skip patching for tests that need to see the real strategy list
+    if request.node.get_closest_marker("no_test_strategy"):
+        return
+
+    import tradex_runtime.startup as startup
+
+    monkeypatch.setattr(startup, "all_strategies", (_TestStrategy(),))
+    monkeypatch.setattr(startup, "all_definitions", ())

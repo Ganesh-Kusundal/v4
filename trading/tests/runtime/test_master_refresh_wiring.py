@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from tradex_config.schema import AppConfig, PersistenceConfig
+from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_runtime.master_lifecycle import MasterLoader
 from tradex_runtime.session_impl import TradingSession
@@ -97,11 +97,12 @@ def test_live_starts_master_refresh_scheduler(named_tape, monkeypatch, tmp_path)
     import tradex_runtime.session_impl as session_mod
 
     broker = _BrokerWithMasterLoader()
-    monkeypatch.setattr(runtime_live, "build_broker_from_env", lambda _provider: broker)
+    monkeypatch.setattr(runtime_live, "build_broker_from_env", lambda _provider, **_kw: broker)
     monkeypatch.setattr(
         session_mod,
         "AppConfig",
         lambda **kwargs: AppConfig(risk=permissive_risk(),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )
@@ -126,11 +127,12 @@ def test_live_without_loader_starts_no_scheduler(
     import tradex_runtime.session_impl as session_mod
 
     broker = _PlainBroker()
-    monkeypatch.setattr(runtime_live, "build_broker_from_env", lambda _provider: broker)
+    monkeypatch.setattr(runtime_live, "build_broker_from_env", lambda _provider, **_kw: broker)
     monkeypatch.setattr(
         session_mod,
         "AppConfig",
         lambda **kwargs: AppConfig(risk=permissive_risk(),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
             **kwargs, persistence=PersistenceConfig(path=str(tmp_path / "orders.db"))
         ),
     )

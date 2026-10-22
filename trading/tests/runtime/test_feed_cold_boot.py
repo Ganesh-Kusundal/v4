@@ -29,7 +29,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from tradex_config.schema import AppConfig, PersistenceConfig
+from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
 from tradex_domain import (
     BrokerId,
     CorrelationId,
@@ -87,6 +87,7 @@ def _boot_live(tmp_path, monkeypatch) -> Any:
             mode="live",
             live_enabled=True,
             persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+            execution=ExecutionConfig(strategy_ids=("test_strategy",)),
         )
     )
 

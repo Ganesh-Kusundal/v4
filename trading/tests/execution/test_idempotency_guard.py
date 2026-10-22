@@ -140,4 +140,4 @@ class TestExecutionEngineIdempotency:
 
         # Second submit with same correlation_id should return original result (v3 parity)
         receipt2 = engine.submit(req)
-        assert receipt2 == receipt1.order_id
+        assert receipt2.order_id == receipt1.order_id

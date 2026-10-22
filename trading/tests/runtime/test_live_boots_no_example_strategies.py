@@ -30,6 +30,9 @@ from tradex_domain import BrokerId
 from tradex_strategy.extensions import all_strategies
 from trading.tests.risk_support import permissive_risk
 
+# These tests verify strategy filtering, so they need the real strategy list.
+pytestmark = pytest.mark.no_test_strategy
+
 
 def _live_broker() -> MagicMock:
     broker = MagicMock()

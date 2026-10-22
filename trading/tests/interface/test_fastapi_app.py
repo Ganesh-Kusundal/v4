@@ -119,7 +119,7 @@ def test_modify_order_no_session():
     assert r.status_code == 400
 
 
-def test_modify_order_end_to_end_paper_session():
+def test_modify_order_end_to_end_paper_session(tmp_path):
     """PUT /orders/{id} on a live paper session: resolves the instrument,
     routes through the engine spine, and projects the change into the OMS."""
     from decimal import Decimal
@@ -130,7 +130,9 @@ def test_modify_order_end_to_end_paper_session():
     from tradex_domain.value_objects import OrderId, Price, Quantity
     from tradex_runtime.session_impl import TradingSession
 
-    session = TradingSession.paper(config=_CFG)
+    # Use a temporary runtime directory to avoid idempotency DB persistence
+    # across test runs.
+    session = TradingSession.paper(config=app_config(runtime_dir=str(tmp_path)))
     try:
         # Register RELIANCE in the paper universe and seed an open order.
         reliance = Equity.of("NSE", "RELIANCE")
@@ -780,11 +782,13 @@ def test_post_order_same_key_reaches_engine_with_same_correlation_id():
     assert first_request.correlation_id == second_request.correlation_id
 
 
-def test_post_order_http_retry_is_deduplicated_by_engine():
+def test_post_order_http_retry_is_deduplicated_by_engine(tmp_path):
     """The same HTTP idempotency key produces one paper order and one ID."""
     from tradex_runtime.session_impl import TradingSession
 
-    session = TradingSession.paper(config=_CFG)
+    # Use a temporary runtime directory to avoid idempotency DB persistence
+    # across test runs.
+    session = TradingSession.paper(config=app_config(runtime_dir=str(tmp_path)))
     try:
         client = TestClient(create_app(session=session))
         body = {
@@ -1591,10 +1595,12 @@ class TestPaperSessionEndToEnd:
     """
 
     @pytest.fixture()
-    def client(self):
+    def client(self, tmp_path):
         from tradex_runtime.session_impl import TradingSession
 
-        session = TradingSession.paper(config=_CFG)
+        # Use a temporary runtime directory to avoid idempotency DB persistence
+        # across test runs.
+        session = TradingSession.paper(config=app_config(runtime_dir=str(tmp_path)))
         app = create_app(session=session)
         yield TestClient(app)
         session.stop()

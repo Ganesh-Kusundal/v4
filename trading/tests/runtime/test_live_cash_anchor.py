@@ -9,7 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock
 
-from tradex_config.schema import AppConfig, PersistenceConfig
+from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_domain.execution import Account
 from tradex_domain.value_objects import AccountId, Money
@@ -37,6 +37,7 @@ def _live_cfg(tmp_path) -> AppConfig:
         broker_id=BrokerId.DHAN,
         live_enabled=True,
         persistence=PersistenceConfig(path=str(tmp_path / "orders.db")),
+        execution=ExecutionConfig(strategy_ids=("test_strategy",)),
     )
 
 
@@ -66,7 +67,7 @@ def test_live_boot_anchors_cash_so_a_restart_can_fold_it(
     Wiring the provider is not enough: without a ledger and a durable anchor the
     process reports cash as 0 and a restart has nothing to fold.
     """
-    from tradex_config.schema import AppConfig, PersistenceConfig
+    from tradex_config.schema import AppConfig, ExecutionConfig, PersistenceConfig
     from tradex_domain.events import CashAccountInitialized
     from tradex_execution.sqlite_event_store import SQLiteEventStore
     from tradex_runtime import startup as sm
@@ -77,6 +78,7 @@ def test_live_boot_anchors_cash_so_a_restart_can_fold_it(
         broker_id=BrokerId.DHAN,
         live_enabled=True,
         persistence=PersistenceConfig(path=db),
+        execution=ExecutionConfig(strategy_ids=("test_strategy",)),
     )
     broker = _broker_with_cash(Decimal("500000"))
     monkeypatch.setattr(

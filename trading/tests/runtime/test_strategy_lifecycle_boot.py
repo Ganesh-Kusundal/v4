@@ -11,12 +11,16 @@ No broker, no SQLite.  paper mode only.
 
 from __future__ import annotations
 
+import pytest
 from tradex_config.schema import AppConfig
 from tradex_runtime.startup import boot
 from tradex_strategy.extensions import all_strategies
 from tradex_strategy.registry import StrategyRegistry
 from tradex_strategy.runtime import StrategyLifecycle
 from trading.tests.risk_support import permissive_risk
+
+# These tests verify strategy discovery, so they need the real strategy list.
+pytestmark = pytest.mark.no_test_strategy
 
 # ---------------------------------------------------------------------------
 # Helpers
