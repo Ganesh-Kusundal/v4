@@ -107,23 +107,30 @@ count session-edge shortfalls, and `sub_threshold_stamps` counts what
   (09:15 open, 15:30 close) cannot be fetched reliably as a side effect of a
   session request, so a symbol differing only by one of them is a fetch-shape
   finding, not a hole — folding them into `gaps` is what made every symbol look
-  gapped, which is why the `min_gap_stamps` floor exists. `fill_gaps
-  --include-open-stamps` asks for them explicitly when they are worth a repair
-  (they are real missing bars, and both brokers can serve the open one).
+  gapped, which is why the `min_gap_stamps` floor exists. `tradex sync` asks
+  for the 09:15 open by default (`--no-open-stamps` turns it off); it is a real
+  missing bar and Dhan serves it when the request starts a minute early.
+- **Dhan's ceiling is part of the detector.** Every minute after 15:14 is
+  classified with the 15:30 close, never reported as a hole and never requested.
+  The one source is `BROKER_LIMITS.dhan_last_1m`.
 - **The floor hides holes; it no longer hides that it hid them.** The 2026-08-31
   cohort was short 14 tail stamps against a floor of 15: a real hole that every
   run reported as "lake is clean". Counted now, and `--min-gap-stamps` is a flag.
-- **`--tail-days 0` for repairs.** The default scan window is each symbol's last
-  7 days (a daily top-up), so a hole three weeks back is never even detected.
+- **`--tail-days N` is opt-in.** `tradex sync` scans the whole `--start`..`--end`
+  window by default. `--tail-days 7` limits each symbol to its last 7 stored days
+  (a daily top-up), and a hole older than that is then never detected.
 
-**Repairing a backlog.** `python trading/scripts/repair_gaps.py --budget 480`
-drives a priority-ordered repair over the 90-day window (interior holes worst
-first, then whole missing sessions, then 09:15 opens), exiting cleanly between
-chunks so it can be rerun until the scan reports nothing left. Use it rather
-than a single long `fill_gaps.py` run: that one is resumable in principle but a
-whole-job foreground run outlives the shell that started it, and it orders
-clusters by size, which puts a whole missing session ahead of a partial hole.
-It takes `--skip-symbols` for tickers no configured broker can serve.
+**Syncing and repairing a backlog.** `tradex sync --start 2026-07-23 --budget 480`
+is the one path (Dhan, 1-minute only). It scans, fetches only the holes, and
+re-scans until the lake is clean or the budget is spent. Holes go worst first:
+partial-day holes, then whole missing sessions, then bare 09:15 opens. Exit 0
+means every servable minute in the window is present; a spent budget exits 1
+and a rerun continues. Only one sync runs per lake (`.sync.lock`), because the
+rate limiter and the partition locks are per process. `--only-symbols` and
+`--skip-symbols` narrow the run; a symbol that comes back empty is usually
+resolving to the wrong security. The command refuses a window in a year
+`NSE_HOLIDAY_YEARS` does not cover. `fill_gaps.py` and `repair_gaps.py` were
+removed; they re-implemented this loop.
 
 **Contested trading symbols — one symbol, two securities.** A vendor master can
 list materially different securities under a single trading symbol, and the
@@ -167,8 +174,8 @@ them the ones requested.
 > is Dhan-only now, and Upstox tail repair is a separate script."* The fetcher's
 > real post-fetch work is `_stitch_windows` (`:306`), which concatenates
 > auto-chunked windows and dedupes by timestamp; it has no coverage check and no
-> cross-broker path. Tail repair now lives in `trading/scripts/repair_gaps.py`
-> (with `fill_gaps.py` / `topup_gaps.py`). The 15-minute Dhan hole is real and is
+> cross-broker path. Gap repair now lives in `tradex sync`
+> (`SyncService.converge`). The 15-minute Dhan hole is real and is
 > still not fixable by re-fetching; only the *mechanism* that was claimed to
 > handle it was wrong.
 
@@ -362,7 +369,7 @@ day coverage, and where the lake falls short of its own density — measured
 the two session-edge stamps (the 09:15 open and the 15:30 close) reported as
 their own counts so a source convention cannot be laundered into a gap figure.
 It measures bars present, not calendar gaps — for real gap detection use
-`GapDetector` / `fill_gaps.py`.
+`GapDetector` / `tradex sync`.
 
 Those two measure whether bars are *there*. They cannot tell you whether they
 are the *right bars*, which is a third question and the one that bit hardest:

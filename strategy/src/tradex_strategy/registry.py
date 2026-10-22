@@ -75,3 +75,43 @@ class StrategyRegistry:
                 rt.stop()
 
 
+
+
+# ---------------------------------------------------------------------------
+# Simple name-based strategy registry (for backtest/replay convenience)
+# ---------------------------------------------------------------------------
+
+_SIMPLE_REGISTRY: dict[str, type] = {}
+
+
+def register_simple(name: str):
+    def decorator(cls):
+        _SIMPLE_REGISTRY[name] = cls
+        return cls
+    return decorator
+
+
+def get_simple(name: str):
+    return _SIMPLE_REGISTRY.get(name)
+
+
+def create_simple(name: str, params: dict | None = None):
+    cls = _SIMPLE_REGISTRY.get(name)
+    if cls is None:
+        raise KeyError(f"Unknown strategy: {name}")
+    return cls(params or {})
+
+
+def list_simple_strategies() -> list[str]:
+    return sorted(_SIMPLE_REGISTRY.keys())
+
+
+def clear_simple() -> None:
+    _SIMPLE_REGISTRY.clear()
+
+# Backward-compatible aliases for the simple registry API.
+register = register_simple
+get = get_simple
+create = create_simple
+list_strategies = list_simple_strategies
+clear = clear_simple

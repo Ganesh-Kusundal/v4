@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 from tradex_domain import OHLC, Candle, Equity, Timeframe
 from tradex_domain.market import HistoricalSeries
+from tradex_domain.market_calendar import IST
 from tradex_domain.value_objects import Price, Quantity
 from tradex_market_data.sync_service import (
     SyncConfig,
@@ -18,8 +19,13 @@ from tradex_market_data.sync_service import (
 )
 
 INSTRUMENTS = [Equity.of("NSE", f"SYM{i}") for i in range(3)]
-BASE = datetime(2026, 8, 1, 9, 15, tzinfo=UTC)
-START, END = datetime(2026, 8, 1), datetime(2026, 8, 2)
+#: IST-naive wall clock (the datalake contract). ``_series`` tags it IST and
+#: converts to UTC, matching real broker output. Tagging 09:15 as UTC — the
+#: pre-560d8a77 fixture — shifts every session 5.5h and fails the IST-naive
+#: coverage check (commit 560d8a77 fixed the validator, not this file).
+#: A Monday: a Saturday session does not exist, and sync never requests one.
+BASE = datetime(2026, 8, 3, 9, 15)
+START, END = BASE, BASE + timedelta(minutes=9)
 
 
 def _series(n: int = 10, instrument=None) -> HistoricalSeries:
@@ -33,7 +39,7 @@ def _series(n: int = 10, instrument=None) -> HistoricalSeries:
                 low=Price(Decimal("99")), close=Price(Decimal("100")),
             ),
             volume=Quantity(Decimal("1000")),
-            timestamp=BASE + timedelta(minutes=i),
+            timestamp=(BASE + timedelta(minutes=i)).replace(tzinfo=IST).astimezone(UTC),
         )
         for i in range(n)
     ]
@@ -101,16 +107,18 @@ class TestSyncService:
         _, kw = fwb.call_args
         assert kw.get("ranges") == ranges
 
-    def test_empty_is_skipped_not_failed(self) -> None:
+    def test_empty_answer_is_a_failure_not_a_silent_skip(self) -> None:
+        """An empty series usually means the symbol resolved to the wrong
+        security. Skipping it would let the run exit 0 over a missing symbol."""
         report, _, _, _ = self._run({}, [], instruments=[INSTRUMENTS[0]])
-        assert report.failed == {}
-        assert INSTRUMENTS[0].symbol in report.skipped
+        assert report.failed == {INSTRUMENTS[0].symbol: "no_data"}
+        assert report.skipped == []
 
-    def test_present_but_empty_series_is_skipped(self) -> None:
+    def test_present_but_empty_series_is_a_failure(self) -> None:
         results = {str(INSTRUMENTS[0].instrument_id): _series(n=0, instrument=INSTRUMENTS[0])}
         report, _, _, _ = self._run(results, [], instruments=[INSTRUMENTS[0]])
-        assert report.failed == {}
-        assert INSTRUMENTS[0].symbol in report.skipped
+        assert report.failed == {INSTRUMENTS[0].symbol: "no_data"}
+        assert report.skipped == []
 
 
 class TestSeriesToFrame:

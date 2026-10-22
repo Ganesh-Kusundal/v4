@@ -15,18 +15,6 @@ from tradex_domain.datetime_formats import DASHED_DATE, DASHED_DATETIME
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument, Option
 from tradex_domain.market import Depth, HistoricalSeries, Quote
-from tradex_domain.market_calendar import (
-    DHAN_SEGMENT_CLOSE as _SEGMENT_CLOSE,
-)
-from tradex_domain.market_calendar import (
-    DHAN_SEGMENT_OPEN as _SEGMENT_OPEN,
-)
-from tradex_domain.market_calendar import (
-    MARKET_CLOSE_STR as _DEFAULT_SEGMENT_CLOSE,
-)
-from tradex_domain.market_calendar import (
-    MARKET_OPEN_STR as _DEFAULT_SEGMENT_OPEN,
-)
 from tradex_domain.options import Expiry, OptionChain, OptionPair
 from tradex_domain.value_objects import InstrumentId, Price
 
@@ -199,35 +187,25 @@ class MarketDataMixin(Protocol):
         security_id = self._security_id(instrument.instrument_id)
         native_type = self._history_instrument_type(instrument)
         if dhan_int is not None:
-            session_open = _SEGMENT_OPEN.get(segment, _DEFAULT_SEGMENT_OPEN)
-            session_close = _SEGMENT_CLOSE.get(segment, _DEFAULT_SEGMENT_CLOSE)
             path = "/charts/intraday"
-            # During market hours, use the actual end time so we get bars
-            # up to "now" instead of waiting for session close.
-            now = datetime.now()
-            end_time = (
-                min(end.time(), now.time())
-                if end.date() == now.date()
-                else datetime.strptime(session_close, "%H:%M:%S").time()
-            )
-            # Dhan treats ``fromDate`` as EXCLUSIVE: asking from the session
-            # open drops the session's first bar, so a full-day request for
-            # 09:15-15:30 came back 09:16-15:14 — every stored day silently
-            # lost its 09:15 open while the response still looked complete.
-            # Ask one bar earlier; the session boundary clips the extra back
-            # off.  Capped at an hour so a coarser timeframe routed through
-            # this endpoint could still not reach into the previous session.
+            # Both bounds are exclusive (measured 2026-10-21: toDate 15:14
+            # returns up to 15:13, toDate 15:15 returns 15:14). Pad each side
+            # by one bar so the caller's first and last bar are returned. A
+            # hole request must not widen to the whole session, so the padding
+            # is one bar, not the session. Capped at now when the end is today.
             lead = min(bucket_seconds(requested_timeframe), 3600)
-            from_dt = datetime.combine(
-                start.date(), datetime.strptime(session_open, "%H:%M:%S").time()
-            ) - timedelta(seconds=lead)
+            from_dt = start - timedelta(seconds=lead)
+            to_dt = end + timedelta(seconds=lead)
+            now = datetime.now(to_dt.tzinfo) if to_dt.tzinfo else datetime.now()
+            if to_dt.date() == now.date() and to_dt > now:
+                to_dt = now
             params: dict[str, object] = {
                 "securityId": security_id,
                 "exchangeSegment": segment,
                 "instrument": native_type,
                 "interval": dhan_int,
                 "fromDate": from_dt.strftime(DASHED_DATETIME),
-                "toDate": f"{end.date()} {end_time.strftime('%H:%M:%S')}",
+                "toDate": to_dt.strftime(DASHED_DATETIME),
             }
         else:
             path = "/charts/historical"

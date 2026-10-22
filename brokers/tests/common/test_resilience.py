@@ -328,6 +328,20 @@ def test_wait_cooldown_blocks_until_cooldown_lifts() -> None:
     assert elapsed >= 0.18  # actually waited out the ~0.2s cooldown
 
 
+def test_min_interval_spaces_acquires() -> None:
+    """The table's min_interval is the gap between takes, not a stored unused field."""
+    from tradex_shared import RateLimitConfig
+
+    cfg = RateLimitConfig(
+        rate_per_second=100.0, capacity=10, min_interval=0.05, cooldown_seconds=1.0,
+    )
+    limiter = TokenBucketRateLimiter(config=cfg)
+    limiter.acquire(timeout=1.0)
+    t0 = time.monotonic()
+    limiter.acquire(timeout=1.0)
+    assert time.monotonic() - t0 >= 0.05
+
+
 def test_wait_cooldown_default_still_fails_fast() -> None:
     """Default (wait_cooldown=False) preserves the original fast-fail so
     latency-sensitive paths (orders) don't block during a cooldown."""

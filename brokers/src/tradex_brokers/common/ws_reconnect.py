@@ -14,6 +14,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from tradex_brokers.common.retry_config import WS_RETRY_CONFIG
+
 log = logging.getLogger(__name__)
 
 # Cap the escalation exponent: with indefinite retries ``over`` grows without
@@ -28,12 +30,14 @@ class ReconnectConfig:
 
     Mirrors the v3 ``ReconnectConfig`` so that callers can construct a
     ``WsReconnectManager`` from a frozen config object.
+    
+    Deprecated: Use WS_RETRY_CONFIG from retry_config.py instead.
     """
 
-    max_retries: int = 10
-    base_delay: float = 5.0
-    max_delay: float = 300.0
-    exponential_base: float = 2.0
+    max_retries: int = WS_RETRY_CONFIG.max_retries
+    base_delay: float = WS_RETRY_CONFIG.base_delay
+    max_delay: float = WS_RETRY_CONFIG.max_delay
+    exponential_base: float = WS_RETRY_CONFIG.exponential_base
     jitter: bool = True
 
 

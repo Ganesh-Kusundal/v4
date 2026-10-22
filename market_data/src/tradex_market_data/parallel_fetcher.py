@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any
 
+from tradex_config.broker_limits import BROKER_LIMITS
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import HistoricalSeries
@@ -27,9 +28,6 @@ ACQUIRE_TIMEOUT_S = 30.0
 # ponytail: cap kept small — log already truncates to 5; 100 is enough for
 # postmortem context. Grow only if ops asks for full failure lists.
 ERROR_LOG_CAP = 100
-
-_DHAN_INTRADAY_MAX_DAYS = 90
-_UPSTOX_INTRADAY_MAX_DAYS = 30
 
 
 def _date_windows(
@@ -55,8 +53,8 @@ def _chunk_cap_for(timeframe: Timeframe | str, broker_name: str) -> int | None:
     if not TIMEFRAMES[tf.value]["intraday"]:
         return None
     if broker_name == "dhan":
-        return _DHAN_INTRADAY_MAX_DAYS
-    return _UPSTOX_INTRADAY_MAX_DAYS
+        return BROKER_LIMITS.dhan_max_days
+    return BROKER_LIMITS.upstox_max_days
 
 
 def _default_workers(broker_name: str) -> int:
@@ -96,6 +94,8 @@ def fetch_with_backoff(
         ]
         if not pending:
             break
+        # Attribute, not a kwarg: test doubles of fetch() do not take it.
+        fetcher._deadline = deadline  # type: ignore[attr-defined]
         results, errors = fetcher.fetch(
             pending, tf, c_start, c_end, ranges=ranges,
         )
@@ -252,6 +252,8 @@ class ParallelHistoryFetcher:
             timeframe = Timeframe(timeframe)
         self._timeframe = timeframe
         self._req_start, self._req_end = start, end
+        if not hasattr(self, "_deadline"):
+            self._deadline = None
 
         days = (end - start).days
         cap = _chunk_cap_for(timeframe, self._broker_name)
@@ -284,6 +286,8 @@ class ParallelHistoryFetcher:
 
         def _fetch_one(inst: Instrument) -> None:
             try:
+                if getattr(self, "_deadline", None) is not None and time.monotonic() >= self._deadline:
+                    return
                 windows = _windows_for(inst)
                 if windows is not None:
                     series = self._stitch_windows(inst, windows)
@@ -326,6 +330,8 @@ class ParallelHistoryFetcher:
     ) -> HistoricalSeries | None:
         stitched: list = []
         for ws, we in windows:
+            if getattr(self, "_deadline", None) is not None and time.monotonic() >= self._deadline:
+                break
             self._maybe_acquire(str(inst.instrument_id))
             part = self._broker.history(inst, self._timeframe, ws, we)
             if part is not None and part.candles:

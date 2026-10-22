@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 
 dependencies = [
     "tradex-domain>=0.1.0,<0.2",
+    "tradex-config>=0.1.0,<0.2",
     # ``tradex-brokers`` was removed (REF-16): nothing under market_data/src
     # (or its tests) imports tradex_brokers — verified by grep.
     # The datalake is a real runtime dependency, not an optional extra: the

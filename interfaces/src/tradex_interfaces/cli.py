@@ -111,25 +111,33 @@ def _build_parser() -> argparse.ArgumentParser:
         "--universe", default="nifty500",
         choices=["nifty50", "nifty100", "nifty200", "nifty500"],
         help="Universe to sync (default: nifty500)")
-    sync_parser.add_argument("--timeframe", default="1m",
-                             help="Bar resolution (default: 1m)")
-    sync_parser.add_argument("--broker", default="dhan",
-                             choices=["dhan", "upstox", "both"],
-                             help="Broker adapter (default: dhan)")
-    sync_parser.add_argument("--workers", type=int, default=4,
-                             help="Concurrent fetch threads (default: 4)")
+    sync_parser.add_argument("--timeframe", default="1m", choices=["1m"],
+                             help="Bar resolution (Dhan 1-minute only)")
+    sync_parser.add_argument("--workers", type=int, default=2,
+                             help="Concurrent fetch threads (default: 2)")
     sync_parser.add_argument("--batch-size", type=int, default=20,
                              help="Symbols per batch (default: 20)")
     sync_parser.add_argument("--skip-existing", action="store_true", default=True,
                              help="Skip symbols with full coverage (default: on)")
     sync_parser.add_argument("--no-skip-existing", action="store_false", dest="skip_existing",
                              help="Re-fetch all symbols regardless of existing data")
-    sync_parser.add_argument("--min-gap-stamps", type=int, default=15,
-                             help="Ignore gaps shorter than N stamps (default: 15)")
-    sync_parser.add_argument("--backoff-base", type=float, default=60.0,
-                             help="Initial backoff after a throttled batch, seconds (default: 60)")
-    sync_parser.add_argument("--backoff-max", type=float, default=600.0,
-                             help="Backoff ceiling, seconds (default: 600)")
+    sync_parser.add_argument("--min-gap-stamps", type=int, default=1,
+                             help="Leave holes shorter than N stamps unfetched (default: 1)")
+    sync_parser.add_argument("--tail-days", type=int, default=None,
+                             help="Scan only each symbol's last N stored days "
+                                  "(default: the whole window)")
+    sync_parser.add_argument("--no-open-stamps", action="store_true",
+                             help="Do not fetch a missing 09:15 bar")
+    sync_parser.add_argument("--only-symbols", default="",
+                             help="Comma-separated symbols to sync, nothing else")
+    sync_parser.add_argument("--skip-symbols", default="",
+                             help="Comma-separated symbols to leave out. A symbol "
+                                  "that returns empty is usually resolving to the "
+                                  "wrong security; check that first")
+    sync_parser.add_argument("--budget", type=float, default=480.0,
+                             help="Seconds to work before exiting resumable (default: 480)")
+    sync_parser.add_argument("--backoff-base", type=float, default=1.0,
+                             help="Initial backoff after a throttled batch, seconds (default: 1)")
     sync_parser.add_argument("--dry-run", action="store_true",
                              help="Use PaperBroker with synthetic data")
     sync_parser.set_defaults(func=cmd_sync)
@@ -503,17 +511,38 @@ def cmd_serve(args: Any, runtime: Any = None) -> int:
 def cmd_sync(args: Any) -> int:
     """Sync historical OHLCV data for a date range.
 
-    Self-contained: builds its own brokers, fetcher, and store — no
-    runtime session needed.  Reuses the proven pattern from
-    ``backfill_parquet.py`` and ``fill_gaps.py``.
+    Self-contained: builds its own broker and store — no runtime session
+    needed. This is the one sync path: scan, fetch only the holes, re-scan.
+    One run per lake at a time.
     """
-    import logging
+    from pathlib import Path
 
-    # Parse end date (default: today)
+    from tradex_market_data.paths import datalake_root
+    from tradex_market_data.sync_service import SyncLocked, sync_lock
+
+    try:
+        with sync_lock(Path(datalake_root())):
+            return _run_sync(args)
+    except SyncLocked as e:
+        print(f"error: {e}")
+        return 1
+
+
+def _run_sync(args: Any) -> int:
+    import logging
     from datetime import datetime, timedelta
     from pathlib import Path
+
+    from tradex_domain.market_calendar import (
+        IST,
+        NSE_HOLIDAY_YEARS,
+        to_ist_naive,
+    )
+
+    # Naive IST wall clock, whatever zone the host runs in.
     try:
-        end = datetime.strptime(args.end, "%Y-%m-%d") if args.end else datetime.now()
+        end = (datetime.strptime(args.end, "%Y-%m-%d") if args.end
+               else to_ist_naive(datetime.now(IST)))
     except ValueError as e:
         print(f"error: invalid end date: {e}")
         return 1
@@ -562,25 +591,20 @@ def cmd_sync(args: Any) -> int:
         print(f"Nothing to sync — end date ({end.date()}) is before start ({start.date()})")
         return 0
 
-    # Dhan-only (paper under the same fetcher key for dry-run).
-    # ``broker`` is a PaperBroker on the dry-run path and a live
-    # DhanBroker/UpstoxBroker otherwise, so the declared type is that exact
-    # union (declaring it before the branches stops mypy from pinning the
-    # variable to whichever concrete type the first branch assigns). The
-    # BrokerAdapter protocol is deliberately NOT used here: it declares
-    # ``capabilities`` as a settable attribute, which the concrete brokers
-    # expose as a read-only property, so none of them structurally satisfy it.
-    from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
+    uncovered = {start.year, end.year} - NSE_HOLIDAY_YEARS
+    if uncovered:
+        print(f"error: no NSE holiday calendar for {sorted(uncovered)}; every exchange "
+              "holiday would read as a missing session. Add the year to "
+              "tradex_domain.market_calendar first.")
+        return 1
 
-    broker: PaperBroker | DhanBroker | UpstoxBroker
+    from tradex_brokers import DhanBroker, PaperBroker
+
+    broker: PaperBroker | DhanBroker
     if args.dry_run:
         broker = PaperBroker()
         logging.info("connected: paper (dry-run)")
     else:
-        name = "dhan" if args.broker in ("both", "dhan") else args.broker
-        if name != "dhan":
-            print("error: sync is Dhan-only (use trading/scripts/fill_gaps.py for Upstox fill)")
-            return 1
         try:
             broker = build_broker_from_env("dhan")
             broker.connect()
@@ -591,6 +615,19 @@ def cmd_sync(args: Any) -> int:
 
     # Load universe
     instruments = load_universe(args.universe)
+    only = {s.strip().upper() for s in args.only_symbols.split(",") if s.strip()}
+    skip = {s.strip().upper() for s in args.skip_symbols.split(",") if s.strip()}
+    unknown = only - {i.symbol for i in instruments}
+    if unknown:
+        print(f"error: not in {args.universe}: {sorted(unknown)}")
+        return 1
+    instruments = [
+        i for i in instruments
+        if i.symbol not in skip and (not only or i.symbol in only)
+    ]
+    if not instruments:
+        print("error: no instruments selected")
+        return 1
     if not args.dry_run:
         from tradex_market_data.symbol_resolve import resolve_universe_symbols
         resolved = resolve_universe_symbols(broker, instruments)
@@ -612,6 +649,9 @@ def cmd_sync(args: Any) -> int:
             batch_size=args.batch_size,
             max_workers=args.workers,
             min_gap_stamps=args.min_gap_stamps,
+            tail_days=args.tail_days,
+            include_open_stamps=not args.no_open_stamps,
+            budget_seconds=args.budget,
             initial_backoff_s=args.backoff_base,
         ),
     )
@@ -625,7 +665,7 @@ def cmd_sync(args: Any) -> int:
                   f"{len(result.under_floored)} symbols — lower --min-gap-stamps "
                   f"to fetch them")
     else:
-        result = svc.sync(instruments, start, end)
+        result = svc.sync(instruments, start, end, holidays=NSE_HOLIDAYS_2026)
 
     print("\nSync complete:")
     print(f"  Requested: {result.requested}")
@@ -640,7 +680,11 @@ def cmd_sync(args: Any) -> int:
         print(f"  Failed:    {len(result.failed)} symbols")
         print(f"  Examples:  {list(result.failed)[:5]}")
 
-    return 0 if not result.failed else 1
+    if args.dry_run:
+        return 0
+    if args.skip_existing:
+        return 0 if result.converged and not result.failed else 1
+    return 0 if not result.failed and not result.resumable else 1
 
 
 def cmd_watch(args: object) -> None:

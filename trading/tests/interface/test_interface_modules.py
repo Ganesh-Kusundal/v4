@@ -80,8 +80,8 @@ class TestBuildParser:
         assert args.command == "sync"
         assert args.universe == "nifty500"
         assert args.timeframe == "1m"
-        assert args.broker == "dhan"
-        assert args.workers == 4
+        assert args.min_gap_stamps == 1
+        assert args.workers == 2
         assert args.batch_size == 20
         assert args.skip_existing is True
         assert args.dry_run is False
@@ -91,12 +91,12 @@ class TestBuildParser:
         parser = _build_parser()
         args = parser.parse_args(
             ["sync", "--start", "2026-09-01", "--end", "2026-09-05",
-             "--universe", "nifty50", "--timeframe", "5m", "--dry-run"]
+             "--universe", "nifty50", "--dry-run"]
         )
         assert args.start == "2026-09-01"
         assert args.end == "2026-09-05"
         assert args.universe == "nifty50"
-        assert args.timeframe == "5m"
+        assert args.timeframe == "1m"
         assert args.dry_run is True
 
     def test_parser_sync_no_skip_existing(self) -> None:
@@ -351,3 +351,19 @@ class TestModuleEntryPoint:
 def tradex_cli_file() -> str:
     import tradex_interfaces.cli as m
     return m.__file__
+
+
+class TestSyncCommandContract:
+    def test_sync_refuses_a_year_without_a_holiday_calendar(self, capsys) -> None:
+        """2027 has no holiday list; every holiday would read as a missing session."""
+        code = run_cli(["sync", "--start", "2027-01-04", "--end", "2027-01-08", "--dry-run"])
+        assert code == 1
+        assert "no NSE holiday calendar" in capsys.readouterr().out
+
+    def test_sync_filter_flags_parse(self) -> None:
+        args = _build_parser().parse_args(
+            ["sync", "--only-symbols", "A,B", "--skip-symbols", "C",
+             "--tail-days", "7", "--no-open-stamps", "--budget", "60"]
+        )
+        assert (args.only_symbols, args.skip_symbols) == ("A,B", "C")
+        assert args.tail_days == 7 and args.no_open_stamps is True and args.budget == 60

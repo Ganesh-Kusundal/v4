@@ -9,7 +9,12 @@ from decimal import Decimal
 import pandas as pd
 from tradex_domain import OHLC, Candle, Equity, HistoricalSeries, Price, Quantity, Timeframe
 from tradex_domain.market_calendar import IST, to_ist_naive
-from tradex_market_data.sync_service import SyncConfig, SyncService
+from tradex_market_data.sync_service import (
+    SyncConfig,
+    SyncService,
+    series_to_frame,
+    servable_bounds,
+)
 
 START = datetime(2026, 8, 3, 9, 15)
 END = datetime(2026, 8, 3, 15, 30)
@@ -350,8 +355,140 @@ def test_coverage_accepts_utc_candles_at_ist_instants() -> None:
     assert to_ist_naive(first_utc) == START
     assert to_ist_naive(last_utc) == END
     svc = _service(FakeBroker())
-    assert svc._validate_coverage(series, START, END) is True
+    assert svc._covers(series, [(START, datetime(2026, 8, 3, 15, 14))], set()) is True
     report = svc.sync([inst], START, END)
     assert report.failed == {}
     assert report.fetched == 1
     assert report.written > 0
+
+
+def test_converge_does_not_chase_the_dhan_tail() -> None:
+    """A session that ends at 15:14 is complete. 15:15–15:29 is the venue ceiling."""
+    inst = _eq("X")
+    store = _MemStore()
+    store.frames.append(series_to_frame(
+        _truncated_series(inst, START, END, drop_minutes=16), inst.symbol,
+    ))
+    svc = SyncService(FakeBroker(), store, SyncConfig(timeframe="1m", min_gap_stamps=1))
+    report = svc.converge([inst], START, END)
+    assert report.converged is True
+    assert report.fetched == 0
+
+
+def test_sync_writes_only_the_requested_minutes() -> None:
+    """A broker that returns the whole session must not overwrite the rest of the day."""
+    inst = _eq("X")
+    hole = [(datetime(2026, 8, 3, 10, 0), datetime(2026, 8, 3, 10, 5))]
+
+    class _Capture(_Store):
+        def __init__(self) -> None:
+            super().__init__()
+            self.frames: list[pd.DataFrame] = []
+
+        def upsert(self, df: pd.DataFrame) -> int:
+            self.frames.append(df)
+            return super().upsert(df)
+
+    store = _Capture()
+    svc = SyncService(
+        _FixedSeriesBroker(_full_series(inst, START, END)),
+        store,
+        SyncConfig(timeframe="1m", budget_seconds=30, initial_backoff_s=0),
+    )
+    report = svc.sync([inst], START, END, ranges={str(inst.instrument_id): hole})
+    assert report.failed == {}
+    assert report.written == 6
+    ts = pd.to_datetime(store.frames[0]["timestamp"])
+    assert ts.min() == pd.Timestamp("2026-08-03 10:00")
+    assert ts.max() == pd.Timestamp("2026-08-03 10:05")
+
+
+def test_sync_rejects_a_hole_filled_only_by_a_phantom() -> None:
+    """A 16:00 bar does not cover a missing 10:03, and nothing is written."""
+    inst = _eq("X")
+    hole = [(datetime(2026, 8, 3, 10, 0), datetime(2026, 8, 3, 10, 5))]
+    full = _full_series(inst, hole[0][0], hole[0][1])
+    candles = [
+        c for c in full.candles
+        if to_ist_naive(c.timestamp) != datetime(2026, 8, 3, 10, 3)
+    ]
+    candles.append(_candle(inst, datetime(2026, 8, 3, 16, 0)))
+    series = HistoricalSeries(
+        instrument=inst, timeframe=Timeframe.M1, candles=candles,
+        start=hole[0][0], end=hole[0][1],
+    )
+    report = _service(_FixedSeriesBroker(series)).sync(
+        [inst], START, END, ranges={str(inst.instrument_id): hole},
+    )
+    assert report.failed.get("X") == "partial_response"
+    assert report.written == 0
+
+
+def test_a_covered_hole_is_written_when_its_sibling_is_short() -> None:
+    """One missing minute must not discard a hole that came back complete."""
+    inst = _eq("X")
+    morning = (datetime(2026, 8, 3, 10, 0), datetime(2026, 8, 3, 10, 5))
+    later = (datetime(2026, 8, 3, 11, 0), datetime(2026, 8, 3, 11, 5))
+
+    class _MorningOnly:
+        rate_limiter = None
+
+        def history(self, inst, timeframe, start, end):
+            if start.hour == 10:
+                return _full_series(inst, start, end)
+            return _full_series(inst, start, start)
+
+    report = _service(_MorningOnly()).sync(
+        [inst], START, END,
+        ranges={str(inst.instrument_id): [morning, later]},
+        now=datetime(2026, 8, 4, 10, 0),
+    )
+    assert report.failed.get("X") == "partial_response"
+    assert report.written == 6
+
+
+def test_scan_stops_before_the_minute_that_is_still_forming() -> None:
+    """At 10:00:30 the 10:00 bar has not closed. 09:59 is the last required stamp."""
+    inst = _eq("X")
+    now = datetime(2026, 8, 3, 10, 0, 30)
+    store = _MemStore()
+    store.frames.append(series_to_frame(
+        _full_series(inst, START, datetime(2026, 8, 3, 9, 59)), inst.symbol,
+    ))
+    svc = SyncService(FakeBroker(), store, SyncConfig(timeframe="1m"))
+    assert svc.scan([inst], START, now, now=now).gaps == []
+
+
+def test_a_date_only_end_includes_that_session() -> None:
+    """`--end 2026-08-05` is midnight. That session is in the window."""
+    now = datetime(2026, 8, 6, 10, 0)
+    bounds = servable_bounds(datetime(2026, 8, 5), datetime(2026, 8, 5), now, set())
+    assert bounds == (
+        datetime(2026, 8, 5, 9, 15),
+        datetime(2026, 8, 5, 15, 14),
+    )
+
+
+def test_a_second_sync_on_the_same_lake_is_refused(tmp_path) -> None:
+    """Two syncs would exceed the shared Dhan rate and race on partitions."""
+    from tradex_market_data.sync_service import SyncLocked, sync_lock
+
+    with sync_lock(tmp_path):
+        try:
+            with sync_lock(tmp_path):
+                raise AssertionError("second sync acquired the lock")
+        except SyncLocked:
+            pass
+    with sync_lock(tmp_path):  # released on exit
+        pass
+
+
+def test_repair_order_is_partial_day_then_whole_session_then_open() -> None:
+    from tradex_market_data.sync_service import _priority
+
+    day = datetime(2026, 8, 3)
+    hole = [(day.replace(hour=10, minute=0), day.replace(hour=10, minute=20))]
+    session = [(day.replace(hour=9, minute=16), day.replace(hour=15, minute=14))]
+    opens = [(day.replace(hour=9, minute=15), day.replace(hour=9, minute=15))]
+    ordered = sorted([opens, session, hole], key=_priority)
+    assert ordered == [hole, session, opens]

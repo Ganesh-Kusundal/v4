@@ -66,12 +66,14 @@ from tradex_domain.instruments import (
 from tradex_domain.market import OHLC, Candle, Depth, HistoricalSeries, Quote
 from tradex_domain.options import Expiry, OptionChain, OptionPair
 from tradex_domain.order_factory import create_order
+from tradex_domain.clocks import LiveClock, ReplayClock, SimClock
 from tradex_domain.protocols import (
     BrokerAdapter,
     Clock,
     IndicatorComputer,
     SessionFacade,
     SystemClock,
+    TradingClock,
 )
 from tradex_domain.risk_budget import (
     REQUIRED_RISK_LIMITS,
@@ -181,6 +183,10 @@ __all__ = [
     "BrokerCapabilities",
     "Clock",
     "SystemClock",
+    "TradingClock",
+    "LiveClock",
+    "ReplayClock",
+    "SimClock",
     "IndicatorComputer",
     "InstrumentRegistry",
     "SessionFacade",

@@ -220,6 +220,25 @@ class TestSessionEdgeStamps:
         assert found.close_missing_symbols == 1
         assert found.open_missing_symbols == 0
 
+    def test_a_mid_session_end_is_not_the_close(self, tmp_path):
+        """Ending the window at 09:20 must not classify 09:20 as the session close."""
+        store = ParquetStorage(tmp_path)
+        rows = [
+            dict(timestamp=f"2026-07-03 09:{minute:02d}:00",
+                 open=100, high=101, low=99, close=100)
+            for minute in range(15, 20)
+        ]
+        store.upsert(_frame(rows))
+        found = GapDetector(store).scan(
+            [_FakeInst("RELIANCE")],
+            start=datetime(2026, 7, 3, 9, 15), end=datetime(2026, 7, 3, 9, 20),
+            timeframe="1m", bar_freq="1min",
+        )
+        assert found.gaps[0][1] == [
+            (datetime(2026, 7, 3, 9, 20), datetime(2026, 7, 3, 9, 20))
+        ]
+        assert found.close_missing_symbols == 0
+
     def test_a_real_hole_still_reports_even_alongside_edge_stamps(self, tmp_path):
         """Classifying edges must not hide an interior hole next to one."""
         store = ParquetStorage(tmp_path)

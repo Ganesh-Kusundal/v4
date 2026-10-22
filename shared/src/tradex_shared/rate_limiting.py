@@ -116,28 +116,40 @@ class TokenBucketRateLimiter:
     def burst(self) -> int:
         return self._burst
 
+    def _spaced(self, now: float) -> bool:
+        return self._min_interval <= 0 or now - self._last_acquire >= self._min_interval
+
     def try_acquire(self, tokens: int = 1) -> bool:
         """Non-blocking acquire.  Returns ``True`` if tokens were available."""
         with self._lock:
-            if time.monotonic() < self._cooldown_until:
+            now = time.monotonic()
+            if now < self._cooldown_until or not self._spaced(now):
                 return False
             self._refill()
             if self._tokens < tokens:
                 return False
             self._tokens -= tokens
-            self._last_acquire = time.monotonic()
+            self._last_acquire = now
             return True
 
     def acquire(self, tokens: int = 1, timeout: float | None = None) -> None:
-        """Blocking acquire.  Raises ``TimeoutError`` if timeout expires."""
+        """Blocking acquire.  Raises ``TimeoutError`` if timeout expires.
+
+        ``min_interval`` is the gap between two takes. ``wait_cooldown``
+        false fails at once while the bucket is cooling; true waits it out.
+        """
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             with self._lock:
-                if time.monotonic() >= self._cooldown_until:
+                now = time.monotonic()
+                if now < self._cooldown_until:
+                    if not self._wait_cooldown:
+                        raise TimeoutError("rate limiter cooldown")
+                elif self._spaced(now):
                     self._refill()
                     if self._tokens >= tokens:
                         self._tokens -= tokens
-                        self._last_acquire = time.monotonic()
+                        self._last_acquire = now
                         return
             if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError("rate limiter acquire timed out")

@@ -355,12 +355,6 @@ class TestErrorMessages:
     def test_upstox_cooldown_seconds(self):
         assert C.UPSTOX_COOLDOWN_SECONDS == 600.0
 
-    def test_dhan_intraday_max_days(self):
-        assert C.DHAN_INTRADAY_MAX_DAYS == 90
-
-    def test_upstox_minute_max_days(self):
-        assert C.UPSTOX_MINUTE_MAX_DAYS == 30
-
     def test_min_master_rows(self):
         assert C.MIN_MASTER_ROWS == 10_000
 

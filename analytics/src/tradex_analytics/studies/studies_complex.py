@@ -49,8 +49,6 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from tradex_domain.timezones import IST_OFFSET_SECONDS
-
 from tradex_analytics._math import (
     _rma,
     _rolling_sum,
@@ -65,6 +63,7 @@ from tradex_analytics.indicators import (
 )
 from tradex_analytics.studies.studies_simple import _src_val, _vwma
 from tradex_analytics.volume.volume_flow import _sma_skip_none
+from tradex_domain.timezones import IST_OFFSET_SECONDS
 
 REGISTRY.register_legacy_aliases({
     "cpr": {

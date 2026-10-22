@@ -10,27 +10,12 @@ timestamps, matching what ``ParquetStorage.read`` actually stores/strips.
 Without this, nights/weekends/holidays were flagged as gaps and every
 symbol looked incomplete (making backfill ``--skip-existing`` a no-op).
 
-**Session-edge stamps are classified, not counted as gaps.** The grid runs
-MARKET_OPEN..MARKET_CLOSE, so each session's first and last stamp ("edge"
-stamps — 09:15 and 15:30 on a 1m grid) is a stamp the fetch path cannot
-deliver reliably: Dhan's ``/charts/intraday`` treats ``fromDate`` as
-exclusive, so a request starting at the session open loses the 09:15 bar, and
-its NSE 1m series stops at 15:14 — while Upstox's last bar is 15:29. A symbol
-whose only shortfall is an edge stamp is therefore a *fetch-shape* finding
-rather than a hole in the lake, and is reported as such (``edge_only`` /
-``open_missing_symbols`` / ``close_missing_symbols``) instead of becoming a
-gap. Folding edges into ``gaps`` is what made every symbol look gapped — the
-reason the ``min_gap_stamps`` floor exists — and that floor in turn hid real
-holes below it (a 14-stamp tail hole on 2026-08-31 sat under a floor of 15 and
-was never fetched). Both are now visible: edges as their own counts, floored
-stamps as ``sub_threshold_*``.
-
-The two edges are not equally repairable, so they are not treated alike. The
-session **open** IS served (Upstox returns it, and so does Dhan when its window
-starts earlier), so ``include_open_stamps=True`` turns a missing 09:15 back
-into a fetchable range. The session **close** is served by neither broker's
-intraday endpoint, so chasing it would burn a request per symbol-day forever;
-it stays a reported count.
+**Session-edge stamps are the venue edges, not the ends of the slice.** The
+open is 09:15. The close is 15:30, and every minute after 15:14 is the same
+finding, because that is where Dhan's NSE 1-minute series stops. A window that
+ends at 10:00 does not turn 10:00 into the close. ``include_open_stamps=True``
+puts a missing 09:15 back into the fetch. The close, and the minutes after
+15:14, are not fetched.
 
 ``scan()`` returns that full picture; ``detect()`` keeps its original shape
 (``[(instrument, [(start, end), ...]), ...]``) and is ``scan().gaps``.
@@ -43,16 +28,19 @@ from __future__ import annotations
 from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
+from tradex_config.broker_limits import BROKER_LIMITS
 from tradex_domain.market_calendar import MARKET_CLOSE, MARKET_OPEN
 
 from tradex_market_data.parquet_storage import ParquetStorage
 
 _MARKET_OPEN = MARKET_OPEN
 _MARKET_CLOSE = MARKET_CLOSE
+#: Last 1-minute stamp Dhan's NSE intraday endpoint returns.
+_DHAN_LAST_1M = BROKER_LIMITS.dhan_last_1m
 
 
 def _session_grid(
@@ -200,8 +188,8 @@ class GapDetector:
         ``tail_days`` limits the scan window to ``last_stored - tail_days``
         for symbols with existing data (incremental daily sync).
         ``include_open_stamps`` folds the missing 09:15 open back into the
-        returned ranges (see ``scan``) — the wrong default for a bulk sync,
-        right for a repair run that wants the open bar back.
+        returned ranges (see ``scan``). Minutes after 15:14 are never gaps.
+        A symbol with no file is measured against that same session grid.
         """
         return self.scan(
             instruments, start=start, end=end, timeframe=timeframe,
@@ -251,22 +239,24 @@ class GapDetector:
                 symbols=[symbol], start=scan_start, end=end, timeframe=timeframe,
             )
 
-            if existing.empty:
-                return _SymbolScan(
-                    symbol=symbol, instrument=inst, gaps=[(start, end)],
-                    edge_only=False, open_missing=False, close_missing=False,
-                    sub_threshold_stamps=0,
-                )
-
             expected = _session_grid(scan_start, end, bar_freq, holiday_set)
             if not len(expected):
                 return None
-            existing_set = set(pd.to_datetime(existing["timestamp"]))
+            existing_set = (
+                set() if existing.empty
+                else set(pd.to_datetime(existing["timestamp"]))
+            )
             missing = [t for t in expected if t not in existing_set]
             if not missing:
                 return None
 
-            open_edges, close_edges = _edge_stamps(expected)
+            # Clock edges, not the first and last stamp of this slice. A scan
+            # that stops at 10:00 must still be able to fetch 10:00.
+            open_edges = frozenset(t for t in expected if t.time() == _MARKET_OPEN)
+            close_edges = frozenset(
+                t for t in expected
+                if t.time() == _MARKET_CLOSE or t.time() > _DHAN_LAST_1M
+            )
             edge_set = open_edges | close_edges
             interior = [t for t in missing if t not in edge_set]
             opens = [t for t in missing if t in open_edges]

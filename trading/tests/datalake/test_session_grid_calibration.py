@@ -14,12 +14,10 @@ every run or hides a real hole forever.
    It is also why the defect this lane fixes was invisible on a 1m chart and
    obvious on an hourly one.
 
-2. **The floor sits above the venue ceiling.** Dhan's NSE 1m series stops at
-   15:14, so a session Dhan served alone is missing 15:15..15:29 — 15 interior
-   stamps, on every symbol, every day. ``min_gap_stamps`` keeps a run when
-   ``size >= min_gap_stamps``, so a floor of 15 admits that noise and a
-   Dhan-only repair run re-requests a range the venue can never serve, forever.
-   The floor has to be 16: the smallest value that suppresses the ceiling.
+2. **Minutes after 15:14 are the close, not a hole.** Dhan's NSE 1m series
+   stops at 15:14, so 15:15..15:29 is 15 stamps the venue will not send.
+   ``GapDetector`` classifies them with the session close. A floor is not what
+   keeps them out of the fetch.
 """
 
 from __future__ import annotations
@@ -88,11 +86,9 @@ def _dhan_tail_stamps() -> int:
     return sum(1 for t in _interior() if t.time() > DHAN_LAST_1M_STAMP)
 
 
-#: The smallest floor that suppresses the Dhan ceiling: a run is kept when
-#: ``size >= min_gap_stamps``, so the floor has to be one above the 15 the venue
-#: ceiling costs. Derived in ``TestFloorAgainstRealHoles``, not configured: there
-#: is deliberately no ``DEFAULT_MIN_GAP_STAMPS`` in the module any more.
-SUPPRESSING_FLOOR = _dhan_tail_stamps() + 1
+#: A caller-chosen floor. It hides short interior holes; it does not decide
+#: the Dhan ceiling. The ceiling is classified before the floor runs.
+FLOOR = 16
 
 
 def _epoch_floor(ts: datetime, seconds: int) -> datetime:
@@ -229,55 +225,40 @@ def _gaps_with(tmp_path, skip: set, *, min_gap_stamps: int = 1):
     )
 
 
+def _morning_hole(n: int) -> list[pd.Timestamp]:
+    """``n`` consecutive interior minutes starting at 10:00, before the ceiling."""
+    start = datetime.combine(_SESSION_DAY, dtime(10, 0))
+    return [t for t in _interior() if start <= t.to_pydatetime() < start + timedelta(minutes=n)]
+
+
 class TestFloorAgainstRealHoles:
-    """The floor's two jobs, on a session built from the grid itself."""
+    """The Dhan ceiling is classified. The floor only hides shorter real holes."""
 
     def test_the_derivation_itself(self):
         assert _dhan_tail_stamps() == 15
-        assert SUPPRESSING_FLOOR == _dhan_tail_stamps() + 1 == 16
 
-    def test_the_library_default_reports_the_dhan_tail_rather_than_hiding_it(self, tmp_path):
-        """The defect the floor used to cause, as a negative control on the fix.
-
-        At the module's own default the 15-stamp Dhan tail is a reported gap. It
-        used to be swallowed: with a floor of 16 baked in, every Dhan-served
-        session looked complete, and a 14-stamp real hole on 2026-08-31 sat
-        under that floor and was never fetched while every run reported the lake
-        clean. The floor is still available — it is now a per-call argument whose
-        policy default lives in ``--min-gap-stamps`` — but it can no longer hide
-        anything a caller did not ask it to hide.
-        """
+    def test_a_session_ending_at_15_14_is_complete(self, tmp_path):
+        """15:15–15:29 is the close. It is counted, and it is not fetched."""
         tail = {t for t in _interior() if t.time() > DHAN_LAST_1M_STAMP}
         found = _gaps_with(tmp_path, tail)
-        assert len(found.gaps) == 1
-        assert found.gaps[0][0].symbol == "RELIANCE"
-        assert found.gaps[0][1] == [
-            (min(tail).to_pydatetime(), max(tail).to_pydatetime())
-        ], "the Dhan tail is a shortfall and the default must report it"
+        assert found.gaps == []
+        assert found.close_missing_symbols == 1
         assert found.sub_threshold_stamps == 0
 
-    def test_a_dhan_shaped_tail_is_counted_when_the_floor_is_asked_for(self, tmp_path):
-        """The floor still works when a caller passes it: counted, not fetched.
+    def test_a_short_morning_hole_is_hidden_only_when_the_floor_asks(self, tmp_path):
+        hole = _morning_hole(10)
+        assert len(hole) == 10
+        reported = _gaps_with(tmp_path, set(hole), min_gap_stamps=1)
+        assert reported.gaps[0][1] == [
+            (hole[0].to_pydatetime(), hole[-1].to_pydatetime())
+        ]
+        hidden = _gaps_with(tmp_path, set(hole), min_gap_stamps=FLOOR)
+        assert hidden.gaps == []
+        assert hidden.sub_threshold_stamps == 10
 
-        This is the operator's choice, and it is the one a Dhan-only repair run
-        makes, so the count is what tells them the floor is doing something.
-        """
-        tail = {t for t in _interior() if t.time() > DHAN_LAST_1M_STAMP}
-        found = _gaps_with(tmp_path, tail, min_gap_stamps=SUPPRESSING_FLOOR)
-        assert found.gaps == []
-        assert found.sub_threshold_stamps == len(tail) == 15
-
-    def test_a_hole_one_stamp_above_the_ceiling_is_still_reported(self, tmp_path):
-        """Negative control: 16 stamps clears the floor, so it is a real hole.
-
-        Without this, a floor that swallowed every tail would pass the test
-        above while quietly discarding real data. The hole's size comes from the
-        venue ceiling, not from the derived constant, so a floor raised *above*
-        the right value fails here too.
-        """
-        hole = _interior()[-SUPPRESSING_FLOOR:]
-        found = _gaps_with(tmp_path, set(hole), min_gap_stamps=SUPPRESSING_FLOOR)
-        assert len(found.gaps) == 1
+    def test_a_hole_that_clears_the_floor_is_still_reported(self, tmp_path):
+        hole = _morning_hole(FLOOR)
+        found = _gaps_with(tmp_path, set(hole), min_gap_stamps=FLOOR)
         assert found.gaps[0][1] == [
             (hole[0].to_pydatetime(), hole[-1].to_pydatetime())
         ]
@@ -286,8 +267,8 @@ class TestFloorAgainstRealHoles:
     def test_the_measured_lake_hole_would_survive_the_floor(self, tmp_path):
         """The one interior hole in the real 90-day repair window is 27 stamps."""
         measured_lake_hole_stamps = 27
-        assert measured_lake_hole_stamps > SUPPRESSING_FLOOR
-        hole = _interior()[-measured_lake_hole_stamps:]
-        found = _gaps_with(tmp_path, set(hole), min_gap_stamps=SUPPRESSING_FLOOR)
+        assert measured_lake_hole_stamps > FLOOR
+        hole = _morning_hole(measured_lake_hole_stamps)
+        found = _gaps_with(tmp_path, set(hole), min_gap_stamps=FLOOR)
         assert len(found.gaps) == 1
         assert found.sub_threshold_stamps == 0

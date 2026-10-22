@@ -79,6 +79,7 @@ _ALLOWED: dict[str, set[str]] = {
     "application": {"tradex_domain", "tradex_execution"},
     "market_data": {
         "tradex_domain",
+        "tradex_config",
         "tradex_replay",
         "tradex_runtime",
     },

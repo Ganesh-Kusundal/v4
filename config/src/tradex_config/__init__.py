@@ -9,6 +9,7 @@ from tradex_config.permissions import (
     assert_secret_file_mode,
     check_secret_files,
 )
+from tradex_config.broker_limits import BROKER_LIMITS, BrokerIntradayLimits
 from tradex_config.schema import (
     AppConfig,
     BrokerConfig,
@@ -19,6 +20,8 @@ from tradex_config.schema import (
 __all__ = [
     "AppConfig",
     "BrokerConfig",
+    "BrokerIntradayLimits",
+    "BROKER_LIMITS",
     "InsecureSecretFileError",
     "PersistenceConfig",
     "RiskConfig",

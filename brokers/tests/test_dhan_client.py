@@ -708,7 +708,25 @@ class TestMarketData:
 
         payload = fake.last_payload("json")
         assert payload["fromDate"] == "2026-08-05 09:14:00"
+        assert payload["toDate"] == "2026-08-05 15:31:00"
         assert payload["interval"] == "1"
+
+    def test_history_intraday_partial_window_is_not_widened_to_the_session(self):
+        """A hole request stays a hole request.
+
+        Widening to 09:14–15:30 made a five-minute repair download and then
+        overwrite the whole session.
+        """
+        client, fake, _ = _make_client([{"data": {}}])
+        start = datetime(2026, 8, 5, 10, 0, tzinfo=UTC)
+        end = datetime(2026, 8, 5, 10, 5, tzinfo=UTC)
+
+        client.history(_equity(), Timeframe.M1, start, end)
+
+        payload = fake.last_payload("json")
+        assert payload["fromDate"] == "2026-08-05 09:59:00"
+        # toDate is exclusive, so the last wanted bar (10:05) needs 10:06.
+        assert payload["toDate"] == "2026-08-05 10:06:00"
 
     def test_history_daily_uses_date_only_window(self):
         """Daily bars take /charts/historical, whose fromDate is a plain date.

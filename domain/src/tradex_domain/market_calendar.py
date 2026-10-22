@@ -60,6 +60,10 @@ NSE_HOLIDAYS_2026: frozenset = frozenset({
     date(2026, 10, 20),
 })
 
+#: Calendar years ``NSE_HOLIDAYS_2026`` speaks for. A sync over any other year
+#: would read every exchange holiday as a missing session, so callers refuse it.
+NSE_HOLIDAY_YEARS: frozenset = frozenset({2026})
+
 
 class NSETradingCalendar:
     """NSE/BSE trading calendar utilities.
@@ -131,5 +135,6 @@ __all__ = [
     "MARKET_OPEN_STR",
     "NSETradingCalendar",
     "NSE_HOLIDAYS_2026",
+    "NSE_HOLIDAY_YEARS",
     "to_ist_naive",
 ]

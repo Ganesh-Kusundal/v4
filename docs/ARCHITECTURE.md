@@ -880,11 +880,9 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │   ├── clean_datalake.py
 │   │   ├── datalake_stats.py
 │   │   ├── e2e_smoke.py
-│   │   ├── fill_gaps.py
 │   │   ├── quick_start_live.py
 │   │   ├── reconcile_bars.py
 │   │   ├── rename_symbol.py
-│   │   ├── repair_gaps.py
 │   │   └── seed_e2e_datalake.py
 │   ├── tests/
 │   │   ├── analytics/

@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.capabilities import BrokerCapabilities
-from tradex_domain.enums import BrokerId, Timeframe
+from tradex_domain.enums import BrokerId, ProductType, Timeframe
 from tradex_domain.events import DomainEvent
 from tradex_domain.execution import (
     Account,
@@ -92,6 +92,15 @@ class BrokerAdapter(Protocol):
     def get_holdings(self) -> list[Position]: ...
     def get_account(self) -> Account: ...
     def get_portfolio(self) -> PortfolioSnapshot: ...
+
+    def convert_position(
+        self,
+        instrument: Instrument,
+        *,
+        from_product: ProductType,
+        to_product: ProductType,
+        quantity: int,
+    ) -> dict[str, object]: ...
 
     # OMS projection seam: whether the adapter already applies fills to its
     # own book, and the cache that projection lives in (None when it keeps
@@ -420,3 +429,65 @@ __all__ = [
     "SessionFacade",
     "TradingCacheProtocol",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Zero-Discrepancy Environment Abstractions
+# ---------------------------------------------------------------------------
+
+@runtime_checkable
+class TradingClock(Clock, Protocol):
+    """Extended clock with control methods for simulation.
+
+    LiveClock: real wall-clock, advance() is no-op.
+    SimClock: deterministic, advance() moves time forward.
+    ReplayClock: feeds pre-recorded event timestamps.
+    """
+
+    def advance(self, to: datetime) -> None: ...
+    def is_live(self) -> bool: ...
+
+
+@runtime_checkable
+class MarketDataProvider(Protocol):
+    """Unified market data access across all environments.
+
+    Every environment returns identical Bar/Quote objects for the same
+    (instrument, timeframe, timestamp) tuple.
+    """
+
+    def get_bar(
+        self, instrument: Instrument, timeframe: Timeframe, ts: datetime
+    ) -> object | None: ...
+
+    def get_bars(
+        self,
+        instrument: Instrument,
+        timeframe: Timeframe,
+        start: datetime,
+        end: datetime,
+    ) -> list: ...
+
+    def get_quote(self, instrument: Instrument) -> object: ...
+
+    def get_ltp(self, instrument: Instrument) -> Price: ...
+
+
+@runtime_checkable
+class OrderGateway(Protocol):
+    """Unified order execution across all environments.
+
+    LiveGateway: routes to broker.
+    PaperGateway: simulates fills, tracks paper portfolio.
+    SimGateway: deterministic fill simulation for backtest/replay.
+    """
+
+    def submit_order(self, request: object) -> object: ...
+
+    def cancel_order(self, order_id: object) -> object: ...
+
+    def modify_order(self, order_id: object, request: object) -> object: ...
+
+    def get_order(self, order_id: object) -> object: ...
+
+    def get_fills(self, order_id: object) -> list: ...
