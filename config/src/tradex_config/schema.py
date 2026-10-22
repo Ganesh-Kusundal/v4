@@ -362,8 +362,20 @@ class ExecutionConfig:
     #: order that never fills is a position the operator did not intend, and
     #: ``0`` is reachable explicitly. Must be >= 0.
     pending_max_age_bars: int = 3
+    #: Strategies this session may wire by name. Live requires at least one;
+    #: paper/backtest ignore it. Discovered examples are never implied by it.
+    strategy_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "strategy_ids",
+            tuple(
+                dict.fromkeys(
+                    item.strip() for item in self.strategy_ids if item.strip()
+                )
+            ),
+        )
         if self.slippage_bps is not None and not isinstance(
             self.slippage_bps, Decimal
         ):

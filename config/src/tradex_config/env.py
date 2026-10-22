@@ -8,8 +8,10 @@ from __future__ import annotations
 import os
 import re
 import shlex
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 from tradex_domain import BrokerId
 from tradex_domain.constants import PAPER_DEFAULT
@@ -20,6 +22,7 @@ from tradex_config.schema import (
     BrokerConfig,
     ExecutionConfig,
     LoggingConfig,
+    PersistenceConfig,
     RiskConfig,
     default_feed_instruments,
     default_runtime_dir_str,
@@ -35,11 +38,22 @@ def from_env() -> AppConfig:
     """Load config from environment variables with sensible defaults.
 
     Environment variables:
-    - TRADEX_BROKER: BrokerId (PAPER, DHAN, UPSTOX, REPLAY)
+    - TRADEX_BROKER: BrokerId (PAPER, DHAN, UPSTOX, REPLAY). An
+      unrecognised name raises rather than falling back to paper, so a typo
+      cannot quietly point a live session at the simulator.
     - TRADEX_MODE: Execution mode (paper, backtest, replay, live)
     - TRADEX_RUNTIME_DIR: Runtime directory (defaults to the repo-anchored
       ``<repo>/runtime`` shared with the broker layer; see
       ``tradex_domain.paths``)
+    - TRADEX_LIVE_ENABLED: Explicit live-trading gate (true/false)
+    - TRADEX_LIVE_ORDERS_ENABLED: Whether a live session may submit orders
+      (true/false; default false). A live session still boots with the gate
+      closed; every submit is refused.
+    - TRADEX_PERSISTENCE_PATH: SQLite file for orders and idempotency results
+      (unset means in-memory)
+    - TRADEX_STRATEGY_IDS: Strategies this session may run, comma separated.
+      Surrounding whitespace and empty slots are dropped and duplicates are
+      proven once; paper/backtest ignore it.
     - TRADEX_KILL_SWITCH: Kill switch default (true/false)
     - TRADEX_RISK_MAX_ORDER_VALUE: Max order value
     - TRADEX_RISK_MAX_POSITION_VALUE: Max position value
@@ -64,8 +78,8 @@ def from_env() -> AppConfig:
     broker_id_str = os.environ.get("TRADEX_BROKER", PAPER_DEFAULT)
     try:
         broker_id = BrokerId(broker_id_str)
-    except ValueError:
-        broker_id = BrokerId.PAPER
+    except ValueError as exc:
+        raise SDKError(f"invalid TRADEX_BROKER {broker_id_str!r}") from exc
 
     mode = os.environ.get("TRADEX_MODE", "paper")
     runtime_dir = default_runtime_dir_str()
@@ -101,10 +115,23 @@ def from_env() -> AppConfig:
 
     slippage_bps_str = os.environ.get("TRADEX_SLIPPAGE_BPS")
     slippage_bps = Decimal(slippage_bps_str) if slippage_bps_str else None
+    strategy_ids = tuple(
+        dict.fromkeys(
+            part.strip()
+            for part in os.environ.get("TRADEX_STRATEGY_IDS", "").split(",")
+            if part.strip()
+        )
+    )
+    live_enabled = _parse_bool(os.environ.get("TRADEX_LIVE_ENABLED", "false"))
+    live_orders_enabled = _parse_bool(
+        os.environ.get("TRADEX_LIVE_ORDERS_ENABLED", "false")
+    )
+    persistence_path = os.environ.get("TRADEX_PERSISTENCE_PATH") or None
     execution = ExecutionConfig(
         fees_enabled=_parse_bool(os.environ.get("TRADEX_FEES_ENABLED", "true")),
         slippage_bps=slippage_bps,
         fill_reference=os.environ.get("TRADEX_FILL_REFERENCE", "next_open"),
+        strategy_ids=strategy_ids,
     )
 
     return AppConfig(
@@ -113,6 +140,9 @@ def from_env() -> AppConfig:
         risk=risk,
         runtime_dir=runtime_dir,
         kill_switch_default=kill_switch,
+        live_enabled=live_enabled,
+        live_orders_enabled=live_orders_enabled,
+        persistence=PersistenceConfig(path=persistence_path),
         broker=BrokerConfig(
             name=os.environ.get("TRADEX_BROKER_NAME", "paper"),
             environment=os.environ.get("TRADEX_BROKER_ENVIRONMENT", PAPER_DEFAULT),
@@ -130,6 +160,27 @@ def from_env() -> AppConfig:
         # which variable a setting comes from.
         feed_instruments=default_feed_instruments(),
     )
+
+
+def serve_config(config: AppConfig, *, broker_id: BrokerId, mode: str) -> AppConfig:
+    """Apply the serve command's explicit broker/mode to a loaded config.
+
+    A live serve is the operator's deliberate enablement, so it sets the live
+    gate and gives the session a durable store when the operator did not name
+    one. Paper/backtest never acquire a persistence path here.
+    """
+    changes: dict[str, Any] = {"broker_id": broker_id, "mode": mode}
+    if mode == "live":
+        changes["live_enabled"] = True
+        if not config.persistence.path:
+            changes["persistence"] = PersistenceConfig(
+                path=str(
+                    Path(config.runtime_dir)
+                    / "live"
+                    / f"{broker_id.value.lower()}.sqlite"
+                )
+            )
+    return replace(config, **changes)
 
 
 # ---------------------------------------------------------------------------
@@ -171,4 +222,4 @@ def load_env_file(path: str | Path, *, override: bool = False) -> tuple[str, ...
     return tuple(loaded)
 
 
-__all__ = ["_parse_bool", "from_env", "load_env_file"]
+__all__ = ["_parse_bool", "from_env", "load_env_file", "serve_config"]
