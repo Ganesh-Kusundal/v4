@@ -44,7 +44,7 @@ from tradex_brokers.common.resilience import (
     limiter_for_provider,
     table_for_provider,
 )
-from tradex_shared import RateLimitConfig
+from tradex_domain import RateLimitConfig
 
 HISTORICAL_URL = "https://api.dhan.co/v2/charts/intraday/2885/1/2026-08-01/2026-08-05"
 
@@ -314,7 +314,7 @@ def test_wait_cooldown_blocks_until_cooldown_lifts() -> None:
     """wait_cooldown=True makes acquire() wait out the cooldown instead of
     raising — the safety net that lets a backfill absorb a 429 rather than
     fail the whole batch."""
-    from tradex_shared import RateLimitConfig
+    from tradex_domain import RateLimitConfig
 
     cfg = RateLimitConfig(
         rate_per_second=10.0, capacity=5, cooldown_seconds=0.2, wait_cooldown=True,
@@ -330,7 +330,7 @@ def test_wait_cooldown_blocks_until_cooldown_lifts() -> None:
 
 def test_min_interval_spaces_acquires() -> None:
     """The table's min_interval is the gap between takes, not a stored unused field."""
-    from tradex_shared import RateLimitConfig
+    from tradex_domain import RateLimitConfig
 
     cfg = RateLimitConfig(
         rate_per_second=100.0, capacity=10, min_interval=0.05, cooldown_seconds=1.0,

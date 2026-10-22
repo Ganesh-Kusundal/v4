@@ -87,7 +87,7 @@ class _StubResult:
 
 
 def _stub_candles() -> list[Any]:
-    from tradex_shared import make_candle
+    from tradex_domain import make_candle
     from tradex_domain.enums import Timeframe
     from tradex_domain.instruments import Equity
 

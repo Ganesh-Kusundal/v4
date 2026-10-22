@@ -119,7 +119,7 @@ class ParquetMarketProvider:
     @staticmethod
     def _to_candles(instrument: Any, df: Any) -> list[Candle]:
         """Build M1 Candles via single-sourced market_builder helper."""
-        from tradex_shared import candles_from_dataframe
+        from tradex_domain import candles_from_dataframe
 
         return candles_from_dataframe(instrument, df, timeframe=Timeframe.M1)
 

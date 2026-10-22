@@ -34,7 +34,7 @@ from tradex_domain.wire import InstrumentRegistry
 from tradex_brokers.common.client_shared import correlation_id
 from tradex_brokers.common.provider_common import instrument_from_id, parse_date
 from tradex_brokers.common.resilience import MultiBucketRateLimiter
-from tradex_shared import RateLimitConfig
+from tradex_domain import RateLimitConfig
 from tradex_brokers.dhan.client import (
     DhanApiClient,
     _as_price,

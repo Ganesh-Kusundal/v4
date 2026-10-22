@@ -50,7 +50,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from tradex_domain import BrokerUnavailableError, RateLimitError
-from tradex_shared.rate_limiting import (
+from tradex_domain.rate_limiting import (
     MultiBucketRateLimiter,
     RollingWindowCounter,
     TokenBucketRateLimiter,

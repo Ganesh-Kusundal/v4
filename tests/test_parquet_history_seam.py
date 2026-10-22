@@ -38,9 +38,9 @@ def test_migrated_routes_call_the_shared_provider():
 
 
 def test_the_lake_converter_is_patchable_at_the_seam_production_reads(monkeypatch):
-    """Doubles for ``candles_from_dataframe`` must patch ``tradex_shared``.
+    """Doubles for ``candles_from_dataframe`` must patch ``tradex_domain``.
 
-    ``_to_candles`` resolves the helper off the ``tradex_shared`` package at
+    ``_to_candles`` resolves the helper off the ``tradex_domain`` package at
     call time, so a double installed on any other module is dead code: the real
     converter runs, raises on the test's fake frame, and the route answers with
     an error frame the test is not waiting for. That is not hypothetical —
@@ -50,10 +50,10 @@ def test_the_lake_converter_is_patchable_at_the_seam_production_reads(monkeypatc
     next move breaks one test here rather than hanging a whole file.
     """
     # Import a helper module FIRST, deliberately: importing before the patch
-    # below proves the double is read off ``tradex_shared`` at call time
+    # below proves the double is read off ``tradex_domain`` at call time
     # (a stale module-level binding elsewhere cannot mask a seam regression).
     import tradex_market_data.market_provider as _seam_module
-    import tradex_shared
+    import tradex_domain
     from tradex_market_data.market_provider import ParquetMarketProvider
 
     seen: list[Any] = []
@@ -63,7 +63,7 @@ def test_the_lake_converter_is_patchable_at_the_seam_production_reads(monkeypatc
         return ["sentinel"]
 
     assert getattr(_seam_module, "candles_from_dataframe", None) is not _double
-    monkeypatch.setattr(tradex_shared, "candles_from_dataframe", _double)
+    monkeypatch.setattr(tradex_domain, "candles_from_dataframe", _double)
 
     assert ParquetMarketProvider._to_candles("NSE:TEST", object()) == ["sentinel"]
     assert seen == ["NSE:TEST"]

@@ -64,6 +64,7 @@ from tradex_domain.instruments import (
     Option,
 )
 from tradex_domain.market import OHLC, Candle, Depth, HistoricalSeries, Quote
+from tradex_domain.market_builder import build_depth, candles_from_dataframe, make_candle
 from tradex_domain.options import Expiry, OptionChain, OptionPair
 from tradex_domain.order_factory import create_order
 from tradex_domain.clocks import LiveClock, ReplayClock, SimClock
@@ -74,6 +75,16 @@ from tradex_domain.protocols import (
     SessionFacade,
     SystemClock,
     TradingClock,
+)
+from tradex_domain.rate_limiting import (
+    MultiBucketRateLimiter,
+    RateLimitConfig,
+    RollingWindowCounter,
+    TokenBucketRateLimiter,
+    as_decimal,
+    as_price,
+    bucket_for_path,
+    limiter_from_table,
 )
 from tradex_domain.risk_budget import (
     REQUIRED_RISK_LIMITS,
@@ -145,6 +156,10 @@ __all__ = [
     "HistoricalSeries",
     "OHLC",
     "Quote",
+    # market builders
+    "build_depth",
+    "candles_from_dataframe",
+    "make_candle",
     # order factory
     "create_order",
     # options
@@ -193,6 +208,15 @@ __all__ = [
     "WireAdapter",
     "normalize_symbol",
     "require_capability",
+    # rate limiting
+    "MultiBucketRateLimiter",
+    "RateLimitConfig",
+    "RollingWindowCounter",
+    "TokenBucketRateLimiter",
+    "as_decimal",
+    "as_price",
+    "bucket_for_path",
+    "limiter_from_table",
     # serialization
     "Serializable",
     "from_dict",

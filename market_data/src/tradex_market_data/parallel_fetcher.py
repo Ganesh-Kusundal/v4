@@ -19,7 +19,7 @@ from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.timeframe import TIMEFRAMES
-from tradex_shared import MultiBucketRateLimiter, RateLimitConfig
+from tradex_domain import MultiBucketRateLimiter, RateLimitConfig
 
 log = logging.getLogger(__name__)
 

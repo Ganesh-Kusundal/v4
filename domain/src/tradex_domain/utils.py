@@ -25,7 +25,7 @@ def as_decimal(value: str | float | int) -> Decimal:
     The single shared coercion helper (audit REF-5) — merged from the two
     byte-identical bodies that used to live in
     ``tradex_brokers.common.instruments`` (raising ``SDKError``) and
-    ``tradex_shared.rate_limiting`` (raising ``ValueError``). Both originals
+    ``tradex_domain.rate_limiting`` (raising ``ValueError``). Both originals
     handled exactly the same input space; only the exception type differed,
     so the ValueError contract here is a superset and the brokers layer
     re-wraps it in ``SDKError``.

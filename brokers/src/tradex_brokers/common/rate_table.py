@@ -10,7 +10,7 @@ The canonical names below are the single home for all broker rate tables.
 
 from __future__ import annotations
 
-from tradex_shared import RateLimitConfig
+from tradex_domain import RateLimitConfig
 
 RateTable = dict[str, dict[str, float | int | tuple[tuple[int, float], ...]]]
 

@@ -140,7 +140,7 @@ class MarketDataMixin(Protocol):
 
     def depth(self: DhanClientFacade, instrument: Instrument) -> Depth:
         """Market depth via POST /marketfeed/quote."""
-        from tradex_shared import build_depth
+        from tradex_domain import build_depth
 
         payload = {
             self._segment(instrument): [int(self._security_id(instrument.instrument_id))]
@@ -234,7 +234,7 @@ class MarketDataMixin(Protocol):
         row_count = min(
             len(opens), len(timestamps), len(highs),
             len(lows), len(closes), len(volumes))
-        from tradex_shared import make_candle
+        from tradex_domain import make_candle
 
         candles = [
             make_candle(

@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
-from tradex_domain.utils import as_decimal as _domain_as_decimal
+from tradex_domain.utils import as_decimal
 from tradex_domain.value_objects import Price
 
 
@@ -308,6 +308,8 @@ __all__ = [
     "RateLimitConfig",
     "RollingWindowCounter",
     "TokenBucketRateLimiter",
+    "as_decimal",
+    "as_price",
     "bucket_for_path",
     "limiter_from_table",
 ]
@@ -316,18 +318,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Value coercion helpers (moved from brokers.common.instruments)
 # ---------------------------------------------------------------------------
-
-
-def as_decimal(value: str | float | int) -> Decimal:
-    """Convert a value to ``Decimal`` safely.
-
-    Delegates to the single shared implementation in
-    :func:`tradex_domain.utils.as_decimal` (audit REF-5), preserving this
-    module's historical ``ValueError`` contract and message. Handles strings
-    with commas, currency symbols, and whitespace; empty strings read as
-    ``Decimal("0")``.
-    """
-    return _domain_as_decimal(value)
 
 
 def as_price(value: object, default: str = "0") -> Price:

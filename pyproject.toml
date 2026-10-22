@@ -149,7 +149,6 @@ ignore_errors = true
 root_packages = [
     "tradex_reactive",
     "tradex_observability",
-    "tradex_shared",
     "tradex_domain",
     "tradex_config",
     "tradex_market_data",

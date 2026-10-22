@@ -25,7 +25,7 @@ from tradex_domain.execution import Order, Position
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote
 from tradex_domain.value_objects import InstrumentId
-from tradex_shared import build_depth
+from tradex_domain import build_depth
 
 from tradex_brokers.common.provider_common import instrument_from_id
 from tradex_brokers.common.ws_reconnect import AutoReconnectMixin
