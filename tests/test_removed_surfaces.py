@@ -21,6 +21,7 @@ def test_removed_trees_stay_removed() -> None:
 
 
 def test_pyproject_names_no_removed_member() -> None:
-    text = (_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    for needle in ("research/tests", "research/src", "tradex-research", "tradex_research"):
-        assert needle not in text, f"pyproject still names {needle}"
+    for pyproject in ("pyproject.toml", "trading/pyproject.toml"):
+        text = (_ROOT / pyproject).read_text(encoding="utf-8")
+        for needle in ("research/tests", "research/src", "tradex-research", "tradex_research"):
+            assert needle not in text, f"{pyproject} still names {needle}"
