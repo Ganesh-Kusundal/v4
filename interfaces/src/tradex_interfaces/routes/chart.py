@@ -327,7 +327,7 @@ def create_chart_router(
         """
         needle = (q or "").strip().upper()
         if source == "universe":
-            from tradex_market_data.universe import load_universe
+            from tradex_domain.universe import load_universe
 
             members = [
                 {"symbol": i.symbol, "exchange": str(i.exchange.value)}

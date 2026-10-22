@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from tradex_market_data.universe import available_universes, load_universe
+from tradex_domain.universe import available_universes, load_universe
 
 
 class TestLoadUniverse:

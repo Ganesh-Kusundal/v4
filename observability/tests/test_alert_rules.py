@@ -49,8 +49,6 @@ SRC_DIRS = (
     "reactive/src",
     "application/src",
     "observability/src",
-    "operations/src",
-    "persistence/src",
     "services/duckdb-analytics/src",
 )
 

@@ -52,7 +52,7 @@ from tradex_market_data.parquet_storage import (  # noqa: E402 — sys.path setu
     ParquetStorage,
 )
 from tradex_market_data.paths import datalake_root  # noqa: E402 — sys.path setup above
-from tradex_market_data.universe import load_universe  # noqa: E402 — sys.path setup above
+from tradex_domain.universe import load_universe  # noqa: E402 — sys.path setup above
 
 log = logging.getLogger("tradex.scripts.backfill")
 

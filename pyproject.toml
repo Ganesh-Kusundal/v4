@@ -375,7 +375,7 @@ members = [
     "domain",
     "brokers",
     "config",
-    # "trading" was removed with the tradex_trading package: trading/ now holds
+    # "trading" is not a workspace member: trading/ holds
     # only tests/ and scripts/ (no installable src/), and its third-party runtime
     # deps moved onto the packages that actually import them (market_data).
     # "research" was removed (WP5): zero production callers, so its package,

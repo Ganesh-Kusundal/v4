@@ -553,7 +553,7 @@ def _run_sync(args: Any) -> int:
     from tradex_config.env import load_env_file
     from tradex_market_data.parquet_storage import ParquetStorage
     from tradex_market_data.paths import datalake_root
-    from tradex_market_data.universe import load_universe
+    from tradex_domain.universe import load_universe
     from tradex_runtime.live import build_broker_from_env
 
     # Repo root for .env.local and data/

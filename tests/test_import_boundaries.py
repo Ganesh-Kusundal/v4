@@ -791,10 +791,9 @@ _MODULE_TO_PKG = {name: name[len("tradex_"):] for name in _INTERNAL}
 #: data for instrument metadata. Both rings are now closed:
 #:
 #:   * ``market_data -> replay -> strategy -> market_data`` — ``load_universe``
-#:     / ``available_universes`` are pure domain functions and moved from
-#:     ``tradex_market_data.universe`` to ``tradex_domain.universe``, so
-#:     ``tradex_strategy`` no longer imports the datalake package for them.
-#:     ``tradex_market_data.universe`` survives only as a re-export shim.
+#:     / ``available_universes`` are pure domain functions and live in
+#:     ``tradex_domain.universe``; ``tradex_strategy`` no longer imports the
+#:     datalake package for them, and the market_data shim was deleted.
 #:   * ``market_data -> replay -> market_data`` — ``backtest_loader`` was
 #:     deleted; the run-with-loader helper is replay-side.
 #:

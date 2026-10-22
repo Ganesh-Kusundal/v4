@@ -10,8 +10,6 @@ The canonical names below are the single home for all broker rate tables.
 
 from __future__ import annotations
 
-from tradex_domain import RateLimitConfig
-
 RateTable = dict[str, dict[str, float | int | tuple[tuple[int, float], ...]]]
 
 DHAN_RATE_TABLE: RateTable = {
@@ -179,21 +177,3 @@ RATE_TABLES: dict[str, RateTable] = {
     "paper": PAPER_RATE_TABLE,
 }
 
-
-def get_rate_limit_config(provider: str, bucket: str) -> RateLimitConfig:
-    """Return the RateLimitConfig for a provider's bucket."""
-    name = (provider or "paper").strip().lower()
-    table = RATE_TABLES.get(name)
-    if table is None:
-        raise ValueError(f"unknown rate-limit provider: {provider!r}")
-    row = table.get(bucket)
-    if row is None:
-        msg = f"unknown rate-limit bucket: {bucket!r} for provider {name!r}"
-        raise KeyError(msg)
-    return RateLimitConfig(
-        rate_per_second=float(str(row["rate_per_second"])),
-        capacity=int(str(row["capacity"])),
-        min_interval=float(str(row["min_interval"])),
-        cooldown_seconds=float(str(row["cooldown_seconds"])),
-        wait_cooldown=bool(row.get("wait_cooldown", False)),
-    )

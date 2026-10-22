@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any
 
 
 class ApprovalState(StrEnum):
@@ -51,11 +51,6 @@ class StrategyArtifact:
             separators=(",", ":"),
         )
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
-
-
-class StrategyArtifactStore(Protocol):
-    def publish(self, artifact: StrategyArtifact) -> str: ...
-    def load(self, artifact_id: str) -> StrategyArtifact: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,19 +102,5 @@ class StrategyRestoreResult:
 
     success: bool
     error: str | None = None
-
-
-class InMemoryStrategyArtifactStore:
-    """Simple deterministic artifact store for tests and local runtime."""
-
-    def __init__(self) -> None:
-        self._items: dict[str, StrategyArtifact] = {}
-
-    def publish(self, artifact: StrategyArtifact) -> str:
-        self._items[artifact.artifact_id] = artifact
-        return artifact.artifact_id
-
-    def load(self, artifact_id: str) -> StrategyArtifact:
-        return self._items[artifact_id]
 
 

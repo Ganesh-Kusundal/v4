@@ -26,15 +26,9 @@ dependencies = [
 ]
 
 [project.scripts]
-# The `tradex` console script, declared here and nowhere else. It used to be
-# declared by both this package and tradex-trading (as
-# "tradex_trading.interface.cli:main", which reaches this same function through
-# a compatibility shim — tradex_trading.interface.cli re-exports
-# tradex_interfaces.cli, so both resolved to the identical `main` object). Two
-# wheels both claiming `bin/tradex` in their RECORD means last writer wins on
-# install, so which package owned the entry point could flip on a re-sync. The
-# duplicate declaration in tradex-trading is gone; the shim *module* stays,
-# because other code imports it.
+# The `tradex` console script is declared here and nowhere else. The retired
+# duplicate claim was removed because two wheels owning `bin/tradex` made
+# installs order-dependent.
 tradex = "tradex_interfaces.cli:main"
 
 [tool.hatch.build.targets.wheel]

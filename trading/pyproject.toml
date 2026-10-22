@@ -1,8 +1,6 @@
-# Not a workspace member and not buildable: trading/ holds only tests/ and
-# scripts/ (the tradex_trading package was deleted — see the root workspace
-# comment). This file stays as a dependency-bundle + local pytest/ruff/mypy
-# config; there is deliberately no [build-system]/hatch section because
-# src/tradex_trading does not exist.
+# Not a workspace member and not buildable. This file stays as a
+# dependency-bundle + local pytest/ruff/mypy config; there is deliberately no
+# [build-system]/hatch section because src/tradex_trading does not exist.
 
 [project]
 name = "tradex-trading"

@@ -3,18 +3,8 @@
 from tradex_strategy.artifacts import (
     ApprovalState,
     ExperimentManifest,
-    InMemoryStrategyArtifactStore,
     StrategyArtifact,
 )
-
-
-def test_artifact_store_round_trips_versioned_artifact() -> None:
-    store = InMemoryStrategyArtifactStore()
-    artifact = StrategyArtifact("sma", "1.0.0", {"fast": 5})
-
-    artifact_id = store.publish(artifact)
-
-    assert store.load(artifact_id) == artifact
 
 
 def test_strategy_artifact_id_is_stable_for_same_inputs() -> None:

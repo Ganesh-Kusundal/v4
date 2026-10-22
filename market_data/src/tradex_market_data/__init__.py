@@ -17,7 +17,6 @@ from tradex_market_data.sync_service import (
     SyncService,
     series_to_frame,
 )
-from tradex_market_data.universe import available_universes, load_universe
 from tradex_market_data.window_loader import MarketWindowLoader
 
 __all__ = [
@@ -33,7 +32,5 @@ __all__ = [
     "SyncService",
     "ResolveResult",
     "resolve_universe_symbols",
-    "load_universe",
-    "available_universes",
     "MarketWindowLoader",
 ]

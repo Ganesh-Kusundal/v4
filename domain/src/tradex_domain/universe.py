@@ -15,9 +15,9 @@ package just to get two plain functions::
     strategy.scanners.nifty500_technical -> tradex_market_data.universe
 
 which closed the ring ``market_data -> replay -> strategy -> market_data``.
-Extracting the module to domain removes the edge entirely, so
-``tradex_market_data.universe`` survives only as a re-export shim for
-existing importers. This is the same reason ``NSETradingCalendar`` moved.
+Extracting the module to domain removes the edge entirely; the
+``tradex_market_data.universe`` shim was deleted on 2026-10-22, so this is the
+only import path. This is the same reason ``NSETradingCalendar`` moved.
 
 Do not move it back: any package that reaches across into
 ``tradex_market_data`` for a pure function re-opens the cycle, and

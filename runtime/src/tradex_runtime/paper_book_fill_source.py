@@ -50,29 +50,6 @@ from tradex_domain.instruments import Instrument
 from tradex_domain.value_objects import OrderId, Price, Quantity
 from tradex_execution.fill_sources import make_order
 
-#: Book matching is the ORACLE (spec lane 2d): it walks a real book, so it is
-#: the reference the slippage path is measured against, not the other way round.
-BOOK_MATCHING = "book_matching"
-#: The other selectable path: fill at the live quote through a slippage model.
-SLIPPAGE_MODEL = "slippage_model"
-#: Every legal value of ``ExecutionConfig.fill_path``.
-FILL_PATHS = (BOOK_MATCHING, SLIPPAGE_MODEL)
-
-#: Where the selection resolves when nothing is configured. Paper mode has
-#: always filled through the slippage model, so that stays the default and a run
-#: that names no path behaves exactly as it did before; book matching is the
-#: opt-in oracle it is measured against.
-DEFAULT_FILL_PATH = SLIPPAGE_MODEL
-
-
-def resolve_fill_path(configured: str | None) -> str:
-    """Validate a configured fill path, defaulting to the oracle."""
-    if configured is None:
-        return DEFAULT_FILL_PATH
-    if configured not in FILL_PATHS:
-        raise ValueError(f"fill_path must be one of {FILL_PATHS}, got {configured!r}")
-    return configured
-
 
 @dataclass
 class BookAudit:

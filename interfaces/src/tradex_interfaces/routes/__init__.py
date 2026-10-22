@@ -6,8 +6,8 @@ Each module owns one slice of routes. The contract is uniform:
 - Route functions read the active session via :func:`get_session`, a
   FastAPI dependency that returns ``request.app.state.session``.
 
-``create_app`` (in :mod:`tradex_interfaces.fastapi_app`) iterates
-the :data:`ALL_ROUTES` list and ``include_router``s each one.
+``create_app`` (in :mod:`tradex_interfaces.fastapi_app`) imports each router
+module directly.
 """
 
 from tradex_interfaces.routes import (
@@ -19,15 +19,4 @@ from tradex_interfaces.routes import (
     portfolio,
 )
 
-# ponytail: Order matters for OpenAPI doc grouping only; FastAPI is
-# order-agnostic for routing itself.
-ALL_ROUTES = [
-    health.router,
-    portfolio.router,
-    orders.router,
-    market_data.router,
-    account.router,
-    extensions.router,
-]
-
-__all__ = ["ALL_ROUTES"]
+__all__ = ["account", "extensions", "health", "market_data", "orders", "portfolio"]
