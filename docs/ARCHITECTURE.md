@@ -3416,18 +3416,27 @@ uv run --no-sync python -m pytest -q
 
 ## 9. Gates
 
-| Gate | Mechanism | Status on this tree |
-|---|---|---|
-| Lint | `scripts/ruff_ratchet.py` against committed `.ruff_baseline` | ✅ **0 errors**, at baseline |
-| Complexity | `tests/test_complexity_gate.py` (holds the thresholds) | ✅ passing |
-| Import boundaries | `tests/test_import_boundaries.py` | ✅ 77 passed |
-| Types | `mypy <pkg>` per package, hard-fail in CI | ❌ **35 errors** — §10 |
-| Parity / contracts | `trading/tests/parity` + `contracts` | ❌ **14 failed** — §10 |
-| Full suite | `pytest` (5,700+ tests) | ❌ **17 failed** |
+Every gate is one command: `bash scripts/predeploy_gate.sh`. It runs, in order:
+
+| Gate | Mechanism |
+|---|---|
+| Packaging | `uv sync --frozen`; all 14 members import; deleted packages are absent |
+| Lint | `scripts/ruff_ratchet.py` against `.ruff_baseline` |
+| Types | `scripts/mypy_ratchet.py` against `.mypy_baseline` |
+| Import boundaries | `lint-imports` plus `tests/test_import_boundaries.py` |
+| Complexity | `tests/test_complexity_gate.py` |
+| Behaviour | the full `pytest` suite |
+| Deploy artifact | `docker build`, non-root import and `tradex --help` smoke |
+
+Pass/fail counts live in CI output, not in this document; the table records
+the mechanism, so it cannot go stale.
 
 ---
 
-## 10. Measured state of the working tree
+## 10. Measured state at the 2026-09-29 audit
+
+The counts below are a historical measurement, not the current tree. For the
+current state run `bash scripts/predeploy_gate.sh`.
 
 Two regressions exist in the **uncommitted** work. Both were verified by
 running the same suites in a clean worktree at `HEAD 9de4c05`:
@@ -3473,29 +3482,21 @@ package CI hard-fails on and which was at 0 on HEAD:
 
 Things this document found that contradict other artefacts in the repo.
 
-1. **`README.md` describes a dead architecture.** It documents "a strict
-   three-package dependency boundary", an import path `tradex_trading`, and
-   `pip install -e domain -e brokers -e trading`. The `tradex_trading` package
-   was removed; the workspace has 17 members. The quick-start, live-trading
-   and backtest examples in it import `tradex_trading.*` and cannot run.
+1. **`README.md` now describes the real tree.** The earlier version documented
+   a removed `tradex_trading` package, `pip install -e` instructions and a
+   `ParquetBacktestLoader` that never existed. It now names the 14 workspace
+   members, installs with `uv sync --frozen`, and its quick start is executed
+   before commit.
 
-2. **`trading/pyproject.toml` declares a package that no longer exists.**
-   `trading/src/` is empty. The manifest still declares `name = "tradex-trading"`
-   and 15 sibling dependencies, but it was removed from `[tool.uv.workspace]`
-   members. It is an orphan: not installed, not gated, and a trap for the next
-   reader.
+2. **`trading/pyproject.toml` is intentionally a non-member.** `trading/` holds
+   tests and scripts only; the manifest is a dependency bundle plus local
+   pytest/ruff/mypy config, with no `[build-system]` and no `src/` package. It
+   is not installed, and that is deliberate rather than an orphan.
 
-3. **The CI comments are stale in three places**, and the gate config trusts
-   them:
-   - `quality-gate.yml` says "`ruff check` currently reports 233 pre-existing
-     violations". Actual: **0**; `.ruff_baseline` contains `0`.
-   - The same file says "All 14 gated packages are now at 0 errors and
-     hard-fail; the ratchet is complete." Actual: 5 gated packages have errors
-     (23 at HEAD, 35 now). There is also **no mypy ratchet script** — CI runs
-     plain `mypy`, so a package with 23 errors hard-fails rather than being
-     tracked.
-   - The coverage step's comment cites "per-package range 79.7% tradex_trading",
-     a package the `--cov` list no longer names.
+3. **The CI comments now match the gates.** The dead `tradex_research` mypy
+   and coverage entries are gone, the duckdb path names `duck_analytics`,
+   coverage no longer cites the deleted `tradex_trading`, and the per-package
+   mypy hard-fail is a ratchet because the tree carries known type debt.
 
 4. **Three new features are test-only — not wired into any production path.**
    Each is well-built and each is currently dead code:

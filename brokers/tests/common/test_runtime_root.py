@@ -21,6 +21,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]  # tests -> brokers -> repo
 
 def test_runtime_dir_is_repo_anchored_not_cwd(tmp_path, monkeypatch) -> None:
     """chdir must not move the state root — the fork regression test."""
+    monkeypatch.delenv("TRADEX_RUNTIME_DIR", raising=False)
     monkeypatch.chdir(tmp_path)
     root = default_runtime_dir()
     assert root == _REPO_ROOT / "runtime"

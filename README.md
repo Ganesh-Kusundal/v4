@@ -11,23 +11,27 @@ dependency boundary and an immutability-first domain model.
 
 ## Architecture
 
-```
-tradex-domain    ← shared kernel (zero internal deps: stdlib + rx only)
-    ↑
-tradex-brokers   ← broker adapters (Dhan, Upstox, Paper) + resilience infra
-    ↑
-tradex-trading   ← execution engine, SDK session, strategy, analytics, replay
-```
+A `uv` workspace of 14 installable packages. `tradex_domain` is the shared
+kernel; no package may import upward past its declared boundary, enforced by
+`tests/test_import_boundaries.py` and the import-linter contracts in the root
+`pyproject.toml`.
 
-| Package       | Import path       | Responsibility |
-|---------------|-------------------|----------------|
-| `domain/`     | `tradex_domain`   | Enums, value objects, instruments, market/execution objects, protocols, capabilities, events |
-| `brokers/`    | `tradex_brokers`  | Broker adapters, auth/token lifecycle, rate limiting, circuit breaker, retry, WebSocket streams |
-| `trading/`    | `tradex_trading`  | Reactive execution engine, OMS, SDK `TradingSession`, strategy framework, analytics, backtest/replay, datalake |
-
-Boundaries are enforced: `domain` never imports internal packages, `brokers`
-never imports `tradex_trading`, and all inter-component communication flows
-through the reactive bus.
+| Package | Import path | Responsibility |
+|---|---|---|
+| `domain/` | `tradex_domain` | Enums, value objects, instruments, protocols, capabilities, events, paths |
+| `brokers/` | `tradex_brokers` | Dhan, Upstox and Paper adapters: auth, tokens, rate limits, streams |
+| `config/` | `tradex_config` | `AppConfig`, environment loading, secret-file checks |
+| `observability/` | `tradex_observability` | Metrics registry |
+| `analytics/` | `tradex_analytics` | Indicators, reports, order-flow profiles |
+| `reactive/` | `tradex_reactive` | RxPY bus |
+| `execution/` | `tradex_execution` | Execution engine, OMS, idempotency, event store |
+| `strategy/` | `tradex_strategy` | Strategy runtime, artifacts, extensions |
+| `replay/` | `tradex_replay` | Backtest engine, walk-forward, Monte Carlo |
+| `application/` | `tradex_application` | Application command handlers |
+| `market_data/` | `tradex_market_data` | Datalake, parquet storage, history fetch, window loading |
+| `interfaces/` | `tradex_interfaces` | FastAPI/WS routes and the `tradex` CLI |
+| `runtime/` | `tradex_runtime` | Composition root (`boot`), `TradingSession`, feed supervision |
+| `services/duckdb-analytics/` | `duck_analytics` | Read-only DuckDB service over the parquet datalake |
 
 ### Key design decisions
 
@@ -41,22 +45,14 @@ through the reactive bus.
 
 ## Setup
 
-Python **3.12+** is required.
-
-### Option A — editable installs (recommended)
+Python **3.12+** and [`uv`](https://docs.astral.sh/uv/) are required.
 
 ```bash
-pip install -e domain -e brokers -e trading
+uv sync --frozen
 ```
 
-### Option B — PYTHONPATH
-
-```bash
-export PYTHONPATH=v4/domain/src:v4/brokers/src:v4/trading/src
-```
-
-Optional capability extras (from `trading/`): `analytics` (numpy), `datalake`
-(duckdb), `api` (fastapi + uvicorn), `full`. From `brokers/`: `dhan`, `ws`, `full`.
+`uv sync` installs every workspace member editable from `uv.lock`; no
+`PYTHONPATH` setup is needed.
 
 Live credentials are read from the environment (e.g. `DHAN_CLIENT_ID`,
 `DHAN_ACCESS_TOKEN`, `UPSTOX_API_KEY`, ...). Keep real tokens in a local,
@@ -70,155 +66,83 @@ implicitly.
 No credentials required:
 
 ```python
-from tradex_trading.sdk.session import TradingSession
-from tradex_domain.execution import OrderRequest
-from tradex_domain.enums import OrderSide, OrderType
-from tradex_domain.value_objects import Quantity, Price
-from tradex_domain.instruments import Equity
+from decimal import Decimal
 
-session = TradingSession.paper()
-req = OrderRequest(
-    instrument=Equity.of("NSE", "RELIANCE"),
-    side=OrderSide.BUY,
-    order_type=OrderType.LIMIT,
-    quantity=Quantity("10"),
-    price=Price("2500.00"),
+from tradex_config import AppConfig, RiskConfig
+from tradex_domain.enums import OrderSide, OrderType
+from tradex_domain.execution import OrderRequest
+from tradex_domain.instruments import Equity
+from tradex_domain.value_objects import Price, Quantity
+from tradex_runtime import TradingSession
+
+config = AppConfig(
+    risk=RiskConfig(
+        max_order_value=Decimal("100000"),
+        max_position_value=Decimal("500000"),
+        max_orders_per_minute=10,
+        max_daily_loss_amt=Decimal("5000"),
+        max_drawdown_pct=Decimal("5"),
+    )
 )
-receipt = session.trade.submit(req)
-print(f"Order: {receipt.order_id}, Status: {receipt.status}")
-session.stop()
+session = TradingSession.paper(config=config)
+try:
+    request = OrderRequest(
+        instrument=Equity.of("NSE", "RELIANCE"),
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        quantity=Quantity(Decimal("10")),
+        price=Price(Decimal("2500.00")),
+    )
+    receipt = session.engine.submit(request)
+    print(f"Order: {receipt.order_id}, Status: {receipt.status}")
+finally:
+    session.stop()
 ```
+
+`TradingSession.paper()` returns a READY session backed by `PaperBroker`.
+`session.engine` is the single order door. Boot refuses to start until every
+required risk limit is named or explicitly set to `UNBOUNDED`; the snippet
+names all five. A marketable limit order fills immediately; outside the
+simulated session it stays `ACK` until filled.
 
 ### Live trading
 
-Live sessions require an explicit safety confirmation:
-
-```python
-from tradex_domain import BrokerId
-
-session = TradingSession.live(BrokerId.DHAN, confirm=True)
-quote = session.market.quote(session.equity("NSE", "RELIANCE"))
-session.stop()
-```
-
-### The seven session services
-
-`session.market`, `session.trade`, `session.portfolio`, `session.stream`,
-`session.scanner`, `session.analytics`, `session.extension`.
-
-### Standard interface
-
-Every session exposes the same broker-agnostic surface: market data on
-`session.market`, portfolio on `session.portfolio` (also reachable as
-`session.account`), and orders on `session.trade`.
-
-**Market data — `session.market`**
-
-```python
-reliance = session.equity("NSE", "RELIANCE")
-
-quote = session.market.quote(reliance)          # full quote (LTP, OHLC, depth, volume)
-ltp = session.market.ltp(reliance)              # just the last traded price
-depth = session.market.depth(reliance)          # sorted bid/ask book
-hits = session.market.search("RELIANCE")       # instrument search
-```
-
-Market **depth is NSE-only**: requesting it on any other exchange (BSE, MCX,
-IDX, …) raises a typed `CapabilityNotSupportedError` instead of streaming an
-empty book — `quote`/`ltp` still work on every exchange.
-
-Option chains and futures chains are **capability-gated**: they work on live
-brokers (Dhan/Upstox) that declare `supports_option_chain` /
-`supports_future_chain`, and raise a typed `CapabilityNotSupportedError` on
-brokers that don't (e.g. Paper):
-
-```python
-nifty = session.index("IDX", "NIFTY")
-
-chain = session.market.option_chain(nifty)      # live only — expiries -> strike pairs
-futures = session.market.future_chain(nifty)    # live only — futures on the underlying
-```
-
-**History** — the canonical form takes a timeframe plus an explicit window:
-
-```python
-from datetime import UTC, datetime, timedelta
-from tradex_domain.enums import Timeframe
-
-end = datetime.now(UTC)
-start = end - timedelta(days=5)
-bars = session.market.history(reliance, Timeframe.M5, start, end)
-```
-
-Or the convenience form — `interval` + `lookback_days` computes the window
-ending now (any valid `Timeframe` value works: `"5m"`, `"15m"`, `"1h"`,
-`"1d"`, …):
-
-```python
-bars = session.market.history(reliance, interval="5m", lookback_days=5)
-```
-
-With no window at all, `history` defaults to a 30-day lookback.
-
-**Portfolio — `session.portfolio` and the `session.account` alias**
-
-`session.account` is an alias of `session.portfolio`, so either reads the
-same surface:
-
-```python
-session.portfolio.positions()   # open positions (cache-first — paper fills appear here)
-session.portfolio.holdings()    # holdings (broker-delegated)
-session.portfolio.account()     # account snapshot (balance, margin)
-session.portfolio.funds()       # fund limits / available cash
-session.portfolio.portfolio()   # positions + account snapshot
-
-session.account.positions()     # identical via the alias
-session.account.funds()
-session.account.holdings()
-```
-
-`positions()` reads the session's OMS cache — the same cache the execution
-engine fills — so paper fills show up immediately, and the served HTTP API
-(`GET /positions`) reflects them. `session.portfolio.account()` remains the
-canonical account-snapshot call.
-
-### Datalake-backed backtesting — `ParquetBacktestLoader`
-
-Backtest strategies directly against the local parquet datalake (`data/ohlcv`,
-~500 Nifty symbols) — fully offline, no broker needed:
-
-```python
-from tradex_domain import Timeframe
-from tradex_trading.datalake.backtest_loader import ParquetBacktestLoader
-from tradex_trading.strategy.extensions.strategies.multi_symbol_sma_cross import (
-    MultiSymbolSmaCross,
-)
-
-loader = ParquetBacktestLoader()
-# Portfolio strategy — one instance trades every instrument, one engine pass:
-result = loader.run(
-    MultiSymbolSmaCross(fast=5, slow=20),
-    universe="nifty100",
-    timeframe=Timeframe.D1,
-    max_workers=4,          # parallel per-symbol reads
-)
-print(result.total_return, result.sharpe, result.num_trades)
-
-# Or assemble the raw candle list for a custom BacktestEngine:
-candles = loader.load(universe="nifty100", timeframe=Timeframe.D1)
-```
-
-Backtest/replay sessions also expose it as `session.backtest`. The CLI script
-does per-symbol runs, portfolio mode, grid-search optimization, and
-walk-forward OOS validation:
+Live mode is entered through `tradex serve`; the explicit CLI invocation is
+the confirmation gate. It requires credentials, an API key and a complete risk
+policy in the environment, plus the tape the session must stream:
 
 ```bash
-python trading/scripts/backtest_datalake.py --universe nifty100 \
-    --strategy multi_symbol --timeframe 1d --months 2
+export DHAN_CLIENT_ID=...
+export DHAN_ACCESS_TOKEN=...
+export TRADEX_SERVE_API_KEY=...
+export TRADEX_FEED_INSTRUMENTS=NSE:RELIANCE,NSE:INFY
+export TRADEX_RISK_MAX_ORDER_VALUE=100000
+export TRADEX_RISK_MAX_POSITION_VALUE=500000
+export TRADEX_RISK_MAX_ORDERS_PER_MINUTE=10
+export TRADEX_RISK_MAX_DAILY_LOSS=5000
+export TRADEX_RISK_MAX_DRAWDOWN_PCT=5
 
-python trading/scripts/backtest_datalake.py --universe nifty50 \
-    --strategy sma_cross --optimize --walk-forward
+tradex serve --broker DHAN --api-key "$TRADEX_SERVE_API_KEY"
 ```
+
+A limit left unset refuses the boot with `MissingRiskLimitError`; a live
+broker on a non-loopback host is refused as well.
+
+### Session surface
+
+`TradingSession` exposes the composed components directly.
+
+| Member | What it is |
+|---|---|
+| `session.engine` | The single `ExecutionEngine`; `submit(OrderRequest)` is the only order door |
+| `session.cache` | The OMS projection (orders, positions, cash) |
+| `session.broker` | The active `BrokerAdapter` |
+| `session.bus` | The reactive bus |
+| `session.strategy_engine` | The strategy runtime, when one was wired |
+| `session.market_feed` | The feed handle, when one was cold-started |
+| `session.feed_supervisor` | Feed liveness supervisor |
+| `session.state` | `NEW` → `READY` → `STOPPED` |
+| `session.capabilities` | Broker capability declaration |
 
 ### HTTP API — `tradex serve`
 
@@ -258,21 +182,13 @@ instances. If both are given, uvicorn ignores `--workers` (reload wins).
 ## Development
 
 ```bash
-export PYTHONPATH=v4/domain/src:v4/brokers/src:v4/trading/src
+uv sync --frozen
 
-# Run all tests
-python -m pytest domain/tests brokers/tests trading/tests -q
+# Full suite (also what CI runs)
+uv run --no-sync python -m pytest -c pyproject.toml -q -p no:cacheprovider
 
-# Compile check
-python -m compileall -q domain/src brokers/src trading/src
-
-# Lint
-ruff check domain/src brokers/src trading/src
-
-# Type-check (per package)
-python -m mypy --config-file domain/pyproject.toml  domain/src
-python -m mypy --config-file brokers/pyproject.toml brokers/src
-python -m mypy --config-file trading/pyproject.toml trading/src
+# Every deploy-blocking check: install, lint, types, imports, tests, image
+bash scripts/predeploy_gate.sh
 ```
 
 ### Benchmarks
@@ -281,7 +197,7 @@ Stdlib-only micro-benchmarks (order path latency, bus throughput, tick decode)
 live in `benchmarks/`:
 
 ```bash
-python benchmarks/bench_order_path.py
+uv run --no-sync python benchmarks/bench_order_path.py
 ```
 
 
