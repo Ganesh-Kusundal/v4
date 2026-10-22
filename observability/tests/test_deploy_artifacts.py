@@ -1533,3 +1533,41 @@ def test_a_slow_server_does_not_look_healthy(healthcheck) -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_every_copied_workspace_manifest_exists() -> None:
+    instructions = _dockerfile_instructions()
+    targets = re.findall(r"^COPY\s+(\S+)/pyproject\.toml\s", instructions, re.MULTILINE)
+    assert targets, "the Dockerfile no longer copies any workspace manifest"
+    missing = [
+        target
+        for target in targets
+        if not (_ROOT / target / "pyproject.toml").is_file()
+    ]
+    assert not missing, f"COPY names a manifest that does not exist: {missing}"
+
+
+def test_the_container_puts_the_venv_on_path() -> None:
+    assert 'PATH="/app/.venv/bin:${PATH}"' in _dockerfile_instructions()
+
+
+def test_dockerignore_excludes_secrets_and_runtime_state() -> None:
+    dockerignore = _ROOT / ".dockerignore"
+    assert dockerignore.is_file(), "a Docker build must not send the whole tree"
+    patterns = set(dockerignore.read_text(encoding="utf-8").splitlines())
+    required = {
+        ".git",
+        ".venv",
+        "**/.venv",
+        ".env",
+        ".env.*",
+        "**/__pycache__",
+        "**/*.pyc",
+        "runtime/",
+        "**/*.sqlite",
+        "**/*.db",
+    }
+    assert required <= patterns, f"missing ignore patterns: {sorted(required - patterns)}"

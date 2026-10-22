@@ -31,7 +31,8 @@ FROM python:3.12-slim
 # already here, so the image carries no curl and no extra system package that
 # could go missing and turn a healthy container unhealthy.
 
-ENV PYTHONUNBUFFERED=1 \
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     UV_COMPILE_BYTECODE=1 \
@@ -47,8 +48,6 @@ COPY pyproject.toml uv.lock ./
 COPY domain/pyproject.toml ./domain/
 COPY brokers/pyproject.toml ./brokers/
 COPY config/pyproject.toml ./config/
-COPY research/pyproject.toml ./research/
-COPY operations/pyproject.toml ./operations/
 COPY observability/pyproject.toml ./observability/
 COPY analytics/pyproject.toml ./analytics/
 COPY reactive/pyproject.toml ./reactive/
@@ -59,7 +58,6 @@ COPY application/pyproject.toml ./application/
 COPY market_data/pyproject.toml ./market_data/
 COPY interfaces/pyproject.toml ./interfaces/
 COPY runtime/pyproject.toml ./runtime/
-COPY persistence/pyproject.toml ./persistence/
 COPY services/duckdb-analytics/pyproject.toml ./services/duckdb-analytics/
 
 # The manifests alone are not a resolvable lock, so the sources come in too.

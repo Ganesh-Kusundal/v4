@@ -1,0 +1,27 @@
+.git
+.gitignore
+.github
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.env
+.env.*
+!.env.example
+# runtime/ is BOTH the tradex_runtime workspace member and local broker/state
+# data — the same split the root .gitignore documents. Excluding it wholesale
+# would drop the package the Dockerfile copies and `uv sync --frozen` installs,
+# so the state stays excluded (default deny, it holds the broker token and the
+# instrument dumps) and only the package comes back.
+runtime/
+!runtime/pyproject.toml
+!runtime/src/
+!runtime/tests/
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+graphify-out/
+docs/superpowers/
