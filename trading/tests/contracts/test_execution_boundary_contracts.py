@@ -4,7 +4,7 @@ Phase 1 of the simulation-architecture work. Three claims, each of which is a
 docstring somewhere in this repo, are made checkable here:
 
 1. ``ExecutionEngine`` is the one order door (``OrderCommandPort``).
-2. ``ExecutionEngine`` is the one inbound-fill door (``FillIngestPort``).
+2. ``OrderFilled`` on the bus is the one inbound-fill door.
 3. ``BacktestEngine`` has no second order door of its own.
 
 Claim 3 is the one that earned its keep. ``BacktestEngine.submit`` existed and
@@ -25,10 +25,11 @@ from pathlib import Path
 
 import pytest
 from tradex_domain.enums import OrderSide, OrderType
+from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Fill, OrderRequest
 from tradex_domain.instruments import Equity
-from tradex_domain.protocols import FillIngestPort, OrderCommandPort
-from tradex_domain.value_objects import Price, Quantity
+from tradex_domain.protocols import OrderCommandPort
+from tradex_domain.value_objects import OrderId, Price, Quantity
 from tradex_execution.engine import ExecutionEngine
 from tradex_execution.fill_sources import SimulatedFillSource
 from tradex_reactive.bus import ReactiveBus
@@ -85,63 +86,45 @@ class TestOrderCommandPort:
         )
 
 
-class TestFillIngestPort:
-    """Claim 2: inbound fills have their own door, and it is the engine."""
+class TestInboundFillBus:
+    """Claim 2: the bus is the one inbound fill door; the engine subscribes."""
 
-    def test_the_engine_satisfies_the_fill_ingest_port(self) -> None:
-        engine = ExecutionEngine(ReactiveBus(), SimulatedFillSource())
-        try:
-            assert isinstance(engine, FillIngestPort)
-        finally:
-            engine.shutdown()
-
-    def test_ingest_a_fill_books_the_position(self) -> None:
-        """The door is a real door: it moves the book, not just a signature.
-
-        A port nothing implements changes no behaviour, and a ``None`` return
-        would satisfy the type while silently dropping every live fill — the
-        exact failure the port was introduced to name. So assert the effect.
-        """
+    def test_an_unknown_order_fill_is_booked_from_the_bus(self) -> None:
+        """A live fill for an order this process never saw still moves the book."""
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource(), cash=Decimal("100000"))
         try:
-            receipt = engine.submit(_request())
-            engine.ingest_fill(
-                Fill(
-                    order_id=receipt.order_id,
-                    instrument=_instrument(),
-                    side=OrderSide.BUY,
-                    quantity=Quantity(value=Decimal("10")),
-                    price=Price(value=Decimal("100")),
-                )
+            fill = Fill(
+                order_id=OrderId(value="external-1"),
+                instrument=_instrument(),
+                side=OrderSide.BUY,
+                quantity=Quantity(value=Decimal("10")),
+                price=Price(value=Decimal("100")),
             )
+            bus.publish(OrderFilled(fill=fill))
             position = engine.cache.get_position(_instrument())
-            assert position is not None, "ingest_fill did not book a position"
+            assert position is not None, "the bus fill did not book a position"
             assert position.quantity.value == Decimal("10")
         finally:
             engine.shutdown()
             bus.dispose()
 
     def test_the_same_fill_twice_is_applied_once(self) -> None:
-        """Idempotency is the property that makes this door safe to expose.
-
-        A live venue re-publishes on reconnect. If the exposed door double-applied,
-        that duplication would be a caller error instead of an internal invariant.
-        """
+        """A re-published fill across a reconnect must not double-apply."""
         bus = ReactiveBus()
         engine = ExecutionEngine(bus, SimulatedFillSource(), cash=Decimal("100000"))
         try:
-            receipt = engine.submit(_request())
             fill = Fill(
-                order_id=receipt.order_id,
+                order_id=OrderId(value="external-2"),
                 instrument=_instrument(),
                 side=OrderSide.BUY,
                 quantity=Quantity(value=Decimal("10")),
                 price=Price(value=Decimal("100")),
             )
-            engine.ingest_fill(fill)
-            engine.ingest_fill(fill)
+            bus.publish(OrderFilled(fill=fill))
+            bus.publish(OrderFilled(fill=fill))
             position = engine.cache.get_position(_instrument())
+            assert position is not None
             assert position.quantity.value == Decimal("10"), (
                 "a re-delivered fill was applied twice"
             )

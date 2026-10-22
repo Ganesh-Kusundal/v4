@@ -31,13 +31,11 @@ from tradex_domain.constants import (
 )
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
-from tradex_domain.protocols import BrokerAdapter
 from tradex_strategy.core.sizing import DEFAULT_MAX_ORDER_VALUE
 from tradex_strategy.core.spec_validator import validate_strategy_spec
 
 if TYPE_CHECKING:
     from tradex_runtime.session_impl import TradingSession
-    from tradex_runtime.writer_lock import SingleWriterLock
 if TYPE_CHECKING:
     from tradex_runtime.feed_monitor import FeedStaleMonitor
     from tradex_runtime.feed_recovery import FeedRecoveryCoordinator
@@ -253,57 +251,6 @@ def _compose_fill_source(
     if cfg.mode == "replay":
         return SimulatedFillSource(slippage_model=slippage_model)
     raise ValueError(f"unknown mode: {cfg.mode}")
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeContext:
-    """Bundled runtime components returned by ``boot_context``.
-
-    Holds the config, session, engine, strategy engine, bus, and broker so
-    callers can manage the full lifecycle (including ``close()``).
-
-    M7: ``writer_lock`` is carried on the TradingSession itself (passed
-    through the constructor by the composition root). ``close()`` releases
-    it via ``session.stop()`` — no module global, no monkey-patch.
-    """
-
-    config: AppConfig
-    session: TradingSession
-    engine: ExecutionEngine
-    strategy_engine: ReactiveStrategyEngine | None
-    bus: ReactiveBus | ThreadSafeReactiveBus
-    broker: BrokerAdapter
-    writer_lock: SingleWriterLock | None = None
-
-    def close(self) -> None:
-        """Stop the session and release runtime resources.
-
-        PE-10: uses ShutdownCoordinator for ordered teardown — strategies
-        first (stop producing events), then engine (drain pipeline), then
-        session (release resources), then writer lock (last).
-
-        Each phase runs in its own try/except so one component's failure
-        does not prevent the remaining phases from executing.
-        """
-        from tradex_runtime.shutdown import ShutdownCoordinator
-
-        coord = ShutdownCoordinator()
-
-        # Phase 1: strategies — stop producing new events
-        if self.strategy_engine is not None:
-            coord.register(
-                "strategies", priority=1,
-                action=self.strategy_engine.dispose_all,  # type: ignore[attr-defined]
-            )
-
-        # Phase 2: engine — drain the reactive pipeline
-        if hasattr(self, "engine") and self.engine is not None:
-            coord.register("engine", priority=2, action=self.engine.shutdown)
-
-        # Phase 3: session — release resources (includes writer lock for live)
-        coord.register("session", priority=3, action=self.session.stop)
-
-        coord.shutdown()
 
 
 def _select_strategies(
@@ -1762,34 +1709,4 @@ def _attach_event_store(bus: Any, event_store: Any) -> None:
         bus.of_type(event_type).subscribe(on_next=_append)
 
 
-def boot_context(
-    config: AppConfig | None = None,
-    **boot_kwargs: Any,
-) -> RuntimeContext:
-    """Boot and return a full RuntimeContext for lifecycle management.
-
-    Like ``boot`` but returns a ``RuntimeContext`` that bundles all components
-    and provides a ``close()`` method for clean shutdown. Extra keyword
-    arguments (e.g. ``bus=`` or ``broker=``) are forwarded to :func:`boot`.
-
-    M7: the writer_lock is carried on the TradingSession (set by the
-    composition root in ``_boot_tail``), so ``session.stop()`` releases
-    it without a module global or monkey-patch.
-    """
-    cfg = config or AppConfig()
-    session = boot(cfg, **boot_kwargs)
-    # The writer_lock lives on the session (passed through the constructor
-    # by _boot_tail for live mode). Non-live sessions have None.
-    writer_lock = getattr(session, "_writer_lock", None)
-    return RuntimeContext(
-        config=cfg,
-        session=session,
-        engine=session.engine,
-        strategy_engine=cast("ReactiveStrategyEngine | None", session.strategy_engine),
-        bus=session.bus,
-        broker=session.broker,
-        writer_lock=writer_lock,
-    )
-
-
-__all__ = ["RuntimeContext", "boot", "boot_context"]
+__all__ = ["boot"]

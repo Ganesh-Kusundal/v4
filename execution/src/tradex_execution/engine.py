@@ -1068,24 +1068,6 @@ class ExecutionEngine:
         """True when this exact fill was already applied (without recording)."""
         return self._fill_dedup.seen(fill)
 
-    def ingest_fill(self, fill: Fill, fee_amount: Decimal | None = None) -> None:
-        """Apply a fill that originated OUTSIDE this process (AC-22).
-
-        The named, public door behind :class:`~tradex_domain.protocols.FillIngestPort`.
-        It exists because the inbound path was previously reachable only by
-        publishing ``OrderFilled`` on the public bus, which made a *mutation*
-        surface out of a surface documented as observation-only: anyone holding
-        a bus reference could change the book, and nothing distinguished that
-        from the legitimate live bridge doing the same thing.
-
-        Behaviour is identical to the bridge's — ``_apply_fill`` is the one
-        implementation, and this simply names the caller instead of requiring it
-        to hand-roll the event. A caller that already has an ``OrderFilled``
-        should use the bus as before; this is for a caller that holds a bare
-        ``Fill`` and the fee the venue actually charged.
-        """
-        self._apply_fill(OrderFilled(fill=fill, fee_amount=fee_amount))
-
     def _apply_fill(self, event: OrderFilled) -> None:
         """Apply an inbound OrderFilled to the OMS (live-fill bridge).
 

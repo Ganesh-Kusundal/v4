@@ -7,18 +7,17 @@ releasing the first. Two live sessions on the same account then
 trample each other's writer lock.
 
 The fix: the live boot path stores the writer lock on the
-``RuntimeContext`` (a local) instead of a module global. The
-``RuntimeContext.close()`` releases the lock it acquired, regardless
-of how many other live contexts exist. ``_ACTIVE_WRITER_LOCK`` stays
-in the module as a process-wide fallback (e.g. for atexit), but
-is no longer the authoritative holder.
+``TradingSession`` (a local) instead of a module global. ``session.stop()``
+releases the lock it acquired, regardless of how many other live sessions
+exist. ``_ACTIVE_WRITER_LOCK`` stays in the module as a process-wide
+fallback (e.g. for atexit), but is no longer the authoritative holder.
 
 Tests pin:
   - Two sequential live boots: each acquires its own lock; the
-    second's close() does NOT release the first's lock (each
-    context owns its own).
+    second's stop() does NOT release the first's lock (each
+    session owns its own).
   - After two live boots, both locks are still held (not leaked)
-    until each RuntimeContext.close() runs.
+    until each session.stop() runs.
 
 Race suite (same file, since it is the only test module allowed to
 change for the TOCTOU fix):
@@ -45,7 +44,6 @@ import pytest
 import tradex_runtime.startup as startup_mod
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
-from tradex_runtime.startup import RuntimeContext
 from tradex_runtime.writer_lock import SingleWriterLock, WriterLockHeldError
 from trading.tests.risk_support import permissive_risk
 
@@ -553,92 +551,10 @@ def test_lock_file_removed_on_release(tmp_path) -> None:
     lock.release()
 
 
-def test_first_lock_leaks_after_second_close(named_tape, monkeypatch, tmp_path) -> None:
-    """RED: each RuntimeContext owns its writer_lock. Closing the
-    second context does NOT release the first's lock (no shared
-    global). The pre-fix code's _ACTIVE_WRITER_LOCK clobber meant
-    closing the second context would release the first's lock by
-    accident. After the fix, the first context must release
-    itself.
-
-    The two boots use *different* broker ids (DHAN vs UPSTOX) so
-    their lockfile paths are distinct — this isolates the
-    per-context ownership contract from the process-wide "only one
-    live writer per account" rule. The test still uses a single
-    mocked broker, since the lock contract is what we're testing.
-    """
-    locks: list[SingleWriterLock] = []
-
-    class _CountingLock:
-        def __init__(self, path):
-            self._lock = SingleWriterLock(path)
-            self.released = False
-            locks.append(self)
-
-        def acquire(self):
-            return self._lock.acquire()
-
-        def release(self):
-            self.released = True
-            return self._lock.release()
-
-    monkeypatch.setattr(
-        "tradex_runtime.writer_lock.SingleWriterLock", _CountingLock,
-    )
-
-    def _boot_with(broker_id: BrokerId) -> RuntimeContext:
-        broker = MagicMock()
-        broker.capabilities = MagicMock()
-        broker.capabilities.max_stream_instruments = 1000
-        broker.capabilities.depth_levels = 0
-        backend = MagicMock()
-        backend.subscribe_orders = MagicMock()
-        broker.stream_backend.return_value = backend
-        broker.master_loader = None
-        broker.connect = MagicMock()
-        broker.close = MagicMock()
-        broker.disconnect = MagicMock()
-        broker.get_orderbook = MagicMock(return_value=[])
-        broker.get_positions = MagicMock(return_value=[])
-        monkeypatch.setattr(
-            "tradex_runtime.live.build_broker_from_env",
-            lambda _pid, **_kw: broker,
-        )
-        cfg = AppConfig(risk=permissive_risk(), mode="live", broker_id=broker_id, live_enabled=True,
-                        persistence=PersistenceConfig(path=f"{tmp_path}/test-orders-{broker_id.value}.db"))
-        return startup_mod.boot_context(cfg)
-
-    rc1 = _boot_with(BrokerId.DHAN)
-    rc2 = _boot_with(BrokerId.UPSTOX)
-
-    # Both locks are acquired.
-    assert len(locks) == 2
-    assert all(not lock.released for lock in locks)
-
-    # Closing the second context releases only the second's lock.
-    rc2.close()
-    assert not locks[0].released, (
-        "M7: closing the second RuntimeContext must NOT release the "
-        "first's writer_lock (each context owns its own)"
-    )
-    assert locks[1].released, (
-        "M7: closing the second RuntimeContext must release its own lock"
-    )
-
-    # Closing the first context releases the first's lock.
-    rc1.close()
-    assert locks[0].released, (
-        "M7: closing the first RuntimeContext must release its own lock"
-    )
-
-
-def test_runtime_context_carries_its_own_writer_lock(
+def test_each_boot_owns_its_writer_lock_and_releases_it_on_stop(
     named_tape, monkeypatch, tmp_path,
 ) -> None:
-    """M7: each RuntimeContext holds a local writer_lock reference, not the
-    module global. After the second boot, the first RuntimeContext's
-    ``self.writer_lock`` still points to the first lock (not the second).
-    """
+    """Closing one session releases its own lock and no other."""
     locks: list[SingleWriterLock] = []
 
     class _CountingLock:
@@ -676,18 +592,28 @@ def test_runtime_context_carries_its_own_writer_lock(
             "tradex_runtime.live.build_broker_from_env",
             lambda _pid, **_kw: broker,
         )
-        cfg = AppConfig(risk=permissive_risk(), mode="live", broker_id=broker_id, live_enabled=True,
-                        persistence=PersistenceConfig(path=f"{tmp_path}/test-orders-{broker_id.value}.db"))
-        return startup_mod.boot_context(cfg)
+        cfg = AppConfig(
+            risk=permissive_risk(),
+            mode="live",
+            broker_id=broker_id,
+            live_enabled=True,
+            persistence=PersistenceConfig(
+                path=f"{tmp_path}/test-orders-{broker_id.value}.db"
+            ),
+        )
+        return startup_mod.boot(cfg, wire_strategies=False)
 
-    rc1 = _boot_with(BrokerId.DHAN)
-    rc2 = _boot_with(BrokerId.UPSTOX)
+    session1 = _boot_with(BrokerId.DHAN)
+    session2 = _boot_with(BrokerId.UPSTOX)
 
-    # M7: each context holds its own writer_lock (not the global).
-    assert rc1.writer_lock is locks[0]
-    assert rc2.writer_lock is locks[1]
-    # And they are different objects — no shared state.
-    assert rc1.writer_lock is not rc2.writer_lock
+    assert len(locks) == 2
+    assert all(not lock.released for lock in locks)
 
-    rc1.close()
-    rc2.close()
+    session2.stop()
+    assert not locks[0].released, (
+        "closing the second session must not release the first session's lock"
+    )
+    assert locks[1].released
+
+    session1.stop()
+    assert locks[0].released

@@ -37,7 +37,7 @@ Notes
   subscription set, exponential backoff), not by the feed.
 * ``stop()`` unsubscribes the broker handlers; the underlying WebSocket
   sockets are owned by the broker and torn down by ``broker.close()``
-  (e.g. ``RuntimeContext.close``), not by the feed or session.
+  at session teardown, not by the feed or session.
 * An optional ``recorder`` (a :class:`~tradex_runtime.tape_recorder.TapeRecorder`)
   writes every accepted quote to a JSONL tape, so a recorded session exists
   for the parity suite to compare against. It is ``None`` unless the

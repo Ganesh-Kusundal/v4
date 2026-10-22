@@ -149,7 +149,7 @@ class TradingSession:
         #: construction; the session owns lifecycle teardown.
         self._mark_to_market = mark_to_market
         #: Single-writer lock for live mode. Released in stop() so every
-        #: teardown path (context manager, explicit stop(), RuntimeContext)
+        #: teardown path (context manager, explicit stop())
         #: clears the lockfile without monkey-patching.
         self._writer_lock = writer_lock
         #: AC-17 / lane 2e: the durable event log, also injected into

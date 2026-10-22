@@ -18,7 +18,7 @@ from tradex_domain import OHLC, Candle
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.strategy import ScannerResult
 from tradex_domain.value_objects import Price, Quantity
-from tradex_runtime.startup import boot, boot_context
+from tradex_runtime.startup import boot
 from tradex_strategy.core.scanner import warmup_bars
 from tradex_strategy.extensions import all_scanners, all_strategies
 from trading.tests.risk_support import app_config, permissive_risk
@@ -177,17 +177,6 @@ class TestBootWiresDiscovery:
                 assert isinstance(results, list)
         finally:
             session.stop()
-
-    def test_boot_context_carries_strategy_engine(self, monkeypatch) -> None:
-        ctx = boot_context(
-            AppConfig(risk=permissive_risk(), mode="paper"),
-            broker=_fake_broker_with_history([10.0]),
-        )
-        try:
-            assert ctx.strategy_engine is not None
-            assert ctx.session.strategy_engine is ctx.strategy_engine
-        finally:
-            ctx.close()
 
     def test_backtest_mode_scanner_uses_datalake_provider(self, monkeypatch) -> None:
         """In backtest/replay modes the scanner market is the parquet datalake

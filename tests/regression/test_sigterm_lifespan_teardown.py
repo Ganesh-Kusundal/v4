@@ -24,8 +24,7 @@ are asserted directly against a real ``SingleWriterLock`` and a real broker.
 
 The kill switch, the durable idempotency guard and the event store are owned by
 ``ExecutionEngine.shutdown()``, which ``session.stop()`` now calls before the
-bus is disposed; ``RuntimeContext.close()`` also releases them by registering
-``engine.shutdown`` as a shutdown phase. This module pins both: the lifespan
+bus is disposed. This module pins both: the lifespan
 contract above, and the engine contract below.
 
 The tests use ``TestClient`` (an in-process ASGI driver), never a real socket or
@@ -47,7 +46,6 @@ from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 from tradex_interfaces.fastapi_app import create_app
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.session_impl import SessionState, TradingSession
-from tradex_runtime.shutdown import ShutdownCoordinator
 from tradex_runtime.writer_lock import SingleWriterLock
 
 
@@ -223,8 +221,7 @@ def test_engine_shutdown_sets_kill_switch_and_closes_the_durable_guard(
 
     This is the engine half of teardown. ``session.stop()`` now calls
     ``engine.shutdown()`` before the bus is disposed, so the kill switch trips
-    while the session is still tearing down. ``RuntimeContext.close()`` also
-    registers ``engine.shutdown`` as a shutdown phase. Pinning the engine
+    while the session is still tearing down. Pinning the engine
     contract here keeps the engine-side resources from silently leaking.
     """
     guard = SQLiteIdempotencyGuard(tmp_path / "orders.db")
@@ -252,27 +249,3 @@ def test_engine_shutdown_sets_kill_switch_and_closes_the_durable_guard(
     # The event store is not owned by the engine; close it so the test leaves
     # no open handle behind.
     event_store.close()
-
-
-def test_runtime_context_teardown_order_releases_everything(tmp_path) -> None:
-    """``ShutdownCoordinator`` runs the engine phase before the session phase.
-
-    This mirrors ``RuntimeContext.close()``'s priorities: engine (halt intake,
-    close the guard) then session (release the writer lock, close the broker).
-    Ordering matters -- the engine must stop admitting orders before the writer
-    lock is handed back, or a live restart could slip an order into a book whose
-    guard was just closed.
-    """
-    order: list[str] = []
-
-    coord = ShutdownCoordinator()
-    coord.register("engine", priority=2, action=lambda: order.append("engine"))
-    coord.register("session", priority=3, action=lambda: order.append("session"))
-    coord.register("strategies", priority=1, action=lambda: order.append("strategies"))
-
-    failures = coord.shutdown()
-
-    assert failures == []
-    assert order == ["strategies", "engine", "session"], (
-        f"teardown ran out of order: {order!r}"
-    )

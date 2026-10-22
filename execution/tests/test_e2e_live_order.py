@@ -71,17 +71,18 @@ def instrument() -> Equity:
 
 
 def _compose(broker: PaperBroker, store: SQLiteEventStore):
-    """The live composition, returning ``(engine, cache)``."""
+    """The live composition, returning ``(engine, bus, cache)``."""
     cache = TradingCache()
+    bus = ReactiveBus()
     engine = ExecutionEngine(
-        ReactiveBus(),
+        bus,
         BrokerFillSource(broker),
         risk_manager=RiskManager(max_order_value=ORDER_CEILING),
         cache=cache,
         cash=CASH,
         event_store=store,
     )
-    return engine, cache
+    return engine, bus, cache
 
 
 @pytest.fixture
@@ -146,7 +147,7 @@ class TestSubmitReachesTheBroker:
         self, broker: PaperBroker, store: SQLiteEventStore, instrument: Equity
     ) -> None:
         """The order the receipt names is retrievable from the broker."""
-        engine, _cache = _compose(broker, store)
+        engine, _bus, _cache = _compose(broker, store)
         try:
             receipt = engine.submit(_request(instrument))
             assert receipt.order_id.value, "the receipt carried no order id"
@@ -170,7 +171,7 @@ class TestSubmitReachesTheBroker:
         it exercises. A synchronous fill here would mean ``BrokerFillSource``
         had silently become a simulated one.
         """
-        engine, _cache = _compose(broker, store)
+        engine, _bus, _cache = _compose(broker, store)
         try:
             receipt = engine.submit(_request(instrument))
             assert receipt.status is OrderStatus.ACK
@@ -186,7 +187,7 @@ class TestSubmitReachesTheBroker:
         self, broker: PaperBroker, store: SQLiteEventStore, instrument: Equity
     ) -> None:
         """A single submit dispatches a single order, not a retry storm."""
-        engine, _cache = _compose(broker, store)
+        engine, _bus, _cache = _compose(broker, store)
         try:
             receipt = engine.submit(_request(instrument))
             held = [o for o in broker.get_order_list() if o.instrument == instrument]
@@ -209,11 +210,11 @@ class TestProjectionOwnership:
         still durable, which is the property that survives the deferral.
         """
         assert broker.owns_position_projection, "the default wiring changed"
-        engine, cache = _compose(broker, store)
+        engine, bus, cache = _compose(broker, store)
         try:
             request = _request(instrument)
             receipt = engine.submit(request)
-            engine.ingest_fill(_venue_fill(receipt.order_id, request, fill_id="T1"))
+            bus.publish(OrderFilled(fill=_venue_fill(receipt.order_id, request, fill_id="T1")))
 
             assert cache.all_positions() == [], (
                 "the engine booked a position its own adapter already owns"
@@ -236,11 +237,11 @@ class TestProjectionOwnership:
         broker._project_positions = False  # noqa: SLF001
         assert not broker.owns_position_projection
 
-        engine, cache = _compose(broker, store)
+        engine, bus, cache = _compose(broker, store)
         try:
             request = _request(instrument, qty=10)
             receipt = engine.submit(request)
-            engine.ingest_fill(_venue_fill(receipt.order_id, request, fill_id="T1"))
+            bus.publish(OrderFilled(fill=_venue_fill(receipt.order_id, request, fill_id="T1")))
 
             positions = cache.all_positions()
             assert len(positions) == 1, "a fill booked no position"
@@ -260,8 +261,8 @@ class TestInboundFillIsAppliedOnce:
     def engine_book(self, broker: PaperBroker, store: SQLiteEventStore):
         """An engine that owns its book, so fills are observable in it."""
         broker._project_positions = False  # noqa: SLF001
-        engine, cache = _compose(broker, store)
-        yield engine, cache
+        engine, bus, cache = _compose(broker, store)
+        yield engine, bus, cache
         engine.shutdown()
 
     def test_a_re_delivered_fill_books_once(
@@ -271,13 +272,13 @@ class TestInboundFillIsAppliedOnce:
 
         Without the dedup this is 20 shares from a 10-share order.
         """
-        engine, cache = engine_book
+        engine, bus, cache = engine_book
         request = _request(instrument, qty=10)
         receipt = engine.submit(request)
 
         fill = _venue_fill(receipt.order_id, request, fill_id="T1", qty=10)
-        engine.ingest_fill(fill)
-        engine.ingest_fill(fill)
+        bus.publish(OrderFilled(fill=fill))
+        bus.publish(OrderFilled(fill=fill))
 
         assert cache.all_positions()[0].quantity.value == Decimal(10), (
             "a re-delivered fill was applied twice"
@@ -290,12 +291,12 @@ class TestInboundFillIsAppliedOnce:
         ``(order, side, qty, price)`` would swallow a genuine second partial
         fill that happened to match the first.
         """
-        engine, cache = engine_book
+        engine, bus, cache = engine_book
         request = _request(instrument, qty=20)
         receipt = engine.submit(request)
 
-        engine.ingest_fill(_venue_fill(receipt.order_id, request, fill_id="T1", qty=10))
-        engine.ingest_fill(_venue_fill(receipt.order_id, request, fill_id="T2", qty=10))
+        bus.publish(OrderFilled(fill=_venue_fill(receipt.order_id, request, fill_id="T1", qty=10)))
+        bus.publish(OrderFilled(fill=_venue_fill(receipt.order_id, request, fill_id="T2", qty=10)))
 
         assert cache.all_positions()[0].quantity.value == Decimal(20), (
             "a genuine second partial fill was swallowed by the dedup"
@@ -309,7 +310,7 @@ class TestDurableEventLog:
         self, broker: PaperBroker, store: SQLiteEventStore, instrument: Equity
     ) -> None:
         """A submitted order is recoverable from the event store alone."""
-        engine, _cache = _compose(broker, store)
+        engine, _bus, _cache = _compose(broker, store)
         try:
             receipt = engine.submit(_request(instrument))
             replayed = list(store.replay("orders"))
@@ -326,11 +327,11 @@ class TestDurableEventLog:
         self, broker: PaperBroker, store: SQLiteEventStore, instrument: Equity
     ) -> None:
         """The inbound fill lands in the log, not only in the book."""
-        engine, _cache = _compose(broker, store)
+        engine, bus, _cache = _compose(broker, store)
         try:
             request = _request(instrument, qty=10)
             receipt = engine.submit(request)
-            engine.ingest_fill(_venue_fill(receipt.order_id, request, fill_id="T1", qty=10))
+            bus.publish(OrderFilled(fill=_venue_fill(receipt.order_id, request, fill_id="T1", qty=10)))
 
             filled = [e for e in store.replay("orders") if isinstance(e, OrderFilled)]
             match = [f for f in filled if f.fill.order_id.value == receipt.order_id.value]
@@ -349,11 +350,11 @@ class TestDurableEventLog:
         ``replay`` runs the chain check, so reading the log back at all proves
         it — a broken chain raises instead of returning rows.
         """
-        engine, _cache = _compose(broker, store)
+        engine, bus, _cache = _compose(broker, store)
         try:
             request = _request(instrument)
             receipt = engine.submit(request)
-            engine.ingest_fill(_venue_fill(receipt.order_id, request, fill_id="T1"))
+            bus.publish(OrderFilled(fill=_venue_fill(receipt.order_id, request, fill_id="T1")))
 
             assert list(store.replay("orders")), "a verified chain returned nothing"
         finally:
@@ -372,7 +373,7 @@ class TestRiskGateIsInFront:
         reservation is already held at this point, and raising would strand the
         correlation id so the caller's retry would be skipped as a duplicate.
         """
-        engine, _cache = _compose(broker, store)
+        engine, _bus, _cache = _compose(broker, store)
         try:
             receipt = engine.submit(
                 _request(instrument, qty=10_000, price=Decimal("100.00"))
@@ -390,7 +391,7 @@ class TestRiskGateIsInFront:
         This is the claim that distinguishes a gate before the venue call from
         a check after it: the broker holds no order at all.
         """
-        engine, _cache = _compose(broker, store)
+        engine, _bus, _cache = _compose(broker, store)
         try:
             engine.submit(_request(instrument, qty=10_000, price=Decimal("100.00")))
             held = [o for o in broker.get_order_list() if o.instrument == instrument]
@@ -406,7 +407,7 @@ class TestRiskGateIsInFront:
         An order that vanishes silently is indistinguishable from one never
         attempted, which is the failure the audit trail exists to prevent.
         """
-        engine, _cache = _compose(broker, store)
+        engine, _bus, _cache = _compose(broker, store)
         try:
             engine.submit(_request(instrument, qty=10_000, price=Decimal("100.00")))
             rejected = [
@@ -426,7 +427,7 @@ class TestRiskGateIsInFront:
         the same key is immediately usable. Leaking it would make the id
         permanently unusable and the rejection unrecoverable.
         """
-        engine, _cache = _compose(broker, store)
+        engine, _bus, _cache = _compose(broker, store)
         try:
             rejected = engine.submit(
                 _request(instrument, qty=10_000, price=Decimal("100.00"),

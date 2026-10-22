@@ -368,31 +368,6 @@ class OrderCommandPort(Protocol):
 
 
 @runtime_checkable
-class FillIngestPort(Protocol):
-    """The inbound-fill door: venue truth arriving from outside this process.
-
-    Satisfied by ``ExecutionEngine``'s inbound fill bridge, and deliberately a
-    *separate* port from :class:`OrderCommandPort`, because the two carry
-    opposite guarantees. A command is *this process deciding to act*, so it is
-    subject to risk, idempotency and the cash floor. An inbound fill is *the
-    venue reporting what already happened*, so refusing it would desynchronize
-    the book from reality — but it must still be deduped, proven affordable,
-    made durable, and applied atomically.
-
-    Conflating the two is what makes "a fill arrived and nothing happened" and
-    "an order was sent and the book never saw it" the same class of bug, with
-    the same wrong response. Two doors, two directions, two sets of guarantees.
-
-    ``fee_amount`` is the fee the venue actually charged when it is known;
-    ``None`` means "not known" and makes the engine recompute it from its own
-    schedule — right for paper/backtest, wrong for a live venue that caps or
-    rounds differently, so a live bridge should pass it.
-    """
-
-    def ingest_fill(self, fill: Fill, fee_amount: Decimal | None = None) -> None: ...
-
-
-@runtime_checkable
 class OrderRepository(Protocol):
     """Persistence contract for orders.
 
@@ -419,7 +394,6 @@ __all__ = [
     "Clock",
     "DepthStreamPort",
     "EventStore",
-    "FillIngestPort",
     "IndicatorComputer",
     "MasterRefreshProvider",
     "MarketStreamPort",

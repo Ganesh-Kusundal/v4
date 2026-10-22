@@ -15,7 +15,7 @@ from tradex_runtime.live import (
 )
 from tradex_runtime.metrics import MetricsRegistry
 from tradex_runtime.session import SessionState, TradingSession
-from tradex_runtime.startup import RuntimeContext, boot, boot_context
+from tradex_runtime.startup import boot
 from tradex_runtime.clocks import LiveClock, ReplayClock, SimClock
 from tradex_runtime.environments import EnvironmentFactory, EnvironmentType, TradingEnvironment
 from tradex_runtime.streaming import BackendStreamSubscription, StreamSubscription
@@ -24,12 +24,10 @@ __all__ = [
     "BackendStreamSubscription",
     "MetricsRegistry",
     "NSETradingCalendar",
-    "RuntimeContext",
     "SessionState",
     "StreamSubscription",
     "TradingSession",
     "boot",
-    "boot_context",
     "build_broker_from_env",
     "build_dhan_from_env",
     "build_upstox_from_env",

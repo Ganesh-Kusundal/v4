@@ -9,7 +9,7 @@ import pytest
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_runtime.session_impl import SessionState, TradingSession
-from tradex_runtime.startup import RuntimeContext, boot, boot_context
+from tradex_runtime.startup import boot
 
 from trading.tests.risk_support import permissive_risk
 
@@ -17,37 +17,33 @@ from trading.tests.risk_support import permissive_risk
 def test_bootstrap_paper_session_success():
     """Verify clean composition root bootstrap in paper mode.
 
-    The real composition root is ``boot_context`` (it wraps ``boot`` and returns
-    the bundled ``RuntimeContext``). ``boot()`` itself returns a bare
-    ``TradingSession``; ``boot_context`` is the surface that exposes
-    ``session``/``engine``/``bus``/``broker`` together with ``close()``.
+    The real composition root is ``boot()`` which returns a ready
+    ``TradingSession`` with all components wired.
     """
-    ctx = boot_context(AppConfig(risk=permissive_risk(), mode="paper"))
+    session = boot(AppConfig(risk=permissive_risk(), mode="paper"))
     try:
-        assert isinstance(ctx, RuntimeContext)
-        assert isinstance(ctx.session, TradingSession)
+        assert isinstance(session, TradingSession)
         # Composition root hands back a session that is already started.
-        assert ctx.session.state == SessionState.READY
-        assert ctx.engine is not None
-        assert ctx.bus is not None
-        # The OMS cache the engine owns (the surface the old test wanted as
-        # ``ctx.cache``; RuntimeContext has no top-level ``cache``).
-        assert ctx.engine.cache is not None
+        assert session.state == SessionState.READY
+        assert session.engine is not None
+        assert session.bus is not None
+        # The OMS cache the engine owns.
+        assert session.engine.cache is not None
 
         # Verify initial cash is allocated. Paper mode seeds the engine's cash
         # ledger from the broker's reported balance (startup._boot_tail), so
         # the live, engine-owned balance is the cash that a BUY is settled
         # against — the meaningful "money is present" invariant.
-        snapshot = ctx.engine.cash_snapshot()
+        snapshot = session.engine.cash_snapshot()
         assert snapshot.cash > Decimal("0")
 
         # The same balance is visible on the broker's account the way the old
         # ``session.account.balance`` assertion intended.
-        account = ctx.broker.get_account()
+        account = session.broker.get_account()
         assert account is not None
         assert account.balance.amount > Decimal("0")
     finally:
-        ctx.close()
+        session.stop()
 
 
 def test_bootstrap_live_fails_without_credentials():

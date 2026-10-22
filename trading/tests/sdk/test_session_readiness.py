@@ -8,7 +8,6 @@ Covered paths:
 - ``TradingSession.paper()``
 - ``TradingSession.live(confirm=True)``
 - ``runtime.startup.boot()`` (paper, backtest, and live modes)
-- ``runtime.startup.boot_context()``
 
 The raw constructor is intentionally excluded: a hand-built session stays NEW
 until the caller calls ``start()`` (tested in ``test_session_lifecycle.py``).
@@ -276,16 +275,6 @@ def test_boot_live_has_one_feed_supervisor(monkeypatch, tmp_path) -> None:
         assert after.message != "feed_not_ready"
     finally:
         session.stop()
-
-
-def test_boot_context_returns_ready_session() -> None:
-    from tradex_runtime.startup import boot_context
-
-    ctx = boot_context(AppConfig(risk=permissive_risk(), broker_id=BrokerId.PAPER, mode="paper"))
-    assert ctx.session.state == SessionState.READY
-    assert ctx.session.broker is not None
-    ctx.close()
-    assert ctx.session.state == SessionState.STOPPED
 
 
 #: AC-10: the SDK session factories need a named risk policy like any

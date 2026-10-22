@@ -1,13 +1,4 @@
-"""M4 — broker.close() called twice in the teardown path.
-
-The principal-architect review (M4) found that ``RuntimeContext.close()``
-calls ``self.session.stop()`` (which closes the broker) and then
-calls ``self.broker.close()`` again. The fix: drop the second call.
-``session.stop()`` owns the broker lifecycle.
-
-Tests pin: in the teardown path (boot → boot_context.close), the
-broker's ``close()`` method is called exactly once.
-"""
+"""M4 — broker.close() is called exactly once, by TradingSession.stop()."""
 
 from __future__ import annotations
 
@@ -16,29 +7,20 @@ from tradex_runtime import startup as startup_mod
 from trading.tests.risk_support import permissive_risk
 
 
-def test_broker_close_called_exactly_once_per_teardown() -> None:
-    """RED: ``RuntimeContext.close()`` must not call ``broker.close()`` twice.
-
-    The pre-fix code calls ``self.broker.close()`` after
-    ``self.session.stop()`` (which already closes the broker). The
-    double-call is a no-op when ``close()`` is idempotent but a
-    latent bug for any broker whose ``close()`` raises on a second
-    call. Pin: the broker sees ``close()`` exactly once per
-    teardown path.
-    """
+def test_session_stop_closes_the_broker_exactly_once() -> None:
+    """``session.stop()`` owns the broker lifecycle; nothing closes it twice."""
     cfg = AppConfig(risk=permissive_risk(), mode="paper")
-    rc = startup_mod.boot_context(cfg)
-    try:
-        broker = rc.broker
-        original_close = broker.close
-        close_calls: list[None] = []
-        def counted_close() -> None:
-            close_calls.append(None)
-            original_close()
-        broker.close = counted_close  # type: ignore[method-assign,assignment]
-    finally:
-        rc.close()
+    session = startup_mod.boot(cfg, wire_strategies=False)
+    broker = session.broker
+    original_close = broker.close
+    close_calls: list[None] = []
+
+    def counted_close() -> None:
+        close_calls.append(None)
+        original_close()
+
+    broker.close = counted_close  # type: ignore[method-assign]
+    session.stop()
     assert len(close_calls) == 1, (
-        f"broker.close() must be called exactly once per teardown; "
-        f"got {len(close_calls)}"
+        f"broker.close() must be called exactly once per teardown; got {len(close_calls)}"
     )

@@ -25,7 +25,7 @@ from tradex_runtime.live import (
     load_env_file,
     provider_environment,
 )
-from tradex_runtime.startup import RuntimeContext, _broker_matches_config
+from tradex_runtime.startup import _broker_matches_config
 from trading.tests.risk_support import permissive_risk
 
 # ---------------------------------------------------------------------------
@@ -124,15 +124,6 @@ class TestStartupPorts:
 
         config = AppConfig(risk=permissive_risk(), broker=BrokerConfig(name="dhan"))
         assert _broker_matches_config(config, CustomBroker()) is True
-
-    def test_runtime_context_is_dataclass(self) -> None:
-        # Just verify the class has the expected fields.
-        fields = {f.name for f in RuntimeContext.__dataclass_fields__.values()}
-        assert "config" in fields
-        assert "session" in fields
-        assert "engine" in fields
-        assert "bus" in fields
-        assert "broker" in fields
 
 
 # ---------------------------------------------------------------------------
