@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import uuid
 from collections.abc import Callable, Iterable
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -87,6 +88,7 @@ class ReactiveStrategyEngine:
         analytics: AnalyticsRuntime | None = None,
         positions_provider: Callable[[], Iterable[Position]] | None = None,
         balance_provider: Callable[[], Money] | None = None,
+        run_id: str | None = None,
     ) -> None:
         """Initialize with a ReactiveBus.
 
@@ -124,6 +126,10 @@ class ReactiveStrategyEngine:
             balance_provider: optional zero-arg callable returning the account
                 balance as ``Money`` (e.g. ``lambda: engine.cash_snapshot().cash``).
                 Feeds the ``portfolio`` view's ``balance``.
+            run_id: names this engine's replay/live run. Correlation ids are
+                scoped to it, so the same tape in two runs yields distinct
+                ids while one run stays reproducible. ``None`` (default)
+                generates a fresh id per engine.
         """
         if fill_reference not in _FILL_REFERENCES:
             raise ValueError(f"unknown fill_reference: {fill_reference!r}")
@@ -161,6 +167,9 @@ class ReactiveStrategyEngine:
         # Per-signal nonce for deterministic correlation ids (seeded per
         # engine instance, so ids are stable within a replay run).
         self._signal_seq = 0
+        # Correlation-id scope. Stable for one engine (a run is reproducible),
+        # different for every process/engine (two runs never share a key).
+        self._run_id = run_id if run_id is not None else uuid.uuid4().hex
         # Deferred signal orders awaiting the next candle of their instrument
         # (next_open model). Indexed by ``InstrumentId`` so per-bar flushes
         # and age sweeps run in O(k) for *k* pending on that instrument
@@ -250,14 +259,18 @@ class ReactiveStrategyEngine:
     def _correlation_id(self, strategy_id: str, event: Any) -> CorrelationId:
         """Deterministic correlation id for a signal-triggered order.
 
-        Derived from strategy id + event identity (timestamp + type) plus a
-        per-signal nonce, so the same replay stream reproduces identical ids
-        (idempotency-safe), distinct events never collide, and two signals
-        emitted from one event still get distinct ids.
+        Derived from the run id + strategy id + event identity (timestamp +
+        type) plus a per-signal nonce: the same replay stream reproduces
+        identical ids *within its run* (idempotency-safe on restart of the
+        same run), while a different run — a restarted paper session, a
+        second backtest over the same tape — can never collide with it.
         """
         self._signal_seq += 1
         ts = getattr(event, "timestamp", None)
-        seed = f"{strategy_id}:{type(event).__name__}:{ts}:{self._signal_seq}"
+        seed = (
+            f"{self._run_id}:{strategy_id}:{type(event).__name__}:"
+            f"{ts}:{self._signal_seq}"
+        )
         digest = hashlib.sha1(seed.encode("utf-8")).hexdigest()[:16]
         return CorrelationId(value=f"strat-{digest}")
 
