@@ -142,6 +142,6 @@ def test_fill_persist_failure_raises_and_leaves_the_book_unchanged() -> None:
         engine.submit(_request())
 
     assert engine.cache.all_positions() == []
-    # The order was acknowledged; it was never filled.
-    assert engine.cache.all_orders()[0].status is OrderStatus.ACK
+    # The order was acknowledged, then the fill failed, then the kill switch canceled it.
+    assert engine.cache.all_orders()[0].status is OrderStatus.CANCELLED
     assert guard.check_and_reserve(CID) is None
