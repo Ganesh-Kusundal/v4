@@ -366,6 +366,20 @@ class ExecutionEngine:
             return False
         return True
 
+    def _release_reservation(self, cid: CorrelationId | None) -> None:
+        """Hand an idempotency key back so the client may retry.
+
+        Only for paths where the request provably did not (and will not) reach
+        the venue: a reservation that is never released strands the
+        correlation id as ``reserved`` and every retry of it answers
+        ``idempotency_in_flight`` forever. ``release`` is a no-op unless the
+        row is still ``reserved``, so calling it twice is safe. Deliberately
+        not used where the venue may hold the order.
+        """
+        if cid is not None and self._guard is not None:
+            with self._guard_lock:
+                self._guard.release(cid)
+
     def _reject_intake(
         self,
         request: OrderRequest,
@@ -592,11 +606,29 @@ class ExecutionEngine:
         order: Order | None = None
         fill: Fill | None = None
         risk_rejected = False
-        if self._risk is not None and not self._risk.check(request):
+        risk_approved = True
+        if self._risk is not None:
+            # A raising risk manager is not a verdict. The key is handed back
+            # before the exception propagates: otherwise the correlation id is
+            # stranded as ``reserved`` and every retry of it answers
+            # ``idempotency_in_flight`` for the life of the process.
+            try:
+                risk_approved = bool(self._risk.check(request))
+            except BaseException:
+                self._release_reservation(reserved_cid)
+                raise
+        if self._risk is not None and not risk_approved:
             log.warning("Risk check failed for order")
             risk_rejected = True
             order = self._make_order(request, OrderStatus.REJECTED)
             self._order_manager.on_order_created(order)
+            # M2: release the reservation on risk-reject so the cid is
+            # immediately reusable. Risk rejection is a terminal state for
+            # the request — the order never reaches the cancel path and
+            # would otherwise leak the cid forever. Released BEFORE the
+            # publish/append below: those can raise, and a rejection that
+            # fails to publish must not take the key down with it.
+            self._release_reservation(reserved_cid)
             _rejected_event = OrderRejected(order=order, reason="risk_check_failed")
             self._bus.publish(_rejected_event)
             # Wave C1: persist risk verdict + rejection to durable store
@@ -605,13 +637,6 @@ class ExecutionEngine:
             if self._metrics is not None:
                 self._metrics.counter("orders.rejected").inc()
                 self._metrics.counter("risk.rejected").inc()
-            # M2: release the reservation on risk-reject so the cid is
-            # immediately reusable. Risk rejection is a terminal state for
-            # the request — the order never reaches the cancel path and
-            # would otherwise leak the cid forever.
-            if reserved_cid is not None and self._guard is not None:
-                with self._guard_lock:
-                    self._guard.release(reserved_cid)
         elif self._risk is not None:
             # Risk passed — persist the approval. A failed write means the log
             # cannot account for this order, so it must not reach the venue.
@@ -620,9 +645,7 @@ class ExecutionEngine:
                     "Risk approval not durable for %s; order not sent to venue",
                     request.correlation_id,
                 )
-                if reserved_cid is not None and self._guard is not None:
-                    with self._guard_lock:
-                        self._guard.release(reserved_cid)
+                self._release_reservation(reserved_cid)
                 raise RuntimeError("risk_decision_not_durable")
 
         if risk_rejected:
@@ -666,6 +689,12 @@ class ExecutionEngine:
                 metric_suffix="fee_schedule_unsupported",
                 reserved_cid=reserved_cid,
             )
+        except BaseException:
+            # Same reasoning as the risk gate: an unexpected failure here has
+            # not reached the venue and is not a verdict, so the key goes back
+            # instead of being stranded as ``reserved`` forever.
+            self._release_reservation(reserved_cid)
+            raise
 
         # 3. Fill — Wave C1: persist broker dispatch intent before the call.
         # This write is the only durable record that the order may be live at
@@ -783,6 +812,29 @@ class ExecutionEngine:
 
         # 4. OMS update
         self._order_manager.on_order_created(order)
+        _placed_event = OrderPlaced(order=order)
+        self._bus.publish(_placed_event)
+        # Wave C1: persist order placed + broker ack. Both writes GATE the
+        # receipt: the venue has already accepted this order, so a failed
+        # write here is not a rejection and must not be reported as one.
+        # Raising is the only honest answer, and the reservation is
+        # deliberately left taken — the venue may hold the order, so a retry
+        # under the same correlation id would place a second one. That is
+        # also why the side-table stamp cancel() uses to release the key is
+        # written *after* these two appends: the kill-switch cancel that
+        # ``_append`` trips on failure must not hand the key back either.
+        if not self._append(_placed_event):
+            log.error(
+                "OrderPlaced not durable for %s (cid=%s); receipt withheld",
+                order.order_id, cid,
+            )
+            raise RuntimeError("order_placed_not_durable")
+        if not self._append(BrokerOrderAcknowledged(order=order)):
+            log.error(
+                "BrokerOrderAcknowledged not durable for %s (cid=%s); receipt withheld",
+                order.order_id, cid,
+            )
+            raise RuntimeError("order_ack_not_durable")
         # M2: stamp the order_id → cid mapping so cancel() can release the
         # reservation. The order has just been created; from here forward the
         # cid is owned by this order. record_result() removes the entry from
@@ -795,11 +847,6 @@ class ExecutionEngine:
         # a receipt for a partly-applied order (M-3).
         if reserved_cid is not None:
             self._cid_for_order[order.order_id] = reserved_cid
-        _placed_event = OrderPlaced(order=order)
-        self._bus.publish(_placed_event)
-        # Wave C1: persist order placed + broker ack
-        self._append(_placed_event)
-        self._append(BrokerOrderAcknowledged(order=order))
 
         if fill is not None:
             # Guard: skip position update if fill source owns projection

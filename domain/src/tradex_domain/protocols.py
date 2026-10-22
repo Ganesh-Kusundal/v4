@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, date, datetime
-from decimal import Decimal
 from typing import Protocol, runtime_checkable
 
 from tradex_domain.capabilities import BrokerCapabilities
@@ -18,7 +17,6 @@ from tradex_domain.enums import BrokerId, ProductType, Timeframe
 from tradex_domain.events import DomainEvent
 from tradex_domain.execution import (
     Account,
-    Fill,
     Order,
     OrderReceipt,
     OrderRequest,

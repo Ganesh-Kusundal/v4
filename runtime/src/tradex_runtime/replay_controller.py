@@ -4,8 +4,8 @@ Phase 2 of the simulation-architecture work. Until now the replay state machine
 lived inside the ``/ws/stream`` WebSocket closure: ``_replay_start``,
 ``_replay_pause``, ``_replay_resume``, ``_replay_step``, ``_replay_seek``,
 ``_replay_speed`` and ``_replay_stop`` were nested functions sharing mutable
-cells (run flag, stop-ack flag, step latch, last closed bar index). Two problems with that ownership, both removed here
-rather than papered over:
+cells (run flag, stop-ack flag, step latch, last closed bar index). Two
+problems with that ownership, both removed here rather than papered over:
 
 **The lifecycle was implicit.** ``ReplayRun`` carried ``paused`` /
 ``step_requested`` / ``terminal`` booleans and nothing else, so "is a replay

@@ -19,7 +19,9 @@
 runtime/
 !runtime/pyproject.toml
 !runtime/src/
-!runtime/tests/
+# data/ is excluded by the build spec: history and instrument dumps are
+# operator-supplied at run time, never baked into the image.
+data/
 **/*.sqlite
 **/*.sqlite3
 **/*.db

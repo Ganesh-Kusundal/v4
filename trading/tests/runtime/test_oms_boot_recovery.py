@@ -6,12 +6,10 @@ sequence so that:
 1. A pre-existing event log is replayed at boot and the OMS cache is rebuilt
    from it (before broker reconciliation).
 2. An empty event store is a clean no-op.
-3. New lifecycle events published on the bus are durably appended to the
-   event store after boot.
-4. The full ``boot()`` path with ``cfg.persistence.path`` exercises the
+3. The full ``boot()`` path with ``cfg.persistence.path`` exercises the
    event-sourced recovery and wires future appends.
 
-No mocks. Real SQLite on tmp_path. Real ReactiveBus. Real TradingCache.
+No mocks. Real SQLite on tmp_path. Real TradingCache.
 """
 
 from __future__ import annotations
@@ -21,14 +19,13 @@ from pathlib import Path
 
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain.enums import OrderSide, OrderStatus, OrderType, TimeInForce
-from tradex_domain.events import OrderCancelled, OrderFilled, OrderPlaced, OrderRejected
+from tradex_domain.events import OrderCancelled, OrderFilled, OrderPlaced
 from tradex_domain.execution import Fill, Order
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
 from tradex_execution.sqlite_event_store import SQLiteEventStore
 from tradex_execution.trading_cache import TradingCache
-from tradex_reactive.bus import ReactiveBus
-from tradex_runtime.startup import _attach_event_store, _recover_oms_from_events
+from tradex_runtime.startup import _recover_oms_from_events
 from trading.tests.risk_support import permissive_risk
 
 # ---------------------------------------------------------------------------
@@ -143,69 +140,6 @@ def test_recover_oms_from_empty_store_is_noop(tmp_path: Path) -> None:
     store2.close()
 
     assert cache.all_orders() == []
-
-
-# ---------------------------------------------------------------------------
-# 3. _attach_event_store appends future bus events durably
-# ---------------------------------------------------------------------------
-
-
-def test_attach_event_store_appends_placed_event(tmp_path: Path) -> None:
-    """OrderPlaced published on bus after wiring is appended to the event store."""
-    db = _db(tmp_path)
-    store = SQLiteEventStore(db)
-    bus = ReactiveBus()
-
-    _attach_event_store(bus, store)
-
-    bus.publish(OrderPlaced(order=_order("o-wire-1")))
-    store.close()
-
-    store2 = SQLiteEventStore(db)
-    events = list(store2.replay("orders"))
-    store2.close()
-
-    assert len(events) == 1
-    placed = events[0]
-    assert isinstance(placed, OrderPlaced)
-    assert placed.order.order_id.value == "o-wire-1"
-
-
-def test_attach_event_store_appends_all_lifecycle_events(tmp_path: Path) -> None:
-    """All five order lifecycle event types are appended when published."""
-    db = _db(tmp_path)
-    store = SQLiteEventStore(db)
-    bus = ReactiveBus()
-
-    _attach_event_store(bus, store)
-
-    bus.publish(OrderPlaced(order=_order("o-p")))
-    bus.publish(OrderFilled(fill=_fill("o-p")))
-    bus.publish(OrderCancelled(order=_order("o-c", OrderStatus.CANCELLED)))
-    bus.publish(OrderRejected(order=_order("o-r", OrderStatus.REJECTED), reason="risk"))
-
-    count = store.count("orders")
-    store.close()
-
-    assert count == 4
-
-
-def test_attach_event_store_does_not_append_non_order_events(tmp_path: Path) -> None:
-    """Non-order events (e.g. ErrorOccurred) are NOT appended to the event store."""
-    from tradex_domain.events import ErrorOccurred
-
-    db = _db(tmp_path)
-    store = SQLiteEventStore(db)
-    bus = ReactiveBus()
-
-    _attach_event_store(bus, store)
-
-    bus.publish(ErrorOccurred(error=ValueError("boom")))
-
-    count = store.count("*")
-    store.close()
-
-    assert count == 0
 
 
 # ---------------------------------------------------------------------------

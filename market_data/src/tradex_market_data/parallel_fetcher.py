@@ -291,7 +291,7 @@ class ParallelHistoryFetcher:
 
         def _fetch_one(inst: Instrument) -> None:
             try:
-                if getattr(self, "_deadline", None) is not None and time.monotonic() >= self._deadline:
+                if self._deadline is not None and time.monotonic() >= self._deadline:
                     return
                 windows = _windows_for(inst)
                 if windows is not None:
@@ -335,7 +335,7 @@ class ParallelHistoryFetcher:
     ) -> HistoricalSeries | None:
         stitched: list = []
         for ws, we in windows:
-            if getattr(self, "_deadline", None) is not None and time.monotonic() >= self._deadline:
+            if self._deadline is not None and time.monotonic() >= self._deadline:
                 break
             self._maybe_acquire(str(inst.instrument_id))
             part = self._broker.history(inst, self._timeframe, ws, we)

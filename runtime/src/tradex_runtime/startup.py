@@ -1337,17 +1337,26 @@ def _boot_tail(
 
         # 10. Start session, then the refresh daemon (started last so nothing
         # after it can strand it).
-        session.start()
-        # C4: transitions all CREATED runtimes → RUNNING after session is READY.
-        if strategy_registry is not None:
-            strategy_registry.start_all()
+        #
+        # Everything from here to the scheduler start runs under one rollback:
+        # ``boot()``'s own handlers pass ``session=None`` to
+        # ``_safe_teardown`` (the session is built here, not there), so a
+        # failure after ``start()`` would otherwise leave the engine, feed,
+        # tape recorder and stop hooks running with nobody holding the session.
+        try:
+            session.start()
+            # C4: transitions all CREATED runtimes → RUNNING after session is READY.
+            if strategy_registry is not None:
+                strategy_registry.start_all()
+            if master_scheduler is not None:
+                master_scheduler.start()
+        except BaseException:
+            session.stop()
+            raise
     else:
         # Leave session in NEW; caller can stop() to release resources.
         # Mark the master scheduler's expected-state so it is not started.
         master_scheduler = None
-
-    if master_scheduler is not None:
-        master_scheduler.start()
 
     log.info("Runtime context ready")
     return session
@@ -1678,35 +1687,6 @@ def _recover_oms_from_events(event_store: Any, cache: Any, engine: Any = None) -
             "Event log carried no cash anchor; the engine reports cash as "
             "unknown (0) and the fail-closed cash gate will deny BUYs.",
         )
-
-
-def _attach_event_store(bus: Any, event_store: Any) -> None:
-    """Subscribe *event_store* to all order lifecycle events on *bus*.
-
-    Every OrderPlaced / OrderFilled / OrderCancelled / OrderModified /
-    OrderRejected published on the bus is appended to the durable event log
-    so future restarts can replay the full history.
-
-    Append failures are logged and never raised — a durable-log failure must
-    not break trading, but it MUST be visible in the operator log.
-    Subscriptions die with bus.dispose() on session.stop().
-    """
-    from tradex_domain.events import (
-        OrderCancelled,
-        OrderFilled,
-        OrderModified,
-        OrderPlaced,
-        OrderRejected,
-    )
-
-    def _append(event: Any) -> None:
-        try:
-            event_store.append(event)
-        except Exception:
-            log.exception("OMS event-store append failed; event not durable")
-
-    for event_type in (OrderPlaced, OrderFilled, OrderCancelled, OrderModified, OrderRejected):
-        bus.of_type(event_type).subscribe(on_next=_append)
 
 
 __all__ = ["boot"]

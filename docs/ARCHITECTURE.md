@@ -1,8 +1,8 @@
 # TradeX v4 — Architecture, Tree & Flows
 
 > **How this document was produced.** §2 is a complete git-tracked file tree
-> (1,211 leaves, duplicates included, nothing deduplicated). §2.1 and §2.2 each
-> list all 381 production `src/` leaves again under architecture layers and
+> (1,220 leaves, duplicates included, nothing deduplicated). §2.1 and §2.2 each
+> list all 378 production `src/` leaves again under architecture layers and
 > component ownership — intentional triple listing. §2.2.1 names every duplicate
 > basename and every path that carries it. Gate numbers in §9 were measured on
 > this tree. Where this document and `README.md` disagree, this document is
@@ -23,7 +23,7 @@ Core design commitments:
 | Frozen dataclasses everywhere — no accidental mutation in event streams | `domain/value_objects.py`, `domain/execution.py` | `tests/test_complexity_gate.py`, review |
 | `Decimal` for all money — no float drift in price, qty, P&L | `domain/value_objects.py` | `domain/position_math.py` contract suite |
 | Capability-loud adapters — closed by default, typed `SDKError` on the unsupported | `brokers/common/capabilities.py` | `trading/tests/parity` |
-| `FillSource` seam — swap Simulated/Paper/Broker/Replay without touching the engine | `execution/fill_sources.py` | parity gate |
+| `FillSource` seam — swap Simulated/Paper/Broker without touching the engine | `execution/fill_sources.py` | parity gate |
 | **One path to the venue** — `ExecutionEngine.submit()` is the only door (AC-22) | `execution/engine.py` | `tests/test_import_boundaries.py`, parity gate |
 | Shared trading calendar, not per-mode literals | `domain/trading_calendar.py` | `brokers/tests/test_paper_realism_gates.py` |
 
@@ -37,7 +37,7 @@ separately. Untracked local state (`data/`, `.venv/`, token files) is omitted
 because it is not in git.
 
 ```
-v4/  (1,211 git-tracked files, listed as-is — duplicates included)
+v4/  (1,220 git-tracked files, listed as-is — duplicates included)
 ├── .agents/
 │   └── skills/
 │       ├── architect/
@@ -272,7 +272,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │       │   ├── client_shared.py
 │   │       │   ├── dhan_segments.py
 │   │       │   ├── endpoints.py
-│   │       │   ├── http_response.py
 │   │       │   ├── instruments.py
 │   │       │   ├── market_builders.py
 │   │       │   ├── mixins/
@@ -346,7 +345,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │   │   ├── test_client_seam.py
 │   │   │   ├── test_client_shared.py
 │   │   │   ├── test_credential_file_permissions.py
-│   │   │   ├── test_http_response.py
 │   │   │   ├── test_infra_core.py
 │   │   │   ├── test_provider_client.py
 │   │   │   ├── test_read_cache.py
@@ -636,7 +634,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │       ├── py.typed
 │   │       ├── queueing.py
 │   │       ├── replay_guard.py
-│   │       ├── replay_run.py
 │   │       ├── safety.py
 │   │       ├── safety_report_store.py
 │   │       └── workspace_store.py
@@ -659,8 +656,7 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │       ├── paths.py
 │   │       ├── py.typed
 │   │       ├── simple_sync.py
-│   │       ├── symbol_resolve.py
-│   │       └── universe.py
+│   │       └── symbol_resolve.py
 │   ├── tests/
 │   │   ├── parquet_pushdown_bench.py
 │   │   ├── test_backtest_loader_pit_guard.py
@@ -738,7 +734,6 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   └── pyproject.toml
 ├── scripts/
 │   ├── coverage_floors.py
-│   ├── extract_package.py
 │   ├── generate_fixtures.py
 │   ├── generate_goldens.mjs
 │   ├── generate_goldens_profiles.mjs
@@ -1049,8 +1044,7 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 │   │   │   ├── test_parquet_storage.py
 │   │   │   ├── test_session_grid_calibration.py
 │   │   │   ├── test_simple_sync.py
-│   │   │   ├── test_symbol_resolve.py
-│   │   │   └── test_universe.py
+│   │   │   └── test_symbol_resolve.py
 │   │   ├── execution/
 │   │   │   ├── __init__.py
 │   │   │   ├── test_append_before_mutate.py
@@ -1359,7 +1353,7 @@ v4/  (1,211 git-tracked files, listed as-is — duplicates included)
 
 ### 2.1 Architecture map (production `src/` leaves)
 
-The 381 installable source leaves, grouped by §4.2 layer. Same files also appear
+The 378 installable source leaves, grouped by §4.2 layer. Same files also appear
 in §2 above under their package paths — **intentional duplicate listing**.
 
 ```
@@ -1410,7 +1404,7 @@ L1  adapters/
 │   ├── permissions.py
 │   ├── py.typed
 │   └── schema.py
-├── brokers/src/tradex_brokers/  (61 files)
+├── brokers/src/tradex_brokers/  (60 files)
 │   ├── common/
 │   │   ├── __init__.py
 │   │   ├── auth.py
@@ -1420,7 +1414,6 @@ L1  adapters/
 │   │   ├── client_shared.py
 │   │   ├── dhan_segments.py
 │   │   ├── endpoints.py
-│   │   ├── http_response.py
 │   │   ├── instruments.py
 │   │   ├── market_builders.py
 │   │   ├── paths.py
@@ -1681,7 +1674,7 @@ L2  engines/
     └── runtime.py
 
 L3  data & replay/
-├── market_data/src/tradex_market_data/  (13 files)
+├── market_data/src/tradex_market_data/  (12 files)
 │   ├── __init__.py
 │   ├── backtest_loader.py
 │   ├── catalog.py
@@ -1693,8 +1686,7 @@ L3  data & replay/
 │   ├── paths.py
 │   ├── py.typed
 │   ├── simple_sync.py
-│   ├── symbol_resolve.py
-│   └── universe.py
+│   └── symbol_resolve.py
 ├── replay/src/tradex_replay/  (7 files)
 │   ├── __init__.py
 │   ├── backtest.py
@@ -1745,7 +1737,7 @@ L4  composition/
     └── writer_lock.py
 
 L5  interfaces/
-└── interfaces/src/tradex_interfaces/  (31 files)
+└── interfaces/src/tradex_interfaces/  (30 files)
     ├── auth/
     │   ├── __init__.py
     │   ├── csrf.py
@@ -1775,17 +1767,16 @@ L5  interfaces/
     ├── py.typed
     ├── queueing.py
     ├── replay_guard.py
-    ├── replay_run.py
     ├── safety.py
     ├── safety_report_store.py
     └── workspace_store.py
 ```
 
-**381 production src leaves.**
+**378 production src leaves.**
 
 ### 2.2 Component map (production `src/` leaves, full paths)
 
-Same 381 files regrouped by ownership (§6). Full paths shown — no
+Same 378 files regrouped by ownership (§6). Full paths shown — no
 basename-only collapse. Files listed in §2.1 appear again here under their
 component owner.
 
@@ -1818,7 +1809,7 @@ InstrumentRegistry / domain kernel/  (26 files)
 ├── domain/src/tradex_domain/value_objects.py
 └── domain/src/tradex_domain/wire.py
 
-BrokerAdapter / BaseBroker / common resilience/  (21 files)
+BrokerAdapter / BaseBroker / common resilience/  (20 files)
 ├── brokers/src/tradex_brokers/common/__init__.py
 ├── brokers/src/tradex_brokers/common/auth.py
 ├── brokers/src/tradex_brokers/common/base.py
@@ -1827,7 +1818,6 @@ BrokerAdapter / BaseBroker / common resilience/  (21 files)
 ├── brokers/src/tradex_brokers/common/client_shared.py
 ├── brokers/src/tradex_brokers/common/dhan_segments.py
 ├── brokers/src/tradex_brokers/common/endpoints.py
-├── brokers/src/tradex_brokers/common/http_response.py
 ├── brokers/src/tradex_brokers/common/instruments.py
 ├── brokers/src/tradex_brokers/common/market_builders.py
 ├── brokers/src/tradex_brokers/common/paths.py
@@ -2099,7 +2089,7 @@ Strategy engine / sizing / scanners / plugins/  (30 files)
 ├── strategy/src/tradex_strategy/registry.py
 └── strategy/src/tradex_strategy/runtime.py
 
-Market data / parquet / PIT loader/  (13 files)
+Market data / parquet / PIT loader/  (12 files)
 ├── market_data/src/tradex_market_data/__init__.py
 ├── market_data/src/tradex_market_data/backtest_loader.py
 ├── market_data/src/tradex_market_data/catalog.py
@@ -2111,8 +2101,7 @@ Market data / parquet / PIT loader/  (13 files)
 ├── market_data/src/tradex_market_data/paths.py
 ├── market_data/src/tradex_market_data/py.typed
 ├── market_data/src/tradex_market_data/simple_sync.py
-├── market_data/src/tradex_market_data/symbol_resolve.py
-└── market_data/src/tradex_market_data/universe.py
+└── market_data/src/tradex_market_data/symbol_resolve.py
 
 Backtest / walk-forward / replay/  (7 files)
 ├── replay/src/tradex_replay/__init__.py
@@ -2162,7 +2151,7 @@ boot() / TradingSession / MarketFeed / monitors/  (23 files)
 ├── runtime/src/tradex_runtime/tape_recorder.py
 └── runtime/src/tradex_runtime/writer_lock.py
 
-CLI / FastAPI / safety surface/  (31 files)
+CLI / FastAPI / safety surface/  (30 files)
 ├── interfaces/src/tradex_interfaces/__init__.py
 ├── interfaces/src/tradex_interfaces/_helpers.py
 ├── interfaces/src/tradex_interfaces/auth/__init__.py
@@ -2178,7 +2167,6 @@ CLI / FastAPI / safety surface/  (31 files)
 ├── interfaces/src/tradex_interfaces/py.typed
 ├── interfaces/src/tradex_interfaces/queueing.py
 ├── interfaces/src/tradex_interfaces/replay_guard.py
-├── interfaces/src/tradex_interfaces/replay_run.py
 ├── interfaces/src/tradex_interfaces/routes/__init__.py
 ├── interfaces/src/tradex_interfaces/routes/_market_helpers.py
 ├── interfaces/src/tradex_interfaces/routes/account.py
@@ -2801,9 +2789,8 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `analytics/src/tradex_analytics/goldens/ultimate-oscillator.json`
 - `trading/tests/analytics/goldens/ultimate-oscillator.json`
 
-**`universe.py`** (2 copies)
+**`universe.py`** (1 copy)
 - `domain/src/tradex_domain/universe.py`
-- `market_data/src/tradex_market_data/universe.py`
 
 **`uv.lock`** (2 copies)
 - `services/duckdb-analytics/uv.lock`
@@ -2853,7 +2840,7 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 - `brokers/src/tradex_brokers/dhan/ws_streams.py`
 - `brokers/src/tradex_brokers/upstox/ws_streams.py`
 
-*134 basenames appear more than once across the 1211 tracked files.*
+*134 basenames appear more than once across the 1220 tracked files.*
 ### 2.2.2 Coverage audit
 
 | Layer | Package path | Leaf files |
@@ -2862,21 +2849,21 @@ per-package boilerplate (`__init__.py`, `pyproject.toml`, `py.typed`).
 | L0 | `observability/src/tradex_observability/` | 4 |
 | L1 | `reactive/src/tradex_reactive/` | 5 |
 | L1 | `config/src/tradex_config/` | 5 |
-| L1 | `brokers/src/tradex_brokers/` | 61 |
+| L1 | `brokers/src/tradex_brokers/` | 60 |
 | L1 | `analytics/src/tradex_analytics/` | 129 |
 | L2 | `execution/src/tradex_execution/` | 24 |
 | L2 | `application/src/tradex_application/` | 3 |
 | L2 | `strategy/src/tradex_strategy/` | 30 |
-| L3 | `market_data/src/tradex_market_data/` | 13 |
+| L3 | `market_data/src/tradex_market_data/` | 12 |
 | L3 | `replay/src/tradex_replay/` | 7 |
 | L3 | `services/duckdb-analytics/src/duck_analytics/` | 12 |
 | L4 | `runtime/src/tradex_runtime/` | 23 |
-| L5 | `interfaces/src/tradex_interfaces/` | 31 |
-| | **Total production src** | **381** |
-| | **Total git-tracked (§2)** | **1211** |
+| L5 | `interfaces/src/tradex_interfaces/` | 30 |
+| | **Total production src** | **378** |
+| | **Total git-tracked (§2)** | **1220** |
 
-§2 lists all 1211 tracked files. §2.1 and §2.2 each list all
-381 production `src/` leaves — the same paths appear in three places
+§2 lists all 1220 tracked files. §2.1 and §2.2 each list all
+378 production `src/` leaves — the same paths appear in three places
 by design, not by error.
 
 ### 2.3 Runtime wiring (composition graph)
@@ -3093,7 +3080,7 @@ boot(config, …)
  │     offline → plain ReactiveBus (single-threaded by design)
  │
  ├─ 4. FILL SOURCE                                      startup.py:344
- │     mode-dependent: Simulated | Paper | PaperBook | Broker | Replay
+ │     mode-dependent: Simulated | Paper | PaperBook | Broker
  │
  ├─ 5. RISK MANAGER                                     startup.py:510
  │
@@ -3163,7 +3150,7 @@ ExecutionEngine.submit(request)                    engine.py:1300
              │    halt → RiskDecision event, order rejected
              │
              │ 3. FILL SOURCE  ← the seam
-             │    Simulated | Paper | PaperBook | Broker | Replay
+             │    Simulated | Paper | PaperBook | Broker
              │    → OrderPlaced → (venue) → OrderFilled
              │
              │ 4. OMS / BOOK
@@ -3420,13 +3407,21 @@ Every gate is one command: `bash scripts/predeploy_gate.sh`. It runs, in order:
 
 | Gate | Mechanism |
 |---|---|
-| Packaging | `uv sync --frozen`; all 14 members import; deleted packages are absent |
+| Packaging | `uv sync --frozen` into the current environment; all 14 members import; deleted packages are absent |
 | Lint | `scripts/ruff_ratchet.py` against `.ruff_baseline` |
 | Types | `scripts/mypy_ratchet.py` against `.mypy_baseline` |
 | Import boundaries | `lint-imports` plus `tests/test_import_boundaries.py` |
 | Complexity | `tests/test_complexity_gate.py` |
 | Behaviour | the full `pytest` suite |
-| Deploy artifact | `docker build`, non-root import and `tradex --help` smoke |
+| Deploy artifact | `docker build`, non-root import and `tradex --help` smoke (requires a Docker daemon) |
+
+Two checks are **CI-only** and this local script does not run them:
+
+- **Clean install** — CI resolves `uv.lock` into an empty environment; the
+  local script syncs whatever environment is already current, so a stale venv
+  can pass locally.
+- **Per-package branch-coverage floors** — `scripts/coverage_floors.py` over
+  `coverage.json`, run by `.github/workflows/quality-gate.yml` only.
 
 Pass/fail counts live in CI output, not in this document; the table records
 the mechanism, so it cannot go stale.
@@ -3485,8 +3480,8 @@ Things this document found that contradict other artefacts in the repo.
 1. **`README.md` now describes the real tree.** The earlier version documented
    a removed `tradex_trading` package, `pip install -e` instructions and a
    `ParquetBacktestLoader` that never existed. It now names the 14 workspace
-   members, installs with `uv sync --frozen`, and its quick start is executed
-   before commit.
+   members and installs with `uv sync --frozen`. Its quick start is a manual
+   walkthrough: no test executes it, so nothing here claims it was run.
 
 2. **`trading/pyproject.toml` is intentionally a non-member.** `trading/` holds
    tests and scripts only; the manifest is a dependency bundle plus local

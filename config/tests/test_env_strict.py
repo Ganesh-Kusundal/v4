@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from tradex_config.env import from_env, serve_config
 from tradex_config.schema import PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_domain.errors import SDKError
+from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 
 _ENV_KEYS = (
     "TRADEX_BROKER",
@@ -51,6 +53,7 @@ def test_live_controls_are_read_from_the_environment(monkeypatch, tmp_path) -> N
 
 def test_serve_config_live_enables_the_gate_and_defaults_persistence(tmp_path) -> None:
     cfg = replace(from_env(), runtime_dir=str(tmp_path))
+    assert not (tmp_path / "live").exists()
 
     live = serve_config(cfg, broker_id=BrokerId.DHAN, mode="live")
 
@@ -58,6 +61,13 @@ def test_serve_config_live_enables_the_gate_and_defaults_persistence(tmp_path) -
     assert live.mode == "live"
     assert live.live_enabled is True
     assert live.persistence.path == str(tmp_path / "live" / "dhan.sqlite")
+    # A fresh runtime directory has no ``live/`` child. The store must be able
+    # to open its file there, or live boot dies on ``unable to open database
+    # file`` before the writer lock gets a chance to mkdir.
+    assert live.persistence.path is not None
+    assert Path(live.persistence.path).parent.is_dir()
+    guard = SQLiteIdempotencyGuard(live.persistence.path)
+    guard.close()
 
 
 def test_serve_config_live_keeps_an_explicit_persistence_path(tmp_path) -> None:

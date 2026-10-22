@@ -173,13 +173,15 @@ def serve_config(config: AppConfig, *, broker_id: BrokerId, mode: str) -> AppCon
     if mode == "live":
         changes["live_enabled"] = True
         if not config.persistence.path:
-            changes["persistence"] = PersistenceConfig(
-                path=str(
-                    Path(config.runtime_dir)
-                    / "live"
-                    / f"{broker_id.value.lower()}.sqlite"
-                )
+            live_path = (
+                Path(config.runtime_dir) / "live" / f"{broker_id.value.lower()}.sqlite"
             )
+            # The parent must exist before anything opens the store: the
+            # idempotency guard calls ``sqlite3.connect`` directly, and a
+            # missing parent is an ``unable to open database file`` failure on
+            # boot (the only other mkdir runs after the stores are open).
+            live_path.parent.mkdir(parents=True, exist_ok=True)
+            changes["persistence"] = PersistenceConfig(path=str(live_path))
     return replace(config, **changes)
 
 

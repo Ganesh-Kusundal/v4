@@ -151,3 +151,30 @@ def test_safe_teardown_closes_real_broker(monkeypatch) -> None:
     )
 
     assert closed == [1], "rollback must call the broker's real close()"
+
+
+def test_a_failed_session_start_stops_the_session(monkeypatch) -> None:
+    """A failed ``session.start()`` must tear the session down before raising.
+
+    ``boot()``'s handlers pass ``session=None`` to ``_safe_teardown`` — the
+    session is built inside ``_boot_tail``, so there is nothing for them to
+    stop. Without a rollback around ``session.start()`` a session that half
+    started keeps its engine, feed, tape recorder and stop hooks alive after
+    the boot has already failed.
+    """
+    from tradex_runtime.session_impl import TradingSession
+
+    stopped: list[int] = []
+
+    def _boom(self) -> None:
+        raise RuntimeError("simulated session.start failure")
+
+    monkeypatch.setattr(TradingSession, "start", _boom)
+    monkeypatch.setattr(TradingSession, "stop", lambda self: stopped.append(1))
+
+    cfg = AppConfig(risk=permissive_risk(), mode="paper")
+
+    with pytest.raises(RuntimeError, match="simulated session.start failure"):
+        startup_mod.boot(cfg)
+
+    assert stopped == [1], "the failed boot must stop the session it started"

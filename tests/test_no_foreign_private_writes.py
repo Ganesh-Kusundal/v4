@@ -21,8 +21,6 @@ def _workspace_src_dirs() -> list[Path]:
     data = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     members = data["tool"]["uv"]["workspace"]["members"]
     dirs = [_ROOT / member / "src" for member in members]
-    if (_ROOT / "shared/src").is_dir():
-        dirs.append(_ROOT / "shared/src")
     return sorted(path for path in dirs if path.is_dir())
 
 
@@ -75,7 +73,5 @@ def test_the_scan_covers_every_workspace_source_root() -> None:
     data = tomllib.loads((_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     members = data["tool"]["uv"]["workspace"]["members"]
     expected = {(_ROOT / member / "src") for member in members if (_ROOT / member / "src").is_dir()}
-    if (_ROOT / "shared/src").is_dir():
-        expected.add(_ROOT / "shared/src")
     assert set(_SRC_DIRS) == expected
     assert all(path.is_dir() for path in _SRC_DIRS), "a scan root does not exist"

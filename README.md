@@ -4,8 +4,11 @@ A broker-agnostic algorithmic trading platform for Indian markets (NSE, BSE, NFO
 MCX, CDS) with live adapters for **Dhan** and **Upstox**, plus a fully in-memory
 **Paper** broker for simulation and testing.
 
-The platform is built on a reactive (RxPY) spine with a strict three-package
-dependency boundary and an immutability-first domain model.
+The platform is built on a reactive (RxPY) spine with a 14-member `uv`
+workspace and an immutability-first domain model. Each package may import only
+the packages its declared boundary allows; that graph is enforced by
+`tests/test_import_boundaries.py` and the import-linter contracts in the root
+`pyproject.toml`.
 
 ---
 
@@ -38,7 +41,7 @@ kernel; no package may import upward past its declared boundary, enforced by
 - **Frozen dataclasses everywhere** — immutable domain objects; no accidental mutation in event streams.
 - **`Decimal` for all money** — no floating-point drift in prices, quantities, or P&L.
 - **Capability-loud adapters** — `BrokerCapabilities` defaults to closed; unsupported features raise typed `SDKError`s instead of failing silently.
-- **`FillSource` execution seam** — swap Simulated / Paper / Broker / Replay without touching the engine.
+- **`FillSource` execution seam** — swap Simulated / Paper / Broker without touching the engine.
 - **One path to the venue** — `ExecutionEngine.submit()` is the only door (AC-22). A strategy sizes its signal, adds protective legs, and hands the request to the engine; the bus carries market data in and observations out, never an order.
 
 ---

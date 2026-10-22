@@ -24,13 +24,18 @@ import subprocess
 import sys
 from pathlib import Path
 
-BASELINE_FILE = Path(".ruff_baseline")
+# Resolved from the repository root, not the caller's cwd: the gate runs this
+# from whatever directory it was invoked in, and a relative path silently
+# found no baseline there (or worse, a different one).
+_ROOT = Path(__file__).resolve().parent.parent
+BASELINE_FILE = _ROOT / ".ruff_baseline"
 COUNT_RE = re.compile(r"Found (\d+) error")
 
 
 def current_count() -> tuple[int, str]:
     proc = subprocess.run(
         ["ruff", "check", "--output-format=concise"],
+        cwd=_ROOT,
         capture_output=True,
         text=True,
         check=False,
@@ -48,7 +53,11 @@ def current_count() -> tuple[int, str]:
 
 def top_rules() -> str:
     proc = subprocess.run(
-        ["ruff", "check", "--statistics"], capture_output=True, text=True, check=False
+        ["ruff", "check", "--statistics"],
+        cwd=_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     lines = (proc.stdout + proc.stderr).strip().splitlines()[:8]
     return "\n".join("  " + line for line in lines)
@@ -72,18 +81,20 @@ def main() -> int:
         print(f"ruff ratchet: baseline set to {count}")
         return 0
 
-    baseline = (
-        int(BASELINE_FILE.read_text(encoding="utf-8").strip()) if BASELINE_FILE.exists() else None
+    # Fail closed: a missing baseline used to record the current count and pass,
+    # which meant the very first run in a fresh checkout could never fail and the
+    # ratchet silently became a no-op if the file was not committed.
+    baseline_text = (
+        BASELINE_FILE.read_text(encoding="utf-8").strip() if BASELINE_FILE.exists() else ""
     )
-    if baseline is None:
-        # No baseline committed yet: record the current count and pass, so the
-        # first run installs the ratchet rather than failing the build.
-        BASELINE_FILE.write_text(f"{count}\n", encoding="utf-8")
+    if not baseline_text:
         print(
-            f"ruff ratchet: no baseline yet, recorded {count} and passing. "
-            f"Commit {BASELINE_FILE}."
+            f"ruff ratchet: FAIL — no baseline at {BASELINE_FILE}. "
+            "Record one deliberately with --set-baseline.",
+            file=sys.stderr,
         )
-        return 0
+        return 1
+    baseline = int(baseline_text)
 
     if count > baseline:
         print(

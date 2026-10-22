@@ -183,14 +183,12 @@ class TestBootPersistenceWiring:
         finally:
             session.stop()
 
-    def test_default_boot_wires_in_memory_idempotency_guard(self) -> None:
-        """Every order endpoint has a guard, even without SQLite durability."""
+    def test_default_boot_wires_sqlite_idempotency_guard(self) -> None:
+        """Paper boot without an explicit persistence path still gets a durable guard."""
         from tradex_execution.sqlite_store import SQLiteIdempotencyGuard
 
         session = boot(AppConfig(risk=permissive_risk(), mode="paper"))
         try:
-            # Paper mode now gets a durable SQLite guard in the runtime dir
-            # by default (production change from tasks 1-19).
             assert isinstance(session.engine._guard, SQLiteIdempotencyGuard)  # noqa: SLF001
         finally:
             session.stop()

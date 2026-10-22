@@ -1,8 +1,7 @@
-"""Idempotency guard — the only persistence this module now exports.
+"""The SQLite-backed idempotency guard.
 
-The order table, its bus mirror, and the OrderStore protocol have been
-removed. The event log (``sqlite_event_store``) is the single persistence
-authority; OMS recovery replays it alone.
+The event log (``sqlite_event_store``) is the single persistence authority;
+OMS recovery replays it alone.
 """
 
 from __future__ import annotations

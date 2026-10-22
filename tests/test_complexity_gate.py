@@ -85,8 +85,8 @@ def test_tests_stay_exempt_from_complexity_rules() -> None:
             assert rule in ignores[pattern], f"{pattern} no longer ignores {rule}"
 
 
-def test_ruff_baseline_is_at_most_155() -> None:
-    """The lint wall is at 155 and must not grow without a deliberate commit.
+def test_ruff_baseline_matches_the_measured_count() -> None:
+    """The lint wall is at 146 and must not grow without a deliberate commit.
 
     The gate is a count, so a raised baseline is indistinguishable from new debt
     being accepted. scripts/ruff_ratchet.py --set-baseline exists for the
@@ -94,8 +94,8 @@ def test_ruff_baseline_is_at_most_155() -> None:
     can never quietly disagree.
     """
     baseline = (_ROOT / ".ruff_baseline").read_text(encoding="utf-8").strip()
-    assert baseline == "155", (
-        f".ruff_baseline is {baseline}, not 155. If the wall genuinely shrank, "
+    assert baseline == "146", (
+        f".ruff_baseline is {baseline}, not 146. If the wall genuinely shrank, "
         f"commit the lower number deliberately; if it grew, that is new debt."
     )
 

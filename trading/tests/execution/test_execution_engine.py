@@ -132,7 +132,13 @@ def test_filled_order_updates_position() -> None:
     assert pos.quantity.value == 10
 
 
-def test_order_store_persists_across_submits() -> None:
+def test_each_submit_lands_in_the_oms_cache() -> None:
+    """Two distinct submits are two orders in the OMS projection.
+
+    This is the event-log path: ``ExecutionEngine.submit`` writes the order
+    into ``TradingCache`` directly, and the durable copy is the appended
+    ``OrderPlaced``/``OrderFilled`` pair — there is no separate order store.
+    """
     engine = _make_engine()
     engine.submit(_request())
     engine.submit(_request())

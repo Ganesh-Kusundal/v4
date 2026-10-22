@@ -37,10 +37,13 @@ def test_runtime_dir_env_override_wins(tmp_path, monkeypatch) -> None:
 
 def test_state_paths_land_under_single_root(monkeypatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("TRADEX_RUNTIME_DIR", raising=False)
+    # Point the root at tmp_path instead of unsetting it: the token/cooldown
+    # accessors mkdir on demand, and an unset variable means they mkdir under
+    # the repository's own runtime/ directory. The repo-anchored default is
+    # still asserted by the first test, which does not create anything.
+    monkeypatch.setenv("TRADEX_RUNTIME_DIR", str(tmp_path / "root"))
     root = default_runtime_dir()
     token = default_token_state_path("UPSTOX")
     cooldown = default_totp_cooldown_path("upstox")
     assert token == root / "upstox" / "token_state.json"
     assert cooldown == root / "upstox" / "totp_cooldown.json"
-    assert _REPO_ROOT.joinpath("pyproject.toml").is_file(), "anchor must be repo root"

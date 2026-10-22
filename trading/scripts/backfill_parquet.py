@@ -44,6 +44,7 @@ from tradex_domain import Timeframe  # noqa: E402 — sys.path setup above
 from tradex_domain.market_calendar import (  # noqa: E402 — sys.path setup above
     NSE_HOLIDAYS_2026,
 )
+from tradex_domain.universe import load_universe  # noqa: E402 — sys.path setup above
 from tradex_market_data.gap_detector import GapDetector  # noqa: E402 — sys.path setup above
 from tradex_market_data.parallel_fetcher import (  # noqa: E402 — sys.path setup above
     ParallelHistoryFetcher,
@@ -52,7 +53,6 @@ from tradex_market_data.parquet_storage import (  # noqa: E402 — sys.path setu
     ParquetStorage,
 )
 from tradex_market_data.paths import datalake_root  # noqa: E402 — sys.path setup above
-from tradex_domain.universe import load_universe  # noqa: E402 — sys.path setup above
 
 log = logging.getLogger("tradex.scripts.backfill")
 
