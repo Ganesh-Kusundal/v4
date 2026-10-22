@@ -339,9 +339,7 @@ class ExecutionEngine:
         """Append *event* to the durable store when one is configured.
 
         Returns True when the event is durably stored (or no store is
-        configured) and False when the write failed. A caller that is about to
-        mutate state MUST check this: persisting after the mutation would let a
-        failed write leave the book and the log permanently disagreeing.
+        configured) and False when the write failed. A caller that must persist before acting treats ``False`` as fatal and raises; no receipt is fabricated for an order the log cannot account for.
 
         When ``require_durable_events`` is False (default), failures are logged
         and swallowed so a store write never crashes the pipeline. When True
@@ -626,7 +624,10 @@ class ExecutionEngine:
                     "Risk approval not durable for %s; order not sent to venue",
                     request.correlation_id,
                 )
-                return self._no_receipt(sync, "risk_decision_not_durable")
+                if reserved_cid is not None and self._guard is not None:
+                    with self._guard_lock:
+                        self._guard.release(reserved_cid)
+                raise RuntimeError("risk_decision_not_durable")
 
         if risk_rejected:
             if order is None:
@@ -680,7 +681,10 @@ class ExecutionEngine:
                 "Dispatch intent not durable for %s; order not sent to venue",
                 request.correlation_id,
             )
-            return self._no_receipt(sync, "dispatch_intent_not_durable")
+            if reserved_cid is not None and self._guard is not None:
+                with self._guard_lock:
+                    self._guard.release(reserved_cid)
+            raise RuntimeError("dispatch_intent_not_durable")
         # Pre-bound: a venue that raises leaves nothing assigned, and the
         # unknown-outcome path still has to record an order for the OMS.
         try:
@@ -917,13 +921,12 @@ class ExecutionEngine:
         if not self._append(_filled_event):
             # The kill switch has already halted admission; the venue's
             # fill is recovered by reconciliation, so the book stays
-            # consistent with the log. The order still gets a receipt so a
-            # synchronous caller is not left without one.
+            # consistent with the log.
             log.error(
                 "Fill not durable; leaving the book unchanged for %s",
                 fill.order_id,
             )
-            return order
+            raise RuntimeError(f"fill {fill.order_id.value} not durable")
 
         if not getattr(self._fill, "position_projection_owned", False):
             # Position, notional and fee as ONE operation under the ledger's
@@ -1052,23 +1055,6 @@ class ExecutionEngine:
             charged_fee,
             f"fill {fill.order_id}",
             book=lambda: self._book_position(fill, charged_fee),
-        )
-
-    def _no_receipt(self, sync: bool, message: str) -> OrderReceipt | None:
-        """Terminate the pipeline before it can move money.
-
-        Used when a durable write that must precede the venue call failed. The
-        kill switch is already tripped by ``_append``; this stops *this* order
-        rather than only subsequent ones.
-        """
-        return (
-            OrderReceipt(
-                order_id=OrderId(value=str(uuid.uuid4())),
-                status=OrderStatus.REJECTED,
-                message=message,
-            )
-            if sync
-            else None
         )
 
     def _make_order(self, request: OrderRequest, status: OrderStatus) -> Order:
