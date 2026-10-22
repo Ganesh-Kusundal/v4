@@ -24,6 +24,7 @@ from __future__ import annotations
 from decimal import Decimal
 from unittest.mock import MagicMock
 
+import pytest
 from tradex_config.schema import AppConfig, PersistenceConfig
 from tradex_domain import BrokerId
 from tradex_strategy.extensions import all_strategies
@@ -54,30 +55,17 @@ def _live_cfg(tmp_path) -> AppConfig:
     )
 
 
-def test_a_live_boot_wires_no_strategies_by_default(
+def test_a_live_boot_refuses_with_no_named_strategy(
     named_tape, monkeypatch, tmp_path,
 ) -> None:
-    """A live account must not be trading an example nobody deployed."""
-    from tradex_runtime import startup as sm
+    from tradex_runtime.startup import boot
 
     monkeypatch.setattr(
         "tradex_runtime.live.build_broker_from_env",
         lambda *a, **k: _live_broker(),
     )
-    session = sm.boot(_live_cfg(tmp_path))
-    try:
-        engine = getattr(session, "_strategy_engine", None) or getattr(
-            session, "strategy_engine", None,
-        )
-        wired = list(getattr(engine, "_strategies", {}) or {})
-        assert "sma_cross_example" not in wired, (
-            "a live session is trading an example strategy bound to RELIANCE"
-        )
-        assert not any(name.endswith("_example") for name in wired), (
-            f"example strategies are wired into a live account: {wired}"
-        )
-    finally:
-        session.stop()
+    with pytest.raises(ValueError, match="TRADEX_STRATEGY_IDS"):
+        boot(_live_cfg(tmp_path))
 
 
 def test_examples_still_remain_discoverable() -> None:
@@ -94,6 +82,8 @@ def test_a_deliberately_enabled_strategy_is_still_registered(
     named_tape, monkeypatch, tmp_path,
 ) -> None:
     """The gate is on auto-registration, not on strategy wiring itself."""
+    from dataclasses import replace
+
     from tradex_runtime import startup as sm
 
     class _Deployed:
@@ -119,10 +109,10 @@ def test_a_deliberately_enabled_strategy_is_still_registered(
     monkeypatch.setattr(
         "tradex_runtime.startup.all_strategies", (_Deployed(),),
     )
-    from dataclasses import replace
-
     cfg = replace(_live_cfg(tmp_path), execution=replace(
-        _live_cfg(tmp_path).execution, auto_register_examples=True,
+        _live_cfg(tmp_path).execution,
+        strategy_ids=("deployed",),
+        auto_register_examples=False,
     ))
     session = sm.boot(cfg)
     try:
@@ -161,7 +151,9 @@ def test_per_binding_definition_suppresses_module_twin(
         lambda *a, **k: _live_broker(),
     )
     cfg = replace(_live_cfg(tmp_path), execution=replace(
-        _live_cfg(tmp_path).execution, auto_register_examples=True,
+        _live_cfg(tmp_path).execution,
+        strategy_ids=("sma_cross",),
+        auto_register_examples=False,
     ))
     session = sm.boot(cfg)
     try:
@@ -197,3 +189,49 @@ def test_module_twin_registered_without_feed_instruments(
         )
     finally:
         session.stop()
+
+
+def test_a_live_boot_wires_no_unnamed_example(
+    named_tape, monkeypatch, tmp_path,
+) -> None:
+    from dataclasses import replace
+
+    from tradex_runtime import startup as sm
+
+    class _Deployed:
+        strategy_id = "deployed"
+        version = "1.0.0"
+
+        def on_bar(self, context, candle):
+            return None
+
+        def on_quote(self, context, quote):
+            return None
+
+        def on_depth(self, context, depth):
+            return None
+
+        def on_fill(self, context, fill):
+            return None
+
+    monkeypatch.setattr(
+        "tradex_runtime.live.build_broker_from_env", lambda *a, **k: _live_broker()
+    )
+    monkeypatch.setattr(
+        "tradex_runtime.startup.all_strategies", (_Deployed(), *_all_examples())
+    )
+    cfg = _live_cfg(tmp_path)
+    cfg = replace(cfg, execution=replace(cfg.execution, strategy_ids=("deployed",)))
+    session = sm.boot(cfg)
+    try:
+        engine = session.strategy_engine
+        wired = set(getattr(engine, "_strategies", {}) or {})
+        assert wired == {"deployed"}
+    finally:
+        session.stop()
+
+
+def _all_examples():
+    from tradex_strategy.extensions import all_strategies
+
+    return tuple(all_strategies)

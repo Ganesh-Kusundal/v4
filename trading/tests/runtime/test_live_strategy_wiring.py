@@ -3,7 +3,7 @@
 A live session with zero strategies is a no-op: it connects to the broker,
 streams quotes, but never trades. This test pins the contract that live
 mode boots with wire_strategies=True unless explicitly overridden, and that
-a live boot with no strategies registered fails closed.
+a live boot with no strategies named via TRADEX_STRATEGY_IDS fails closed.
 """
 
 from __future__ import annotations
@@ -20,7 +20,12 @@ from tradex_runtime.startup import boot
 from trading.tests.risk_support import permissive_risk
 
 
-def _live_cfg(tmp_path, *, auto_register_examples: bool = False) -> AppConfig:
+def _live_cfg(
+    tmp_path,
+    *,
+    auto_register_examples: bool = False,
+    strategy_ids: tuple[str, ...] = (),
+) -> AppConfig:
     """A live config with a real PaperBroker injected (no MagicMock)."""
     cfg = AppConfig(
         risk=permissive_risk(),
@@ -34,6 +39,7 @@ def _live_cfg(tmp_path, *, auto_register_examples: bool = False) -> AppConfig:
         execution=replace(
             cfg.execution,
             auto_register_examples=auto_register_examples,
+            strategy_ids=strategy_ids,
         ),
     )
 
@@ -52,43 +58,14 @@ def test_live_boot_without_strategies_raises(
     The ValueError is raised BEFORE broker.connect(), so we don't need a
     working broker transport — the strategy check fires first.
     """
-    config = _live_cfg(tmp_path, auto_register_examples=False)
-    with pytest.raises(ValueError, match="no strategies"):
+    config = _live_cfg(tmp_path)
+    with pytest.raises(ValueError, match="TRADEX_STRATEGY_IDS"):
         boot(config, wire_strategies=True, broker=PaperBroker())
 
 
-def test_live_boot_with_strategies_succeeds(
+def test_live_boot_refuses_the_example_auto_register_switch(
     named_tape, tmp_path,
 ) -> None:
-    """A live boot with wire_strategies=True and auto_register_examples=True succeeds.
-
-    Uses a real PaperBroker (no MagicMock). The boot will fail at
-    verify_connection() because PaperBroker has no transport, but that is
-    AFTER the strategy check — so we verify strategies are registered by
-    checking the session's strategy engine before the boot fails.
-    """
     config = _live_cfg(tmp_path, auto_register_examples=True)
-    # PaperBroker has no transport, so verify_connection() returns False.
-    # The boot will fail at that step, but the strategy check has already
-    # passed. We catch the RuntimeError and verify the session was built
-    # with strategies registered.
-    try:
-        session = boot(config, wire_strategies=True, broker=PaperBroker())
-        try:
-            engine = getattr(session, "_strategy_engine", None) or getattr(
-                session, "strategy_engine", None,
-            )
-            assert engine is not None, "strategy engine must be wired"
-            strategies = list(getattr(engine, "strategies", {}) or {})
-            assert len(strategies) > 0, (
-                "live boot with auto_register_examples=True must register strategies"
-            )
-        finally:
-            session.stop()
-    except RuntimeError as exc:
-        # verify_connection() failed because PaperBroker has no transport.
-        # This is expected — the strategy check already passed.
-        if "verify_connection" in str(exc) or "wire authentication" in str(exc):
-            pass  # expected: PaperBroker has no transport
-        else:
-            raise
+    with pytest.raises(ValueError, match="auto_register_examples"):
+        boot(config, wire_strategies=True, broker=PaperBroker())

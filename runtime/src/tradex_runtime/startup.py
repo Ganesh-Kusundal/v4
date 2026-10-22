@@ -306,6 +306,53 @@ class RuntimeContext:
         coord.shutdown()
 
 
+def _select_strategies(
+    cfg: AppConfig,
+    all_strategies: Sequence[Any],
+    all_definitions: Sequence[Any],
+) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    """Choose what this boot may wire.
+
+    Discovery is not consent. Live mode wires exactly the ids the operator
+    named, and refuses the example auto-register switch outright. Paper and
+    backtest keep the historical switch.
+    """
+    if cfg.mode == "live":
+        if cfg.execution.auto_register_examples:
+            raise ValueError(
+                "auto_register_examples is not allowed in live mode; name the "
+                "strategies to trade with TRADEX_STRATEGY_IDS"
+            )
+        selected = set(cfg.execution.strategy_ids)
+        if not selected:
+            raise ValueError(
+                "live mode requires TRADEX_STRATEGY_IDS naming the strategies "
+                "to trade; discovery is not consent"
+            )
+        known = {strategy.strategy_id for strategy in all_strategies}
+        known |= {definition.spec.id for definition in all_definitions}
+        unknown = sorted(selected - known)
+        if unknown:
+            raise ValueError(
+                f"TRADEX_STRATEGY_IDS names unknown strategies: {', '.join(unknown)}"
+            )
+        strategies = tuple(
+            strategy
+            for strategy in all_strategies
+            if strategy.strategy_id in selected
+        )
+        definitions = tuple(
+            definition
+            for definition in all_definitions
+            if definition.spec.id in selected
+        )
+        return strategies, definitions
+
+    if not cfg.execution.auto_register_examples:
+        return (), ()
+    return tuple(all_strategies), tuple(all_definitions)
+
+
 def boot(
     config: AppConfig | None = None,
     *,
@@ -864,12 +911,11 @@ def _boot_tail(
             balance_provider=lambda: Money(amount=engine.cash_snapshot().cash),
         )
         strategy_registry = StrategyRegistry()
-        # The discovered examples are bound to a hardcoded instrument and place
-        # real orders. They stay discoverable for the chart/backtest route, but
-        # a session only trades them when explicitly asked — otherwise a live
-        # account would run `sma_cross_example` on RELIANCE out of the box, and
-        # SELL (never cash-gated) would put on a real short.
-        strategies = all_strategies if cfg.execution.auto_register_examples else ()
+        # Live wires only the ids the operator named; paper/backtest keep the
+        # auto-register switch. Discovery is not consent.
+        strategies, selected_definitions = _select_strategies(
+            cfg, all_strategies, all_definitions
+        )
 
         # The per-binding definition path (below) is active only when the
         # examples are opted in and a tape is named; it is resolved here so the
@@ -877,9 +923,7 @@ def _boot_tail(
         universe = tuple(
             cfg.feed_instruments if feed_instruments is None else feed_instruments
         )
-        per_binding_active = bool(
-            cfg.execution.auto_register_examples and all_definitions and universe
-        )
+        per_binding_active = bool(selected_definitions and universe)
         # A definition and a module-level instance can describe the same
         # strategy (the reference ``sma_cross_example`` instance and the
         # ``sma_cross`` definition). With the per-binding path active both
@@ -891,7 +935,7 @@ def _boot_tail(
         # with no definition is untouched, preserving backward compatibility.
         suppressed_strategy_ids: set[str] = set()
         if per_binding_active:
-            for definition in all_definitions:
+            for definition in selected_definitions:
                 # Convention: a module-level instance that a definition
                 # replaces must be registered in the strategy registry under
                 # the definition's spec id
@@ -963,7 +1007,7 @@ def _boot_tail(
         if per_binding_active:
             from tradex_strategy.core.definitions import instantiate_definitions
 
-            for definition in all_definitions:
+            for definition in selected_definitions:
                 for instrument in universe:
                     bound_id = f"{definition.spec.id}:{instrument.symbol}"
                     (instance,) = instantiate_definitions(
@@ -1032,7 +1076,7 @@ def _boot_tail(
             if count == 0:
                 raise ValueError(
                     "live mode has no strategies registered; "
-                    "set auto_register_examples=True or register strategies explicitly"
+                    "set TRADEX_STRATEGY_IDS to name the strategies to trade"
                 )
 
     # 7. Connect broker (loads instruments/registry for live brokers)
