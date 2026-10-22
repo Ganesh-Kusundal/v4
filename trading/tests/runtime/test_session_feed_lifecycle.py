@@ -39,14 +39,15 @@ class _FakeRecovery:
 
 
 def _session(**kwargs: object) -> TradingSession:
-    return TradingSession(
+    defaults: dict[str, object] = dict(
         broker=MagicMock(),
         bus=ReactiveBus(),
         engine=MagicMock(),
         cache=MagicMock(),
         broker_id=BrokerId.PAPER,
-        **kwargs,
     )
+    defaults.update(kwargs)
+    return TradingSession(**defaults)
 
 
 def test_start_starts_the_owned_monitor_once() -> None:
@@ -117,3 +118,68 @@ def test_recover_feed_is_never_implicit_on_start() -> None:
         assert recovery.calls == 0  # a reconnect must be an explicit decision
     finally:
         session.stop()
+
+
+class _FailingMonitor:
+    def __init__(self) -> None:
+        self.starts = 0
+        self.stops = 0
+
+    def start(self) -> None:
+        self.starts += 1
+        raise RuntimeError("monitor down")
+
+    def stop(self) -> None:
+        self.stops += 1
+
+
+def test_a_failing_monitor_keeps_the_session_new_and_unwinds_started_ones() -> None:
+    feed = _FakeMonitor()
+    reconciliation = _FailingMonitor()
+    session = _session(
+        feed_monitor=feed, reconciliation_monitor=reconciliation
+    )
+
+    with pytest.raises(RuntimeError, match="monitor down"):
+        session.start()
+
+    assert session.state is SessionState.NEW
+    assert feed.starts == 1
+    assert feed.stops == 1, "a monitor this start started must be stopped again"
+    assert reconciliation.stops == 0, "a monitor that never started is not stopped"
+
+
+def test_stop_shuts_down_the_execution_engine() -> None:
+    engine = MagicMock()
+    session = _session(engine=engine)
+    session.start()
+
+    session.stop()
+
+    engine.shutdown.assert_called_once_with()
+
+
+def test_stop_after_a_failed_start_still_shuts_down_the_engine() -> None:
+    engine = MagicMock()
+    session = _session(engine=engine, feed_monitor=_FailingMonitor())
+
+    with pytest.raises(RuntimeError, match="monitor down"):
+        session.start()
+
+    session.stop()
+
+    engine.shutdown.assert_called_once_with()
+    assert session.state is SessionState.STOPPED
+
+
+def test_a_shutdown_error_does_not_skip_the_rest_of_teardown() -> None:
+    engine = MagicMock()
+    engine.shutdown.side_effect = RuntimeError("engine teardown failed")
+    broker = MagicMock()
+    session = _session(engine=engine, broker=broker)
+    session.start()
+
+    session.stop()
+
+    assert session.state is SessionState.STOPPED
+    broker.close.assert_called()

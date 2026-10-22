@@ -212,32 +212,32 @@ class TradingSession:
         target.append(hook)
 
     def start(self) -> None:
-        """Transition to READY state. Idempotent: no-op if already READY."""
+        """Transition to READY only after every owned monitor has started."""
         if self._state == SessionState.READY:
-            return  # already ready, no-op
+            return
         if self._state not in (SessionState.NEW,):
             raise SessionStateError(
                 f"Cannot start session in {self._state} state (must be NEW)"
             )
-        sid = getattr(self, '_session_id', id(self))
+        sid = getattr(self, "_session_id", id(self))
         log.info("Session %s starting", sid)
+
+        started: list[object] = []
+        try:
+            for monitor in (self._feed_monitor, self._reconciliation_monitor):
+                if monitor is None:
+                    continue
+                monitor.start()  # type: ignore[attr-defined]
+                started.append(monitor)
+        except Exception:
+            for monitor in reversed(started):
+                try:
+                    monitor.stop()  # type: ignore[attr-defined]
+                except Exception:  # pragma: no cover – defensive unwind
+                    log.warning("monitor unwind failed", exc_info=True)
+            raise
+
         self._state = SessionState.READY
-        # Start the owned stale-feed poll now: a stale tape must degrade the
-        # feed even if the operator never asks for a metric or a status frame.
-        if self._feed_monitor is not None:
-            try:
-                self._feed_monitor.start()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive
-                log.warning("feed stale monitor start failed", exc_info=True)
-        # Start the reconciliation poller too: venue drift that an operator
-        # never asks about still has to be adopted, and the monitor's contract
-        # is that a failed poll degrades to a logged warning rather than
-        # killing the thread (lane 5e). Stopped symmetrically in stop().
-        if self._reconciliation_monitor is not None:
-            try:
-                self._reconciliation_monitor.start()  # type: ignore[attr-defined]
-            except Exception:  # pragma: no cover – defensive
-                log.warning("reconciliation monitor start failed", exc_info=True)
 
     def stop(self) -> None:
         """Transition to STOPPED state. Dispose all subscriptions.
@@ -263,6 +263,8 @@ class TradingSession:
                     log.warning("writer lock release failed", exc_info=True)
                 self._writer_lock = None
             if self._state == SessionState.NEW:
+                self._shutdown_engine()
+                self._state = SessionState.STOPPED
                 return  # never started, nothing else to stop
             for sub in self._subscriptions:
                 sub.cancel()
@@ -294,6 +296,7 @@ class TradingSession:
                     self._mark_to_market.close()  # type: ignore[attr-defined]
                 except Exception:  # pragma: no cover – defensive teardown
                     log.warning("mark-to-market stop failed", exc_info=True)
+            self._shutdown_engine()
             self._bus.dispose()
             if self._fill_bridge is not None:
                 try:
@@ -340,6 +343,15 @@ class TradingSession:
                 hook()
             except Exception:  # pragma: no cover – defensive teardown
                 log.warning("session %s-stop hook failed", phase, exc_info=True)
+
+    def _shutdown_engine(self) -> None:
+        """Halt order intake and release the engine's durable handles."""
+        shutdown = getattr(self._engine, "shutdown", None)
+        if callable(shutdown):
+            try:
+                shutdown()
+            except Exception:  # pragma: no cover – defensive teardown
+                log.warning("execution engine shutdown failed", exc_info=True)
 
     def _check_ready(self) -> None:
         if self._state != SessionState.READY:

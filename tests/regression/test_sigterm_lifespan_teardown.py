@@ -23,12 +23,10 @@ sockets, the bus, the market feed, mark-to-market and the stream backend. Those
 are asserted directly against a real ``SingleWriterLock`` and a real broker.
 
 The kill switch, the durable idempotency guard and the event store are owned by
-``ExecutionEngine.shutdown()``, *not* by ``session.stop()``; they are released
-by ``RuntimeContext.close()`` (the trading runtime's teardown), which is a
-different entry point from the app lifespan. This module pins both: the
-lifespan contract above, and the engine contract below. It does *not* claim the
-lifespan closes the engine's resources, because it does not -- asserting that
-would be a green test guarding a behaviour the code does not have.
+``ExecutionEngine.shutdown()``, which ``session.stop()`` now calls before the
+bus is disposed; ``RuntimeContext.close()`` also releases them by registering
+``engine.shutdown`` as a shutdown phase. This module pins both: the lifespan
+contract above, and the engine contract below.
 
 The tests use ``TestClient`` (an in-process ASGI driver), never a real socket or
 a real server, so they are fast and hermetic. Driving ``with TestClient(app)``
@@ -223,10 +221,11 @@ def test_engine_shutdown_sets_kill_switch_and_closes_the_durable_guard(
 ) -> None:
     """``ExecutionEngine.shutdown()`` halts intake and releases the guard.
 
-    This is the *other* half of teardown, owned by the engine rather than the
-    app. ``session.stop()`` does not do it; ``RuntimeContext.close()`` does, by
-    registering ``engine.shutdown`` as a shutdown phase. Pinning it here keeps
-    the engine-side resources from silently leaking on that path.
+    This is the engine half of teardown. ``session.stop()`` now calls
+    ``engine.shutdown()`` before the bus is disposed, so the kill switch trips
+    while the session is still tearing down. ``RuntimeContext.close()`` also
+    registers ``engine.shutdown`` as a shutdown phase. Pinning the engine
+    contract here keeps the engine-side resources from silently leaking.
     """
     guard = SQLiteIdempotencyGuard(tmp_path / "orders.db")
     event_store = SQLiteEventStore(tmp_path / "events.db")
