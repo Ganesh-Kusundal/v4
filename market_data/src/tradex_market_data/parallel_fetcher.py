@@ -94,8 +94,10 @@ def fetch_with_backoff(
         ]
         if not pending:
             break
-        # Attribute, not a kwarg: test doubles of fetch() do not take it.
-        fetcher._deadline = deadline  # type: ignore[attr-defined]
+        # Public seam: doubles of fetch() need not know a private attribute.
+        set_deadline = getattr(fetcher, "set_deadline", None)
+        if callable(set_deadline):
+            set_deadline(deadline)
         results, errors = fetcher.fetch(
             pending, tf, c_start, c_end, ranges=ranges,
         )
@@ -209,6 +211,7 @@ class ParallelHistoryFetcher:
         self._explicit_limiter = rate_limiter is not None
         self._limiters: dict[str, Any] = {}
         self._prefetch_gate: dict[str, bool] = {}
+        self._deadline: float | None = None
 
         name, broker = self._broker_name, self._broker
         if rate_limiter is not None:
@@ -234,6 +237,10 @@ class ParallelHistoryFetcher:
                 inst_id, self._broker_name,
             )
 
+    def set_deadline(self, deadline: float | None) -> None:
+        """Set the wall-clock deadline used by this fetch (public seam)."""
+        self._deadline = deadline
+
     def fetch(
         self,
         instruments: list[Instrument],
@@ -252,8 +259,6 @@ class ParallelHistoryFetcher:
             timeframe = Timeframe(timeframe)
         self._timeframe = timeframe
         self._req_start, self._req_end = start, end
-        if not hasattr(self, "_deadline"):
-            self._deadline = None
 
         days = (end - start).days
         cap = _chunk_cap_for(timeframe, self._broker_name)
