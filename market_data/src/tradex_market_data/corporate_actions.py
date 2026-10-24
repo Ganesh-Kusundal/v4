@@ -97,13 +97,24 @@ class CorporateActionStore:
         cumulative adjustment ratio.  Each candle's OHLC values are divided by that ratio.
         """
         splits = self.get_typed(symbol, "SPLIT") + self.get_typed(symbol, "BONUS")
+
+        def _price(c: Any, name: str) -> Any:
+            # Production candles store prices under c.ohlc.<name>.value; fall
+            # back to a flat attribute for legacy/mock shapes.
+            ohlc = getattr(c, "ohlc", None)
+            if ohlc is not None:
+                field = getattr(ohlc, name, None)
+                if field is not None and hasattr(field, "value"):
+                    return field.value
+            return getattr(c, name, None)
+
         if not splits:
             return [
                 {
-                    "open": getattr(c, "open", None),
-                    "high": getattr(c, "high", None),
-                    "low": getattr(c, "low", None),
-                    "close": getattr(c, "close", None),
+                    "open": _price(c, "open"),
+                    "high": _price(c, "high"),
+                    "low": _price(c, "low"),
+                    "close": _price(c, "close"),
                 }
                 for c in candles
             ]
@@ -117,10 +128,10 @@ class CorporateActionStore:
         for c in candles:
             adjusted.append(
                 {
-                    "open": float(getattr(c, "open", 0)) / cumulative_ratio,
-                    "high": float(getattr(c, "high", 0)) / cumulative_ratio,
-                    "low": float(getattr(c, "low", 0)) / cumulative_ratio,
-                    "close": float(getattr(c, "close", 0)) / cumulative_ratio,
+                    "open": float(_price(c, "open") or 0) / cumulative_ratio,
+                    "high": float(_price(c, "high") or 0) / cumulative_ratio,
+                    "low": float(_price(c, "low") or 0) / cumulative_ratio,
+                    "close": float(_price(c, "close") or 0) / cumulative_ratio,
                 }
             )
         return adjusted
