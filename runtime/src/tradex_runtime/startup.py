@@ -521,6 +521,9 @@ def boot(
     # 4c. Single-writer guard (R2) — live only. Rate limiters are per-process;
     # two live writers on one account can jointly breach provider limits.
     writer_lock: Any = None
+    # Capture the session built inside _boot_tail so a failed boot can pass it
+    # to the rollback instead of None (full teardown even in NEW state).
+    session_sink: list[Any] = []
     if cfg.mode == "live":
         from tradex_runtime.writer_lock import SingleWriterLock
 
@@ -538,18 +541,18 @@ def boot(
                 validation_report_store=validation_report_store,
                 reconciliation_monitor=reconciliation_monitor,
                 reconciliation_monitor_factory=reconciliation_monitor_factory,
+                _session_sink=session_sink,
             )
         except BaseException:
             # C3: best-effort rollback so a failed live boot never
             # leaves a connected transport, a stranded writer lockfile,
             # or a subscribed bus.
-            _safe_teardown(session=None, broker=broker, bus=bus, writer_lock=writer_lock)
+            session = session_sink[0] if session_sink else None
+            _safe_teardown(session=session, broker=broker, bus=bus, writer_lock=writer_lock)
             raise
 
-    # C3: non-live branch also rolls back. The session is built inside
-    # _boot_tail, so we pass session=None — the helper tolerates that
-    # and only closes the broker and disposes the bus. (There is
-    # no writer lock to release in non-live mode.)
+    # C3: non-live branch also rolls back. Pass the session (if built) so the
+    # helper runs full teardown even in NEW state.
     try:
         return _boot_tail(
             cfg, bus, broker, wire_strategies, None,
@@ -559,9 +562,11 @@ def boot(
             validation_report_store=validation_report_store,
             reconciliation_monitor=reconciliation_monitor,
             reconciliation_monitor_factory=reconciliation_monitor_factory,
+            _session_sink=session_sink,
         )
     except BaseException:
-        _safe_teardown(session=None, broker=broker, bus=bus, writer_lock=None)
+        session = session_sink[0] if session_sink else None
+        _safe_teardown(session=session, broker=broker, bus=bus, writer_lock=None)
         raise
 
 
@@ -622,6 +627,7 @@ def _boot_tail(
     validation_report_store: Any = None,
     reconciliation_monitor: Any = None,
     reconciliation_monitor_factory: Any = None,
+    _session_sink: Any = None,
 ) -> TradingSession:
     """Steps 5→end of :func:`boot`, extracted so the live path can be
     rollback-wrapped. The body is the original ``boot()`` logic unchanged.
@@ -1201,6 +1207,12 @@ def _boot_tail(
     live_orders_enabled=(cfg.live_orders_enabled or cfg.mode != "live"),
     )
 
+    if _session_sink is not None:
+        try:
+            _session_sink.append(session)
+        except Exception:  # pragma: no cover - defensive
+            pass
+
     # F-39: the ``Quote -> Candle`` bridge. This is the missing middle between
     # the feed and every strategy: ``ReactiveStrategyEngine.register`` subscribes
     # to ``Candle``, and nothing else on the session bus publishes one, so
@@ -1357,6 +1369,8 @@ def _boot_tail(
                 log.warning(
                     "session rollback after a failed boot failed", exc_info=True
                 )
+            if _session_sink is not None:
+                _session_sink.clear()
             if market_feed is not None:
                 # ``stop()`` returns early for a session that never reached
                 # READY, so the feed cold started above would keep streaming.

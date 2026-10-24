@@ -263,9 +263,11 @@ class TradingSession:
                     log.warning("writer lock release failed", exc_info=True)
                 self._writer_lock = None
             if self._state == SessionState.NEW:
+                # Partially built sessions (failed boot) still own feed/monitor/
+                # broker resources wired before start(); run the full teardown
+                # instead of skipping it.
                 self._shutdown_engine()
-                self._state = SessionState.STOPPED
-                return  # never started, nothing else to stop
+                # Fall through to the full teardown path below.
             for sub in self._subscriptions:
                 sub.cancel()
             self._subscriptions.clear()
