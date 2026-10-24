@@ -66,7 +66,7 @@ def _get_catalog() -> DuckDBCatalog:
 
 mcp = FastMCP("duck-analytics", instructions=(
     "Read-only analytics over the TradeX OHLCV parquet datalake. "
-    "Views: ohlcv (session-stripped 09:15-15:29 IST) and ohlcv_raw. "
+    "Views: ohlcv (session-stripped 09:15-15:30 IST) and ohlcv_raw. "
     "Scanner tools require as_of and never see bars after it."
 ))
 

@@ -4,7 +4,7 @@ Two views over the same scan:
 
 - ``ohlcv_raw``: every stored bar, hive columns (``symbol``/``year``/``month``)
   extracted by ``hive_partitioning=true``. Includes phantom post-market bars.
-- ``ohlcv``: default analytical surface — bars inside the 09:15–15:29 IST
+- ``ohlcv``: default analytical surface — bars inside the 09:15–15:30 IST
   session only, matching ``ParquetStorage.read(strip_post_market=True)``.
 
 The store's ``timestamp`` column is tz-naive IST wall time
