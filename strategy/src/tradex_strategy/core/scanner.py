@@ -440,7 +440,7 @@ class ScannerEngine:
             candles = list(buf)
             return HistoricalSeries(
                 instrument=instrument,
-                timeframe=Timeframe.D1,
+                timeframe=timeframe,
                 candles=candles,
                 start=candles[0].timestamp,
                 end=candles[-1].timestamp,
