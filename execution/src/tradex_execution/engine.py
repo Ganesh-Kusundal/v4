@@ -289,6 +289,11 @@ class ExecutionEngine:
         #: path). Cleared from the table once the cid is released so the
         #: mapping never leaks between orders.
         self._cid_for_order: dict[OrderId, CorrelationId] = {}
+        self._cid_for_order_lock: threading.Lock = threading.Lock()
+        # Aliases kept for callers/tests that use the shorter names.
+        self._cid_lock = self._cid_for_order_lock
+        self._oms_lock = self._cid_for_order_lock
+        self._state_lock = self._cid_for_order_lock
         self._setup_pipeline()
         # The opening balance is the root of the cash fold: without it in the
         # log a restarted process cannot rebuild the ledger at all. An engine
@@ -846,7 +851,8 @@ class ExecutionEngine:
         # completing it now meant a mid-block failure left the client replaying
         # a receipt for a partly-applied order (M-3).
         if reserved_cid is not None:
-            self._cid_for_order[order.order_id] = reserved_cid
+            with self._cid_for_order_lock:
+                self._cid_for_order[order.order_id] = reserved_cid
 
         if fill is not None:
             # Guard: skip position update if fill source owns projection
@@ -1224,32 +1230,33 @@ class ExecutionEngine:
                 # Position, notional and fee as ONE operation under the same lock
                 # that proved affordability above (AC-21).
                 self._apply_fill_effect(fill, charged_fee)
-        if existing is not None:
-            # Existing order (any non-rejected status). G3: a
-            # *distinct* fill (different fingerprint) is a real
-            # partial — apply it. A re-published same-fingerprint
-            # fill was already short-circuited above.
-            self._order_manager.on_order_filled(existing, fill)
-        else:
-            # Unknown order — record a minimal FILLED order so reconciliation
-            # sees the fill (e.g. fills for orders placed outside this engine).
-            self._cache.update_order(
-                create_order(
-                    OrderRequest(
-                        instrument=fill.instrument,
-                        side=fill.side,
-                        order_type=OrderType.MARKET,
-                        quantity=fill.quantity,
-                        price=fill.price,
-                        time_in_force=TimeInForce.DAY,
-                        correlation_id=getattr(fill, "correlation_id", None),
-                        tag=getattr(fill, "tag", None),
-                    ),
-                    fill.order_id.value,
-                    filled=fill.quantity.value,
-                    status=OrderStatus.FILLED,
+        with self._cid_for_order_lock:
+            if existing is not None:
+                # Existing order (any non-rejected status). G3: a
+                # *distinct* fill (different fingerprint) is a real
+                # partial — apply it. A re-published same-fingerprint
+                # fill was already short-circuited above.
+                self._order_manager.on_order_filled(existing, fill)
+            else:
+                # Unknown order — record a minimal FILLED order so reconciliation
+                # sees the fill (e.g. fills for orders placed outside this engine).
+                self._cache.update_order(
+                    create_order(
+                        OrderRequest(
+                            instrument=fill.instrument,
+                            side=fill.side,
+                            order_type=OrderType.MARKET,
+                            quantity=fill.quantity,
+                            price=fill.price,
+                            time_in_force=TimeInForce.DAY,
+                            correlation_id=getattr(fill, "correlation_id", None),
+                            tag=getattr(fill, "tag", None),
+                        ),
+                        fill.order_id.value,
+                        filled=fill.quantity.value,
+                        status=OrderStatus.FILLED,
+                    )
                 )
-            )
         log.info(
             "Inbound fill applied: %s qty=%s price=%s (engine fill bridge)",
             fill.order_id, fill.quantity, fill.price,
@@ -1496,7 +1503,8 @@ class ExecutionEngine:
         # the cid (e.g. on risk rejection before the side-table was
         # populated, or on a non-boundary fill-source error). Pop the
         # side-table so the mapping doesn't outlive the order.
-        submit_cid = self._cid_for_order.pop(order_id, None)
+        with self._cid_for_order_lock:
+            submit_cid = self._cid_for_order.pop(order_id, None)
         if self._guard is not None and submit_cid is not None:
             self._guard.release(submit_cid)
         # N2: the cancel itself is a completed idempotent request.
