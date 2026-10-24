@@ -104,8 +104,10 @@ class CorporateActionStore:
             ohlc = getattr(c, "ohlc", None)
             if ohlc is not None:
                 field = getattr(ohlc, name, None)
-                if field is not None and hasattr(field, "value"):
-                    return field.value
+                if field is not None:
+                    if hasattr(field, "value"):
+                        return field.value
+                    return field
             return getattr(c, name, None)
 
         if not splits:

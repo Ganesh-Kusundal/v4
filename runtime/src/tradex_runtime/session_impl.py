@@ -264,10 +264,8 @@ class TradingSession:
                 self._writer_lock = None
             if self._state == SessionState.NEW:
                 # Partially built sessions (failed boot) still own feed/monitor/
-                # broker resources wired before start(); run the full teardown
-                # instead of skipping it.
-                self._shutdown_engine()
-                # Fall through to the full teardown path below.
+                # broker resources wired before start(); fall through to the
+                # full teardown path below (single _shutdown_engine call there).
             for sub in self._subscriptions:
                 sub.cancel()
             self._subscriptions.clear()
