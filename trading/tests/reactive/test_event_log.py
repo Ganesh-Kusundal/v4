@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from tradex_reactive.bus import ReactiveBus
 from tradex_reactive.event_log import SQLEventLog
@@ -83,3 +84,16 @@ class TestReactiveBusWithSQLEventLog:
             finally:
                 log2.close()
             assert replayed == ["first", "second"]
+
+    def test_bus_replay_with_sql_backed_log(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "bus_events.db"
+            bus = ReactiveBus(event_log=SQLEventLog(path))
+            try:
+                bus.publish("x")
+                bus.publish("y")
+                replayed: list[Any] = []
+                bus.replay().subscribe(lambda m: replayed.append(m))
+                assert replayed == ["x", "y"]
+            finally:
+                bus._log.close()  # noqa: SLF001

@@ -414,10 +414,19 @@ class ReactiveBus:
         end: Any | None = None,
     ) -> rx.Observable:
         """Replay logged messages as an Observable sequence."""
-        if not self._log:
+        if self._log is None:
             return rx.empty()
+        log = self._log
+        # SQLEventLog (and any durable log) is not iterable directly; use
+        # its .replay() method when available, else iterate the container.
+        if hasattr(log, "replay") and callable(getattr(log, "replay")):
+            iterable = log.replay()
+        else:
+            if not log:
+                return rx.empty()
+            iterable = log
         return (
-            rx.from_iterable(self._log)
+            rx.from_iterable(iterable)
             .pipe(
                 ops.filter(
                     lambda m: (
