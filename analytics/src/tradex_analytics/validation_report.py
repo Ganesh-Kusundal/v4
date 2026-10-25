@@ -88,7 +88,7 @@ MIN_OOS_ROUND_TRIPS: int = 100
 MIN_OOS_SPAN_DAYS: float = 90.0
 
 #: Floor on the Sharpe corrected for the number of trials the grid search tried.
-MIN_DEFATED_SHARPE: float = 0.0
+MIN_DEFLATED_SHARPE: float = 0.0
 
 #: Floor on the fraction of grid cells within one Sharpe unit of the optimum:
 #: a plateau rather than a spike.
@@ -101,7 +101,7 @@ COST_STRESS_MULTIPLIER: float = 2.0
 __all__ = [
     "COST_STRESS_MULTIPLIER",
     "GATING_FIELDS",
-    "MIN_DEFATED_SHARPE",
+    "MIN_DEFLATED_SHARPE",
     "MIN_OOS_ROUND_TRIPS",
     "MIN_OOS_SHARPE",
     "MIN_OOS_SPAN_DAYS",
@@ -157,7 +157,7 @@ PROMOTION_CRITERIA: tuple[PromotionCriterion, ...] = (
     PromotionCriterion("oos_round_trips", float(MIN_OOS_ROUND_TRIPS)),
     PromotionCriterion("oos_span_days", MIN_OOS_SPAN_DAYS),
     PromotionCriterion("net_pnl_at_2x_costs", 0.0, strict=True),
-    PromotionCriterion("deflated_sharpe", MIN_DEFATED_SHARPE),
+    PromotionCriterion("deflated_sharpe", MIN_DEFLATED_SHARPE),
     PromotionCriterion("param_stability_share_of_grid", MIN_PARAM_STABILITY_SHARE),
 )
 

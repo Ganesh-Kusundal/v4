@@ -120,7 +120,7 @@ def test_the_validation_report_exports_are_the_ones_the_bar_needs() -> None:
         "MIN_OOS_SHARPE",
         "MIN_OOS_ROUND_TRIPS",
         "MIN_OOS_SPAN_DAYS",
-        "MIN_DEFATED_SHARPE",
+        "MIN_DEFLATED_SHARPE",
         "MIN_PARAM_STABILITY_SHARE",
         "TradeValidationReport",
         "ValidationReportError",

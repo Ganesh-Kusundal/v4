@@ -430,7 +430,7 @@ def round_trips_from_fills(
     lots: dict[str, _OpenLot] = {}
     trips: list[Trade] = []
 
-    for record in sorted(records, key=_time_of):
+    for record in sorted(records, key=lambda r: (_time_of(r) is None, _time_of(r) or datetime.min)):
         if _field(record, "rejected"):
             continue
         qty = _decimal(_quantity_of(record), "quantity")
@@ -438,6 +438,11 @@ def round_trips_from_fills(
         if qty == 0 or price <= 0:
             continue
         when = _time_of(record)
+        if when is None:
+            raise ValidationReportError(
+                "a fill record carries no timestamp, so it cannot be paired "
+                "into a round trip."
+            )
         instrument = _instrument_of(record, when, index)
         is_buy = _is_buy(_field(record, "side"))
         signed = qty if is_buy else -qty

@@ -23,7 +23,7 @@ import pytest
 from tradex_analytics import validation_report as vr
 from tradex_analytics.trade_metrics import Trade, compute_statistics
 from tradex_analytics.validation_report import (
-    MIN_DEFATED_SHARPE,
+    MIN_DEFLATED_SHARPE,
     MIN_OOS_ROUND_TRIPS,
     MIN_OOS_SHARPE,
     MIN_OOS_SPAN_DAYS,
@@ -148,7 +148,7 @@ def test_the_six_thresholds_are_the_specs_values():
     assert MIN_OOS_SHARPE == 1.0
     assert MIN_OOS_ROUND_TRIPS == 100
     assert MIN_OOS_SPAN_DAYS == 90.0
-    assert MIN_DEFATED_SHARPE == 0.0
+    assert MIN_DEFLATED_SHARPE == 0.0
     assert MIN_PARAM_STABILITY_SHARE == 0.60
     assert vr.COST_STRESS_MULTIPLIER == 2.0
 

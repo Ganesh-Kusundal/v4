@@ -49,6 +49,25 @@ class BarStore:
         return self._versions.get((instrument_id, timeframe), 0)
 
 
+
+
+def _freeze(value: object) -> object:
+    """Return a hashable canonical form of *value* for cache keys."""
+    if isinstance(value, dict):
+        return ("__dict__", tuple(sorted((_freeze(k), _freeze(v)) for k, v in value.items())))
+    if isinstance(value, (list, tuple)):
+        return ("__seq__", tuple(_freeze(v) for v in value))
+    if isinstance(value, set):
+        return ("__set__", tuple(sorted(_freeze(v) for v in value)))
+    if isinstance(value, frozenset):
+        return ("__frozenset__", tuple(sorted(_freeze(v) for v in value)))
+    try:
+        hash(value)
+        return value
+    except TypeError:
+        return repr(value)
+
+
 class IndicatorCache:
     """Caches the latest indicator result per key, keyed by bar-version.
 
@@ -63,6 +82,7 @@ class IndicatorCache:
     def get_or_compute(
         self, key: tuple, version: int, compute_fn: Callable[[], dict],
     ) -> dict:
+        key = _freeze(key)  # type: ignore[assignment]
         entry = self._entries.get(key)
         if entry is not None and entry[0] == version:
             return entry[1]

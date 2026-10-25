@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from tradex_analytics.cache import BarStore, IndicatorCache
+from tradex_analytics.cache import BarStore, IndicatorCache, _freeze
 
 
 class AnalyticsView(Protocol):
@@ -35,7 +35,7 @@ class CachedAnalyticsView:
             str(self._instrument_id),
             self._timeframe,
             name.lower(),
-            tuple(sorted(params.items())),
+            tuple(sorted((k, _freeze(v)) for k, v in params.items())),
         )
         return self._cache.get_or_compute(
             key, version, lambda: self._compute(name, series, params),

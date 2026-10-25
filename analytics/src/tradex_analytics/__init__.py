@@ -38,7 +38,7 @@ from tradex_analytics.trade_metrics import (
 from tradex_analytics.validation_report import (
     COST_STRESS_MULTIPLIER,
     GATING_FIELDS,
-    MIN_DEFATED_SHARPE,
+    MIN_DEFLATED_SHARPE,
     MIN_OOS_ROUND_TRIPS,
     MIN_OOS_SHARPE,
     MIN_OOS_SPAN_DAYS,
@@ -61,7 +61,7 @@ __all__ = [
     "COST_STRESS_MULTIPLIER",
     "EULER_MASCHERONI",
     "GATING_FIELDS",
-    "MIN_DEFATED_SHARPE",
+    "MIN_DEFLATED_SHARPE",
     "MIN_OOS_BARS_PER_FOLD",
     "MIN_OOS_ROUND_TRIPS",
     "MIN_OOS_SHARPE",
