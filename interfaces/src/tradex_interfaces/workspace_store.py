@@ -61,9 +61,11 @@ class WorkspaceStore:
             row = self._conn.execute(
                 "SELECT revision FROM workspace WHERE layout_id = ?", (layout_id,)
             ).fetchone()
-            if row is not None and revision is not None and not force and revision < row[0]:
+            if row is not None and not force and (revision is None or revision < row[0]):
                 return row[0], True
             new_revision = (row[0] + 1) if row is not None else 1
+            if row is not None and revision is not None and revision >= row[0]:
+                new_revision = max(new_revision, revision + 1)
             self._conn.execute(
                 "INSERT INTO workspace (layout_id, data, revision, updated_at) "
                 "VALUES (?, ?, ?, ?) ON CONFLICT(layout_id) DO UPDATE SET "

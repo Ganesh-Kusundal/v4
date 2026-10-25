@@ -382,7 +382,23 @@ def create_app(
     # forward ref resolves): FastAPI skips response-model schema generation
     # for Response subclasses, keeping /openapi.json intact.
     @app.get("/metrics")
-    async def _metrics_endpoint() -> Response:
+    async def _metrics_endpoint(request: Request) -> Response:
+        from fastapi import HTTPException
+
+        from tradex_interfaces.auth.deps import require_auth
+
+        expected_key = getattr(request.app.state, "api_key", None)
+        try:
+            require_auth(request)
+        except HTTPException:
+            raise
+        # Bind restriction: when no auth is configured, only loopback clients
+        # may read metrics.
+        if expected_key is None:
+            client = request.client
+            host = client.host if client else None
+            if host not in {"127.0.0.1", "::1", "localhost", "testclient"}:
+                raise HTTPException(status_code=403, detail="metrics restricted to loopback")
         return Response(
             content=app.state.metrics.render_prometheus(),
             media_type="text/plain; version=0.0.4",

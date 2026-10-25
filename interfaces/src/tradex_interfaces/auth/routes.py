@@ -112,6 +112,19 @@ async def login(request: Request, response: Response) -> dict[str, Any]:
     if store is None:
         raise HTTPException(status_code=503, detail="Session auth not available")
 
+    # Rate-limit login attempts (brute-force protection).
+    limiter = getattr(request.app.state, "rate_limiter", None)
+    if limiter is not None:
+        client = request.client
+        key = f"login:{client.host if client else 'unknown'}"
+        retry_after = limiter.check(key)
+        if retry_after is not None:
+            raise HTTPException(
+                status_code=429,
+                detail="rate limit exceeded; too many login attempts",
+                headers={"Retry-After": str(retry_after)},
+            )
+
     try:
         body = await request.json()
     except Exception:

@@ -15,6 +15,7 @@ that binds the four state values (``session``, ``feed_registry``,
 from __future__ import annotations
 
 import asyncio
+import threading
 import json
 import logging
 import math
@@ -66,7 +67,10 @@ log = logging.getLogger(__name__)
 FEED_STATUS_POLL_SECONDS = 2.0
 
 
-async def ws_stream(
+async _REPLAY_GUARD_LOCK = threading.Lock()
+
+
+def ws_stream(
     app: Any,
     ws: WebSocket,
     session: Any,
@@ -167,10 +171,11 @@ async def ws_stream(
     # silently desynchronized from OMS state.
     control_overflow: list[bool] = [False]
     if replay_guard is None:
-        replay_guard = getattr(app.state, "replay_guard", None)
-    if replay_guard is None:
-        replay_guard = ReplayGuard()
-        app.state.replay_guard = replay_guard
+        with _REPLAY_GUARD_LOCK:
+            replay_guard = getattr(app.state, "replay_guard", None)
+            if replay_guard is None:
+                replay_guard = ReplayGuard()
+                app.state.replay_guard = replay_guard
 
     async def _writer() -> None:
         """Drain control first, then ticks; exit when the socket closes.
@@ -398,7 +403,10 @@ async def ws_stream(
                 ):
                     retained.append(frame)
             for frame in retained:
-                ticks.put_nowait(frame)
+                try:
+                    ticks.put_nowait(frame)
+                except asyncio.QueueFull:
+                    pass
 
         status_baseline: list[Any] = [None]
 

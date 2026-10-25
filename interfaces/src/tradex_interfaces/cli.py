@@ -339,26 +339,30 @@ def cmd_positions(args: Any) -> int:
     from tradex_runtime.session import TradingSession
 
     session = TradingSession.paper()
-    positions = session.engine.cache.all_positions()
+    session.start()
+    try:
+        positions = session.engine.cache.all_positions()
 
-    if not positions:
-        print("No positions")
+        if not positions:
+            print("No positions")
+            return 0
+
+        print(f"{'Symbol':<20} {'Qty':>10} {'Avg Price':>12} {'LTP':>12} {'P&L':>12}")
+        print("-" * 70)
+
+        for pos in positions:
+            iid = pos.instrument.instrument_id
+            symbol = f"{iid.exchange}:{iid.underlying}"
+            qty = str(pos.quantity.value)
+            avg_price = str(pos.avg_price.value)
+            # LTP would come from market service in real usage
+            ltp = "N/A"
+            pnl = str(pos.market_value)
+            print(f"{symbol:<20} {qty:>10} {avg_price:>12} {ltp:>12} {pnl:>12}")
+
         return 0
-
-    print(f"{'Symbol':<20} {'Qty':>10} {'Avg Price':>12} {'LTP':>12} {'P&L':>12}")
-    print("-" * 70)
-
-    for pos in positions:
-        iid = pos.instrument.instrument_id
-        symbol = f"{iid.exchange}:{iid.underlying}"
-        qty = str(pos.quantity.value)
-        avg_price = str(pos.avg_price.value)
-        # LTP would come from market service in real usage
-        ltp = "N/A"
-        pnl = str(pos.market_value)
-        print(f"{symbol:<20} {qty:>10} {avg_price:>12} {ltp:>12} {pnl:>12}")
-
-    return 0
+    finally:
+        session.stop()
 
 
 def cmd_account(args: Any) -> int:
@@ -366,12 +370,16 @@ def cmd_account(args: Any) -> int:
     from tradex_runtime.session import TradingSession
 
     session = TradingSession.paper()
-    account = session.broker.get_account()
+    session.start()
+    try:
+        account = session.broker.get_account()
 
-    print(f"Account: {account.account_id}")
-    print(f"Balance: {account.balance}")
+        print(f"Account: {account.account_id}")
+        print(f"Balance: {account.balance}")
 
-    return 0
+        return 0
+    finally:
+        session.stop()
 
 
 def cmd_orders(args: Any) -> int:
@@ -379,25 +387,29 @@ def cmd_orders(args: Any) -> int:
     from tradex_runtime.session import TradingSession
 
     session = TradingSession.paper()
-    orders = session.engine.all_orders()
+    session.start()
+    try:
+        orders = session.engine.all_orders()
 
-    if not orders:
-        print("No orders")
+        if not orders:
+            print("No orders")
+            return 0
+
+        print(f"{'Order ID':<20} {'Symbol':<20} {'Side':<8} {'Status':<12} {'Qty':>10}")
+        print("-" * 75)
+
+        for order in orders:
+            order_id = str(order.order_id)
+            oid = order.instrument.instrument_id
+            symbol = f"{oid.exchange}:{oid.underlying}"
+            side = order.side.value
+            status = order.status.value
+            qty = str(order.quantity.value)
+            print(f"{order_id:<20} {symbol:<20} {side:<8} {status:<12} {qty:>10}")
+
         return 0
-
-    print(f"{'Order ID':<20} {'Symbol':<20} {'Side':<8} {'Status':<12} {'Qty':>10}")
-    print("-" * 75)
-
-    for order in orders:
-        order_id = str(order.order_id)
-        oid = order.instrument.instrument_id
-        symbol = f"{oid.exchange}:{oid.underlying}"
-        side = order.side.value
-        status = order.status.value
-        qty = str(order.quantity.value)
-        print(f"{order_id:<20} {symbol:<20} {side:<8} {status:<12} {qty:>10}")
-
-    return 0
+    finally:
+        session.stop()
 
 
 def build_reconciliation_monitor(broker, cache, engine, metrics):
