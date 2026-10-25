@@ -102,16 +102,13 @@ def grid_search(
     values = list(param_grid.values())
     combinations = list(itertools.product(*values))
 
-    def _evaluate(combo: tuple[Any, ...]) -> OptimizationResult | None:
+    def _evaluate(combo: tuple[Any, ...]) -> OptimizationResult:
         params = dict(zip(keys, combo))
-        try:
-            bt_result = run_fn(params)
-            score = (
-                score_fn(bt_result) if score_fn else _default_score(bt_result)
-            )
-            return OptimizationResult(params=params, result=bt_result, score=score)
-        except Exception:
-            return None
+        bt_result = run_fn(params)
+        score = (
+            score_fn(bt_result) if score_fn else _default_score(bt_result)
+        )
+        return OptimizationResult(params=params, result=bt_result, score=score)
 
     if max_workers > 1:
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
