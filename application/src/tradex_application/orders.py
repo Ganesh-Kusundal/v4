@@ -60,6 +60,8 @@ def _parse_product_wire(raw: Any) -> ProductType:
     an unrecognised value must never fall back to the ``INTRADAY`` default.
     ``COVER_ORDER`` has no wire form and is intentionally absent.
     """
+    if raw is None:
+        return ProductType.INTRADAY
     try:
         return ProductType.from_wire(raw)
     except ValueError:
@@ -84,6 +86,8 @@ def build_bracket_request(
     domain ``BracketOrderRequest`` validates protective-price ordering.
     """
     instrument_id = body.get("instrument_id")
+    if isinstance(instrument_id, str):
+        instrument_id = instrument_id.strip()
     if instrument_id:
         parts = instrument_id.split(":", 1)
         if len(parts) != 2:
@@ -98,7 +102,10 @@ def build_bracket_request(
 
     side = OrderSide(body["side"])
     order_type = OrderType(body.get("order_type", "MARKET"))
-    quantity = Quantity(Decimal(str(body["quantity"])))
+    try:
+        quantity = Quantity(Decimal(str(body["quantity"])))
+    except (ValueError, InvalidOperation) as exc:
+        raise ValueError(f"invalid quantity: {body['quantity']!r}") from exc
     price = _price(body["price"], "price")
     time_in_force = (
         TimeInForce(body["time_in_force"])

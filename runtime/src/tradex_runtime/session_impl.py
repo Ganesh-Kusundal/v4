@@ -266,6 +266,7 @@ class TradingSession:
                 # Partially built sessions (failed boot) still own feed/monitor/
                 # broker resources wired before start(); fall through to the
                 # full teardown path below (single _shutdown_engine call there).
+                pass
             for sub in self._subscriptions:
                 sub.cancel()
             self._subscriptions.clear()
