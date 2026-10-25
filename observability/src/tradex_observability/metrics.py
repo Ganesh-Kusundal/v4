@@ -338,18 +338,21 @@ class _Histogram(_Metric[_HistogramSeries]):
 
     def count_for(self, **labels: object) -> int:
         """Observations in one label series (0 if that series never occurred)."""
-        series = self._one(labels)
-        return series.count if series is not None else 0
+        with self._lock:
+            series = self._one(labels)
+            return series.count if series is not None else 0
 
     def min_for(self, **labels: object) -> float:
         """Smallest observation in one label series (0.0 if it never occurred)."""
-        series = self._one(labels)
-        return series.min if series is not None and series.count else 0.0
+        with self._lock:
+            series = self._one(labels)
+            return series.min if series is not None and series.count else 0.0
 
     def max_for(self, **labels: object) -> float:
         """Largest observation in one label series (0.0 if it never occurred)."""
-        series = self._one(labels)
-        return series.max if series is not None and series.count else 0.0
+        with self._lock:
+            series = self._one(labels)
+            return series.max if series is not None and series.count else 0.0
 
     def _one(self, labels: dict[str, object]) -> _HistogramSeries | None:
         """The one series addressed by ``labels``; caller must hold the lock."""
@@ -460,7 +463,7 @@ class MetricsRegistry:
         for bucket in (self._counters, self._gauges, self._histograms):
             if name in bucket:
                 return bucket[name].value(**labels)
-        return 0
+        return 0.0
 
     def snapshot(self) -> dict[str, float]:
         """Snapshot every metric, one entry per family (labelled series summed)."""
@@ -483,9 +486,13 @@ class MetricsRegistry:
             *self._histograms.items(),
         ]
         for name, metric in families:
-            for key, series in sorted(metric._series.items()):
-                total = _series_total(series)  # type: ignore[arg-type]
-                out[f"{name}|" + ",".join(f"{k}={v}" for k, v in key)] = total
+            with metric._lock:
+                for key, series in sorted(metric._series.items()):
+                    total = _series_total(series)  # type: ignore[arg-type]
+                    if key:
+                        out[f"{name}|" + ",".join(f"{k}={v}" for k, v in key)] = total
+                    else:
+                        out[name] = total
         return out
 
     def reset(self) -> None:
@@ -502,6 +509,6 @@ class MetricsRegistry:
             *self._gauges.items(),
             *self._histograms.items(),
         ]
-        for _, metric in sorted(families):
+        for _, metric in sorted(families, key=lambda item: item[0]):
             lines.extend(metric._render())
         return "\n".join(lines) + ("\n" if lines else "")
