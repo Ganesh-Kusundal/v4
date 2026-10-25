@@ -11,6 +11,7 @@ The public API (publish, subscribe, of_type, stream, dispose) is unchanged.
 from __future__ import annotations
 
 import logging
+import threading
 from collections import deque
 from collections.abc import Callable
 from datetime import time
@@ -176,6 +177,11 @@ class ReactiveBus:
         self._subscriber_remaining: dict[int, int] = {}
         self._subscriber_backpressure: dict[int, Callable[[str], None]] = {}
         self._subscriber_type: dict[int, str] = {}
+        #: Lock guarding gating-state dicts (subscribe/unsubscribe/dispose).
+        self._state_lock: threading.RLock = threading.RLock()
+        #: Disposables created by ``_safe_observable`` subscribers, tracked so
+        #: they can be disposed on bus teardown (memory + on_completed).
+        self._safe_disposables: set[Any] = set()
         #: M3: guard flag — ``publish()`` after ``dispose()`` raises
         #: ``RuntimeError`` instead of silently enqueuing to a completed
         #: Subject. Default False; flipped to True by ``dispose()``.
@@ -240,6 +246,7 @@ class ReactiveBus:
                         self._metrics.counter("bus.drain.exceeded").inc()
                         dropped = len(self._pending)
                         self._metrics.counter("bus.messages.dropped").inc(dropped)
+                    self._pending.clear()
                     break
                 msg = self._pending.popleft()
                 try:
@@ -321,9 +328,29 @@ class ReactiveBus:
             # shape, not by type. The ``Any`` annotation marks that genuinely
             # dynamic boundary; the rest of the closure is untyped to match.
             wrapped: Any = _IsolatedObserver(observer, isolate)
-            return source._subscribe_core(  # noqa: SLF001 – rx has no public hook
+            disp = source._subscribe_core(  # noqa: SLF001 – rx has no public hook
                 wrapped, scheduler
             )
+            # Track the disposable so bus.dispose() can tear it down and
+            # avoid leaking _safe_observable subscribers.
+            self._safe_disposables.add(disp)
+
+            class _TrackedDisposable:
+                __slots__ = ("_inner",)
+
+                def __init__(self, inner: Any) -> None:
+                    self._inner = inner
+
+                def dispose(self) -> None:
+                    try:
+                        self._inner.dispose()
+                    finally:
+                        self._safe_disposables.discard(self._inner)
+
+                def __getattr__(self, name: str) -> Any:
+                    return getattr(self._inner, name)
+
+            return _TrackedDisposable(disp)
 
         return rx.core.Observable(subscribe_core)
 
@@ -345,13 +372,44 @@ class ReactiveBus:
         counted under ``bus.messages.dropped``. A subscription
         without ``max_queue_size`` is unchanged.
         """
+        gating_key: int | None = None
         if on_next is not None:
             on_next = self._isolate(on_next)
             if max_queue_size is not None:
-                on_next = self._gate(on_next, max_queue_size, on_backpressure, subscriber_type)
+                gating_key = id(on_next)
+                on_next = self._gate(on_next, max_queue_size, on_backpressure, subscriber_type, key=gating_key)
         d = self._subject.subscribe(
             on_next=on_next, on_error=on_error, on_completed=on_completed,
         )
+
+        # Wrap the disposable so per-subscriber gating state is cleared on
+        # unsubscribe/dispose (prevents unbounded memory growth).
+        if gating_key is not None:
+            inner = d
+
+            class _GatedDisposable:
+                __slots__ = ("_inner", "_key", "_bus", "_disposed")
+
+                def __init__(self, inner: Any, key: int, bus: Any) -> None:
+                    self._inner = inner
+                    self._key = key
+                    self._bus = bus
+                    self._disposed = False
+
+                def dispose(self) -> None:
+                    if self._disposed:
+                        return
+                    self._disposed = True
+                    try:
+                        self._inner.dispose()
+                    finally:
+                        self._bus._clear_gating_state(self._key)
+
+                def __getattr__(self, name: str) -> Any:
+                    return getattr(self._inner, name)
+
+            d = _GatedDisposable(inner, gating_key, self)
+
         self._disposables.add(d)
         return d
 
@@ -361,6 +419,7 @@ class ReactiveBus:
         max_queue_size: int,
         on_backpressure: Callable[[SubscriberType], None] | None,
         subscriber_type: SubscriberType | None,
+        key: int | None = None,
     ) -> Callable[[object], None]:
         """Wrap ``on_next`` with a remaining-capacity guard (C5).
 
@@ -369,13 +428,16 @@ class ReactiveBus:
         dropped, the dropped-message counter is incremented, and
         ``on_backpressure`` is called (once per drop).
         """
-        key = id(on_next)
-        self._subscriber_remaining[key] = int(max_queue_size)
-        self._subscriber_backpressure[key] = on_backpressure  # type: ignore[assignment]
-        self._subscriber_type[key] = subscriber_type or ""
+        if key is None:
+            key = id(on_next)
+        with self._state_lock:
+            self._subscriber_remaining[key] = int(max_queue_size)
+            self._subscriber_backpressure[key] = on_backpressure  # type: ignore[assignment]
+            self._subscriber_type[key] = subscriber_type or ""
 
         def gated(value: object) -> None:
-            remaining = self._subscriber_remaining.get(key, 0)
+            with self._state_lock:
+                remaining = self._subscriber_remaining.get(key, 0)
             if remaining <= 0:
                 if self._metrics is not None:
                     self._metrics.counter("bus.messages.dropped").inc()
@@ -386,10 +448,17 @@ class ReactiveBus:
                     except Exception as exc:  # noqa: BLE001
                         log.warning("on_backpressure callback failed: %s", exc)
                 return
-            self._subscriber_remaining[key] = remaining - 1
+            with self._state_lock:
+                self._subscriber_remaining[key] = remaining - 1
             on_next(value)
 
         return gated
+
+    def _clear_gating_state(self, key: int) -> None:
+        with self._state_lock:
+            self._subscriber_remaining.pop(key, None)
+            self._subscriber_backpressure.pop(key, None)
+            self._subscriber_type.pop(key, None)
 
     def _isolate(self, on_next: Any) -> Any:
         """Wrap ``on_next`` so errors don't propagate to other subscribers."""
@@ -470,14 +539,26 @@ class ReactiveBus:
         if self._disposed:
             return
         self._disposed = True
-        self._disposables.dispose()
+        # Complete subjects first so subscribers receive on_completed.
         try:
             self._subject.on_completed()
         except Exception:  # pragma: no cover – defensive
             pass
-        # R2: complete lane subjects so of_type subscribers get on_completed.
         for subject in self._lane_subjects.values():
             try:
                 subject.on_completed()
             except Exception:  # pragma: no cover – defensive
                 pass
+        # Then tear down disposables.
+        self._disposables.dispose()
+        for disp in list(self._safe_disposables):
+            try:
+                disp.dispose()
+            except Exception:  # pragma: no cover – defensive
+                pass
+        self._safe_disposables.clear()
+        with self._state_lock:
+            self._subscriber_remaining.clear()
+            self._subscriber_backpressure.clear()
+            self._subscriber_type.clear()
+        self._pending.clear()

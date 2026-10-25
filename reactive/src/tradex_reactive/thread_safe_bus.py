@@ -77,14 +77,15 @@ class ThreadSafeReactiveBus:
         on_backpressure: Any = None,
         subscriber_type: str | None = None,
     ) -> Any:
-        return self._bus.subscribe(
-            on_next=on_next,
-            on_error=on_error,
-            on_completed=on_completed,
-            max_queue_size=max_queue_size,
-            on_backpressure=on_backpressure,
-            subscriber_type=subscriber_type,
-        )
+        with self._lock:
+            return self._bus.subscribe(
+                on_next=on_next,
+                on_error=on_error,
+                on_completed=on_completed,
+                max_queue_size=max_queue_size,
+                on_backpressure=on_backpressure,
+                subscriber_type=subscriber_type,
+            )
 
     def replay(
         self,
@@ -94,6 +95,7 @@ class ThreadSafeReactiveBus:
         return self._bus.replay(start=start, end=end)
 
     def dispose(self) -> None:
-        self._bus.dispose()
+        with self._lock:
+            self._bus.dispose()
 
 
