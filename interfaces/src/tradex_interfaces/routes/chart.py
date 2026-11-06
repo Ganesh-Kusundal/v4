@@ -19,7 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from tradex_domain.constants import DEFAULT_INITIAL_CAPITAL
 from tradex_domain.enums import Timeframe
@@ -29,6 +29,7 @@ from tradex_domain.timezones import IST_ZONE
 from tradex_execution.projection import execution_projection
 
 from tradex_interfaces.auth.deps import require_auth
+from tradex_interfaces.contracts import BacktestRequest, BacktestResponse, ScannerRunRequest
 from tradex_interfaces.safety import build_safety_report
 
 #: Interval codes the chart may request, mapped to canonical Timeframes.
@@ -198,7 +199,7 @@ def _backtest_candles(instrument: Any, tf: Timeframe, start: datetime, end: date
 _BACKTEST_SLIPPAGE_BPS = Decimal("5")
 
 
-def _backtest_engine(body: dict[str, Any]) -> Any:
+def _backtest_engine(body: Any) -> Any:
     """Build the ``BacktestEngine`` the chart backtest runs on.
 
     The three things that make a run's numbers mean something, all of them
@@ -317,7 +318,7 @@ def create_chart_router(
     @router.get("/symbols", dependencies=[Depends(require_auth)])
     async def list_symbols(
         q: str | None = None, source: str = "datalake", universe: str = "nifty50"
-    ) -> dict:
+    ) -> Any:
         """Symbols available to chart, type-ahead ready.
 
         ``source=datalake`` (default): every symbol actually in the datalake —
@@ -365,7 +366,7 @@ def create_chart_router(
         from_utc: int | None = Query(default=None, alias="from"),
         to_utc: int | None = Query(default=None, alias="to"),
         limit: int = Query(default=5000, le=20000),
-    ) -> dict:
+    ) -> Any:
         """Closed OHLCV bars for the chart, oldest first.
 
         Source precedence: parquet datalake first (offline, deterministic),
@@ -386,19 +387,17 @@ def create_chart_router(
         cache_key = (exchange.upper(), symbol.upper(), interval, from_utc, to_utc, limit)
         cached = _history_cache.get(cache_key)
         if cached is not None:
-            # Same field contract as the fresh path below, including
-            # ``last_closed_time``: the frontend anchors its load window to the
-            # newest closed bar, and a cache hit that omitted the field would
-            # silently fall back to wall-clock (and load an empty intraday
-            # window whenever the datalake lags). ``_serialize_series`` derives
-            # it the same way, so a hit and a miss agree exactly.
+            # Same field contract as the fresh path below (same shaper): hit
+            # and miss must agree on key sets, including ``source`` and
+            # ``timeframe_resampled``.
             return {
                 "symbol": symbol.upper(),
                 "exchange": exchange.upper(),
                 "interval": interval,
-                "bars": cached,
-                "cached": True,
+                "source": "cache",
+                "timeframe_resampled": tf.value,
                 "last_closed_time": cached[-1]["time"] if cached else None,
+                "bars": cached,
             }
 
         bars, last_closed = _bars_from_datalake(instrument, tf, start, end, limit)
@@ -423,7 +422,7 @@ def create_chart_router(
     # ------------------------------------------------------------- indicators
 
     @router.get("/indicators", dependencies=[Depends(require_auth)])
-    async def list_indicators() -> dict:
+    async def list_indicators() -> Any:
         """The whole indicator catalogue: ids, param schemas, plot shapes.
 
         The frontend builds its indicator menu entirely from this; adding an
@@ -435,7 +434,7 @@ def create_chart_router(
         return {"indicators": indicator_catalogue()}
 
     @router.post("/indicators/compute", dependencies=[Depends(require_auth)])
-    async def compute_indicator_endpoint(body: dict) -> dict:
+    async def compute_indicator_endpoint(body: Any = Body()) -> Any:
         """Compute one registered indicator over the SAME bar window the
         chart holds, so returned points are index-aligned with its bars.
 
@@ -508,7 +507,7 @@ def create_chart_router(
         }
 
     @router.post("/transforms/{transform_id}", dependencies=[Depends(require_auth)])
-    async def compute_transform_endpoint(transform_id: str, body: dict) -> dict:
+    async def compute_transform_endpoint(transform_id: str, body: Any = Body()) -> Any:
         """Rebucket a bar window through one series transform (stateless).
 
         Body: {id, params?, bars: [{time, open, high, low, close, volume}]}.
@@ -532,7 +531,7 @@ def create_chart_router(
         return {"id": transform_id, "bars": result}
 
     @router.post("/profiles/{profile_id}", dependencies=[Depends(require_auth)])
-    async def compute_profile_endpoint(profile_id: str, body: dict) -> dict:
+    async def compute_profile_endpoint(profile_id: str, body: Any = Body()) -> Any:
         """Compute one profile study (or the seasonality table) over the bar
         window the chart holds (stateless).
 
@@ -561,7 +560,7 @@ def create_chart_router(
 
     @router.post("/seasonality", dependencies=[Depends(require_auth)])
     async def compute_seasonality_endpoint(
-        body: dict,
+        body: Any = Body(),
         startYear: int | None = Query(default=None),
         ignoredMonths: str | None = Query(default=None),
         cutoffPercent: float | None = Query(default=None),
@@ -571,7 +570,7 @@ def create_chart_router(
         showAvg: bool | None = Query(default=None),
         showStDev: bool | None = Query(default=None),
         showPos: bool | None = Query(default=None),
-    ) -> dict:
+    ) -> Any:
         """Monthly seasonality heatmap over a datalake bar window.
 
         Body: {exchange, symbol, interval, from?, to?, params?}. ``params``
@@ -639,7 +638,7 @@ def create_chart_router(
     # ------------------------------------------------------------------ trading
 
     @router.get("/book", dependencies=[Depends(require_auth)])
-    async def get_book() -> dict:
+    async def get_book() -> Any:
         """Chart-shaped working book: orders + positions in the trade tier's
         vocabulary (openalgo-charts Order/Position). Read-only; writes go
         through the existing /orders endpoints so they traverse the same
@@ -694,7 +693,7 @@ def create_chart_router(
     # ---------------------------------------------------------------- account
 
     @router.get("/account", dependencies=[Depends(require_auth)])
-    async def get_account() -> dict:
+    async def get_account() -> Any:
         """Account snapshot for the chart host's account panel.
 
         Returns balance, margin, net P&L and the positions the engine is
@@ -764,7 +763,7 @@ def create_chart_router(
     # ---------------------------------------------------------------- strategies
 
     @router.get("/strategies", dependencies=[Depends(require_auth)])
-    async def list_strategies() -> dict:
+    async def list_strategies() -> Any:
         """Auto-discovered strategies (extensions package) + scanners."""
         from tradex_strategy.extensions import all_scanners, all_strategies
         from tradex_strategy.extensions import scanners as scanners_pkg
@@ -820,7 +819,7 @@ def create_chart_router(
     # ----------------------------------------------------------------- safety
 
     @router.get("/safety", dependencies=[Depends(require_auth)])
-    async def get_safety() -> dict:
+    async def get_safety() -> Any:
         """The whole safety picture in one call (AC-17).
 
         Feed state and last-event age, unresolved UNKNOWN orders with their age
@@ -838,7 +837,7 @@ def create_chart_router(
         return build_safety_report(session).to_wire()
 
     @router.post("/backtest", dependencies=[Depends(require_auth)])
-    async def run_backtest(body: dict) -> dict:
+    async def run_backtest(body: BacktestRequest) -> Any:
         """Backtest one strategy over a datalake window via BacktestEngine.
 
         Body: {exchange, symbol, interval, from?, to?, strategy, params?,
@@ -860,6 +859,7 @@ def create_chart_router(
         import asyncio
         from datetime import timedelta
 
+        body = body.model_dump()
         symbol = str(body.get("symbol", ""))
         exchange = str(body.get("exchange", "NSE"))
         if not symbol:
@@ -885,7 +885,7 @@ def create_chart_router(
 
         candles = _backtest_candles(instrument, tf, start - timedelta(days=1), end)
         if not candles:
-            return {"metrics": None, "message": f"no datalake data for {symbol} in window"}
+            return {"metrics": None, "equity_curve": [], "trades": []}
 
         engine = _backtest_engine(body)
         try:
@@ -954,7 +954,7 @@ def create_chart_router(
         }
 
     @router.post("/scanner/run", dependencies=[Depends(require_auth)])
-    async def run_scanner(body: dict) -> dict:
+    async def run_scanner(body: ScannerRunRequest) -> Any:
         """Run one discovered scanner across its universe via ScannerEngine.
 
         Body: {id, window_days?}. The engine is the same one the strategy
@@ -965,6 +965,7 @@ def create_chart_router(
         """
         import asyncio
 
+        body = body.model_dump()
         from tradex_market_data.market_provider import BulkPrefetchMarketProvider
         from tradex_strategy.core.scanner import ScannerEngine
         from tradex_strategy.extensions import scanners as scanners_pkg
@@ -1071,12 +1072,12 @@ def create_chart_router(
     # Kept consistent on purpose: an earlier revision authed the reads and not
     # the writes, which read as an oversight rather than a decision.
     @router.get("/workspace")
-    async def list_workspaces() -> list[dict[str, Any]]:
+    async def list_workspaces() -> Any:
         """Workspace metadata (no blobs): layout ids with revision + updated_at."""
         return workspace.list()
 
     @router.get("/workspace/{layout_id}")
-    async def get_workspace(layout_id: str) -> dict[str, Any]:
+    async def get_workspace(layout_id: str) -> Any:
         _validate_layout_id(layout_id)
         stored = workspace.get(layout_id)
         if stored is None:
@@ -1084,7 +1085,7 @@ def create_chart_router(
         return stored
 
     @router.put("/workspace/{layout_id}")
-    async def put_workspace(layout_id: str, body: WorkspacePutBody) -> dict[str, Any]:
+    async def put_workspace(layout_id: str, body: WorkspacePutBody) -> Any:
         _validate_layout_id(layout_id)
         new_revision, conflicted = workspace.put(
             layout_id, body.data, body.revision, bool(body.force)
