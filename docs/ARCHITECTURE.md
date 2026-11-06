@@ -2913,23 +2913,26 @@ flowchart TB
 
 | Package | src files | src LOC | Role |
 |---|---:|---:|---|
-| `tradex_brokers` | 59 | 13,447 | Broker adapters + resilience, auth, rate limiting, circuit breaker, WebSocket streams |
-| `tradex_analytics` | 38 | 13,212 | Indicators, studies, validation reports, trade metrics |
-| `tradex_execution` | 23 | 9,610 | OMS, risk, idempotency, event store, crash recovery, fills, fees |
-| `tradex_interfaces` | 30 | 9,248 | CLI + FastAPI HTTP API + safety surface |
-| `tradex_runtime` | 22 | 8,884 | Composition root, session lifecycle, market feed, monitors, shutdown |
-| `tradex_strategy` | 29 | 4,325 | Position sizing, scanners, brackets, strategy plugins |
-| `tradex_domain` | 25 | 4,039 | Pure kernel: value objects, enums, events, instruments, calendar, position math. **Zero internal deps.** |
-| `tradex_market_data` | 12 | 3,098 | Parquet datalake, instrument catalog, gap detection, PIT backtest loader |
-| `tradex_replay` | 6 | 2,887 | Backtest engine, walk-forward OOS, grid optimization |
-| `tradex_duckdb` | 12 | 1,673 | Read-only DuckDB analytics service over the datalake |
-| `tradex_config` | 4 | 871 | App config schema, env loading, secret-file permission checks |
-| `tradex_reactive` | 4 | 691 | RxPY bus, thread-safe bus, SQL event log |
-| `tradex_observability` | 3 | 637 | Metrics registry, tracing |
-| `tradex_application` | 2 | 108 | Order use-cases above the engine |
-| **Total** | **~249** | **~74,200** | (excludes generated `_pb2`) |
+| `tradex_brokers` | 64 | 13,185 | Broker adapters + resilience, auth, rate limiting, circuit breaker, WebSocket streams |
+| `tradex_analytics` | 41 | 13,808 | Indicators, studies, validation reports, trade metrics (incl. unreleased `screening.py`/`sensitivity.py` WIP) |
+| `tradex_execution` | 24 | 9,128 | OMS, risk, idempotency, event store, crash recovery, fills, fees |
+| `tradex_interfaces` | 29 | 8,391 | CLI + FastAPI HTTP API + safety surface |
+| `tradex_runtime` | 23 | 10,252 | Composition root, session lifecycle, market feed, monitors, shutdown (incl. unreleased `clocks.py`/`environments.py` WIP) |
+| `tradex_strategy` | 38 | 5,510 | Position sizing, scanners, brackets, strategy plugins (incl. unreleased `base.py` WIP) |
+| `tradex_domain` | 36 | 6,286 | Pure kernel: value objects, enums, events, instruments, calendar, position math. **Zero internal deps.** (incl. unreleased `clocks.py` WIP) |
+| `tradex_market_data` | 11 | 3,257 | Parquet datalake, instrument catalog, gap detection, PIT backtest loader |
+| `tradex_replay` | 7 | 2,949 | Backtest engine, walk-forward OOS, grid optimization |
+| `tradex_gateway` | 25 | 3,006 | Read-only data-plane service for an external app (gateway/); imported by no package above |
+| `tradex_duckdb` | 13 | 1,713 | Read-only DuckDB analytics service over the datalake |
+| `tradex_config` | 5 | 1,046 | App config schema, env loading, secret-file permission checks |
+| `tradex_reactive` | 4 | 786 | RxPY bus, thread-safe bus, SQL event log |
+| `tradex_observability` | 3 | 680 | Metrics registry, tracing |
+| `tradex_application` | 2 | 212 | Order use-cases above the engine |
+| **Total** | **325** | **80,209** | (excludes generated `_pb2`; includes unreleased owner WIP listed below) |
 
-Test weight: **~150k LOC across 612 test files**, mostly under `trading/tests/`.
+Test weight: **~117k LOC across 528 test files** (excluding `.venv`), mostly under `trading/tests/`.
+
+Unreleased WIP on this branch (owner-owned, not numbered packages): analytics `screening.py`/`sensitivity.py`, runtime `clocks.py`/`environments.py`, strategy `base.py`, domain `clocks.py`, plus modified `events.py`/`stream.py`/`market_data.py` and user gateway edits.
 
 ---
 
@@ -2992,9 +2995,13 @@ which is a subset of what `tests/test_import_boundaries.py` *permits*.
 | `replay` | analytics, domain, execution, market_data, reactive, strategy |
 | `runtime` | brokers, config, domain, execution, market_data, observability, reactive, strategy |
 | `interfaces` | analytics, application, brokers, config, domain, execution, market_data, reactive, replay, runtime, strategy |
+| `gateway` | brokers, config, domain, market_data, runtime |
 
 `tradex_duckdb` (`services/duckdb-analytics`) sits outside this graph — it is a
 standalone read-only service, imported by no package above.
+
+`tradex_gateway` (`gateway/`) also sits outside this graph — it is a read-only
+data-plane service for an external app, imported by no package above.
 
 ### 4.2 Layer reading
 
@@ -3005,6 +3012,7 @@ L2  engines       execution, application, strategy
 L3  data & replay market_data, replay
 L4  composition   runtime
 L5  interfaces    interfaces   (the `tradex` binary)
+    data plane    gateway       (read-only data-plane service for an external app)
 ```
 
 `domain` is the floor: it imports **no** internal package, so it cannot create
@@ -3394,8 +3402,8 @@ explicit call.
 
 | Location | Contents |
 |---|---|
-| `trading/tests/` | 322 files — the main behavioural suite (parity, contracts, integration, execution, runtime, strategy, interface, persistence) |
-| `tests/` | 77 architectural-guard tests (~5s), also a pre-commit hook |
+| `trading/tests/` | 356 files — the main behavioural suite (parity, contracts, integration, execution, runtime, strategy, interface, persistence) |
+| `tests/` | 26 architectural-guard test files (~5s), also a pre-commit hook |
 | `brokers/tests/`, `domain/tests/`, … | small per-package suites |
 | `services/duckdb-analytics/tests` | 61 tests (added to root `testpaths`) |
 
@@ -3414,7 +3422,7 @@ Every gate is one command: `bash scripts/predeploy_gate.sh`. It runs, in order:
 
 | Gate | Mechanism |
 |---|---|
-| Packaging | `uv sync --frozen` into the current environment; all 14 members import; deleted packages are absent |
+| Packaging | `uv sync --frozen` into the current environment; all 15 members import; deleted packages are absent |
 | Lint | `scripts/ruff_ratchet.py` against `.ruff_baseline` |
 | Types | `scripts/mypy_ratchet.py` against `.mypy_baseline` |
 | Import boundaries | `lint-imports` plus `tests/test_import_boundaries.py` |
@@ -3500,7 +3508,7 @@ Things this document found that contradict other artefacts in the repo.
    coverage no longer cites the deleted `tradex_trading`, and the per-package
    mypy hard-fail is a ratchet because the tree carries known type debt.
 
-4. **Three new features are test-only — not wired into any production path.**
+4. **Two new features are test-only — not wired into any production path.**
    Each is well-built and each is currently dead code:
    - `assert_runtime_secret_permissions` (`brokers/…/token_lifecycle.py`) —
      called only from tests. The C6 exposure it fixes is still unguarded in
@@ -3508,17 +3516,16 @@ Things this document found that contradict other artefacts in the repo.
    - `DurableFillDedup` (`execution/idempotency.py`) — constructed nowhere. The
      store's `fill_seen` / `record_fill` still have no production caller, so a
      re-published fill after a crash is still applied twice.
-   - `account_sizer` (`strategy/core/sizing.py`) — used only by tests. Its own
-     docstring says "Wave 2 constructs it once at the composition root", and
-     until that happens the live engine still falls back to
-     `unconfigured_sizer()` while the backtest sizes from a risk budget. The
-     documented measurement of the resulting divergence: **8,333 shares
-     backtest vs 7,916 live** on the shipped `sma_cross`.
+
+   Resolved since this audit: `account_sizer` (`strategy/core/sizing.py`) is now
+   wired at `runtime/startup.py:808`, so the 8,333-vs-7,916 share divergence
+   no longer applies; the sizer divergence row is tracked in
+   `docs/DIVERGENCE.md` instead.
 
 5. **Two functions named `assert_secret_file_mode` with opposite semantics.**
    - `config/src/tradex_config/permissions.py:49` — **detects and refuses**
      (raises `InsecureSecretFileError`). Wired at
-     `runtime/startup.py:299`. Its docstring: "detects and refuses, never
+     `runtime/startup.py:444`. Its docstring: "detects and refuses, never
      silently fixes… quietly changing the mode behind their back would hide a
      misconfiguration."
    - `brokers/src/tradex_brokers/common/token_lifecycle.py:80` — **repairs**
@@ -3540,7 +3547,7 @@ Things this document found that contradict other artefacts in the repo.
   it alone.
 - **`.env.local` is git-ignored and untracked.** Correct. It is world-readable
   (0644) on this machine, which is exactly what the wired
-  `assert_secret_file_mode` in `startup.py:299` refuses at boot.
+  `assert_secret_file_mode` in `startup.py:444` refuses at boot.
 - **Credential file permissions at rest.** Measured on this tree:
   `runtime/dhan/token_state.json` was **0644** while
   `runtime/upstox/token_state.json` was 0600. The new
