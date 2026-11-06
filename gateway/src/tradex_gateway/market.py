@@ -14,7 +14,7 @@ from tradex_domain.options import OptionChain
 
 from tradex_gateway.cache import SingleFlight, TTLCache
 from tradex_gateway.directory import InstrumentDirectory, ResolvedInstrument
-from tradex_gateway.errors import BadRequest, GatewayError
+from tradex_gateway.errors import BadRequest, CapabilityUnsupported, GatewayError
 from tradex_gateway.history import to_epoch_ms
 from tradex_gateway.router import MarketDataRouter
 
@@ -149,8 +149,10 @@ class QuoteService:
                 lambda adapter: adapter.quote_batch(instruments),
                 preferred=broker,
             )
-        except GatewayError:
+        except CapabilityUnsupported:
             # A broker without batch support still answers per-instrument calls.
+            # Every other gateway error means the batch path was healthy enough
+            # to try and failed, so it propagates instead of fanning out.
             return self._quotes_individually(resolved, broker)
         quotes: dict[str, dict[str, Any]] = {}
         for quote in batch.values():
@@ -286,11 +288,11 @@ class ChainService:
                 lot_size_for=lambda iid: self._directory.lot_size(iid, broker=name),
             )
             if live:
-                payload = self._enrich(chain, payload)
+                payload = self._enrich(chain, payload, name)
             self._cache.put(key, payload, 10.0, now)
             return payload
 
-    def _enrich(self, chain: OptionChain, payload: dict[str, Any]) -> dict[str, Any]:
+    def _enrich(self, chain: OptionChain, payload: dict[str, Any], broker: str) -> dict[str, Any]:
         legs: dict[str, dict[str, Any]] = {}
         instruments: list[Option] = []
         for expiry in chain.expiries():
@@ -302,7 +304,11 @@ class ChainService:
         for start in range(0, len(instruments), _QUOTE_BATCH):
             chunk = instruments[start : start + _QUOTE_BATCH]
             try:
-                batch, _ = self._router.call("quotes", lambda adapter: adapter.quote_batch(chunk))
+                batch, _ = self._router.call(
+                    "quotes",
+                    lambda adapter: adapter.quote_batch(chunk),
+                    preferred=broker,
+                )
             except GatewayError:
                 continue
             for quote in batch.values():

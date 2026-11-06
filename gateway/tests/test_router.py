@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import pytest
 from gateway_support import FakeBroker, FakeClock, gateway_config
-from tradex_domain.errors import InstrumentNotFoundError, RateLimitError
+from tradex_domain.errors import (
+    AuthenticationError,
+    BrokerUnavailableError,
+    ConnectionTimeoutError,
+    InstrumentNotFoundError,
+    RateLimitError,
+    SDKError,
+)
 from tradex_gateway.brokers import BrokerRuntime
 from tradex_gateway.errors import BrokerUnavailable, NoHealthyBroker
 from tradex_gateway.router import MarketDataRouter
@@ -78,3 +85,36 @@ def test_broker_unavailable_maps_to_gateway_error():
     router = _router(clock, dhan, upstox)
     with pytest.raises(BrokerUnavailable):
         router.call("history", call)
+
+
+@pytest.mark.parametrize(
+    ("failure", "cooldown"),
+    [
+        (RateLimitError("429"), 30.0),
+        (ConnectionTimeoutError("timeout"), 15.0),
+        (BrokerUnavailableError("down"), 15.0),
+        (AuthenticationError("denied"), 60.0),
+        (SDKError("sdk"), 5.0),
+        (RuntimeError("unexpected"), 5.0),
+    ],
+)
+def test_failure_policy_cools_the_failed_broker_for_the_tabled_window(
+    failure: Exception, cooldown: float
+):
+    clock = FakeClock()
+    dhan, upstox = FakeBroker("dhan"), FakeBroker("upstox")
+    runtimes = {
+        "dhan": BrokerRuntime("dhan", dhan, clock=clock),
+        "upstox": BrokerRuntime("upstox", upstox, clock=clock),
+    }
+    router = MarketDataRouter(gateway_config(primary_history="dhan"), runtimes, clock=clock)
+
+    def call(broker):
+        if broker is dhan:
+            raise failure
+        return "ok"
+
+    assert router.call("history", call) == ("ok", "upstox")
+    snapshot = runtimes["dhan"].health.snapshot()["history"]
+    assert snapshot["available"] is False
+    assert snapshot["cooldown_seconds"] == cooldown

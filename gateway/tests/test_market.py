@@ -3,10 +3,13 @@ from __future__ import annotations
 import dataclasses
 from datetime import UTC, date, datetime, timedelta
 
+import pytest
 from gateway_support import FakeBroker, gateway_config, make_depth
+from tradex_domain.errors import RateLimitError
 from tradex_domain.instruments import Future, Option
 from tradex_gateway.brokers import BrokerRuntime
 from tradex_gateway.directory import InstrumentDirectory
+from tradex_gateway.errors import NoHealthyBroker
 from tradex_gateway.history import to_epoch_ms
 from tradex_gateway.market import CachedDepth, ChainService, DepthService, QuoteService
 from tradex_gateway.router import MarketDataRouter
@@ -29,6 +32,22 @@ def test_quote_and_batch_shapes():
     batch = quotes.quotes(["IDX:NIFTY"])
     assert "IDX:NIFTY" in batch["quotes"]
     assert batch["errors"] == {}
+
+
+def test_quote_batch_outage_does_not_fan_out():
+    dhan, upstox = FakeBroker("dhan"), FakeBroker("upstox")
+
+    def outage(_instruments):
+        raise RateLimitError("429")
+
+    dhan.quote_batch = outage
+    upstox.quote_batch = outage
+    directory, router = _setup(dhan, upstox)
+    quotes = QuoteService(directory, router)
+    with pytest.raises(NoHealthyBroker):
+        quotes.quotes(["IDX:NIFTY"])
+    for broker in (dhan, upstox):
+        assert all(call[0] != "get_quote" for call in broker.calls)
 
 
 def test_depth_degrades_when_rest_cannot_deliver():
@@ -138,6 +157,20 @@ def test_option_chain_defaults_to_nearest_expiry_and_caches():
     assert first["strikes"][0]["ce"]["instrument_id"].endswith(":CE")
     assert second["cached"] is True
     assert sum(1 for call in dhan.calls if call[0] == "option_chain") == 1
+
+
+def test_chain_enrichment_prefers_the_chain_broker():
+    dhan, upstox = FakeBroker("dhan"), FakeBroker("upstox")
+    expiry = date.today() + timedelta(days=7)
+    dhan.universe = [
+        Option.of("NFO", "NIFTY", expiry, 25000, "CE"),
+        Option.of("NFO", "NIFTY", expiry, 25000, "PE"),
+    ]
+    directory, router = _setup(dhan, upstox)
+    chain_service = ChainService(directory, router, QuoteService(directory, router))
+    chain_service.option_chain("IDX:NIFTY", live=True)
+    assert any(call[0] == "quote_batch" for call in dhan.calls)
+    assert not any(call[0] == "quote_batch" for call in upstox.calls)
 
 
 def test_futures_are_master_derived():

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import threading
+import logging
 import time
 from collections.abc import Callable, Mapping
 from typing import Any, TypeVar
@@ -27,14 +27,28 @@ from tradex_gateway.errors import (
     UnsupportedTimeframe,
 )
 
+log = logging.getLogger(__name__)
+
 T = TypeVar("T")
 
-_DEFAULT_COOLDOWNS: dict[type[BaseException], float] = {
-    RateLimitError: 30.0,
-    ConnectionTimeoutError: 15.0,
-    BrokerUnavailableError: 15.0,
-    AuthenticationError: 60.0,
-}
+# Ordered: the specific SDKError subclasses precede the SDKError catch-all, so a
+# rate limit keeps its 30 s window instead of collapsing into the generic 5 s.
+_POLICIES: tuple[tuple[tuple[type[BaseException], ...], float], ...] = (
+    ((RateLimitError,), 30.0),
+    ((ConnectionTimeoutError, BrokerUnavailableError), 15.0),
+    ((AuthenticationError,), 60.0),
+    ((SDKError,), 5.0),
+)
+
+_UNKNOWN_COOLDOWN = 5.0
+
+
+def _cooldown_for(error: BaseException) -> float | None:
+    """Cool-down seconds dictated by the policy table, or ``None`` if unmapped."""
+    for kinds, seconds in _POLICIES:
+        if isinstance(error, kinds):
+            return seconds
+    return None
 
 
 class MarketDataRouter:
@@ -49,7 +63,6 @@ class MarketDataRouter:
         self._config = config
         self._runtimes = dict(runtimes)
         self._clock = clock
-        self._lock = threading.Lock()
         self._event = on_event or (lambda _name: None)
 
     def order(self, capability: str, preferred: str | None = None) -> list[BrokerRuntime]:
@@ -94,29 +107,13 @@ class MarketDataRouter:
             ) as exc:
                 last = exc
                 continue
-            except AuthenticationError as exc:
-                self._event("broker_failures_total")
-                health.record_failure(capability, 60.0, str(exc))
-                last = exc
-                continue
-            except RateLimitError as exc:
-                self._event("broker_failures_total")
-                health.record_failure(capability, 30.0, str(exc))
-                last = exc
-                continue
-            except (ConnectionTimeoutError, BrokerUnavailableError) as exc:
-                self._event("broker_failures_total")
-                health.record_failure(capability, 15.0, str(exc))
-                last = exc
-                continue
-            except SDKError as exc:
-                self._event("broker_failures_total")
-                health.record_failure(capability, 5.0, str(exc))
-                last = exc
-                continue
             except Exception as exc:  # noqa: BLE001 - isolate broker failures
+                cooldown = _cooldown_for(exc)
+                if cooldown is None:
+                    log.exception("unmapped broker failure for %s", capability)
+                    cooldown = _UNKNOWN_COOLDOWN
                 self._event("broker_failures_total")
-                health.record_failure(capability, 5.0, str(exc))
+                health.record_failure(capability, cooldown, str(exc))
                 last = exc
                 continue
             health.record_success(capability)
