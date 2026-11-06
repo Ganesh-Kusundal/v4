@@ -153,6 +153,20 @@ def _request_replay_guard(request: Request | None) -> ReplayGuard | None:
     return getattr(request.state, "replay_guard", None)
 
 
+def _live_orders_enabled(request: Request | None, session: Any) -> bool:
+    app = getattr(request, "app", None) if request is not None else None
+    state = getattr(app, "state", None) if app is not None else None
+    if state is not None:
+        if hasattr(state, "live_orders_enabled"):
+            return bool(state.live_orders_enabled)
+        cfg = getattr(state, "config", None)
+        if cfg is not None and hasattr(cfg, "live_orders_enabled"):
+            return bool(cfg.live_orders_enabled)
+    return bool(
+        getattr(session, "_live_orders_enabled", getattr(session, "live_orders_enabled", True))
+    )
+
+
 def _price(value: Any, name: str) -> Any:
     """Parse a decimal ``Price`` from an HTTP body value."""
     from tradex_domain.value_objects import Price
@@ -338,6 +352,8 @@ async def place_order(
     _require_trading_mode(session, _request_replay_guard(request))
     if session is None:
         raise HTTPException(status_code=503, detail=NO_SESSION_BOUND)
+    if str(getattr(session, "mode", "")).strip().lower() == "live" and not _live_orders_enabled(request, session):
+        raise HTTPException(status_code=503, detail="live_orders_disabled")
     try:
         order_request = _build_order_request(body, session, correlation_id)
         receipt = app_submit_order(session.engine, order_request)
@@ -379,6 +395,8 @@ async def place_bracket_order(
     _require_trading_mode(session, _request_replay_guard(request))
     if session is None:
         raise HTTPException(status_code=503, detail=NO_SESSION_BOUND)
+    if str(getattr(session, "mode", "")).strip().lower() == "live" and not _live_orders_enabled(request, session):
+        raise HTTPException(status_code=503, detail="live_orders_disabled")
     broker = getattr(session, "_broker", None) or getattr(session, "broker", None)
     if broker is None:
         raise HTTPException(status_code=503, detail=BROKER_UNAVAILABLE_MESSAGE)
