@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from tradex_runtime.feed_supervisor import FeedSupervisor
     from tradex_runtime.market_feed import MarketFeed
 
-from tradex_config.permissions import assert_secret_file_mode
+from tradex_config.permissions import assert_runtime_secret_permissions, assert_secret_file_mode
 from tradex_config.schema import FEED_INSTRUMENTS_ENV, AppConfig
 from tradex_execution.engine import (
     ExecutionEngine,
@@ -442,6 +442,10 @@ def boot(
     # credentials), so absence never blocks a boot.
     for _secret in cfg.secret_files():
         assert_secret_file_mode(_secret)
+    # H/Task 4: scan the runtime dir for any group/world-readable secret
+    # files the operator may have dropped in (token_state, idempotency DBs,
+    # workspace sqlite, .env.local) and refuse to boot if any are permissive.
+    assert_runtime_secret_permissions(cfg.runtime_dir)
     if cfg.mode == "live" and not cfg.persistence.path:
         raise ValueError("live mode requires persistence path")
 

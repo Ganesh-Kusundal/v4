@@ -91,6 +91,12 @@ class SQLiteIdempotencyGuard:
             str(db_path) if db_path != ":memory:" else ":memory:",
             check_same_thread=False,
         )
+        if db_path != ":memory:":
+            try:
+                import os
+                os.chmod(str(db_path), 0o600)
+            except OSError:
+                pass
         configure_sqlite(self._conn)
         self._write_lock = threading.Lock()
         self._conn.execute(self._CREATE_TABLE)

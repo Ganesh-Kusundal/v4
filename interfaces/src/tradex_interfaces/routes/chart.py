@@ -237,7 +237,7 @@ def _backtest_engine(body: Any) -> Any:
     # ever lost, and losing it must stop BUYs rather than wave them through.
     risk.fail_closed_cash = True
     return BacktestEngine(
-        initial_capital=body.get("initial_capital", int(DEFAULT_INITIAL_CAPITAL)),
+        initial_capital=body.get("initial_capital") or int(DEFAULT_INITIAL_CAPITAL),
         risk_manager=risk,
         fee_calculator=FeeCalculator(),
         slippage_model=PercentageSlippageModel(
@@ -873,7 +873,7 @@ def create_chart_router(
         if tf is None:
             raise HTTPException(status_code=422, detail="unsupported interval")
         instrument = _resolve_instrument(exchange, symbol)
-        start, end = _window(body.get("from"), body.get("to"))
+        start, end = _window(body.get("from_utc"), body.get("to_utc"))
 
         # Validate strategy before the empty-lake early return so unknown names
         # always 422 (scanner validates id first for the same reason).

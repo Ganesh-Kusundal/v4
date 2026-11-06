@@ -67,10 +67,10 @@ log = logging.getLogger(__name__)
 FEED_STATUS_POLL_SECONDS = 2.0
 
 
-async _REPLAY_GUARD_LOCK = threading.Lock()
+_REPLAY_GUARD_LOCK = threading.Lock()
 
 
-def ws_stream(
+async def ws_stream(
     app: Any,
     ws: WebSocket,
     session: Any,

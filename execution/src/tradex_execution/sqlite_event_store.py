@@ -879,6 +879,12 @@ class SQLiteEventStore:
             self._path,
             check_same_thread=False,
         )
+        if self._path != ":memory:":
+            try:
+                import os
+                os.chmod(self._path, 0o600)
+            except OSError:
+                pass
         configure_sqlite(self._conn)
         self._conn.executescript(self._DDL)
         self._conn.commit()

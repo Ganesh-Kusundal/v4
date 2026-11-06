@@ -10,7 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class _Strict(BaseModel):
@@ -63,14 +63,17 @@ class OrdersListResponse(BaseModel):
 
 
 class BacktestRequest(_Strict):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
     exchange: str = "NSE"
     symbol: str
     interval: str = "D"
-    from_utc: int | None = None
-    to_utc: int | None = None
+    from_utc: int | None = Field(default=None, alias="from")
+    to_utc: int | None = Field(default=None, alias="to")
     strategy: str = "sma_cross"
     params: dict[str, Any] | None = None
     initial_capital: Any = None
+    fees: Any = None  # accepted for backward compat, ignored (costs are always on)
 
 
 class ScannerRunRequest(_Strict):
