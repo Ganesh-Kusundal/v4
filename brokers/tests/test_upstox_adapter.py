@@ -123,6 +123,7 @@ class TestLifecycle:
         assert caps.supports_kill_switch is True
         assert caps.supports_news is True
         assert caps.supports_fundamentals is False
+        assert caps.max_history_days == 30
 
 
 # ---------------------------------------------------------------------------
@@ -669,6 +670,18 @@ class TestInstruments:
                 "underlying": "GOLD",
                 "lot_size": "1",
             },
+            {
+                "symbol": "GOLD 130000 CE 30 OCT 26",
+                "exchange": "MCX",
+                "key": "MCX_FO|579317",
+                "asset_class": "OPTION",
+                "instrument_type": "CE",
+                "right": "CE",
+                "expiry": "2026-10-30",
+                "strike": "130000",
+                "underlying": "GOLD",
+                "lot_size": "500.0",
+            },
         ]
         broker.load_instruments(rows)
         opt = broker._loaded_instruments[0]
@@ -676,6 +689,13 @@ class TestInstruments:
         assert meta["asset_class"] == "OPTION"
         assert meta["instrument_type"] == "CE"
         assert meta["lot_size"] == "1"
+        wide = next(
+            inst
+            for inst in broker._loaded_instruments
+            if inst.instrument_id.strike is not None
+            and str(inst.instrument_id.strike) == "130000"
+        )
+        assert broker.registry.meta(wide.instrument_id)["lot_size"] == "500"
 
     def test_future_chain_from_loaded_master(self):
         """future_chain() returns typed Future instruments from the master."""

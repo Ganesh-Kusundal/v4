@@ -165,7 +165,7 @@ def _wire(app: FastAPI) -> None:
     hub = LiveHub(cfg, router, directory, runtimes, on_event=app.state.metrics.inc)
     app.state.directory = directory
     app.state.router = router
-    app.state.history = HistoryService(directory, router, cfg)
+    app.state.history = HistoryService(directory, router, cfg, executor=app.state.executor)
     app.state.quotes = quotes
     app.state.depth = DepthService(directory, router, live_depth=hub.latest_depth)
     app.state.chains = ChainService(directory, router, quotes)

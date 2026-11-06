@@ -68,6 +68,8 @@ class BrokerCapabilities:
     #: Instruments a single live WebSocket connection may carry (None = no
     #: known cap). Dhan quotes cap at 1000 per connection; Upstox at 500.
     max_stream_instruments: int | None = None
+    #: Max days of intraday history one broker request may span (None = unknown).
+    max_history_days: int | None = None
     supported_asset_classes: tuple[AssetClass, ...] = (AssetClass.EQUITY,)
 
 

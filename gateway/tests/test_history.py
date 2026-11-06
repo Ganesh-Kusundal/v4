@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import UTC, datetime, timedelta, timezone
 
 from gateway_support import FakeBroker, FakeWindowLoader, equity, gateway_config, make_candle
@@ -10,11 +11,15 @@ from tradex_gateway.history import HistoryService
 from tradex_gateway.router import MarketDataRouter
 
 
-def _service(loader: FakeWindowLoader, *brokers: FakeBroker) -> HistoryService:
+def _service(
+    loader: FakeWindowLoader, *brokers: FakeBroker, executor: object | None = None
+) -> HistoryService:
     runtimes = {broker.name: BrokerRuntime(broker.name, broker) for broker in brokers}
     directory = InstrumentDirectory(runtimes)
     router = MarketDataRouter(gateway_config(), runtimes)
-    return HistoryService(directory, router, gateway_config(), window_loader=loader)
+    return HistoryService(
+        directory, router, gateway_config(), window_loader=loader, executor=executor
+    )
 
 
 def test_datalake_hit_serves_without_broker():
@@ -157,3 +162,92 @@ def test_datalake_only_source_returns_empty_when_lake_misses():
     )
     assert result["source"] == "none"
     assert result["degraded"] is True
+
+
+def _recording_history(windows: list[tuple[datetime, datetime]]):
+    def history(instrument, tf, start, end):
+        windows.append((start, end))
+        return HistoricalSeries(
+            instrument=instrument, timeframe=tf, candles=[], start=start, end=end
+        )
+
+    return history
+
+
+def test_dhan_uses_its_declared_90_day_chunk_cap():
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(days=60)
+    windows: list[tuple[datetime, datetime]] = []
+    dhan = FakeBroker("dhan")
+    dhan.capabilities = dataclasses.replace(dhan.capabilities, max_history_days=90)
+    dhan.history_impl = _recording_history(windows)
+    service = _service(FakeWindowLoader(()), dhan, FakeBroker("upstox"))
+    service.history("IDX:NIFTY", "1m", start, end, broker="dhan")
+    assert len(windows) == 1
+    assert windows[0] == (start, end)
+
+
+def test_upstox_still_chunks_at_its_30_day_cap():
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = start + timedelta(days=60)
+    windows: list[tuple[datetime, datetime]] = []
+    upstox = FakeBroker("upstox")
+    upstox.capabilities = dataclasses.replace(upstox.capabilities, max_history_days=30)
+    upstox.history_impl = _recording_history(windows)
+    service = _service(FakeWindowLoader(()), FakeBroker("dhan"), upstox)
+    service.history("IDX:NIFTY", "1m", start, end, broker="upstox")
+    assert len(windows) == 2
+    assert windows[0] == (start, start + timedelta(days=30))
+    assert windows[1] == (start + timedelta(days=30), end)
+
+
+class _Completed:
+    """Future double for a callable that already ran."""
+
+    def result(self, timeout=None):
+        return None
+
+
+class _InlineExecutor:
+    """Executor double that runs each submitted callable immediately, here."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple] = []
+
+    def submit(self, fn, *args, **kwargs):
+        self.calls.append((fn, args, kwargs))
+        fn(*args, **kwargs)
+        return _Completed()
+
+
+def test_batch_uses_the_injected_executor_without_a_nested_pool():
+    items = [
+        {
+            "instrument_id": "IDX:NIFTY",
+            "timeframe": "1m",
+            "from_": "2026-11-06T09:15:00Z",
+            "to": "2026-11-06T09:16:00Z",
+            "broker": "upstox",
+        },
+        {
+            "instrument_id": "IDX:NIFTY",
+            "timeframe": "1m",
+            "from_": "2026-11-06T09:17:00Z",
+            "to": "2026-11-06T09:18:00Z",
+            "broker": "upstox",
+        },
+    ]
+    executor = _InlineExecutor()
+    service = _service(
+        FakeWindowLoader(()), FakeBroker("dhan"), FakeBroker("upstox"), executor=executor
+    )
+    results = service.batch(items)
+    # Only the tail goes to the shared pool: item 0 runs inline on the calling
+    # thread, which is what keeps a saturated pool making progress. A nested
+    # ThreadPoolExecutor would leave this count at zero.
+    assert len(executor.calls) == 1
+    assert [item["broker"] for item in results] == ["upstox", "upstox"]
+    assert [item["coverage"]["from"] for item in results] == [
+        "2026-11-06T09:15:00+00:00",
+        "2026-11-06T09:17:00+00:00",
+    ]

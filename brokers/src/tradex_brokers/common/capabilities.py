@@ -27,6 +27,7 @@ def get_capabilities(broker_id: BrokerId) -> BrokerCapabilities:
             supports_same_day_intraday=True,
             depth_levels=20,
             max_stream_instruments=1000,
+            max_history_days=90,
             supported_asset_classes=(
                 AssetClass.EQUITY,
                 AssetClass.INDEX,
@@ -55,6 +56,7 @@ def get_capabilities(broker_id: BrokerId) -> BrokerCapabilities:
             supports_fundamentals=False,
             depth_levels=30,
             max_stream_instruments=500,
+            max_history_days=30,
             supported_asset_classes=(
                 AssetClass.EQUITY,
                 AssetClass.INDEX,

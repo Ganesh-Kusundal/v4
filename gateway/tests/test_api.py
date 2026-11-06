@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
@@ -123,6 +124,70 @@ def test_naive_batch_history_timestamps_are_per_item_errors():
         assert item["instrument_id"] == "IDX:NIFTY"
         assert item["error"]["code"] == "invalid_request"
         assert "UTC offset" in item["error"]["message"]
+
+
+class _RecordingExecutor:
+    """Delegates to the real pool while recording every submitted callable."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.submitted: list[object] = []
+
+    def submit(self, fn, *args, **kwargs):
+        self.submitted.append(fn)
+        return self._inner.submit(fn, *args, **kwargs)
+
+    def shutdown(self, *args, **kwargs):
+        return self._inner.shutdown(*args, **kwargs)
+
+
+def test_batch_route_uses_the_shared_app_executor():
+    app, dhan, upstox = _app()
+    worker_names: list[str] = []
+
+    def history(instrument, tf, start, end):
+        worker_names.append(threading.current_thread().name)
+        return HistoricalSeries(
+            instrument=instrument,
+            timeframe=tf,
+            candles=[make_candle(instrument, end)],
+            start=start,
+            end=end,
+        )
+
+    dhan.history_impl = upstox.history_impl = history
+    with TestClient(app) as client:
+        recorder = _RecordingExecutor(app.state.executor)
+        app.state.executor = recorder
+        response = client.post(
+            "/v1/history/batch",
+            json={
+                "requests": [
+                    {
+                        "instrument_id": "IDX:NIFTY",
+                        "from": "2026-11-06T09:15:00Z",
+                        "to": "2026-11-06T09:16:00Z",
+                    },
+                    {
+                        "instrument_id": "IDX:NIFTY",
+                        "from": "2026-11-06T09:17:00Z",
+                        "to": "2026-11-06T09:18:00Z",
+                    },
+                ]
+            },
+        )
+        assert response.status_code == 200, response.text
+        results = response.json()
+        assert len(results) == 2
+        assert all(item["bars"] for item in results)
+        # The route submits batch() once (one pool task per request) and every
+        # item runs on a worker of the shared app pool, whose threads carry the
+        # "gateway-broker" prefix. A per-request nested pool would have run the
+        # items on "ThreadPoolExecutor-…" threads instead; the service keeps
+        # the pool it was wired with, so only the route task hits the wrapper.
+        assert len(recorder.submitted) == 1
+        assert len(worker_names) == 2
+        assert all(name.startswith("gateway-broker") for name in worker_names)
 
 
 def test_auth_required_when_configured():

@@ -32,6 +32,7 @@ from tradex_domain.wire import InstrumentRegistry
 from tradex_brokers.common.base import BaseBroker
 from tradex_brokers.common.capabilities import dhan_capabilities
 from tradex_brokers.common.endpoints import DHAN_REST_BASE_URL
+from tradex_brokers.common.instruments import canonical_size_str
 from tradex_brokers.common.mixins import SharedAdminMixin, SharedPortfolioMixin
 from tradex_brokers.common.provider_common import (
     future_chain_from_master,
@@ -229,7 +230,7 @@ class DhanBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
         for name in ("lot_size", "tick_size"):
             value = row.get(name)
             if value not in (None, ""):
-                meta[name] = str(value).strip()
+                meta[name] = canonical_size_str(value)
         series = str(row.get("series") or "").strip().upper()
         if series:
             meta["series"] = series

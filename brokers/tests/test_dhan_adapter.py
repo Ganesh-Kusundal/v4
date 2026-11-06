@@ -128,6 +128,7 @@ class TestLifecycle:
         assert caps.supports_super_order is True
         assert caps.supports_forever_order is True
         assert caps.supports_kill_switch is True
+        assert caps.max_history_days == 90
 
 
 # ---------------------------------------------------------------------------
@@ -742,6 +743,19 @@ class TestInstruments:
                 "lot_size": "30",
                 "tick_size": "0.5",
             },
+            {
+                "symbol": "GOLD-05Oct2026-FUT",
+                "exchange": "MCX",
+                "key": "MCX:510001",
+                "security_id": "510001",
+                "asset_class": "FUTURE",
+                "instrument_type": "FUTCOM",
+                "right": None,
+                "expiry": "2026-10-05",
+                "underlying": "GOLD",
+                "lot_size": "500.0",
+                "tick_size": "0.05",
+            },
         ]
         broker.load_instruments(rows)
         fut = broker._loaded_instruments[0]
@@ -750,6 +764,12 @@ class TestInstruments:
         assert meta["instrument_type"] == "FUTCOM"
         assert meta["lot_size"] == "30"
         assert meta["tick_size"] == "0.5"
+        gold = next(
+            inst for inst in broker._loaded_instruments if inst.instrument_id.underlying == "GOLD"
+        )
+        gold_meta = broker.registry.meta(gold.instrument_id)
+        assert gold_meta["lot_size"] == "500"
+        assert gold_meta["tick_size"] == "0.05"
 
     def test_future_chain_from_loaded_master(self):
         """future_chain() returns typed Future instruments from the master."""

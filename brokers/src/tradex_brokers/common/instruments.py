@@ -66,6 +66,23 @@ def as_price(value: object, default: str = "0") -> Price:
     return Price(value=as_decimal(str(value)))
 
 
+def canonical_size_str(value: object) -> str:
+    """Normalize a master size field (lot/tick size) to its canonical text form.
+
+    Integral numbers lose their float tail (``"500.0"`` -> ``"500"``,
+    ``"1.000"`` -> ``"1"``); everything else keeps its stripped text
+    (``"0.05"`` stays ``"0.05"``, non-numeric stays as-is). Never raises.
+    """
+    text = str(value).strip()
+    try:
+        number = float(text)
+    except ValueError:
+        return text
+    if number.is_integer():
+        return str(int(number))
+    return text
+
+
 def parse_date(value: object) -> date | None:
     """Parse a date from various formats."""
     if value is None or value == "":
@@ -252,6 +269,7 @@ __all__ = [
     "as_decimal",
     "as_price",
     "build_instrument_from_row",
+    "canonical_size_str",
     "future_chain_from_master",
     "instrument_from_id",
     "option_chain_from_master",

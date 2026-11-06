@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Executor
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -51,12 +51,14 @@ class HistoryService:
         *,
         window_loader: MarketWindowLoader | None = None,
         clock: Callable[[], float] = time.monotonic,
+        executor: Executor | None = None,
     ) -> None:
         self._directory = directory
         self._router = router
         self._config = config
         self._loader = window_loader
         self._clock = clock
+        self._executor = executor
         self._cache = TTLCache()
         self._flight = SingleFlight()
 
@@ -154,10 +156,23 @@ class HistoryService:
                     },
                 }
 
-        workers = min(self._config.broker_workers, 8, max(1, len(requests)))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+        if self._executor is None or not requests:
+            # Direct callers (unit tests) without a shared pool: run in order.
             for index, payload in enumerate(requests):
-                pool.submit(run, index, payload)
+                run(index, payload)
+            return results
+
+        # The first item runs on the calling thread on purpose. batch() itself
+        # is executed inside this same bounded pool by the route, so a parent
+        # that only ever waits on queued children can occupy the last free
+        # worker and let its own children never start (pool-exhaustion hang).
+        run(0, requests[0])
+        futures = [
+            self._executor.submit(run, index, payload)
+            for index, payload in enumerate(requests[1:], start=1)
+        ]
+        for future in futures:
+            future.result()  # run() converts every exception into an envelope
         return results
 
     def _load(
@@ -294,7 +309,8 @@ def _fetch_chunks(
 ) -> HistoricalSeries:
     candles: list[Candle] = []
     step = timedelta(seconds=_tf_seconds(tf))
-    for window_start, window_end in _windows(tf, start, end):
+    max_history_days = getattr(getattr(broker, "capabilities", None), "max_history_days", None)
+    for window_start, window_end in _windows(tf, start, end, max_history_days):
         series = broker.history(instrument, tf, window_start, window_end)
         # Brokers widen an intraday request to the whole day; keep only bars
         # that overlap the requested window. A bar is included when its span
@@ -317,13 +333,23 @@ def _fetch_chunks(
     )
 
 
-def _windows(tf: Timeframe, start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
+def _windows(
+    tf: Timeframe,
+    start: datetime,
+    end: datetime,
+    max_history_days: int | None,
+) -> list[tuple[datetime, datetime]]:
     intraday = bool(TIMEFRAMES[tf.value]["intraday"])
-    cap_days = BROKER_LIMITS.dhan_max_days if intraday else 3650
-    # The chunk cap is broker-specific; the router may pick either broker, so
-    # use the tighter of the two for intraday windows. Both adapters accept
-    # smaller windows, so this is safe for Upstox (30d) and Dhan (90d).
-    cap_days = min(cap_days, BROKER_LIMITS.upstox_max_days) if intraday else cap_days
+    if not intraday:
+        cap_days = 3650
+    elif isinstance(max_history_days, int) and max_history_days > 0:
+        # Chunk at the cap the selected adapter declares for itself (Dhan 90d,
+        # Upstox 30d) instead of the tightest shared limit.
+        cap_days = max_history_days
+    else:
+        # The selected adapter declares no cap: fall back to the tightest
+        # known broker limit so an intraday window is never over-wide.
+        cap_days = min(BROKER_LIMITS.dhan_max_days, BROKER_LIMITS.upstox_max_days)
     windows: list[tuple[datetime, datetime]] = []
     cursor = start
     while cursor < end:

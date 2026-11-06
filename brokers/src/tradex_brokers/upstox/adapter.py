@@ -33,6 +33,7 @@ from tradex_brokers.common.endpoints import (
     UPSTOX_REST_BASE_URL,
     UPSTOX_V3_BASE_URL,
 )
+from tradex_brokers.common.instruments import canonical_size_str
 from tradex_brokers.common.mixins import SharedAdminMixin, SharedPortfolioMixin
 from tradex_brokers.common.provider_common import option_chain_from_master
 from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
@@ -203,7 +204,7 @@ class UpstoxBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
         """Upstox contract metadata (position sizing + ISIN from instrument key)."""
         lot_size = row.get("lot_size")
         if lot_size not in (None, ""):
-            meta["lot_size"] = str(lot_size).strip()
+            meta["lot_size"] = canonical_size_str(lot_size)
         series = str(row.get("instrument_type") or "").strip().upper()
         if series:
             meta["series"] = series
