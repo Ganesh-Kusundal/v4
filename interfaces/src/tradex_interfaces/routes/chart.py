@@ -28,7 +28,7 @@ from tradex_domain.timeframe import INTERVAL_TO_TIMEFRAME
 from tradex_domain.timezones import IST_ZONE
 from tradex_execution.projection import execution_projection
 
-from tradex_interfaces.auth.deps import require_auth
+from tradex_interfaces.auth.deps import require_auth, require_csrf_if_session
 from tradex_interfaces.contracts import BacktestRequest, BacktestResponse, ScannerRunRequest
 from tradex_interfaces.safety import build_safety_report
 
@@ -836,7 +836,7 @@ def create_chart_router(
             return build_safety_report(None).to_wire()
         return build_safety_report(session).to_wire()
 
-    @router.post("/backtest", dependencies=[Depends(require_auth)])
+    @router.post("/backtest", dependencies=[Depends(require_auth), Depends(require_csrf_if_session)])
     async def run_backtest(body: BacktestRequest) -> Any:
         """Backtest one strategy over a datalake window via BacktestEngine.
 
@@ -953,7 +953,7 @@ def create_chart_router(
             "trades": trades,
         }
 
-    @router.post("/scanner/run", dependencies=[Depends(require_auth)])
+    @router.post("/scanner/run", dependencies=[Depends(require_auth), Depends(require_csrf_if_session)])
     async def run_scanner(body: ScannerRunRequest) -> Any:
         """Run one discovered scanner across its universe via ScannerEngine.
 
@@ -1084,7 +1084,7 @@ def create_chart_router(
             raise HTTPException(status_code=404, detail=f"no workspace {layout_id!r}")
         return stored
 
-    @router.put("/workspace/{layout_id}")
+    @router.put("/workspace/{layout_id}", dependencies=[Depends(require_csrf_if_session)])
     async def put_workspace(layout_id: str, body: WorkspacePutBody) -> Any:
         _validate_layout_id(layout_id)
         new_revision, conflicted = workspace.put(
@@ -1101,7 +1101,7 @@ def create_chart_router(
             "updated_at": workspace.get(layout_id)["updated_at"],  # type: ignore[index]
         }
 
-    @router.delete("/workspace/{layout_id}", status_code=204)
+    @router.delete("/workspace/{layout_id}", status_code=204, dependencies=[Depends(require_csrf_if_session)])
     async def delete_workspace(layout_id: str) -> None:
         _validate_layout_id(layout_id)
         workspace.delete(layout_id)
