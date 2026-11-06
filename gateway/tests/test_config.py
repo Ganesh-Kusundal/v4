@@ -23,7 +23,26 @@ def test_from_env_parses_lists_and_numbers():
     assert config.primary_history == "dhan"
     assert config.rest_rate_per_second == 5.0
     assert config.rest_burst == 7
-    assert config.validate() is config
+    assert config.validate() == config
+
+
+def test_validate_rejects_unknown_broker():
+    try:
+        GatewayConfig(api_key="k", brokers=("dhan", "kite")).validate()
+    except ValueError as exc:
+        assert "kite" in str(exc)
+    else:  # pragma: no cover - the assertion above must fail first
+        raise AssertionError("validate() accepted an unknown broker")
+
+
+def test_validate_rejects_non_positive_bounds():
+    for field_name in ("broker_workers", "stale_after_seconds", "max_subscriptions"):
+        try:
+            GatewayConfig(api_key="k", **{field_name: 0}).validate()
+        except ValueError as exc:
+            assert field_name.upper() in str(exc)
+        else:  # pragma: no cover - the assertion above must fail first
+            raise AssertionError(f"validate() accepted {field_name}=0")
 
 
 def test_validate_requires_key_off_loopback():

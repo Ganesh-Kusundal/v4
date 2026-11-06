@@ -10,7 +10,6 @@ from datetime import date
 from typing import Any
 
 from tradex_brokers.common.instruments import instrument_from_id
-from tradex_domain.enums import AssetClass
 from tradex_domain.instruments import Instrument, Option
 from tradex_domain.value_objects import InstrumentId
 
@@ -114,40 +113,6 @@ class InstrumentDirectory:
                 return value
         return None
 
-    def candidates(
-        self,
-        *,
-        asset_class: str | None = None,
-        limit: int = 1,
-    ) -> list[Instrument]:
-        """Instruments of *asset_class* known to any runtime (bounded by *limit*)."""
-        wanted = asset_class.strip().lower() if asset_class else None
-        found: list[Instrument] = []
-        seen: set[str] = set()
-        for runtime in self._runtimes.values():
-            if not runtime.available:
-                continue
-            universe = getattr(runtime.broker, "_universe", None)
-            items: Iterable[Instrument]
-            if callable(universe):
-                try:
-                    items = universe()
-                except Exception:  # noqa: BLE001 - universe is best effort
-                    continue
-            else:
-                continue
-            for instrument in items:
-                key = str(instrument.instrument_id)
-                if key in seen:
-                    continue
-                if wanted and str(instrument.asset_class.value).lower() != wanted:
-                    continue
-                seen.add(key)
-                found.append(instrument)
-                if len(found) >= limit:
-                    return found
-        return found
-
     def search(
         self,
         query: str,
@@ -228,12 +193,3 @@ class InstrumentDirectory:
             },
             "brokers": sorted(broker_list),
         }
-
-    @staticmethod
-    def asset_class_of(asset_class: str | None) -> AssetClass | None:
-        if asset_class is None:
-            return None
-        try:
-            return AssetClass(asset_class.strip().upper())
-        except ValueError:
-            return None

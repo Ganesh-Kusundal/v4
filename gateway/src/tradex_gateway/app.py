@@ -179,7 +179,7 @@ def _wire(app: FastAPI) -> None:
     app.state.router = router
     # The batch path gets the dedicated pool, not app.state.executor: batch()
     # is itself executed on the request pool by the route and blocks there.
-    app.state.history = HistoryService(directory, router, cfg, executor=app.state.batch_executor)
+    app.state.history = HistoryService(directory, router, executor=app.state.batch_executor)
     app.state.quotes = quotes
     app.state.depth = DepthService(directory, router, live_depth=hub.latest_depth)
     app.state.chains = ChainService(directory, router, quotes)

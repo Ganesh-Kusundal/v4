@@ -20,9 +20,7 @@ def _service(
     runtimes = {broker.name: BrokerRuntime(broker.name, broker) for broker in brokers}
     directory = InstrumentDirectory(runtimes)
     router = MarketDataRouter(gateway_config(), runtimes)
-    return HistoryService(
-        directory, router, gateway_config(), window_loader=loader, executor=executor
-    )
+    return HistoryService(directory, router, window_loader=loader, executor=executor)
 
 
 def test_datalake_hit_serves_without_broker():

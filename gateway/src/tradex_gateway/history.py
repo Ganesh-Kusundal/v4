@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from concurrent.futures import Executor
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -17,7 +17,6 @@ from tradex_domain.timezones import IST_ZONE
 from tradex_market_data.window_loader import MarketSource, MarketWindowLoader
 
 from tradex_gateway.cache import SingleFlight, TTLCache
-from tradex_gateway.config import GatewayConfig
 from tradex_gateway.directory import InstrumentDirectory
 from tradex_gateway.errors import BadRequest, GatewayError, UnsupportedTimeframe
 from tradex_gateway.router import MarketDataRouter
@@ -47,7 +46,6 @@ class HistoryService:
         self,
         directory: InstrumentDirectory,
         router: MarketDataRouter,
-        config: GatewayConfig,
         *,
         window_loader: MarketWindowLoader | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -55,7 +53,6 @@ class HistoryService:
     ) -> None:
         self._directory = directory
         self._router = router
-        self._config = config
         self._loader = window_loader
         self._clock = clock
         self._executor = executor
@@ -83,7 +80,6 @@ class HistoryService:
         if end_utc <= start_utc:
             raise BadRequest("'to' must be later than 'from'")
         resolved = self._directory.resolve(instrument_id)
-        instruments = resolved.per_broker
         instrument = resolved.instrument
         key = (
             str(resolved.instrument_id),
@@ -104,7 +100,6 @@ class HistoryService:
                 return {**cached, "cached": True}
             result = self._load(
                 instrument,
-                instruments,
                 tf,
                 start_utc,
                 end_utc,
@@ -179,7 +174,6 @@ class HistoryService:
     def _load(
         self,
         instrument: Instrument,
-        per_broker: Mapping[str, Instrument | None],
         tf: Timeframe,
         start: datetime,
         end: datetime,
@@ -192,7 +186,7 @@ class HistoryService:
             bars, datalake_source = self._from_datalake(instrument, tf, start, end)
             if bars:
                 if fill_gaps:
-                    bars = self._fill_tail(instrument, per_broker, tf, bars, end, preferred=broker)
+                    bars = self._fill_tail(instrument, tf, bars, end, preferred=broker)
                 return self._result(instrument, tf, start, end, bars, "datalake", None)
             if source == "datalake":
                 return self._result(instrument, tf, start, end, [], "none", None)
@@ -222,7 +216,6 @@ class HistoryService:
     def _fill_tail(
         self,
         instrument: Instrument,
-        per_broker: Mapping[str, Instrument | None],
         tf: Timeframe,
         bars: list[dict[str, Any]],
         end: datetime,

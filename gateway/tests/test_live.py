@@ -376,7 +376,9 @@ def test_depth_30_is_selected_by_capability_not_broker_name():
     async def scenario() -> None:
         broker = FakeBroker("custom", depth_levels=30)
         runtime = BrokerRuntime("custom", broker)
-        config = gateway_config(brokers=("custom",), primary_live="custom")
+        # Injected fakes: config validation (which only admits real brokers)
+        # is irrelevant here, this test is about capability-based selection.
+        config = dataclasses.replace(gateway_config(), brokers=("custom",), primary_live="custom")
         hub = LiveHub(
             config,
             MarketDataRouter(config, {"custom": runtime}),

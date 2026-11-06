@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_KNOWN_BROKERS = frozenset({"dhan", "upstox"})
 
 
 def _as_bool(value: str | None, default: bool = False) -> bool:
@@ -51,7 +52,6 @@ class GatewayConfig:
     stale_after_seconds: float = 15.0
     broker_workers: int = 8
     master_cache_dir: str | None = None
-    metadata: Mapping[str, str] = field(default_factory=dict)
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> GatewayConfig:
@@ -86,6 +86,9 @@ class GatewayConfig:
     def validate(self) -> GatewayConfig:
         if not self.brokers:
             raise ValueError("GATEWAY_BROKERS must name at least one broker")
+        unknown = sorted(set(self.brokers) - _KNOWN_BROKERS)
+        if unknown:
+            raise ValueError(f"unknown broker(s): {', '.join(unknown)}")
         if self.port <= 0 or self.port > 65535:
             raise ValueError(f"invalid port: {self.port}")
         if self.rest_rate_per_second <= 0:
@@ -94,6 +97,10 @@ class GatewayConfig:
             raise ValueError("GATEWAY_REST_BURST must be > 0")
         if self.max_subscriptions <= 0:
             raise ValueError("GATEWAY_MAX_SUBSCRIPTIONS must be > 0")
+        if self.stale_after_seconds <= 0:
+            raise ValueError("GATEWAY_STALE_AFTER_SECONDS must be > 0")
+        if self.broker_workers <= 0:
+            raise ValueError("GATEWAY_BROKER_WORKERS must be > 0")
         loopback = self.host in _LOOPBACK_HOSTS
         if not loopback and not self.api_key:
             raise ValueError("a non-loopback bind requires GATEWAY_API_KEY")
@@ -104,12 +111,14 @@ class GatewayConfig:
                 "GATEWAY_API_KEY is required (or set GATEWAY_ALLOW_ANON=true on loopback)"
             )
         # A primary that is not enabled silently falls back to the first broker.
-        object.__setattr__(self, "primary_live", self._enabled(self.primary_live))
-        object.__setattr__(self, "primary_quotes", self._enabled(self.primary_quotes))
-        object.__setattr__(self, "primary_history", self._enabled(self.primary_history))
-        object.__setattr__(self, "primary_depth", self._enabled(self.primary_depth))
-        object.__setattr__(self, "primary_chain", self._enabled(self.primary_chain))
-        return self
+        return replace(
+            self,
+            primary_live=self._enabled(self.primary_live),
+            primary_quotes=self._enabled(self.primary_quotes),
+            primary_history=self._enabled(self.primary_history),
+            primary_depth=self._enabled(self.primary_depth),
+            primary_chain=self._enabled(self.primary_chain),
+        )
 
     def _enabled(self, name: str) -> str:
         return name if name in self.brokers else self.brokers[0]
