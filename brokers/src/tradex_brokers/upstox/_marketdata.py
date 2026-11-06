@@ -229,6 +229,7 @@ class MarketDataMixin(Protocol):
         from tradex_domain.market_calendar import to_ist_naive
 
         start_ist = to_ist_naive(start) if start.tzinfo is not None else start
+        end_ist = to_ist_naive(end) if end.tzinfo is not None else end
         today_ist = to_ist_naive(datetime.now(UTC)).date()
         if start_ist.date() >= today_ist:
             return self.intraday_candles(instrument, timeframe)
@@ -236,8 +237,27 @@ class MarketDataMixin(Protocol):
         value = timeframe.value if isinstance(timeframe, Timeframe) else str(timeframe)
         unit, interval = _unit_interval(value)
         path = f"/historical-candle/{key}/{unit}/{interval}/{end.date()}/{start.date()}"
-        return self._fetch_candles(
+        series = self._fetch_candles(
             instrument, timeframe, path, "Upstox history", start=start, end=end
+        )
+        if end_ist.date() < today_ist:
+            return series
+        # The historical endpoint excludes the current session; the intraday
+        # endpoint is the only source for today. Merge both for a multi-day
+        # request that reaches into today (weekly intraday is unsupported).
+        try:
+            intraday = self.intraday_candles(instrument, timeframe)
+        except ValueError:
+            return series
+        merged = {candle.timestamp: candle for candle in series.candles}
+        merged.update({candle.timestamp: candle for candle in intraday.candles})
+        ordered = [merged[stamp] for stamp in sorted(merged)]
+        return HistoricalSeries(
+            instrument=instrument,
+            timeframe=series.timeframe,
+            candles=ordered,
+            start=start,
+            end=end,
         )
 
     def intraday_candles(

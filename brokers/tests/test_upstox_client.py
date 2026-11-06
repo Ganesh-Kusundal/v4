@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from support.fake_fetch import FakeFetch
+from tradex_domain import RateLimitConfig
 from tradex_domain.enums import (
     OrderSide,
     OrderStatus,
@@ -34,7 +35,6 @@ from tradex_domain.wire import InstrumentRegistry
 from tradex_brokers.common.client_shared import correlation_id
 from tradex_brokers.common.provider_common import instrument_from_id, parse_date
 from tradex_brokers.common.resilience import MultiBucketRateLimiter
-from tradex_domain import RateLimitConfig
 from tradex_brokers.common.ws_reconnect import WSReconnectManager
 from tradex_brokers.upstox.client import (
     UpstoxApiClient,
@@ -589,6 +589,21 @@ class TestMarketData:
         series = client.history(_equity(), Timeframe.D1, start, end)
         assert isinstance(series, HistoricalSeries)
         assert len(series.candles) == 2
+
+    def test_history_merges_today_from_intraday_for_multi_day_range(self):
+        now = datetime.now(UTC)
+        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%dT15:15:00+05:30")
+        today = now.strftime("%Y-%m-%dT15:20:00+05:30")
+        historical = {
+            "data": {"candles": [[yesterday, 100, 101, 99, 100.5, 1000, 0]]}
+        }
+        intraday = {"data": {"candles": [[today, 101, 102, 100, 101.5, 500, 0]]}}
+        client, _, _ = _make_client([historical, intraday])
+        series = client.history(
+            _equity(), Timeframe.M5, now - timedelta(days=2), now
+        )
+        assert len(series.candles) == 2
+        assert series.candles[-1].ohlc.close.value == 101.5
 
     def test_history_unsupported_timeframe(self):
         client, _, _ = _make_client()

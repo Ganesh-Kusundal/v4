@@ -506,6 +506,20 @@ class TestProviderCommon:
         result = future_chain_from_master([nfo], Index.of("IDX", "NIFTY"))
         assert len(result) == 1
 
+    def test_future_chain_from_master_equity_underlying_spans_product_exchange(
+        self,
+    ) -> None:
+        """NSE stock futures live on NFO; they must not be filtered out."""
+        from tradex_brokers.common.provider_common import future_chain_from_master
+
+        nfo = Future.of("NFO", "RELIANCE", date(2026, 11, 23))
+        bfo = Future.of("BFO", "RELIANCE", date(2026, 11, 23))
+        nse_com = Future.of("NSE_COMM", "RELIANCE", date(2026, 11, 23))
+        result = future_chain_from_master(
+            [nfo, bfo, nse_com], Equity.of("NSE", "RELIANCE")
+        )
+        assert [item.instrument_id.exchange for item in result] == ["NFO"]
+
     def test_build_instrument_from_row_equity(self) -> None:
         from tradex_brokers.common.provider_common import build_instrument_from_row
 

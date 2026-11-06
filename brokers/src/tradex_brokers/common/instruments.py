@@ -19,6 +19,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from tradex_domain import InstrumentNotFoundError, SDKError
+from tradex_domain.enums import AssetClass
 from tradex_domain.instruments import Equity, Future, Index, Instrument, Option
 from tradex_domain.options import OptionChain
 from tradex_domain.utils import as_decimal as _domain_as_decimal
@@ -178,6 +179,16 @@ def _underlying_matches(inst: Instrument, underlying: Instrument) -> bool:
         return False
     if underlying.instrument_id.exchange == "IDX":
         return True
+    if underlying.asset_class is AssetClass.EQUITY:
+        # Stock derivatives trade on the product exchange, not the cash one:
+        # NSE equities -> NFO, BSE equities -> BFO.
+        product_exchange = {"NSE": "NFO", "BSE": "BFO"}.get(
+            underlying.instrument_id.exchange
+        )
+        return inst_id.exchange in {
+            underlying.instrument_id.exchange,
+            product_exchange,
+        }
     return inst_id.exchange == underlying.instrument_id.exchange
 
 
@@ -185,8 +196,6 @@ def future_chain_from_master(
     instruments: Iterable[Instrument], underlying: Instrument
 ) -> list[Instrument]:
     """Future contracts on *underlying* derived from a loaded instrument master."""
-    from tradex_domain.enums import AssetClass
-
     matches = [
         inst
         for inst in instruments
