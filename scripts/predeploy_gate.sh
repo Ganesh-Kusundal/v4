@@ -36,6 +36,7 @@ packages = [
     "tradex_interfaces",
     "tradex_runtime",
     "duck_analytics",
+    "tradex_gateway",
 ]
 for name in packages:
     importlib.import_module(name)
