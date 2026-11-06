@@ -159,9 +159,9 @@ class CashLedger:
         THE single entry point by which a fill moves money (AC-21). One lock
         spans the ordered steps:
 
-        1. **Affordability proof** -- the notional (BUY only) plus the fee is
-           proved against the current balance, exactly as :meth:`require_debit`
-           does. This is the step
+        1. **Affordability proof** -- BUY: notional + fee against the current
+           balance; SELL: max(0, fee - notional) (sells self-fund from
+           proceeds), exactly as :meth:`require_debit` does. This is the step
            that used to run in a *separate* critical section from the debits
            that follow it, so two concurrent submits could both pass and both
            debit.
@@ -185,7 +185,12 @@ class CashLedger:
         """
         amount = fee.amount if isinstance(fee, Money) else Decimal(str(fee))
         notional = quantity.value * price.value
-        debit = (notional if side is OrderSide.BUY else Decimal(0)) + amount
+        # Net-proceeds proof (MP-3): a BUY is gated on notional + fee; a SELL
+        # only needs cash when the fee exceeds the proceeds (sells self-fund).
+        if side is OrderSide.BUY:
+            debit = notional + amount
+        else:
+            debit = max(Decimal(0), amount - notional)
         with self._lock:
             # Temporarily allow overdraft for adopted venue fills.
             saved_allow = self._allow_negative
