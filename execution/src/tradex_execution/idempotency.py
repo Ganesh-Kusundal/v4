@@ -63,13 +63,14 @@ class IdempotencyGuard(Protocol):
 class MemoryIdempotencyGuard:
     """In-process correlation-id dedupe with reservation + release."""
 
-    def __init__(self) -> None:
+    def __init__(self, max_completed: int = 10_000) -> None:
         self._reserved: set[str] = set()
-        self._completed: dict[str, Any] = {}
+        self._completed: OrderedDict[str, Any] = OrderedDict()
         #: Request-hash binding (N2): the hash recorded at reservation time
         #: (or at completion when the reservation never bound one).
         self._pending_hash: dict[str, str] = {}
         self._completed_hash: dict[str, str] = {}
+        self._max_completed = max_completed
         self._lock = threading.RLock()
 
     def _hash_mismatch(
@@ -111,9 +112,14 @@ class MemoryIdempotencyGuard:
         key = str(correlation_id.value)
         with self._lock:
             self._completed[key] = result
+            self._completed.move_to_end(key)
             if key in self._pending_hash:
                 self._completed_hash[key] = self._pending_hash.pop(key)
             self._reserved.discard(key)
+            # Bound the completed map: evict oldest beyond the cap.
+            while self._max_completed >= 0 and len(self._completed) > self._max_completed:
+                evicted_key, _ = self._completed.popitem(last=False)
+                self._completed_hash.pop(evicted_key, None)
 
     def release(self, correlation_id: CorrelationId) -> None:
         with self._lock:
