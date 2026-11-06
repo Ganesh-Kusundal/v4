@@ -251,7 +251,7 @@ Ownership collisions handled: `runtime/startup.py` is single-owner (Track M, add
 
 ### Task 22 (D2): CLAUDE.md/README pin-truth ⟂ D
 
-**Files:** Modify `CLAUDE.md` ("Chart UI" section: pin be7418e = v2.3.2 label; remove 2.1.7/2.1.8 mentions), `README.md` (TradeX wording: mention `gateway/` as external data plane + link to G2 doc; keep quick-start honest — no new claims), `docs/DIVERGENCE.md` (create: the twelve §4.3 divergences with owner=TBD/expiry=this-quarter row each).
+**Files:** Modify `CLAUDE.md` ("Chart UI" section: pin be7418e = v2.3.2 label; remove v2.3.2/v2.3.2 mentions), `README.md` (TradeX wording: mention `gateway/` as external data plane + link to G2 doc; keep quick-start honest — no new claims), `docs/DIVERGENCE.md` (create: the twelve §4.3 divergences with owner=TBD/expiry=this-quarter row each).
 
 - [ ] Steps: search-replace with exact pin label from `openalgo-charts.pin` → verify zero stale refs (`grep -nE '2\.1\.[78]' .`) → commit `docs: pin truth (v2.3.2); divergence ledger created`
 
