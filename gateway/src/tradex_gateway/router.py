@@ -31,8 +31,10 @@ log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# Ordered: the specific SDKError subclasses precede the SDKError catch-all, so a
-# rate limit keeps its 30 s window instead of collapsing into the generic 5 s.
+# Ordered policy table: entries are matched in order and the first match wins,
+# so the specific SDKError subclasses precede the SDKError catch-all (a rate
+# limit keeps its 30 s window instead of collapsing into the generic 5 s). The
+# SDKError entry must remain last: any entry added after it would be dead.
 _POLICIES: tuple[tuple[tuple[type[BaseException], ...], float], ...] = (
     ((RateLimitError,), 30.0),
     ((ConnectionTimeoutError, BrokerUnavailableError), 15.0),
@@ -110,7 +112,7 @@ class MarketDataRouter:
             except Exception as exc:  # noqa: BLE001 - isolate broker failures
                 cooldown = _cooldown_for(exc)
                 if cooldown is None:
-                    log.exception("unmapped broker failure for %s", capability)
+                    log.exception("unmapped broker failure on %s for %s", runtime.name, capability)
                     cooldown = _UNKNOWN_COOLDOWN
                 self._event("broker_failures_total")
                 health.record_failure(capability, cooldown, str(exc))

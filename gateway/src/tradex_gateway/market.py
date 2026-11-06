@@ -151,8 +151,8 @@ class QuoteService:
             )
         except CapabilityUnsupported:
             # A broker without batch support still answers per-instrument calls.
-            # Every other gateway error means the batch path was healthy enough
-            # to try and failed, so it propagates instead of fanning out.
+            # Any non-capability failure surfaces to the caller instead of
+            # being masked by N extra per-instrument calls.
             return self._quotes_individually(resolved, broker)
         quotes: dict[str, dict[str, Any]] = {}
         for quote in batch.values():

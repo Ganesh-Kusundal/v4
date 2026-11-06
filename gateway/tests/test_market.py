@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from gateway_support import FakeBroker, gateway_config, make_depth
-from tradex_domain.errors import RateLimitError
+from tradex_domain.errors import CapabilityNotSupportedError, RateLimitError
 from tradex_domain.instruments import Future, Option
 from tradex_gateway.brokers import BrokerRuntime
 from tradex_gateway.directory import InstrumentDirectory
@@ -23,6 +23,28 @@ def _setup(*brokers: FakeBroker):
     return directory, router
 
 
+def _batch_recording_then_failing(broker: FakeBroker, error: Exception):
+    """A ``quote_batch`` stand-in that records the attempt, then raises."""
+    record = broker.quote_batch
+
+    def fail(instruments):
+        record(instruments)
+        raise error
+
+    return fail
+
+
+def _quote_recording_then_failing(broker: FakeBroker, error: Exception):
+    """A ``get_quote`` stand-in that records the attempt, then raises."""
+    record = broker.get_quote
+
+    def fail(instrument):
+        record(instrument)
+        raise error
+
+    return fail
+
+
 def test_quote_and_batch_shapes():
     directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
     quotes = QuoteService(directory, router)
@@ -36,18 +58,36 @@ def test_quote_and_batch_shapes():
 
 def test_quote_batch_outage_does_not_fan_out():
     dhan, upstox = FakeBroker("dhan"), FakeBroker("upstox")
-
-    def outage(_instruments):
-        raise RateLimitError("429")
-
-    dhan.quote_batch = outage
-    upstox.quote_batch = outage
+    dhan.quote_batch = _batch_recording_then_failing(dhan, RateLimitError("429"))
+    upstox.quote_batch = _batch_recording_then_failing(upstox, RateLimitError("429"))
     directory, router = _setup(dhan, upstox)
     quotes = QuoteService(directory, router)
     with pytest.raises(NoHealthyBroker):
         quotes.quotes(["IDX:NIFTY"])
     for broker in (dhan, upstox):
+        # Both brokers were attempted and neither fell back to singles.
+        assert any(call[0] == "quote_batch" for call in broker.calls)
         assert all(call[0] != "get_quote" for call in broker.calls)
+
+
+def test_quote_batch_capability_gap_still_fans_out():
+    dhan, upstox = FakeBroker("dhan"), FakeBroker("upstox")
+    for broker in (dhan, upstox):
+        broker.quote_batch = _batch_recording_then_failing(
+            broker, CapabilityNotSupportedError("batch unsupported")
+        )
+    # The quotes primary cannot answer singles either, so the per-instrument
+    # fallback has to keep going and touch both adapters.
+    upstox.get_quote = _quote_recording_then_failing(
+        upstox, CapabilityNotSupportedError("quotes unsupported")
+    )
+    directory, router = _setup(dhan, upstox)
+    quotes = QuoteService(directory, router)
+    result = quotes.quotes(["IDX:NIFTY"])
+    assert isinstance(result, dict)
+    assert "IDX:NIFTY" in result["quotes"]
+    for broker in (dhan, upstox):
+        assert any(call[0] == "get_quote" for call in broker.calls)
 
 
 def test_depth_degrades_when_rest_cannot_deliver():
@@ -168,7 +208,8 @@ def test_chain_enrichment_prefers_the_chain_broker():
     ]
     directory, router = _setup(dhan, upstox)
     chain_service = ChainService(directory, router, QuoteService(directory, router))
-    chain_service.option_chain("IDX:NIFTY", live=True)
+    result = chain_service.option_chain("IDX:NIFTY", live=True)
+    assert result["live"] is True
     assert any(call[0] == "quote_batch" for call in dhan.calls)
     assert not any(call[0] == "quote_batch" for call in upstox.calls)
 
