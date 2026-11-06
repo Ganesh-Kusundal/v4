@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 
 from gateway_support import FakeBroker, equity, gateway_config, make_depth, make_quote
 from tradex_gateway.brokers import BrokerRuntime
@@ -70,6 +72,52 @@ def test_live_hub_refcounts_fans_out_and_fails_over():
         assert hub.status()["broker"] == "upstox"
         assert upstox.quote_sub_calls == 1
         assert upstox.depth_sub_calls == 1
+        hub.stop()
+
+    asyncio.run(scenario())
+
+
+def test_switch_does_not_block_quote_publish():
+    async def scenario() -> None:
+        class BlockingBroker(FakeBroker):
+            def __init__(self, name: str) -> None:
+                super().__init__(name)
+                self.entered = threading.Event()
+                self.release = threading.Event()
+                self.block = False
+
+            def subscribe_quotes(self, instruments, handler):
+                if self.block:
+                    self.entered.set()
+                    self.release.wait(2.0)
+                return super().subscribe_quotes(instruments, handler)
+
+        dhan, upstox = BlockingBroker("dhan"), FakeBroker("upstox")
+        runtimes = {
+            "dhan": BrokerRuntime("dhan", dhan),
+            "upstox": BrokerRuntime("upstox", upstox),
+        }
+        config = gateway_config()
+        directory = InstrumentDirectory(runtimes)
+        hub = LiveHub(config, MarketDataRouter(config, runtimes), directory, runtimes)
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        control: asyncio.Queue = asyncio.Queue()
+        hub.add_client("c1", loop, queue, control)
+        hub.subscribe("c1", ["NSE:RELIANCE"], "quote", 5)
+
+        dhan.block = True
+        switch = threading.Thread(target=lambda: hub._switch_to("dhan", reason="test"), daemon=True)
+        switch.start()
+        assert dhan.entered.wait(1.0)
+
+        started = time.monotonic()
+        hub._publish_quote(make_quote(equity()), "dhan")
+        assert time.monotonic() - started < 0.5
+
+        dhan.release.set()
+        switch.join(2.0)
+        assert hub.status()["broker"] == "dhan"
         hub.stop()
 
     asyncio.run(scenario())

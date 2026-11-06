@@ -151,6 +151,8 @@ class LiveHub:
         self._feed: _BrokerFeed | None = None
         self._last_tick: dict[str, float] = {}
         self._last_depth: dict[str, tuple[Depth, str]] = {}
+        # Serializes switches/teardown only; never held across broker I/O.
+        self._switch_lock = threading.RLock()
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._monitor: threading.Thread | None = None
@@ -425,57 +427,65 @@ class LiveHub:
         attempted = attempted | {broker_name}
         self._event("live_switches_total")
         self._broadcast({"op": "status", "state": "switching", "broker": broker_name})
-        with self._lock:
-            previous = self._active
-            if self._feed is not None:
-                self._feed.stop()
+        with self._switch_lock:
+            with self._lock:
+                previous = self._active
+                old_feed = self._feed
+                quotes, depths, levels = self._wanted()
                 self._feed = None
+                self._active = None
+
+            if old_feed is not None:
+                old_feed.stop()  # I/O outside the state lock
+
             runtime = self._runtimes.get(broker_name)
             if runtime is None or runtime.broker is None:
-                self._active = None
                 self._broadcast({"op": "status", "state": "halted", "broker": None})
                 return
+
             feed = _BrokerFeed(runtime, self)
-            quotes, depths, levels = self._wanted()
-            caps = runtime.capabilities
-            effective = min(levels, int(getattr(caps, "depth_levels", 0) or 5))
+            effective = min(levels, int(getattr(runtime.capabilities, "depth_levels", 0) or 5))
             try:
                 feed.sync_quotes(quotes)
                 if depths:
                     feed.sync_depth(depths, effective)
             except Exception as exc:  # noqa: BLE001 - try the other broker
                 runtime.health.record_failure("live", 15.0, str(exc))
-                self._active = None
-                self._feed = None
+                feed.stop()
                 target = self._other_broker(broker_name, exclude=attempted)
                 if target is not None:
                     self._switch_to(target, reason=reason, attempted=attempted)
                 else:
                     self._broadcast({"op": "status", "state": "halted", "broker": None})
                 return
-            self._feed = feed
-            self._active = broker_name
-        self._broadcast({"op": "status", "state": "ready", "broker": broker_name})
-        if previous is not None and previous != broker_name:
-            for key in {*quotes, *depths}:
-                self._broadcast(
-                    {
-                        "op": "gap",
-                        "instrument": key,
-                        "from_ms": None,
-                        "to_ms": int(time.time() * 1000),
-                        "reason": reason,
-                        "broker": broker_name,
-                    }
-                )
-        self._ensure_monitor()
+
+            with self._lock:
+                self._feed = feed
+                self._active = broker_name
+
+            self._broadcast({"op": "status", "state": "ready", "broker": broker_name})
+            if previous is not None and previous != broker_name:
+                for key in {*quotes, *depths}:
+                    self._broadcast(
+                        {
+                            "op": "gap",
+                            "instrument": key,
+                            "from_ms": None,
+                            "to_ms": int(time.time() * 1000),
+                            "reason": reason,
+                            "broker": broker_name,
+                        }
+                    )
+            self._ensure_monitor()
 
     def _stop_feed(self) -> None:
-        with self._lock:
-            if self._feed is not None:
-                self._feed.stop()
+        with self._switch_lock:
+            with self._lock:
+                feed = self._feed
                 self._feed = None
-            self._active = None
+                self._active = None
+            if feed is not None:
+                feed.stop()  # I/O outside the state lock
 
     # -- staleness monitor ------------------------------------------------
     def _ensure_monitor(self) -> None:
