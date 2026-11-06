@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -17,6 +18,7 @@ from typing import Any
 from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import TypeAdapter, ValidationError
 
 from tradex_gateway.auth import TokenBucket, check_api_key, identity_for
 from tradex_gateway.brokers import BrokerRuntime, build_runtimes
@@ -31,10 +33,20 @@ from tradex_gateway.errors import (
 from tradex_gateway.history import HistoryService
 from tradex_gateway.live import LiveHub
 from tradex_gateway.market import ChainService, DepthService, QuoteService
-from tradex_gateway.models import HistoryBatchRequest, QuotesRequest
+from tradex_gateway.models import (
+    ClientMessage,
+    HistoryBatchRequest,
+    PingMessage,
+    QuotesRequest,
+    StatusMessage,
+    SubscribeMessage,
+    UnsubscribeMessage,
+)
 from tradex_gateway.router import MarketDataRouter
 
 log = logging.getLogger(__name__)
+
+_CLIENT_MESSAGE: TypeAdapter[ClientMessage] = TypeAdapter(ClientMessage)
 
 
 class _Metrics:
@@ -338,37 +350,51 @@ def create_app(
 
         async def reader() -> None:
             while True:
-                message = await ws.receive_json()
-                op = message.get("op")
-                if op == "subscribe":
-                    ack = await ws.app.state.run(
-                        hub.subscribe,
-                        client_id,
-                        [str(item) for item in message.get("instruments", [])],
-                        str(message.get("mode", "quote")),
-                        int(message.get("levels", 5)),
-                    )
-                    await control.put(ack)
-                elif op == "unsubscribe":
-                    ack = await ws.app.state.run(
-                        hub.unsubscribe,
-                        client_id,
-                        message.get("instruments"),
-                        message.get("subscription_id"),
-                    )
-                    await control.put(ack)
-                elif op == "ping":
-                    await control.put({"op": "pong", "ts": _now_ms()})
-                elif op == "status":
-                    await control.put({"op": "status", **hub.status()})
-                else:
+                try:
+                    raw = await ws.receive_json()
+                except json.JSONDecodeError:
                     await control.put(
                         {
                             "op": "error",
                             "code": "invalid_request",
-                            "message": f"unknown op: {op!r}",
+                            "message": "invalid JSON",
                         }
                     )
+                    continue
+                try:
+                    message = _CLIENT_MESSAGE.validate_python(raw)
+                except ValidationError as exc:
+                    await control.put(
+                        {
+                            "op": "error",
+                            "code": "invalid_request",
+                            "message": exc.errors()[0]["msg"],
+                        }
+                    )
+                    continue
+
+                match message:
+                    case SubscribeMessage():
+                        ack = await ws.app.state.run(
+                            hub.subscribe,
+                            client_id,
+                            message.instruments,
+                            message.mode,
+                            message.levels,
+                        )
+                        await control.put(ack)
+                    case UnsubscribeMessage():
+                        ack = await ws.app.state.run(
+                            hub.unsubscribe,
+                            client_id,
+                            message.instruments,
+                            message.subscription_id,
+                        )
+                        await control.put(ack)
+                    case PingMessage():
+                        await control.put({"op": "pong", "ts": _now_ms()})
+                    case StatusMessage():
+                        await control.put({"op": "status", **hub.status()})
 
         writer_task = asyncio.create_task(writer())
         reader_task = asyncio.create_task(reader())

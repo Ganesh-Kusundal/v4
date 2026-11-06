@@ -1,8 +1,8 @@
-"""Pydantic request models for the gateway REST surface."""
+"""Pydantic request models for the gateway REST and WebSocket surfaces."""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -37,3 +37,17 @@ class UnsubscribeMessage(BaseModel):
     op: Literal["unsubscribe"]
     subscription_id: str | None = None
     instruments: list[str] | None = None
+
+
+class PingMessage(BaseModel):
+    op: Literal["ping"]
+
+
+class StatusMessage(BaseModel):
+    op: Literal["status"]
+
+
+ClientMessage = Annotated[
+    SubscribeMessage | UnsubscribeMessage | PingMessage | StatusMessage,
+    Field(discriminator="op"),
+]

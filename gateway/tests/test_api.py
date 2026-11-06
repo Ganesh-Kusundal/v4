@@ -10,6 +10,14 @@ from tradex_gateway.app import create_app
 from tradex_gateway.brokers import BrokerRuntime
 
 
+def _receive_op(ws, op: str, limit: int = 10) -> dict:
+    for _ in range(limit):
+        frame = ws.receive_json()
+        if frame.get("op") == op:
+            return frame
+    raise AssertionError(f"no {op!r} frame within {limit} frames")
+
+
 def _app(**overrides):
     dhan, upstox = FakeBroker("dhan"), FakeBroker("upstox")
 
@@ -131,6 +139,32 @@ def test_websocket_subscribe_and_ping():
                     pong = frame
                     break
             assert pong is not None
+
+
+def test_websocket_rejects_invalid_payload_and_stays_connected():
+    app, _, _ = _app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/v1/stream") as ws:
+            ws.receive_json()  # initial status
+            ws.send_text("not-json")
+            error = ws.receive_json()
+            assert error["op"] == "error"
+            assert error["code"] == "invalid_request"
+
+            ws.send_json(
+                {
+                    "op": "subscribe",
+                    "instruments": ["NSE:RELIANCE"],
+                    "mode": "quote",
+                    "levels": "bad",
+                }
+            )
+            error = ws.receive_json()
+            assert error["op"] == "error"
+            assert error["code"] == "invalid_request"
+
+            ws.send_json({"op": "ping"})
+            assert _receive_op(ws, "pong")["op"] == "pong"
 
 
 def test_search_resolve_chain_and_futures_include_lot_size():
