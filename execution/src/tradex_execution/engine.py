@@ -1043,20 +1043,18 @@ class ExecutionEngine:
         cannot be separated by a concurrent submit. One formula, two doors,
         one lock.
 
-        A SELL is gated on net proceeds: max(0, fee - notional), so a sell
-        whose proceeds cover its fee needs no idle cash (sells self-fund from
-        proceeds); only a fee larger than the proceeds is refused. BUY proof
-        is unchanged (notional + fee vs cash). It fails closed for BUYs and
-        for sells whose fee exceeds proceeds.
+        A SELL is held to its fee against the balance as it stands, before
+        this fill's own credit lands, so a sell out of an empty account is
+        refused on a fee its credit would have covered. That is the formula the
+        synchronous door has always used and it is reused verbatim rather than
+        re-decided per door; it fails closed, and it turns away only the case
+        where the account holds no cash at all.
         """
         if self._cash_ledger is None:
             return
         notional = fill.quantity.value * fill.price.value
-        if fill.side is OrderSide.BUY:
-            required = notional + charged_fee
-        else:
-            required = max(Decimal(0), charged_fee - notional)
-        self._cash_ledger.require_debit(required, f"fill {fill.order_id}")
+        debit = notional if fill.side is OrderSide.BUY else Decimal(0)
+        self._cash_ledger.require_debit(debit + charged_fee, f"fill {fill.order_id}")
 
     def _apply_fee(self, fill: Fill, charged: Decimal | None = None) -> None:
         """Deduct *fill*'s fee from the position's realized P&L and cash.
