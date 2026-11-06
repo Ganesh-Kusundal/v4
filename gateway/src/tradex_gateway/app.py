@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import threading
 import time
@@ -352,12 +351,17 @@ def create_app(
             while True:
                 try:
                     raw = await ws.receive_json()
-                except json.JSONDecodeError:
+                except (ValueError, KeyError, TypeError):
+                    # JSONDecodeError is a ValueError; a binary frame yields no
+                    # "text" key (KeyError) and an oversized int literal makes
+                    # json.loads raise plain ValueError. None of them may tear
+                    # down the connection. WebSocketDisconnect/RuntimeError are
+                    # deliberately left uncaught so teardown still propagates.
                     await control.put(
                         {
                             "op": "error",
                             "code": "invalid_request",
-                            "message": "invalid JSON",
+                            "message": "invalid frame",
                         }
                     )
                     continue

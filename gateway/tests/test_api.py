@@ -166,6 +166,22 @@ def test_websocket_rejects_invalid_payload_and_stays_connected():
             ws.send_json({"op": "ping"})
             assert _receive_op(ws, "pong")["op"] == "pong"
 
+            ws.send_bytes(b"x")
+            error = ws.receive_json()
+            assert error["op"] == "error"
+            assert error["code"] == "invalid_request"
+            ws.send_json({"op": "ping"})
+            assert _receive_op(ws, "pong")["op"] == "pong"
+
+            # An integer literal past CPython's 4300-digit limit makes json.loads
+            # raise a plain ValueError rather than JSONDecodeError.
+            ws.send_text("9" * 4301)
+            error = ws.receive_json()
+            assert error["op"] == "error"
+            assert error["code"] == "invalid_request"
+            ws.send_json({"op": "ping"})
+            assert _receive_op(ws, "pong")["op"] == "pong"
+
 
 def test_search_resolve_chain_and_futures_include_lot_size():
     app, dhan, _ = _app()
