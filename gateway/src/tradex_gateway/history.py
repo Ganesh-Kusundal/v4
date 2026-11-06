@@ -157,19 +157,20 @@ class HistoryService:
                 }
 
         if self._executor is None or not requests:
-            # Direct callers (unit tests) without a shared pool: run in order.
+            # Direct callers (unit tests) without a pool: run in order, here.
             for index, payload in enumerate(requests):
                 run(index, payload)
             return results
 
-        # The first item runs on the calling thread on purpose. batch() itself
-        # is executed inside this same bounded pool by the route, so a parent
-        # that only ever waits on queued children can occupy the last free
-        # worker and let its own children never start (pool-exhaustion hang).
-        run(0, requests[0])
+        # Every item goes to the injected executor, which is the dedicated
+        # batch pool and never the request pool. That separation is the whole
+        # safety argument: the route runs batch() itself on an
+        # app.state.executor worker and batch() blocks there, so children
+        # submitted into that pool would queue behind the very parents that
+        # wait for them and nothing would ever complete. Results stay
+        # index-aligned because each task writes its own slot.
         futures = [
-            self._executor.submit(run, index, payload)
-            for index, payload in enumerate(requests[1:], start=1)
+            self._executor.submit(run, index, payload) for index, payload in enumerate(requests)
         ]
         for future in futures:
             future.result()  # run() converts every exception into an envelope

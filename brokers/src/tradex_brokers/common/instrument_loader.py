@@ -44,7 +44,10 @@ from tradex_domain.instruments import Future, Instrument, Option
 from tradex_domain.value_objects import InstrumentId
 from tradex_domain.wire import InstrumentRegistry, normalize_symbol
 
-from tradex_brokers.common.instruments import build_instrument_from_row
+from tradex_brokers.common.instruments import (
+    build_instrument_from_row,
+    canonical_size_str,
+)
 from tradex_brokers.common.transport import Fetch
 
 DHAN_INSTRUMENT_MASTER_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
@@ -384,7 +387,7 @@ def load_mcx_rows(
             continue
         meta: dict[str, object] = {"asset_class": asset_class, "raw": dict(row)}
         if lot_text:
-            meta["lot_size"] = lot_text
+            meta["lot_size"] = canonical_size_str(lot_text)
         if sec_id:
             meta["key"] = f"MCX:{sec_id}"
         registry.register(instrument.instrument_id, meta)

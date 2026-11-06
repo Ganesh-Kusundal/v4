@@ -69,18 +69,24 @@ def as_price(value: object, default: str = "0") -> Price:
 def canonical_size_str(value: object) -> str:
     """Normalize a master size field (lot/tick size) to its canonical text form.
 
-    Integral numbers lose their float tail (``"500.0"`` -> ``"500"``,
-    ``"1.000"`` -> ``"1"``); everything else keeps its stripped text
-    (``"0.05"`` stays ``"0.05"``, non-numeric stays as-is). Never raises.
+    Integral numbers lose their float tail without ever passing through binary
+    floating point, so the digits survive exactly: ``"500.0"`` -> ``"500"``,
+    ``"1.000"`` -> ``"1"``, ``"9007199254740993"`` -> ``"9007199254740993"``
+    (a float round-trip would answer ``"...992"``) and ``"1e3"`` -> ``"1000"``.
+    Everything else keeps its stripped text: ``"0.05"`` stays ``"0.05"``, and
+    non-numeric, non-finite or over-precision input (``"abc"``, ``""``,
+    ``"nan"``, ``"1e30"``) stays as-is. Never raises.
     """
     text = str(value).strip()
     try:
-        number = float(text)
-    except ValueError:
+        number = Decimal(text)
+        if not number.is_finite() or number != number.to_integral_value():
+            return text
+        # quantize raises InvalidOperation past the context precision (the 31
+        # digits of "1e30"), which the handler below keeps as stripped text.
+        return str(number.quantize(Decimal(1)))
+    except (InvalidOperation, ValueError):
         return text
-    if number.is_integer():
-        return str(int(number))
-    return text
 
 
 def parse_date(value: object) -> date | None:

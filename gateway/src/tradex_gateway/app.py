@@ -64,6 +64,14 @@ def create_app(
         app.state.executor = ThreadPoolExecutor(
             max_workers=cfg.broker_workers, thread_name_prefix="gateway-broker"
         )
+        # History batches fan out here, never into app.state.executor: the
+        # batch route occupies a request-pool worker while it waits for its
+        # children, so children queued into that pool can never start once
+        # every request worker is a waiting parent (pool exhaustion, no
+        # timeout). This pool is long-lived and bounded like the request pool.
+        app.state.batch_executor = ThreadPoolExecutor(
+            max_workers=cfg.broker_workers, thread_name_prefix="gateway-batch"
+        )
         if app.state.runtimes is None:
             load_local_env()
             app.state.runtimes = await _run(app.state, build_runtimes, cfg)
@@ -74,11 +82,15 @@ def create_app(
             app.state.hub.stop()
             for runtime in app.state.runtimes.values():
                 runtime.close()
+            batch_executor = getattr(app.state, "batch_executor", None)
+            if batch_executor is not None:
+                batch_executor.shutdown(wait=False, cancel_futures=True)
             app.state.executor.shutdown(wait=False, cancel_futures=True)
 
     app = FastAPI(title="TradeX Broker Gateway", version="0.1.0", lifespan=lifespan)
     app.state.config = cfg
     app.state.runtimes = runtimes
+    app.state.batch_executor = None
     app.state.metrics = _Metrics()
     app.state.limiter = TokenBucket(cfg.rest_rate_per_second, cfg.rest_burst)
     app.state.run = partial(_run, app.state)
@@ -165,7 +177,9 @@ def _wire(app: FastAPI) -> None:
     hub = LiveHub(cfg, router, directory, runtimes, on_event=app.state.metrics.inc)
     app.state.directory = directory
     app.state.router = router
-    app.state.history = HistoryService(directory, router, cfg, executor=app.state.executor)
+    # The batch path gets the dedicated pool, not app.state.executor: batch()
+    # is itself executed on the request pool by the route and blocks there.
+    app.state.history = HistoryService(directory, router, cfg, executor=app.state.batch_executor)
     app.state.quotes = quotes
     app.state.depth = DepthService(directory, router, live_depth=hub.latest_depth)
     app.state.chains = ChainService(directory, router, quotes)

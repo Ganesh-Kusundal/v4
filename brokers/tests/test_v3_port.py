@@ -209,6 +209,7 @@ class TestDhanInstrumentsHelpers:
             {
                 "Symbol": "CRUDEOIL",
                 "Expiry": "2024-12-19",
+                "LotSize": "500.0",
                 "SecurityId": "12345",
             }
         ]
@@ -217,6 +218,10 @@ class TestDhanInstrumentsHelpers:
         assert len(instruments) == 1
         assert isinstance(instruments[0], Future)
         assert instruments[0].exchange.value == "MCX"
+        # The supplement path canonicalizes like every other provider row:
+        # a float-tailed lot size is stored as its integer text.
+        meta = registry.meta(instruments[0].instrument_id)
+        assert meta["lot_size"] == "500"
 
     def test_load_mcx_rows_option(self) -> None:
         from tradex_brokers.dhan.instruments import load_mcx_rows

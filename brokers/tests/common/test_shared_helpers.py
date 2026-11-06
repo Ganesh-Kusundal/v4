@@ -1,12 +1,16 @@
 """Shared response/value helpers in ``common/provider_common`` are the single
 source of truth (DRY). Broker clients alias these locally (``_as_price``,
 ``_unwrap_data``, ``_first_mapping``); this test guards against behavioral
-drift if a client re-introduces a divergent local copy.
+drift if a client re-introduces a divergent local copy. The same file holds
+the pure-helper tests for ``common.instruments`` (``canonical_size_str``),
+which every provider's size metadata runs through.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+
+import pytest
 
 from tradex_brokers.common.provider_common import (
     as_price,
@@ -57,3 +61,31 @@ def test_helper_imports_available_in_client_modules() -> None:
     # Importing the clients must not fail after dedup (regression guard).
     import tradex_brokers.dhan.client  # noqa: F401
     import tradex_brokers.upstox.client  # noqa: F401
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("500.0", "500"),
+        ("1.000", "1"),
+        ("500", "500"),
+        ("0.05", "0.05"),
+        ("2.5", "2.5"),
+        ("1e3", "1000"),
+        # Past 2**53 a float round-trip would answer ...992; the master text is
+        # kept digit-exact because nothing here passes through binary floats.
+        ("9007199254740993", "9007199254740993"),
+        ("  750.0  ", "750"),
+        # Unparseable / non-numeric input is returned stripped, never raised.
+        ("", ""),
+        ("abc", "abc"),
+        (None, "None"),
+        ("nan", "nan"),
+        ("Infinity", "Infinity"),
+        ("1e30", "1e30"),
+    ],
+)
+def test_canonical_size_str_is_digit_exact(value: object, expected: str) -> None:
+    from tradex_brokers.common.instruments import canonical_size_str
+
+    assert canonical_size_str(value) == expected

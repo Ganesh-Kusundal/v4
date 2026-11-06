@@ -141,7 +141,7 @@ class _RecordingExecutor:
         return self._inner.shutdown(*args, **kwargs)
 
 
-def test_batch_route_uses_the_shared_app_executor():
+def test_batch_route_fans_out_on_the_app_batch_executor():
     app, dhan, upstox = _app()
     worker_names: list[str] = []
 
@@ -180,14 +180,15 @@ def test_batch_route_uses_the_shared_app_executor():
         results = response.json()
         assert len(results) == 2
         assert all(item["bars"] for item in results)
-        # The route submits batch() once (one pool task per request) and every
-        # item runs on a worker of the shared app pool, whose threads carry the
-        # "gateway-broker" prefix. A per-request nested pool would have run the
-        # items on "ThreadPoolExecutor-…" threads instead; the service keeps
-        # the pool it was wired with, so only the route task hits the wrapper.
+        # The route submits batch() once (one request-pool task per HTTP call)
+        # and every item runs on a worker of the dedicated batch pool, whose
+        # threads carry the "gateway-batch" prefix. A per-request nested pool
+        # would have run them on "ThreadPoolExecutor-…" threads and the request
+        # pool's own "gateway-broker" threads are the ones that must stay free,
+        # because batch() itself occupies one of them while it waits.
         assert len(recorder.submitted) == 1
         assert len(worker_names) == 2
-        assert all(name.startswith("gateway-broker") for name in worker_names)
+        assert all(name.startswith("gateway-batch") for name in worker_names)
 
 
 def test_auth_required_when_configured():
