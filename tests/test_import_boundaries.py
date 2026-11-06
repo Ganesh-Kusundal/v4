@@ -65,7 +65,7 @@ _INTERNAL = {
 # package key → allowed internal imports (self always allowed separately)
 _ALLOWED: dict[str, set[str]] = {
     "domain": set(),
-    "brokers": {"tradex_domain"},
+    "brokers": {"tradex_domain", "tradex_config"},
     "config": {"tradex_domain"},
     "observability": set(),
     "analytics": {"tradex_domain"},
