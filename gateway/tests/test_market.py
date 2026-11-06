@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+import dataclasses
+from datetime import UTC, date, datetime, timedelta
 
 from gateway_support import FakeBroker, gateway_config, make_depth
 from tradex_domain.instruments import Future, Option
@@ -48,6 +49,23 @@ def test_depth_uses_live_cache_for_deep_books():
     assert result["source"] == "ws_cache"
     assert result["delivered_levels"] == 10
     assert result["degraded"] is False
+
+
+def test_depth_cache_older_than_ttl_falls_back_to_rest():
+    directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
+    stale = dataclasses.replace(
+        make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
+        timestamp=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    service = DepthService(
+        directory,
+        router,
+        live_depth=lambda _: (stale, "dhan"),
+        live_depth_ttl=5.0,
+    )
+    result = service.depth("IDX:NIFTY", 10)
+    assert result["source"] == "rest"
+    assert result["degraded"] is True
 
 
 def test_option_chain_defaults_to_nearest_expiry_and_caches():

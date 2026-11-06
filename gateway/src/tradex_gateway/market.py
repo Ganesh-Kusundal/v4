@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from tradex_domain.instruments import Option
@@ -171,6 +171,12 @@ class QuoteService:
         return {"quotes": quotes, "errors": errors}
 
 
+def _fresh(depth: Depth, now: datetime, ttl: float) -> bool:
+    if depth.timestamp is None:
+        return False
+    return (now - depth.timestamp).total_seconds() <= ttl
+
+
 class DepthService:
     def __init__(
         self,
@@ -178,10 +184,14 @@ class DepthService:
         router: MarketDataRouter,
         *,
         live_depth: Callable[[str], tuple[Depth, str] | None] | None = None,
+        live_depth_ttl: float = 5.0,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._directory = directory
         self._router = router
         self._live_depth = live_depth
+        self._live_depth_ttl = live_depth_ttl
+        self._clock = clock if clock is not None else lambda: datetime.now(UTC)
 
     def depth(
         self, instrument_id: str, levels: int = 5, broker: str | None = None
@@ -191,13 +201,14 @@ class DepthService:
             cached = self._live_depth(str(resolved.instrument_id))
             if cached is not None:
                 depth, active = cached
-                return depth_payload(
-                    depth,
-                    active,
-                    levels,
-                    source="ws_cache",
-                    degraded=len(depth.bids) < levels or len(depth.asks) < levels,
-                )
+                if _fresh(depth, self._clock(), self._live_depth_ttl):
+                    return depth_payload(
+                        depth,
+                        active,
+                        levels,
+                        source="ws_cache",
+                        degraded=len(depth.bids) < levels or len(depth.asks) < levels,
+                    )
         depth, name = self._router.call(
             "depth",
             lambda adapter: adapter.depth(resolved.instrument),
