@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from fastapi.testclient import TestClient
 from gateway_support import FakeBroker, gateway_config, make_candle
+from tradex_domain.instruments import Future, Option
 from tradex_domain.market import HistoricalSeries
 from tradex_gateway.app import create_app
 from tradex_gateway.brokers import BrokerRuntime
@@ -128,3 +131,32 @@ def test_websocket_subscribe_and_ping():
                     pong = frame
                     break
             assert pong is not None
+
+
+def test_search_resolve_chain_and_futures_include_lot_size():
+    app, dhan, _ = _app()
+    expiry = date.today() + timedelta(days=7)
+    future = Future.of("NFO", "NIFTY", date.today() + timedelta(days=17))
+    ce = Option.of("NFO", "NIFTY", expiry, 25000, "CE")
+    pe = Option.of("NFO", "NIFTY", expiry, 25000, "PE")
+    dhan.futures = [future]
+    dhan.registry.lot_sizes = {
+        "NSE:RELIANCE": 250,
+        str(ce.instrument_id): 75,
+        str(pe.instrument_id): 75,
+        str(future.instrument_id): 50,
+    }
+    with TestClient(app) as client:
+        search = client.get("/v1/instruments/search", params={"q": "REL"})
+        row = next(item for item in search.json() if item["instrument_id"] == "NSE:RELIANCE")
+        assert row["lot_size"] == 250
+        assert row["lot_size_by_broker"] == {"dhan": 250}
+
+        resolve = client.get("/v1/instruments/resolve", params={"q": "NSE:RELIANCE"})
+        assert resolve.json()["lot_size"] == 250
+
+        chain = client.get("/v1/option-chain/IDX:NIFTY")
+        assert chain.json()["strikes"][0]["ce"]["lot_size"] == 75
+
+        futures = client.get("/v1/futures/IDX:NIFTY")
+        assert futures.json()["futures"][0]["lot_size"] == 50

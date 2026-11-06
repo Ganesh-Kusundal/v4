@@ -27,8 +27,13 @@ class FakeClock:
 
 
 class FakeRegistry:
-    def __init__(self, mapping: dict[str, InstrumentId] | None = None) -> None:
+    def __init__(
+        self,
+        mapping: dict[str, InstrumentId] | None = None,
+        lot_sizes: dict[str, object] | None = None,
+    ) -> None:
         self.mapping = mapping or {}
+        self.lot_sizes = lot_sizes or {}
 
     def resolve(self, name: str) -> InstrumentId | None:
         if name in self.mapping:
@@ -37,6 +42,10 @@ class FakeRegistry:
             return InstrumentId.parse(name)
         except ValueError:
             return None
+
+    def meta(self, instrument_id: InstrumentId) -> dict[str, object]:
+        value = self.lot_sizes.get(str(instrument_id))
+        return {"lot_size": value} if value is not None else {}
 
 
 def equity(symbol: str = "RELIANCE") -> Equity:

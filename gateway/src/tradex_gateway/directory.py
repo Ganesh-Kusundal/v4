@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
@@ -45,6 +45,7 @@ class ResolvedInstrument:
     instrument: Instrument
     brokers: tuple[str, ...]
     per_broker: Mapping[str, Instrument | None]
+    lot_sizes: Mapping[str, int | None] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,10 +71,12 @@ class InstrumentDirectory:
     def resolve(self, text: str, asset_class: str | None = None) -> ResolvedInstrument:
         instrument_id = parse_canonical(text, asset_class)
         per_broker: dict[str, Instrument | None] = {}
+        lot_sizes: dict[str, int | None] = {}
         brokers: list[str] = []
         for name, runtime in self._runtimes.items():
             instrument = runtime.instrument(instrument_id)
             per_broker[name] = instrument
+            lot_sizes[name] = runtime.lot_size(instrument_id)
             if instrument is not None and runtime.available:
                 brokers.append(name)
         try:
@@ -87,10 +90,29 @@ class InstrumentDirectory:
             instrument=canonical,
             brokers=tuple(brokers),
             per_broker=per_broker,
+            lot_sizes=lot_sizes,
         )
 
     def instrument(self, text: str, asset_class: str | None = None) -> Instrument:
         return self.resolve(text, asset_class).instrument
+
+    def lot_size(self, instrument_id: InstrumentId | str, broker: str | None = None) -> int | None:
+        if isinstance(instrument_id, InstrumentId):
+            iid = instrument_id
+        else:
+            try:
+                iid = parse_canonical(str(instrument_id))
+            except BadRequest:
+                return None
+        names: list[str] = []
+        if broker and broker in self._runtimes:
+            names.append(broker)
+        names.extend(name for name in self._runtimes if name not in names)
+        for name in names:
+            value = self._runtimes[name].lot_size(iid)
+            if value is not None:
+                return value
+        return None
 
     def candidates(
         self,
@@ -142,11 +164,14 @@ class InstrumentDirectory:
                 key = str(instrument.instrument_id)
                 entry = merged.setdefault(
                     key,
-                    {"instrument": instrument, "brokers": set()},
+                    {"instrument": instrument, "brokers": set(), "lot_sizes": {}},
                 )
                 entry["brokers"].add(name)
+                lot_size = runtime.lot_size(instrument.instrument_id)
+                if lot_size is not None:
+                    entry["lot_sizes"][name] = lot_size
         rows = [
-            self.instrument_meta(entry["instrument"], sorted(entry["brokers"]))
+            self.instrument_meta(entry["instrument"], sorted(entry["brokers"]), entry["lot_sizes"])
             for entry in merged.values()
         ]
         rows.sort(key=lambda row: (row["asset_class"], row["instrument_id"]))
@@ -178,7 +203,17 @@ class InstrumentDirectory:
         return best
 
     @staticmethod
-    def instrument_meta(instrument: Instrument, brokers: Iterable[str] = ()) -> dict[str, Any]:
+    def instrument_meta(
+        instrument: Instrument,
+        brokers: Iterable[str] = (),
+        lot_sizes: Mapping[str, int | None] | None = None,
+    ) -> dict[str, Any]:
+        broker_list = list(brokers)
+        sizes = dict(lot_sizes or {})
+        resolved_lot_size = next(
+            (sizes[name] for name in broker_list if sizes.get(name) is not None),
+            None,
+        )
         return {
             "instrument_id": str(instrument.instrument_id),
             "symbol": instrument.symbol,
@@ -187,7 +222,11 @@ class InstrumentDirectory:
             "expiry": instrument.expiry.isoformat() if instrument.expiry else None,
             "strike": str(instrument.strike) if instrument.strike is not None else None,
             "right": instrument.option_type,
-            "brokers": sorted(brokers),
+            "lot_size": resolved_lot_size,
+            "lot_size_by_broker": {
+                name: value for name, value in sizes.items() if value is not None
+            },
+            "brokers": sorted(broker_list),
         }
 
     @staticmethod

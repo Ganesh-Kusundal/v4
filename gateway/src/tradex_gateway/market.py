@@ -75,7 +75,11 @@ def depth_payload(
     }
 
 
-def serialize_chain(chain: OptionChain, broker: str) -> dict[str, Any]:
+def serialize_chain(
+    chain: OptionChain,
+    broker: str,
+    lot_size_for: Callable[[Any], int | None] | None = None,
+) -> dict[str, Any]:
     expiries = chain.expiries()
     strikes: list[dict[str, Any]] = []
     for expiry in expiries:
@@ -83,8 +87,22 @@ def serialize_chain(chain: OptionChain, broker: str) -> dict[str, Any]:
             strikes.append(
                 {
                     "strike": str(pair.strike.value),
-                    "ce": {"instrument_id": str(pair.call.instrument_id)},
-                    "pe": {"instrument_id": str(pair.put.instrument_id)},
+                    "ce": {
+                        "instrument_id": str(pair.call.instrument_id),
+                        "lot_size": (
+                            lot_size_for(pair.call.instrument_id)
+                            if lot_size_for is not None
+                            else None
+                        ),
+                    },
+                    "pe": {
+                        "instrument_id": str(pair.put.instrument_id),
+                        "lot_size": (
+                            lot_size_for(pair.put.instrument_id)
+                            if lot_size_for is not None
+                            else None
+                        ),
+                    },
                 }
             )
     return {
@@ -238,7 +256,11 @@ class ChainService:
                 lambda adapter: adapter.get_option_chain(resolved.instrument, expiry_date),
                 preferred=broker,
             )
-            payload = serialize_chain(chain, name)
+            payload = serialize_chain(
+                chain,
+                name,
+                lot_size_for=lambda iid: self._directory.lot_size(iid, broker=name),
+            )
             if live:
                 payload = self._enrich(chain, payload)
             self._cache.put(key, payload, 10.0, now)
@@ -290,6 +312,7 @@ class ChainService:
                 {
                     "instrument_id": str(item.instrument_id),
                     "expiry": item.expiry.isoformat() if item.expiry else None,
+                    "lot_size": self._directory.lot_size(item.instrument_id, broker=name),
                 }
                 for item in futures
             ],

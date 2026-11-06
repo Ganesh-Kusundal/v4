@@ -17,6 +17,16 @@ from tradex_gateway.config import GatewayConfig
 CAPABILITIES = ("live", "quotes", "history", "depth", "chain", "instruments")
 
 
+def _coerce_lot_size(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return int(number) if number.is_integer() else None
+
+
 @dataclass
 class _HealthState:
     cooldown_until: float = 0.0
@@ -123,6 +133,18 @@ class BrokerRuntime:
             return list(self.broker.search(query))
         except Exception:  # noqa: BLE001 - search is best effort
             return []
+
+    def lot_size(self, instrument_id: InstrumentId) -> int | None:
+        if self.broker is None:
+            return None
+        registry = getattr(self.broker, "registry", None)
+        if registry is None:
+            return None
+        try:
+            meta = registry.meta(instrument_id)
+            return _coerce_lot_size(meta.get("lot_size"))
+        except Exception:  # noqa: BLE001 - metadata is best effort
+            return None
 
     def close(self) -> None:
         if self.broker is None:

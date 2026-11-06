@@ -75,3 +75,26 @@ def test_futures_are_master_derived():
     chain_service = ChainService(directory, router, QuoteService(directory, router))
     result = chain_service.futures("IDX:NIFTY")
     assert result["futures"][0]["expiry"] == expiry.isoformat()
+
+
+def test_option_chain_and_futures_include_lot_size():
+    expiry = date.today() + timedelta(days=7)
+    future = Future.of("NFO", "NIFTY", date.today() + timedelta(days=17))
+    ce = Option.of("NFO", "NIFTY", expiry, 25000, "CE")
+    pe = Option.of("NFO", "NIFTY", expiry, 25000, "PE")
+    dhan = FakeBroker("dhan")
+    dhan.futures = [future]
+    dhan.registry.lot_sizes = {
+        str(ce.instrument_id): 75,
+        str(pe.instrument_id): 75,
+        str(future.instrument_id): 50,
+    }
+    directory, router = _setup(dhan, FakeBroker("upstox"))
+    chain_service = ChainService(directory, router, QuoteService(directory, router))
+
+    chain = chain_service.option_chain("IDX:NIFTY")
+    assert chain["strikes"][0]["ce"]["lot_size"] == 75
+    assert chain["strikes"][0]["pe"]["lot_size"] == 75
+
+    futures = chain_service.futures("IDX:NIFTY")
+    assert futures["futures"][0]["lot_size"] == 50

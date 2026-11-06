@@ -206,7 +206,9 @@ def create_app(
     ) -> dict[str, Any]:
         resolved = await request.app.state.run(request.app.state.directory.resolve, q, asset_class)
         return {
-            **InstrumentDirectory.instrument_meta(resolved.instrument, resolved.brokers),
+            **InstrumentDirectory.instrument_meta(
+                resolved.instrument, resolved.brokers, resolved.lot_sizes
+            ),
             "per_broker": {
                 name: str(instrument.instrument_id) if instrument is not None else None
                 for name, instrument in resolved.per_broker.items()
