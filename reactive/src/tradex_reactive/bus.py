@@ -336,10 +336,11 @@ class ReactiveBus:
             self._safe_disposables.add(disp)
 
             class _TrackedDisposable:
-                __slots__ = ("_inner",)
+                __slots__ = ("_inner", "_safe_disposables")
 
-                def __init__(self, inner: Any) -> None:
+                def __init__(self, inner: Any, safe_disposables: set[Any]) -> None:
                     self._inner = inner
+                    self._safe_disposables = safe_disposables
 
                 def dispose(self) -> None:
                     try:
@@ -350,7 +351,7 @@ class ReactiveBus:
                 def __getattr__(self, name: str) -> Any:
                     return getattr(self._inner, name)
 
-            return _TrackedDisposable(disp)
+            return _TrackedDisposable(disp, self._safe_disposables)
 
         return rx.core.Observable(subscribe_core)
 
