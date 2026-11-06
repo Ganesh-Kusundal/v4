@@ -20,6 +20,7 @@ Every rule passes on the landed tree; this file is enforcement, not aspiration.
 from __future__ import annotations
 
 import ast
+import pytest
 import re
 import sys
 from pathlib import Path
@@ -412,3 +413,13 @@ def test_no_dict_route_bodies() -> None:
                     f"{node.name}({', '.join(bad_anns)})"
                 )
     assert not violations, "dict-typed route handler params/returns:\n" + "\n".join(violations)
+
+
+def test_gateway_in_coverage_list() -> None:
+    """The quality-gate workflow must keep ``tradex_gateway`` under the
+    coverage ratchet (grep-based guard)."""
+    workflow = _ROOT / ".github" / "workflows" / "quality-gate.yml"
+    text = workflow.read_text()
+    assert "tradex_gateway" in text, (
+        "tradex_gateway missing from the quality-gate coverage list"
+    )
