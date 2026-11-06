@@ -6,13 +6,13 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Executor
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 from tradex_config.broker_limits import BROKER_LIMITS
 from tradex_domain.enums import AssetClass, Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Candle, HistoricalSeries
-from tradex_domain.timeframe import TIMEFRAMES
+from tradex_domain.timeframe import TIMEFRAMES, interval_seconds
 from tradex_domain.timezones import IST_ZONE
 from tradex_market_data.window_loader import MarketSource, MarketWindowLoader
 
@@ -302,7 +302,7 @@ def _fetch_chunks(
     end: datetime,
 ) -> HistoricalSeries:
     candles: list[Candle] = []
-    step = timedelta(seconds=_tf_seconds(tf))
+    step = timedelta(seconds=interval_seconds(tf))
     max_history_days = getattr(getattr(broker, "capabilities", None), "max_history_days", None)
     for window_start, window_end in _windows(tf, start, end, max_history_days):
         series = broker.history(instrument, tf, window_start, window_end)
@@ -353,16 +353,12 @@ def _windows(
     return windows or [(start, end)]
 
 
-def _tf_seconds(tf: Timeframe) -> int:
-    return cast(int, TIMEFRAMES[tf.value]["seconds"])
-
-
 def _tf_millis(tf: Timeframe) -> int:
-    return _tf_seconds(tf) * 1000
+    return interval_seconds(tf) * 1000
 
 
 def _expected_bars(tf: Timeframe, start: datetime, end: datetime) -> int:
-    seconds = max(1, _tf_seconds(tf))
+    seconds = max(1, interval_seconds(tf))
     return max(1, int((end - start).total_seconds() // seconds) + 1)
 
 
