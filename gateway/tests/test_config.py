@@ -51,3 +51,24 @@ def test_token_bucket_refills():
     assert retry_after > 0
     clock.advance(1.0)
     assert bucket.consume("k")[0] is True
+
+
+def test_token_bucket_evicts_least_recently_used_key():
+    clock = FakeClock(0.0)
+    bucket = TokenBucket(rate=1.0, burst=1, max_keys=2, clock=clock)
+    bucket.consume("a")
+    bucket.consume("b")
+    bucket.consume("c")
+    assert len(bucket._buckets) == 2
+    assert "a" not in bucket._buckets
+
+
+def test_token_bucket_refreshes_recently_used_key():
+    clock = FakeClock(0.0)
+    bucket = TokenBucket(rate=1.0, burst=1, max_keys=2, clock=clock)
+    bucket.consume("a")
+    bucket.consume("b")
+    bucket.consume("a")
+    bucket.consume("c")
+    assert set(bucket._buckets) == {"a", "c"}
+    assert "b" not in bucket._buckets

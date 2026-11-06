@@ -373,6 +373,15 @@ class LiveHub:
                         quotes[key] = instrument
         return quotes, depths, levels
 
+    def _prune_state(self, wanted: set[str]) -> None:
+        with self._lock:
+            for key in list(self._last_tick):
+                if key not in wanted:
+                    self._last_tick.pop(key, None)
+            for key in list(self._last_depth):
+                if key not in wanted:
+                    self._last_depth.pop(key, None)
+
     def _choose_broker(self, depth_levels: int) -> tuple[str, int] | None:
         for runtime in self._router.order("live"):
             health = runtime.health
@@ -388,6 +397,7 @@ class LiveHub:
 
     def _rebalance(self) -> str | None:
         quotes, depths, levels = self._wanted()
+        self._prune_state(set(quotes) | set(depths))
         if not quotes and not depths:
             self._stop_feed()
             return None

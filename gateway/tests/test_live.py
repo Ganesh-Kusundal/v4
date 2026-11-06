@@ -290,6 +290,43 @@ def test_monitor_loop_survives_a_failing_cycle():
     assert len(calls) == 2
 
 
+def test_unsubscribe_prunes_hub_state():
+    async def scenario() -> None:
+        dhan = FakeBroker("dhan")
+        runtimes = {"dhan": BrokerRuntime("dhan", dhan)}
+        config = gateway_config()
+        hub = LiveHub(
+            config,
+            MarketDataRouter(config, runtimes),
+            InstrumentDirectory(runtimes),
+            runtimes,
+        )
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        control: asyncio.Queue = asyncio.Queue()
+        hub.add_client("c1", loop, queue, control)
+        hub.subscribe("c1", ["NSE:RELIANCE", "IDX:NIFTY"], "quote", 5)
+
+        depth = make_depth(equity())
+        for key in ("NSE:RELIANCE", "IDX:NIFTY"):
+            hub._last_tick[key] = 1.0
+            hub._last_depth[key] = CachedDepth(
+                depth=depth,
+                broker="dhan",
+                received_at=datetime.now(UTC),
+            )
+
+        hub.unsubscribe("c1", ["IDX:NIFTY"])
+
+        assert "IDX:NIFTY" not in hub._last_tick
+        assert "IDX:NIFTY" not in hub._last_depth
+        assert "NSE:RELIANCE" in hub._last_tick
+        assert "NSE:RELIANCE" in hub._last_depth
+        hub.stop()
+
+    asyncio.run(scenario())
+
+
 def test_latest_depth_carries_receipt_time_and_keeps_exchange_ts(monkeypatch):
     async def scenario() -> None:
         clock = FakeClock(1000.0)

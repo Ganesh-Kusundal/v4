@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -33,16 +34,21 @@ class TokenBucket:
 
     rate: float
     burst: int
+    max_keys: int = 10_000
     clock: Callable[[], float] = time.monotonic
-    _buckets: dict[str, _Bucket] = field(default_factory=dict)
+    _buckets: OrderedDict[str, _Bucket] = field(default_factory=OrderedDict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def consume(self, key: str, tokens: float = 1.0) -> tuple[bool, float]:
         now = float(self.clock())
         bucket = self._buckets.get(key)
         if bucket is None:
+            if len(self._buckets) >= self.max_keys:
+                self._buckets.popitem(last=False)
             bucket = _Bucket(tokens=float(self.burst), last=now)
             self._buckets[key] = bucket
+        else:
+            self._buckets.move_to_end(key)
         elapsed = max(0.0, now - bucket.last)
         bucket.tokens = min(float(self.burst), bucket.tokens + elapsed * self.rate)
         bucket.last = now

@@ -12,9 +12,10 @@ from tradex_domain.instruments import Option
 from tradex_domain.market import Depth, Quote
 from tradex_domain.options import OptionChain
 
+from tradex_gateway.cache import SingleFlight, TTLCache
 from tradex_gateway.directory import InstrumentDirectory, ResolvedInstrument
 from tradex_gateway.errors import BadRequest, GatewayError
-from tradex_gateway.history import _SingleFlight, _TTLCache, to_epoch_ms
+from tradex_gateway.history import to_epoch_ms
 from tradex_gateway.router import MarketDataRouter
 
 _QUOTE_BATCH = 500
@@ -248,8 +249,8 @@ class ChainService:
         self._router = router
         self._quotes = quotes
         self._clock = clock
-        self._cache = _TTLCache()
-        self._flight = _SingleFlight()
+        self._cache = TTLCache()
+        self._flight = SingleFlight()
 
     def option_chain(
         self,
@@ -270,7 +271,7 @@ class ChainService:
         cached = self._cache.get(key, now)
         if cached is not None:
             return {**cached, "cached": True}
-        with self._flight.lock_for(key):
+        with self._flight.lock(key):
             cached = self._cache.get(key, now)
             if cached is not None:
                 return {**cached, "cached": True}

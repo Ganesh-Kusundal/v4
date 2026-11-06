@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +16,7 @@ from tradex_domain.timeframe import TIMEFRAMES
 from tradex_domain.timezones import IST_ZONE
 from tradex_market_data.window_loader import MarketSource, MarketWindowLoader
 
+from tradex_gateway.cache import SingleFlight, TTLCache
 from tradex_gateway.config import GatewayConfig
 from tradex_gateway.directory import InstrumentDirectory
 from tradex_gateway.errors import BadRequest, GatewayError, UnsupportedTimeframe
@@ -42,41 +42,6 @@ def _to_utc(moment: datetime) -> datetime:
     return moment.astimezone(UTC)
 
 
-class _TTLCache:
-    def __init__(self, maxsize: int = 512) -> None:
-        self._maxsize = maxsize
-        self._entries: dict[tuple[Any, ...], tuple[float, Any]] = {}
-        self._lock = threading.Lock()
-
-    def get(self, key: tuple[Any, ...], now: float) -> Any | None:
-        with self._lock:
-            entry = self._entries.get(key)
-            if entry is None:
-                return None
-            expires_at, value = entry
-            if expires_at <= now:
-                self._entries.pop(key, None)
-                return None
-            return value
-
-    def put(self, key: tuple[Any, ...], value: Any, ttl: float, now: float) -> None:
-        with self._lock:
-            if len(self._entries) >= self._maxsize:
-                oldest = min(self._entries, key=lambda item: self._entries[item][0])
-                self._entries.pop(oldest, None)
-            self._entries[key] = (now + ttl, value)
-
-
-class _SingleFlight:
-    def __init__(self) -> None:
-        self._locks: dict[tuple[Any, ...], threading.Lock] = {}
-        self._guard = threading.Lock()
-
-    def lock_for(self, key: tuple[Any, ...]) -> threading.Lock:
-        with self._guard:
-            return self._locks.setdefault(key, threading.Lock())
-
-
 class HistoryService:
     def __init__(
         self,
@@ -92,8 +57,8 @@ class HistoryService:
         self._config = config
         self._loader = window_loader
         self._clock = clock
-        self._cache = _TTLCache()
-        self._flight = _SingleFlight()
+        self._cache = TTLCache()
+        self._flight = SingleFlight()
 
     def history(
         self,
@@ -131,7 +96,7 @@ class HistoryService:
         cached = self._cache.get(key, now)
         if cached is not None:
             return {**cached, "cached": True}
-        with self._flight.lock_for(key):
+        with self._flight.lock(key):
             cached = self._cache.get(key, now)
             if cached is not None:
                 return {**cached, "cached": True}
