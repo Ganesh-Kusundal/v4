@@ -5,6 +5,7 @@ from __future__ import annotations
 import hmac
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from tradex_gateway.config import GatewayConfig
@@ -32,7 +33,7 @@ class TokenBucket:
 
     rate: float
     burst: int
-    clock: object = time.monotonic
+    clock: Callable[[], float] = time.monotonic
     _buckets: dict[str, _Bucket] = field(default_factory=dict)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 

@@ -51,9 +51,7 @@ def test_live_hub_refcounts_fans_out_and_fails_over():
         dhan.quote_handlers[0](make_quote(equity(), ltp=101.0))
         await asyncio.sleep(0)
         assert second.get_nowait()["op"] == "quote"
-        removed = hub.unsubscribe(
-            "c2", subscription_id=second_ack["subscription_id"]
-        )
+        removed = hub.unsubscribe("c2", subscription_id=second_ack["subscription_id"])
         assert removed["unsubscribed"] == ["NSE:RELIANCE"]
         assert dhan.quote_sub_calls == 1
 

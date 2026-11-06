@@ -9,7 +9,7 @@ import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote
@@ -44,7 +44,10 @@ class _BrokerFeed:
     def __init__(self, runtime: BrokerRuntime, hub: LiveHub) -> None:
         self.runtime = runtime
         self.name = runtime.name
-        self.broker = runtime.broker
+        broker = runtime.broker
+        if broker is None:
+            raise ValueError(f"broker runtime {runtime.name} has no adapter")
+        self.broker = cast(Any, broker)
         self.hub = hub
         self._lock = threading.RLock()
         self._quotes: dict[str, Instrument] = {}
@@ -59,14 +62,8 @@ class _BrokerFeed:
 
     def sync_quotes(self, instruments: Mapping[str, Instrument]) -> None:
         with self._lock:
-            add = [
-                inst
-                for iid, inst in instruments.items()
-                if iid not in self._quotes
-            ]
-            remove = [
-                inst for iid, inst in self._quotes.items() if iid not in instruments
-            ]
+            add = [inst for iid, inst in instruments.items() if iid not in self._quotes]
+            remove = [inst for iid, inst in self._quotes.items() if iid not in instruments]
             if add:
                 if self._quote_sub is None:
                     self._quote_sub = self.broker.subscribe_quotes(add, self._quote_cb)
@@ -204,9 +201,7 @@ class LiveHub:
                 return _error("unknown_client", "client is not registered")
             added = [key for key in accepted if key not in client.subscriptions]
             if len(client.subscriptions) + len(added) > self._config.max_subscriptions:
-                return _error(
-                    "too_many_subscriptions", "subscription limit exceeded"
-                )
+                return _error("too_many_subscriptions", "subscription limit exceeded")
             client.instruments.update(resolved)
             for key in accepted:
                 client.subscriptions[key] = (mode, max(1, min(30, levels)))
@@ -296,9 +291,7 @@ class LiveHub:
             if subscription is None or subscription[0] != "depth":
                 continue
             levels = subscription[1]
-            payload = depth_payload(
-                depth, broker_name, levels, source="stream", degraded=False
-            )
+            payload = depth_payload(depth, broker_name, levels, source="stream", degraded=False)
             payload["op"] = "depth"
             payload["levels"] = payload["delivered_levels"]
             self._send(client, payload)
@@ -345,11 +338,7 @@ class LiveHub:
                 "broker": self._active,
                 "clients": len(self._clients),
                 "instruments": len(
-                    {
-                        key
-                        for client in self._clients.values()
-                        for key in client.subscriptions
-                    }
+                    {key for client in self._clients.values() for key in client.subscriptions}
                 ),
             }
 
@@ -391,9 +380,7 @@ class LiveHub:
             return None
         choice = self._choose_broker(levels if depths else 5)
         if choice is None:
-            self._broadcast(
-                {"op": "status", "state": "halted", "broker": None}
-            )
+            self._broadcast({"op": "status", "state": "halted", "broker": None})
             return None
         broker_name, effective_levels = choice
         if self._active != broker_name or self._feed is None:
@@ -437,9 +424,7 @@ class LiveHub:
             return
         attempted = attempted | {broker_name}
         self._event("live_switches_total")
-        self._broadcast(
-            {"op": "status", "state": "switching", "broker": broker_name}
-        )
+        self._broadcast({"op": "status", "state": "switching", "broker": broker_name})
         with self._lock:
             previous = self._active
             if self._feed is not None:
@@ -470,9 +455,7 @@ class LiveHub:
                 return
             self._feed = feed
             self._active = broker_name
-        self._broadcast(
-            {"op": "status", "state": "ready", "broker": broker_name}
-        )
+        self._broadcast({"op": "status", "state": "ready", "broker": broker_name})
         if previous is not None and previous != broker_name:
             for key in {*quotes, *depths}:
                 self._broadcast(
@@ -523,9 +506,7 @@ class LiveHub:
             if not last or now - max(last) <= self._config.stale_after_seconds:
                 continue
             stale_broker = self._active
-            self._runtimes[stale_broker].health.record_failure(
-                "live", 15.0, "stale feed"
-            )
+            self._runtimes[stale_broker].health.record_failure("live", 15.0, "stale feed")
             self._next_switch_at = now + 10.0
             target = self._other_broker(stale_broker)
             if target is not None:

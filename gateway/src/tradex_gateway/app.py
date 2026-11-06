@@ -49,8 +49,7 @@ class _Metrics:
     def render(self) -> str:
         with self._lock:
             rows = [
-                f"tradex_gateway_{name} {value}"
-                for name, value in sorted(self._counts.items())
+                f"tradex_gateway_{name} {value}" for name, value in sorted(self._counts.items())
             ]
         return "\n".join(rows) + "\n"
 
@@ -205,9 +204,7 @@ def create_app(
         q: str,
         asset_class: str | None = None,
     ) -> dict[str, Any]:
-        resolved = await request.app.state.run(
-            request.app.state.directory.resolve, q, asset_class
-        )
+        resolved = await request.app.state.run(request.app.state.directory.resolve, q, asset_class)
         return {
             **InstrumentDirectory.instrument_meta(resolved.instrument, resolved.brokers),
             "per_broker": {
@@ -241,13 +238,8 @@ def create_app(
         )
 
     @app.post("/v1/history/batch")
-    async def history_batch(
-        request: Request, payload: HistoryBatchRequest
-    ) -> list[dict[str, Any]]:
-        requests = [
-            item.model_dump()
-            for item in payload.requests
-        ]
+    async def history_batch(request: Request, payload: HistoryBatchRequest) -> list[dict[str, Any]]:
+        requests = [item.model_dump() for item in payload.requests]
         return await request.app.state.run(
             request.app.state.history.batch, requests, fill_gaps=payload.fill_gaps
         )
@@ -256,9 +248,7 @@ def create_app(
     async def quote(
         request: Request, instrument_id: str, broker: str | None = None
     ) -> dict[str, Any]:
-        return await request.app.state.run(
-            request.app.state.quotes.quote, instrument_id, broker
-        )
+        return await request.app.state.run(request.app.state.quotes.quote, instrument_id, broker)
 
     @app.post("/v1/quotes")
     async def quotes(
@@ -301,9 +291,7 @@ def create_app(
     async def futures(
         request: Request, underlying: str, broker: str | None = None
     ) -> dict[str, Any]:
-        return await request.app.state.run(
-            request.app.state.chains.futures, underlying, broker
-        )
+        return await request.app.state.run(request.app.state.chains.futures, underlying, broker)
 
     @app.get("/metrics")
     async def metrics(request: Request) -> PlainTextResponse:
@@ -402,9 +390,7 @@ def create_app(
 
 async def _run(state: Any, fn: Any, *args: Any, **kwargs: Any) -> Any:
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        state.executor, partial(fn, *args, **kwargs)
-    )
+    return await loop.run_in_executor(state.executor, partial(fn, *args, **kwargs))
 
 
 def _wire(app: FastAPI) -> None:
@@ -413,9 +399,7 @@ def _wire(app: FastAPI) -> None:
     directory = InstrumentDirectory(runtimes)
     router = MarketDataRouter(cfg, runtimes, on_event=app.state.metrics.inc)
     quotes = QuoteService(directory, router)
-    hub = LiveHub(
-        cfg, router, directory, runtimes, on_event=app.state.metrics.inc
-    )
+    hub = LiveHub(cfg, router, directory, runtimes, on_event=app.state.metrics.inc)
     app.state.directory = directory
     app.state.router = router
     app.state.history = HistoryService(directory, router, cfg)
@@ -433,9 +417,7 @@ def _caps(runtime: BrokerRuntime) -> dict[str, Any] | None:
         data = asdict(capabilities)
     except TypeError:
         return {
-            key: getattr(capabilities, key)
-            for key in dir(capabilities)
-            if not key.startswith("_")
+            key: getattr(capabilities, key) for key in dir(capabilities) if not key.startswith("_")
         }
     return {key: list(value) if isinstance(value, tuple) else value for key, value in data.items()}
 

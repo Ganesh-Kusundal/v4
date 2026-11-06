@@ -37,9 +37,7 @@ def test_validate_requires_key_off_loopback():
 
 
 def test_validate_normalizes_disabled_primary():
-    config = GatewayConfig(
-        api_key="k", brokers=("upstox",), primary_history="dhan"
-    ).validate()
+    config = GatewayConfig(api_key="k", brokers=("upstox",), primary_history="dhan").validate()
     assert config.primary_history == "upstox"
 
 

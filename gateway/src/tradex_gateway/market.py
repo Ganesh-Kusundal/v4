@@ -111,9 +111,7 @@ class QuoteService:
         )
         return quote_payload(quote, name)
 
-    def quotes(
-        self, instrument_ids: list[str], broker: str | None = None
-    ) -> dict[str, Any]:
+    def quotes(self, instrument_ids: list[str], broker: str | None = None) -> dict[str, Any]:
         resolved = [self._directory.resolve(item) for item in instrument_ids]
         instruments = [item.instrument for item in resolved]
         try:
@@ -146,9 +144,7 @@ class QuoteService:
         errors: dict[str, dict[str, Any]] = {}
         for item in resolved:
             try:
-                quotes[str(item.instrument_id)] = self.quote(
-                    str(item.instrument_id), broker
-                )
+                quotes[str(item.instrument_id)] = self.quote(str(item.instrument_id), broker)
             except GatewayError as exc:
                 errors[str(item.instrument_id)] = {
                     "code": exc.code,
@@ -227,9 +223,7 @@ class ChainService:
         if expiry_date is None:
             expiry_date = self._directory.nearest_expiry(resolved.instrument)
         if expiry_date is None:
-            raise BadRequest(
-                "expiry is required and no non-expired expiry could be derived"
-            )
+            raise BadRequest("expiry is required and no non-expired expiry could be derived")
         key = (str(resolved.instrument_id), expiry_date.isoformat(), live, broker)
         now = self._clock()
         cached = self._cache.get(key, now)
@@ -241,9 +235,7 @@ class ChainService:
                 return {**cached, "cached": True}
             chain, name = self._router.call(
                 "chain",
-                lambda adapter: adapter.get_option_chain(
-                    resolved.instrument, expiry_date
-                ),
+                lambda adapter: adapter.get_option_chain(resolved.instrument, expiry_date),
                 preferred=broker,
             )
             payload = serialize_chain(chain, name)
@@ -252,9 +244,7 @@ class ChainService:
             self._cache.put(key, payload, 10.0, now)
             return payload
 
-    def _enrich(
-        self, chain: OptionChain, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _enrich(self, chain: OptionChain, payload: dict[str, Any]) -> dict[str, Any]:
         legs: dict[str, dict[str, Any]] = {}
         instruments: list[Option] = []
         for expiry in chain.expiries():
@@ -266,9 +256,7 @@ class ChainService:
         for start in range(0, len(instruments), _QUOTE_BATCH):
             chunk = instruments[start : start + _QUOTE_BATCH]
             try:
-                batch, _ = self._router.call(
-                    "quotes", lambda adapter: adapter.quote_batch(chunk)
-                )
+                batch, _ = self._router.call("quotes", lambda adapter: adapter.quote_batch(chunk))
             except GatewayError:
                 continue
             for quote in batch.values():

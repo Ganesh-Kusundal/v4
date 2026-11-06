@@ -84,9 +84,7 @@ def test_auth_required_when_configured():
     with TestClient(app) as client:
         denied = client.get("/v1/quote/IDX:NIFTY")
         assert denied.status_code == 401
-        allowed = client.get(
-            "/v1/quote/IDX:NIFTY", headers={"X-API-Key": "secret"}
-        )
+        allowed = client.get("/v1/quote/IDX:NIFTY", headers={"X-API-Key": "secret"})
         assert allowed.status_code == 200
 
 

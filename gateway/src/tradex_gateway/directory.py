@@ -178,9 +178,7 @@ class InstrumentDirectory:
         return best
 
     @staticmethod
-    def instrument_meta(
-        instrument: Instrument, brokers: Iterable[str] = ()
-    ) -> dict[str, Any]:
+    def instrument_meta(instrument: Instrument, brokers: Iterable[str] = ()) -> dict[str, Any]:
         return {
             "instrument_id": str(instrument.instrument_id),
             "symbol": instrument.symbol,

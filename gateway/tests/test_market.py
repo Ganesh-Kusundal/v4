@@ -42,12 +42,8 @@ def test_depth_degrades_when_rest_cannot_deliver():
 
 def test_depth_uses_live_cache_for_deep_books():
     directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
-    cached = make_depth(
-        directory.resolve("IDX:NIFTY").instrument, levels=20
-    )
-    depth = DepthService(
-        directory, router, live_depth=lambda _: (cached, "dhan")
-    )
+    cached = make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20)
+    depth = DepthService(directory, router, live_depth=lambda _: (cached, "dhan"))
     result = depth.depth("IDX:NIFTY", 10)
     assert result["source"] == "ws_cache"
     assert result["delivered_levels"] == 10

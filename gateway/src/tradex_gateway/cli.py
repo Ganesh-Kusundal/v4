@@ -32,9 +32,7 @@ def main(argv: list[str] | None = None) -> int:
                 "available": runtime.available,
                 "error": runtime.error,
                 "capabilities": (
-                    asdict(runtime.capabilities)
-                    if runtime.capabilities is not None
-                    else None
+                    asdict(runtime.capabilities) if runtime.capabilities is not None else None
                 ),
             }
             for name, runtime in runtimes.items()

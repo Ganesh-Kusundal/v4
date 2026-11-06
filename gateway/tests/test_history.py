@@ -74,9 +74,7 @@ def test_unsupported_timeframe_resamples_from_fallback():
     upstox = FakeBroker("upstox")
     upstox.history_impl = history
     service = _service(FakeWindowLoader(()), FakeBroker("dhan"), upstox)
-    result = service.history(
-        "IDX:NIFTY", "30m", moment, moment + timedelta(minutes=30)
-    )
+    result = service.history("IDX:NIFTY", "30m", moment, moment + timedelta(minutes=30))
     assert result["timeframe"] == "30m"
     assert any(call[2] == "15m" for call in upstox.calls if call[0] == "history")
 
@@ -98,9 +96,7 @@ def test_fill_gaps_merges_broker_tail():
     upstox = FakeBroker("upstox")
     upstox.history_impl = history
     service = _service(loader, FakeBroker("dhan"), upstox)
-    result = service.history(
-        "NSE:RELIANCE", "1m", moment, end, fill_gaps=True
-    )
+    result = service.history("NSE:RELIANCE", "1m", moment, end, fill_gaps=True)
     assert result["source"] == "datalake"
     assert len(result["bars"]) == 2
 
@@ -136,9 +132,7 @@ def test_broker_bars_are_clipped_to_the_requested_window():
 
 def test_datalake_only_source_returns_empty_when_lake_misses():
     moment = datetime(2026, 11, 6, 9, 15, tzinfo=UTC)
-    service = _service(
-        FakeWindowLoader(()), FakeBroker("dhan"), FakeBroker("upstox")
-    )
+    service = _service(FakeWindowLoader(()), FakeBroker("dhan"), FakeBroker("upstox"))
     result = service.history(
         "NSE:RELIANCE",
         "1m",

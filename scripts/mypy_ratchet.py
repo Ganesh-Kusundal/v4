@@ -33,6 +33,7 @@ _TARGETS = (
     "market_data/src/tradex_market_data",
     "interfaces/src/tradex_interfaces",
     "runtime/src/tradex_runtime",
+    "gateway/src/tradex_gateway",
     "services/duckdb-analytics/src/duck_analytics",
 )
 

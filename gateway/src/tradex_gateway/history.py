@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from tradex_config.broker_limits import BROKER_LIMITS
 from tradex_domain.enums import AssetClass, Timeframe
@@ -156,11 +156,7 @@ class HistoryService:
 
         def run(index: int, payload: dict[str, Any]) -> None:
             try:
-                end = (
-                    _parse_moment(payload.get("to"))
-                    if payload.get("to")
-                    else datetime.now(UTC)
-                )
+                end = _parse_moment(payload.get("to")) if payload.get("to") else datetime.now(UTC)
                 start = (
                     _parse_moment(payload.get("from_"))
                     if payload.get("from_")
@@ -193,9 +189,7 @@ class HistoryService:
                     },
                 }
 
-        workers = min(
-            self._config.broker_workers, 8, max(1, len(requests))
-        )
+        workers = min(self._config.broker_workers, 8, max(1, len(requests)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for index, payload in enumerate(requests):
                 pool.submit(run, index, payload)
@@ -204,7 +198,7 @@ class HistoryService:
     def _load(
         self,
         instrument: Instrument,
-        per_broker: dict[str, Instrument | None],
+        per_broker: Mapping[str, Instrument | None],
         tf: Timeframe,
         start: datetime,
         end: datetime,
@@ -217,12 +211,8 @@ class HistoryService:
             bars, datalake_source = self._from_datalake(instrument, tf, start, end)
             if bars:
                 if fill_gaps:
-                    bars = self._fill_tail(
-                        instrument, per_broker, tf, bars, end, preferred=broker
-                    )
-                return self._result(
-                    instrument, tf, start, end, bars, "datalake", None
-                )
+                    bars = self._fill_tail(instrument, per_broker, tf, bars, end, preferred=broker)
+                return self._result(instrument, tf, start, end, bars, "datalake", None)
             if source == "datalake":
                 return self._result(instrument, tf, start, end, [], "none", None)
 
@@ -231,7 +221,7 @@ class HistoryService:
             lambda adapter: self._broker_series(adapter, instrument, tf, start, end),
             preferred=broker,
         )
-        bars = [_bar_dict(candle) for candle in series]
+        bars = [_bar_dict(candle) for candle in series.candles]
         return self._result(instrument, tf, start, end, bars, "broker", broker_name)
 
     def _from_datalake(
@@ -251,7 +241,7 @@ class HistoryService:
     def _fill_tail(
         self,
         instrument: Instrument,
-        per_broker: dict[str, Instrument | None],
+        per_broker: Mapping[str, Instrument | None],
         tf: Timeframe,
         bars: list[dict[str, Any]],
         end: datetime,
@@ -266,15 +256,13 @@ class HistoryService:
         try:
             series, _ = self._router.call(
                 "history",
-                lambda adapter: self._broker_series(
-                    adapter, instrument, tf, tail_start, end
-                ),
+                lambda adapter: self._broker_series(adapter, instrument, tf, tail_start, end),
                 preferred=preferred,
             )
         except GatewayError:
             return bars
         merged = {bar["t"]: bar for bar in bars}
-        for candle in series:
+        for candle in series.candles:
             bar = _bar_dict(candle)
             merged[bar["t"]] = bar
         return [merged[key] for key in sorted(merged)]
@@ -329,10 +317,7 @@ class HistoryService:
 
 
 def _datalake_eligible(instrument: Instrument) -> bool:
-    return (
-        instrument.asset_class is AssetClass.EQUITY
-        and str(instrument.exchange) == "NSE"
-    )
+    return instrument.asset_class is AssetClass.EQUITY and str(instrument.exchange) == "NSE"
 
 
 def _fetch_chunks(
@@ -343,7 +328,7 @@ def _fetch_chunks(
     end: datetime,
 ) -> HistoricalSeries:
     candles: list[Candle] = []
-    step = timedelta(seconds=int(TIMEFRAMES[tf.value]["seconds"]))
+    step = timedelta(seconds=_tf_seconds(tf))
     for window_start, window_end in _windows(tf, start, end):
         series = broker.history(instrument, tf, window_start, window_end)
         # Brokers widen an intraday request to the whole day; keep only bars
@@ -367,9 +352,7 @@ def _fetch_chunks(
     )
 
 
-def _windows(
-    tf: Timeframe, start: datetime, end: datetime
-) -> list[tuple[datetime, datetime]]:
+def _windows(tf: Timeframe, start: datetime, end: datetime) -> list[tuple[datetime, datetime]]:
     intraday = bool(TIMEFRAMES[tf.value]["intraday"])
     cap_days = BROKER_LIMITS.dhan_max_days if intraday else 3650
     # The chunk cap is broker-specific; the router may pick either broker, so
@@ -385,12 +368,16 @@ def _windows(
     return windows or [(start, end)]
 
 
+def _tf_seconds(tf: Timeframe) -> int:
+    return cast(int, TIMEFRAMES[tf.value]["seconds"])
+
+
 def _tf_millis(tf: Timeframe) -> int:
-    return int(TIMEFRAMES[tf.value]["seconds"]) * 1000
+    return _tf_seconds(tf) * 1000
 
 
 def _expected_bars(tf: Timeframe, start: datetime, end: datetime) -> int:
-    seconds = max(1, int(TIMEFRAMES[tf.value]["seconds"]))
+    seconds = max(1, _tf_seconds(tf))
     return max(1, int((end - start).total_seconds() // seconds) + 1)
 
 

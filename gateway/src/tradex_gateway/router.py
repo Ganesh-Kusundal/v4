@@ -52,9 +52,7 @@ class MarketDataRouter:
         self._lock = threading.Lock()
         self._event = on_event or (lambda _name: None)
 
-    def order(
-        self, capability: str, preferred: str | None = None
-    ) -> list[BrokerRuntime]:
+    def order(self, capability: str, preferred: str | None = None) -> list[BrokerRuntime]:
         names: list[str] = []
         if preferred and preferred in self._runtimes and preferred in self._config.brokers:
             names.append(preferred)
@@ -78,9 +76,7 @@ class MarketDataRouter:
         ordered = self.order(capability, preferred)
         if not ordered:
             self._event("no_healthy_broker_total")
-            raise NoHealthyBroker(
-                f"no broker is configured for {capability}", retry_after=None
-            )
+            raise NoHealthyBroker(f"no broker is configured for {capability}", retry_after=None)
         now = self._clock()
         last: BaseException | None = None
         attempted = False

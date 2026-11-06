@@ -43,7 +43,5 @@ def test_search_dedupes_and_lists_brokers():
 
 def test_nearest_expiry_uses_master():
     expiry = date.today() + timedelta(days=10)
-    directory = _directory(
-        FakeBroker("dhan", universe=[index(), option(expiry=expiry)])
-    )
+    directory = _directory(FakeBroker("dhan", universe=[index(), option(expiry=expiry)]))
     assert directory.nearest_expiry(index()) == expiry

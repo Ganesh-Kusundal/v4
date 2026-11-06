@@ -13,19 +13,14 @@ from load_harness import (
 
 
 def test_randomized_load_is_fault_tolerant_and_typed() -> None:
-    report = asyncio.run(
-        run_load(requests=300, concurrency=20, seed=1337, fail_rate=0.20)
-    )
+    report = asyncio.run(run_load(requests=300, concurrency=20, seed=1337, fail_rate=0.20))
     assert report["completed"] == 300
     assert report["transport_errors"] == 0
     assert report["statuses"].get("500", 0) == 0
     assert report["successes"] > 0
     assert report["brokers"]["dhan"]["calls"] > 0
     assert report["brokers"]["upstox"]["calls"] > 0
-    assert (
-        report["brokers"]["dhan"]["failures"]
-        + report["brokers"]["upstox"]["failures"]
-    ) > 0
+    assert (report["brokers"]["dhan"]["failures"] + report["brokers"]["upstox"]["failures"]) > 0
     assert report["duration_seconds"] < 120
 
 
@@ -38,9 +33,7 @@ def test_consumer_rate_limit_is_enforced() -> None:
 
 
 def test_live_hub_multiplexes_many_clients_onto_one_subscription() -> None:
-    report = asyncio.run(
-        run_hub_multiplexing(clients=50, instruments=9, seed=7)
-    )
+    report = asyncio.run(run_hub_multiplexing(clients=50, instruments=9, seed=7))
     assert report["upstream_subscribe_calls"] == 1
     assert report["upstox_subscribe_calls"] == 0
     assert report["clients_fanned_out"] == 50

@@ -11,12 +11,8 @@ from tradex_gateway.router import MarketDataRouter
 def _router(
     clock: FakeClock, *brokers: FakeBroker, primary_history: str = "upstox"
 ) -> MarketDataRouter:
-    runtimes = {
-        broker.name: BrokerRuntime(broker.name, broker, clock=clock) for broker in brokers
-    }
-    return MarketDataRouter(
-        gateway_config(primary_history=primary_history), runtimes, clock=clock
-    )
+    runtimes = {broker.name: BrokerRuntime(broker.name, broker, clock=clock) for broker in brokers}
+    return MarketDataRouter(gateway_config(primary_history=primary_history), runtimes, clock=clock)
 
 
 def test_primary_failure_fails_over_to_secondary():
@@ -65,9 +61,7 @@ def test_instrument_not_found_does_not_cool_down():
         "dhan": BrokerRuntime("dhan", dhan, clock=clock),
         "upstox": BrokerRuntime("upstox", upstox, clock=clock),
     }
-    router = MarketDataRouter(
-        gateway_config(primary_history="dhan"), runtimes, clock=clock
-    )
+    router = MarketDataRouter(gateway_config(primary_history="dhan"), runtimes, clock=clock)
     result, name = router.call("history", call)
     assert result == "ok"
     assert name == "upstox"

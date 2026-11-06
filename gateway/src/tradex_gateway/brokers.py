@@ -61,18 +61,14 @@ class BrokerHealth:
             state = self._states.setdefault(capability, _HealthState())
             state.consecutive_failures += 1
             state.last_error = message
-            state.cooldown_until = max(
-                state.cooldown_until, self._clock() + max(0.0, seconds)
-            )
+            state.cooldown_until = max(state.cooldown_until, self._clock() + max(0.0, seconds))
 
     def snapshot(self) -> dict[str, dict[str, Any]]:
         with self._lock:
             return {
                 capability: {
                     "available": self._clock() >= state.cooldown_until,
-                    "cooldown_seconds": round(
-                        max(0.0, state.cooldown_until - self._clock()), 3
-                    ),
+                    "cooldown_seconds": round(max(0.0, state.cooldown_until - self._clock()), 3),
                     "consecutive_failures": state.consecutive_failures,
                     "last_error": state.last_error,
                     "last_success": state.last_success,
@@ -158,7 +154,5 @@ def build_runtimes(
             broker.connect()
             runtimes[name] = BrokerRuntime(name, broker)
         except Exception as exc:  # noqa: BLE001 - one broker outage must not stop the gateway
-            runtimes[name] = BrokerRuntime(
-                name, None, error=f"{type(exc).__name__}: {exc}"
-            )
+            runtimes[name] = BrokerRuntime(name, None, error=f"{type(exc).__name__}: {exc}")
     return runtimes

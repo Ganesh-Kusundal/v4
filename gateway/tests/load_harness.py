@@ -90,9 +90,7 @@ class ChaosBroker:
             supports_option_chain=True,
             supports_future_chain=True,
             depth_levels=(
-                depth_levels
-                if depth_levels is not None
-                else (20 if name == "dhan" else 30)
+                depth_levels if depth_levels is not None else (20 if name == "dhan" else 30)
             ),
             max_stream_instruments=1000 if name == "dhan" else 500,
             supported_asset_classes=(
@@ -198,9 +196,7 @@ class ChaosBroker:
 
     def unsubscribe_instruments(self, instruments):
         with self._lock:
-            self.unsubscribed_instruments.extend(
-                str(item.instrument_id) for item in instruments
-            )
+            self.unsubscribed_instruments.extend(str(item.instrument_id) for item in instruments)
 
     def unsubscribe(self, subscription):
         return None
@@ -242,9 +238,7 @@ def build_app(
         "dhan": ChaosBroker("dhan", universe, fail_rate=fail_rate, seed=seed),
         "upstox": ChaosBroker("upstox", universe, fail_rate=fail_rate, seed=seed + 1),
     }
-    runtimes = {
-        name: BrokerRuntime(name, broker) for name, broker in brokers.items()
-    }
+    runtimes = {name: BrokerRuntime(name, broker) for name, broker in brokers.items()}
     config = gateway_config(
         primary_live="dhan",
         primary_quotes="dhan",
@@ -319,9 +313,7 @@ def _build_specs(
     return specs
 
 
-async def _request_once(
-    client: httpx.AsyncClient, spec: _Spec, now: datetime
-) -> httpx.Response:
+async def _request_once(client: httpx.AsyncClient, spec: _Spec, now: datetime) -> httpx.Response:
     kind, payload = spec.kind, spec.payload
     if kind == "quote":
         return await client.get(f"/v1/quote/{payload}")
@@ -342,9 +334,7 @@ async def _request_once(
         )
     if kind == "depth":
         instrument, levels = payload
-        return await client.get(
-            f"/v1/depth/{instrument}", params={"levels": levels}
-        )
+        return await client.get(f"/v1/depth/{instrument}", params={"levels": levels})
     if kind == "chain":
         underlying, live = payload
         return await client.get(
@@ -408,9 +398,7 @@ async def run_load(
 
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://gateway"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://gateway") as client:
 
             async def worker() -> None:
                 while True:
@@ -479,14 +467,10 @@ async def run_load(
 
 
 async def run_consumer_rate_limit(*, seed: int = 7) -> dict[str, Any]:
-    app, _, _ = build_app(
-        fail_rate=0.0, seed=seed, rest_rate=0.001, rest_burst=1
-    )
+    app, _, _ = build_app(fail_rate=0.0, seed=seed, rest_rate=0.001, rest_burst=1)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://gateway"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://gateway") as client:
             first = await client.get("/v1/quote/IDX:NIFTY")
             second = await client.get("/v1/quote/IDX:NIFTY")
     report = {
@@ -588,9 +572,7 @@ async def run_degraded_startup(*, seed: int = 11) -> dict[str, Any]:
     app = create_app(config, runtimes)
     async with app.router.lifespan_context(app):
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://gateway"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://gateway") as client:
             health = await client.get("/v1/health")
             quote = await client.get("/v1/quote/IDX:NIFTY")
     report = {
