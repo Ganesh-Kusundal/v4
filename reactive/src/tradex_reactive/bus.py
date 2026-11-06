@@ -36,10 +36,6 @@ def _ts(m: object) -> time | None:  # type: ignore[type-arg]
 #: ponytail: nested-delivery cap — a buggy subscriber that republishes forever
 #: must fail visibly (like the old RecursionError), not hang the bus silently.
 _MAX_NESTED_DELIVERIES = MAX_LOG_SIZE
-# ponytail: per-subscriber buffering removed — Subject is synchronous and
-# live concurrency uses ThreadSafeReactiveBus; add BoundedReactiveBus when measured.
-# Kept for backward compat with test import (deprecated stub):
-_backpressure_triggered: dict[int, bool] = {}  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # R2: Lane classification
