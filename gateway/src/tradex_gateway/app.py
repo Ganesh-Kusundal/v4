@@ -98,13 +98,16 @@ def create_app(
     @app.middleware("http")
     async def guard(request: Request, call_next):
         path = request.url.path
-        if path in {"/v1/health", "/metrics"} or not path.startswith("/v1/"):
+        if path == "/v1/health" or not (path.startswith("/v1/") or path == "/metrics"):
             return await call_next(request)
         provided = request.headers.get("x-api-key")
         try:
             check_api_key(provided, cfg)
         except GatewayError as exc:
             return _json(exc)
+        if path == "/metrics":
+            # Scrapes are authenticated but never consume consumer quota.
+            return await call_next(request)
         identity = identity_for(
             provided, request.client.host if request.client is not None else None
         )
@@ -144,7 +147,7 @@ def create_app(
             {
                 "error": {
                     "code": "internal_error",
-                    "message": str(exc),
+                    "message": "internal server error",
                     "broker": None,
                     "retryable": False,
                     "retry_after": None,

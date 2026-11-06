@@ -99,6 +99,47 @@ def test_auth_required_when_configured():
         assert allowed.status_code == 200
 
 
+def test_metrics_requires_api_key_when_configured():
+    app, _, _ = _app(api_key="secret", allow_anon=False)
+    with TestClient(app) as client:
+        assert client.get("/metrics").status_code == 401
+        assert client.get("/metrics", headers={"X-API-Key": "secret"}).status_code == 200
+
+
+def test_metrics_stays_open_when_anonymous_allowed():
+    app, _, _ = _app(api_key=None, allow_anon=True)
+    with TestClient(app) as client:
+        assert client.get("/metrics").status_code == 200
+
+
+def test_metrics_scrape_does_not_consume_consumer_quota():
+    app, _, _ = _app(api_key="secret", allow_anon=False, rest_rate_per_second=0.001, rest_burst=1)
+    with TestClient(app) as client:
+        for _ in range(5):
+            assert client.get("/metrics", headers={"X-API-Key": "secret"}).status_code == 200
+        assert client.get("/v1/quote/IDX:NIFTY", headers={"X-API-Key": "secret"}).status_code == 200
+        limited = client.get("/v1/quote/IDX:NIFTY", headers={"X-API-Key": "secret"})
+        assert limited.status_code == 429
+
+
+def test_500_does_not_leak_exception_text():
+    app, _, _ = _app()
+    # Starlette re-raises after the 500 handler writes its response; keep the
+    # client from re-raising so the handler-produced body can be inspected.
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.history.history = lambda *a, **k: (_ for _ in ()).throw(
+            RuntimeError("secret-internal-detail")
+        )
+        response = client.get(
+            "/v1/history/IDX:NIFTY",
+            params={"from": "2026-11-06T09:15:00Z", "to": "2026-11-06T09:16:00Z"},
+        )
+        assert response.status_code == 500
+        assert "secret-internal-detail" not in response.text
+        assert response.json()["error"]["code"] == "internal_error"
+        assert response.json()["error"]["message"] == "internal server error"
+
+
 def test_consumer_rate_limit_returns_429():
     app, _, _ = _app(rest_rate_per_second=0.001, rest_burst=1)
     with TestClient(app) as client:
