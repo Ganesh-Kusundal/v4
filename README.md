@@ -4,7 +4,7 @@ A broker-agnostic algorithmic trading platform for Indian markets (NSE, BSE, NFO
 MCX, CDS) with live adapters for **Dhan** and **Upstox**, plus a fully in-memory
 **Paper** broker for simulation and testing.
 
-The platform is built on a reactive (RxPY) spine with a 14-member `uv`
+The platform is built on a reactive (RxPY) spine with a 15-member `uv`
 workspace and an immutability-first domain model. Each package may import only
 the packages its declared boundary allows; that graph is enforced by
 `tests/test_import_boundaries.py` and the import-linter contracts in the root
@@ -14,7 +14,7 @@ the packages its declared boundary allows; that graph is enforced by
 
 ## Architecture
 
-A `uv` workspace of 14 installable packages. `tradex_domain` is the shared
+A `uv` workspace of 15 installable packages. `tradex_domain` is the shared
 kernel; no package may import upward past its declared boundary, enforced by
 `tests/test_import_boundaries.py` and the import-linter contracts in the root
 `pyproject.toml`.
@@ -35,6 +35,7 @@ kernel; no package may import upward past its declared boundary, enforced by
 | `interfaces/` | `tradex_interfaces` | FastAPI/WS routes and the `tradex` CLI |
 | `runtime/` | `tradex_runtime` | Composition root (`boot`), `TradingSession`, feed supervision |
 | `services/duckdb-analytics/` | `duck_analytics` | Read-only DuckDB service over the parquet datalake |
+| `gateway/` | `tradex_gateway` | Separate read-only data-plane service for an external app (see `docs/superpowers/specs/2026-11-06-broker-data-gateway-design.md`) |
 
 ### Key design decisions
 

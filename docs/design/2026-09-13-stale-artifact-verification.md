@@ -44,7 +44,7 @@ import { BUILTIN_INDICATORS } from
   "/Users/apple/Downloads/openalgo-charts-master/dist/openalgo-charts.indicators.mjs";
 ```
 
-That checkout is at **2.1.7**; the repo pins **2.1.8**. So every fixture the parity
+That checkout is at **v2.3.2**; the repo pins **v2.3.2**. So every fixture the parity
 suite treats as ground truth was a snapshot of a version nobody was running, and
 nothing could tell — the parity tests read the fixtures, never the library.
 
@@ -72,7 +72,7 @@ algorithm — relative path, NUL, bytes, NUL, in sorted path order — because
 ### 3. The capture was truncated
 
 The indicator generator captured only the series the descriptor *declares*
-(`d.plots`). At 2.1.8, `consolidation-breakout` declares `rangeHigh`/`rangeLow` and
+(`d.plots`). At v2.3.2, `consolidation-breakout` declares `rangeHigh`/`rangeLow` and
 also returns `breakUp`, `breakDown` and `insideAge` (hidden series the host paints
 through its tint hook). The golden lost them, and the parity gate — which iterates the
 *backend's* keys and looks each one up in the golden — died on a missing key, which
@@ -85,7 +85,7 @@ profile goldens).
 
 ### 4. What regenerating against the pin then revealed
 
-The 2.1.7 → 2.1.8 diff in the fixtures is real, and it is not "widget plumbing":
+The v2.3.2 → v2.3.2 diff in the fixtures is real, and it is not "widget plumbing":
 
 - **input defaults changed** — `sma.length` 20 → 9, `wma.length` 20 → 9,
   `stochastic.kSmoothing` 3 → 1, and new colour inputs appeared on many descriptors.
@@ -101,7 +101,7 @@ The 2.1.7 → 2.1.8 diff in the fixtures is real, and it is not "widget plumbing
   extremes in *trade* order exactly as the reference does (the trailing sum is not
   the same value as a sum over sorted cells, and min/max over an accumulator is
   order-sensitive).
-- **CLAUDE.md said the opposite.** "The 2.1.0 → 2.1.8 bump touched only widget/host
+- **CLAUDE.md said the opposite.** "The 2.1.0 → v2.3.2 bump touched only widget/host
   plumbing, so the fixtures stayed valid" — the fixtures were not valid, and that
   sentence is why nobody looked. Corrected there, with what to actually do.
 
@@ -152,7 +152,7 @@ copy is a second thing to forget to bump.
   edit is caught, but it cannot be reproduced from a checkout — worth knowing before
   treating it as a snapshot of anything.
 - **The backend's catalogue defaults still disagree with the pinned library**: the
-  catalogue offers `sma.length = 20` and `stochastic.kSmoothing = 3` where 2.1.8's
+  catalogue offers `sma.length = 20` and `stochastic.kSmoothing = 3` where v2.3.2's
   descriptors default to `9` and `1`. The parity gates do not see this, because they
   take their parameters from each golden's recorded settings. Changing what a default
   indicator computes is a user-visible decision, so it is reported here rather than
