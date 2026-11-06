@@ -375,3 +375,40 @@ def test_deleted_packages_stay_deleted() -> None:
         assert not (_ROOT / gone).is_dir(), (
             f"{gone}/ was re-created; it was deleted deliberately (REF-15)"
         )
+
+
+def test_no_dict_route_bodies() -> None:
+    """Spec 0003: route handlers under interfaces/routes must not take or
+    return bare ``dict`` bodies. Scan handler functions (those carrying a
+    route decorator) and report ``file:line`` on any violation."""
+    routes_dir = _ROOT / "interfaces/src/tradex_interfaces/routes"
+    # Contested owner-WIP modules are out of scope (Wave 2).
+    excluded = {"stream.py", "market_data.py"}
+    violations: list[str] = []
+    for path in sorted(routes_dir.glob("*.py")):
+        if path.name in excluded:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            decs = [ast.unparse(d) for d in node.decorator_list]
+            is_handler = any(
+                ("router." in d or "app." in d)
+                and any(m in d for m in (".get", ".post", ".put", ".delete", ".patch", ".websocket"))
+                for d in decs
+            )
+            if not is_handler:
+                continue
+            bad_anns: list[str] = []
+            for arg in node.args.args + node.args.kwonlyargs:
+                if arg.annotation is not None and "dict" in ast.dump(arg.annotation):
+                    bad_anns.append(f"{arg.arg}: {ast.unparse(arg.annotation)}")
+            if node.returns is not None and "dict" in ast.dump(node.returns):
+                bad_anns.append(f"-> {ast.unparse(node.returns)}")
+            if bad_anns:
+                violations.append(
+                    f"{path.relative_to(_ROOT)}:{node.lineno}: "
+                    f"{node.name}({', '.join(bad_anns)})"
+                )
+    assert not violations, "dict-typed route handler params/returns:\n" + "\n".join(violations)
