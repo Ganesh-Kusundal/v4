@@ -53,3 +53,46 @@ def test_bracket_extra_keys_rejected():
         headers={"Idempotency-Key": "k3"},
     )
     assert r.status_code == 422
+
+
+def test_live_order_gate_disabled():
+    from unittest.mock import MagicMock
+
+    session = MagicMock()
+    session.state = "READY"
+    session.mode = "live"
+    session.engine = MagicMock()
+    session.engine.all_orders.return_value = []
+    session._live_orders_enabled = False
+    client = TestClient(create_app(session=session))
+    r = client.post(
+        "/orders",
+        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
+        headers={"Idempotency-Key": "live-gate"},
+    )
+    assert r.status_code == 503
+    assert r.json()["error"]["code"] == "live_orders_disabled"
+
+
+def test_live_order_gate_enabled():
+    from unittest.mock import MagicMock
+
+    session = MagicMock()
+    session.state = "READY"
+    session.mode = "live"
+    session.engine = MagicMock()
+    session.engine.all_orders.return_value = []
+    session._live_orders_enabled = True
+    session.engine.submit.return_value = MagicMock(
+        order_id=MagicMock(value="o1"), status="SUBMITTED", message="ok"
+    )
+    client = TestClient(create_app(session=session))
+    app = client.app
+    app.state.live_orders_enabled = True
+    r = client.post(
+        "/orders",
+        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
+        headers={"Idempotency-Key": "live-gate-ok"},
+    )
+    # reaches engine (may fail later but not 503 live_orders_disabled)
+    assert r.status_code != 503 or r.json()["error"]["code"] != "live_orders_disabled"

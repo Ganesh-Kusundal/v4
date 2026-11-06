@@ -111,8 +111,9 @@ def test_ws_after_logout_session_cookie_is_rejected() -> None:
         ws.send_json({"type": "subscribe_bars",
                       "bars": [{"instrument": "NSE:TEST", "interval": "1m"}]})
         assert ws.receive_json()["type"] == "subscribed_bars"
-    # Revoke via logout
-    client.post("/auth/logout")
+    # Revoke via logout (CSRF required for session callers)
+    _csrf = client.get("/auth/session").json().get("csrf_token", "")
+    client.post("/auth/logout", headers={"X-CSRF-Token": _csrf, "Origin": "http://localhost:5173"})
     # Now the same cookie should be rejected
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/ws/stream") as ws:
