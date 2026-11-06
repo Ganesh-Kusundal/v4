@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -17,6 +18,15 @@ from tradex_gateway.history import _SingleFlight, _TTLCache, to_epoch_ms
 from tradex_gateway.router import MarketDataRouter
 
 _QUOTE_BATCH = 500
+
+
+@dataclass(frozen=True)
+class CachedDepth:
+    """A live book plus the hub receipt time used to judge its freshness."""
+
+    depth: Depth
+    broker: str
+    received_at: datetime
 
 
 def _price(value: Any) -> float | None:
@@ -171,10 +181,10 @@ class QuoteService:
         return {"quotes": quotes, "errors": errors}
 
 
-def _fresh(depth: Depth, now: datetime, ttl: float) -> bool:
-    if depth.timestamp is None or depth.timestamp.tzinfo is None:
+def _fresh(received_at: datetime | None, now: datetime, ttl: float) -> bool:
+    if received_at is None or received_at.tzinfo is None:
         return False
-    age = (now - depth.timestamp).total_seconds()
+    age = (now - received_at).total_seconds()
     return 0 <= age <= ttl
 
 
@@ -184,7 +194,7 @@ class DepthService:
         directory: InstrumentDirectory,
         router: MarketDataRouter,
         *,
-        live_depth: Callable[[str], tuple[Depth, str] | None] | None = None,
+        live_depth: Callable[[str], CachedDepth | None] | None = None,
         live_depth_ttl: float = 5.0,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -200,16 +210,17 @@ class DepthService:
         resolved = self._directory.resolve(instrument_id)
         if levels > 5 and self._live_depth is not None:
             cached = self._live_depth(str(resolved.instrument_id))
-            if cached is not None:
-                depth, active = cached
-                if _fresh(depth, self._clock(), self._live_depth_ttl):
-                    return depth_payload(
-                        depth,
-                        active,
-                        levels,
-                        source="ws_cache",
-                        degraded=len(depth.bids) < levels or len(depth.asks) < levels,
-                    )
+            if cached is not None and _fresh(
+                cached.received_at, self._clock(), self._live_depth_ttl
+            ):
+                depth = cached.depth
+                return depth_payload(
+                    depth,
+                    cached.broker,
+                    levels,
+                    source="ws_cache",
+                    degraded=len(depth.bids) < levels or len(depth.asks) < levels,
+                )
         depth, name = self._router.call(
             "depth",
             lambda adapter: adapter.depth(resolved.instrument),

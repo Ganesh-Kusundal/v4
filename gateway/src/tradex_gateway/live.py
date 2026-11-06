@@ -9,6 +9,7 @@ import time
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from tradex_domain.instruments import Instrument
@@ -17,7 +18,7 @@ from tradex_domain.market import Depth, Quote
 from tradex_gateway.brokers import BrokerRuntime
 from tradex_gateway.config import GatewayConfig
 from tradex_gateway.directory import InstrumentDirectory
-from tradex_gateway.market import depth_payload, quote_payload
+from tradex_gateway.market import CachedDepth, depth_payload, quote_payload
 from tradex_gateway.router import MarketDataRouter
 
 log = logging.getLogger(__name__)
@@ -150,13 +151,15 @@ class LiveHub:
         self._active: str | None = None
         self._feed: _BrokerFeed | None = None
         self._last_tick: dict[str, float] = {}
-        self._last_depth: dict[str, tuple[Depth, str]] = {}
-        # Serializes switches/teardown only; never held across broker I/O.
+        self._last_depth: dict[str, CachedDepth] = {}
+        # Serializes switches and teardown across threads; it may span broker
+        # calls. The state lock `_lock` is the one never held across broker I/O.
         self._switch_lock = threading.RLock()
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._monitor: threading.Thread | None = None
         self._next_switch_at = 0.0
+        self._stale_snapshot: set[str] = set()
 
     # -- client lifecycle -------------------------------------------------
     def add_client(
@@ -267,7 +270,11 @@ class LiveHub:
                 return
             self._last_tick[instrument_id] = self._clock()
             if quote.depth is not None:
-                self._last_depth[instrument_id] = (quote.depth, broker_name)
+                self._last_depth[instrument_id] = CachedDepth(
+                    depth=quote.depth,
+                    broker=broker_name,
+                    received_at=datetime.now(UTC),
+                )
             clients = list(self._clients.values())
         for client in clients:
             subscription = client.subscriptions.get(instrument_id)
@@ -286,7 +293,11 @@ class LiveHub:
             if broker_name != self._active:
                 return
             self._last_tick[instrument_id] = self._clock()
-            self._last_depth[instrument_id] = (depth, broker_name)
+            self._last_depth[instrument_id] = CachedDepth(
+                depth=depth,
+                broker=broker_name,
+                received_at=datetime.now(UTC),
+            )
             clients = list(self._clients.values())
         for client in clients:
             subscription = client.subscriptions.get(instrument_id)
@@ -329,7 +340,7 @@ class LiveHub:
         for client in clients:
             self._send(client, frame)
 
-    def latest_depth(self, instrument_id: str) -> tuple[Depth, str] | None:
+    def latest_depth(self, instrument_id: str) -> CachedDepth | None:
         with self._lock:
             return self._last_depth.get(instrument_id)
 
@@ -497,30 +508,51 @@ class LiveHub:
             )
             self._monitor.start()
 
+    def _stale_instruments(self, now: float, wanted: set[str]) -> list[str]:
+        return sorted(
+            key
+            for key in wanted
+            if now - self._last_tick.get(key, 0.0) > self._config.stale_after_seconds
+        )
+
+    def _monitor_cycle(self) -> None:
+        quotes, depths, _ = self._wanted()
+        wanted = set(quotes) | set(depths)
+        if not wanted:
+            return
+        now = self._clock()
+        stale = self._stale_instruments(now, wanted)
+        if set(stale) != self._stale_snapshot:
+            self._stale_snapshot = set(stale)
+            if stale:
+                self._broadcast(
+                    {
+                        "op": "status",
+                        "state": "degraded",
+                        "stale": stale,
+                        "broker": self._active,
+                    }
+                )
+        if len(stale) != len(wanted) or now < self._next_switch_at:
+            return
+        stale_broker = self._active
+        if stale_broker is None:
+            self._next_switch_at = now + 10.0
+            self._rebalance()
+            return
+        self._runtimes[stale_broker].health.record_failure("live", 15.0, "stale feed")
+        self._next_switch_at = now + 10.0
+        target = self._other_broker(stale_broker)
+        if target is not None:
+            self._switch_to(target, reason="stale_feed")
+
     def _monitor_loop(self) -> None:
         interval = max(1.0, min(2.0, self._config.stale_after_seconds / 3))
         while not self._stop.wait(interval):
-            quotes, depths, _ = self._wanted()
-            wanted = set(quotes) | set(depths)
-            if not wanted:
-                continue
-            now = self._clock()
-            if self._active is None:
-                if now >= self._next_switch_at:
-                    self._next_switch_at = now + 10.0
-                    self._rebalance()
-                continue
-            if now < self._next_switch_at:
-                continue
-            last = [self._last_tick.get(key, 0.0) for key in wanted]
-            if not last or now - max(last) <= self._config.stale_after_seconds:
-                continue
-            stale_broker = self._active
-            self._runtimes[stale_broker].health.record_failure("live", 15.0, "stale feed")
-            self._next_switch_at = now + 10.0
-            target = self._other_broker(stale_broker)
-            if target is not None:
-                self._switch_to(target, reason="stale_feed")
+            try:
+                self._monitor_cycle()
+            except Exception:  # noqa: BLE001
+                log.exception("live monitor iteration failed")
 
     def stop(self) -> None:
         self._stop.set()

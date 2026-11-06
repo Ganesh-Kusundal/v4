@@ -7,7 +7,8 @@ from gateway_support import FakeBroker, gateway_config, make_depth
 from tradex_domain.instruments import Future, Option
 from tradex_gateway.brokers import BrokerRuntime
 from tradex_gateway.directory import InstrumentDirectory
-from tradex_gateway.market import ChainService, DepthService, QuoteService
+from tradex_gateway.history import to_epoch_ms
+from tradex_gateway.market import CachedDepth, ChainService, DepthService, QuoteService
 from tradex_gateway.router import MarketDataRouter
 
 
@@ -43,24 +44,42 @@ def test_depth_degrades_when_rest_cannot_deliver():
 
 def test_depth_uses_live_cache_for_deep_books():
     directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
-    cached = make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20)
-    depth = DepthService(directory, router, live_depth=lambda _: (cached, "dhan"))
+    cached = CachedDepth(
+        depth=make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
+        broker="dhan",
+        received_at=datetime.now(UTC),
+    )
+    depth = DepthService(directory, router, live_depth=lambda _: cached)
     result = depth.depth("IDX:NIFTY", 10)
     assert result["source"] == "ws_cache"
     assert result["delivered_levels"] == 10
     assert result["degraded"] is False
 
 
+def test_depth_freshness_uses_receipt_time_not_exchange_timestamp():
+    directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
+    illiquid = dataclasses.replace(
+        make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
+        timestamp=datetime.now(UTC) - timedelta(hours=1),
+    )
+    cached = CachedDepth(depth=illiquid, broker="dhan", received_at=datetime.now(UTC))
+    service = DepthService(directory, router, live_depth=lambda _: cached)
+    result = service.depth("IDX:NIFTY", 10)
+    assert result["source"] == "ws_cache"
+    assert result["ts"] == to_epoch_ms(illiquid.timestamp)
+
+
 def test_depth_cache_older_than_ttl_falls_back_to_rest():
     directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
-    stale = dataclasses.replace(
-        make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
-        timestamp=datetime.now(UTC) - timedelta(minutes=1),
+    cached = CachedDepth(
+        depth=make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
+        broker="dhan",
+        received_at=datetime.now(UTC) - timedelta(minutes=1),
     )
     service = DepthService(
         directory,
         router,
-        live_depth=lambda _: (stale, "dhan"),
+        live_depth=lambda _: cached,
         live_depth_ttl=5.0,
     )
     result = service.depth("IDX:NIFTY", 10)
@@ -68,16 +87,17 @@ def test_depth_cache_older_than_ttl_falls_back_to_rest():
     assert result["degraded"] is True
 
 
-def test_depth_cache_with_naive_timestamp_falls_back_to_rest():
+def test_depth_cache_with_naive_receipt_time_falls_back_to_rest():
     directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
-    naive = dataclasses.replace(
-        make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
-        timestamp=datetime(2026, 11, 6, 9, 15),
+    cached = CachedDepth(
+        depth=make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
+        broker="dhan",
+        received_at=datetime(2026, 11, 6, 9, 15),
     )
     service = DepthService(
         directory,
         router,
-        live_depth=lambda _: (naive, "dhan"),
+        live_depth=lambda _: cached,
         live_depth_ttl=5.0,
     )
     result = service.depth("IDX:NIFTY", 10)
@@ -85,16 +105,17 @@ def test_depth_cache_with_naive_timestamp_falls_back_to_rest():
     assert result["degraded"] is True
 
 
-def test_depth_cache_with_future_timestamp_falls_back_to_rest():
+def test_depth_cache_with_future_receipt_time_falls_back_to_rest():
     directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
-    ahead = dataclasses.replace(
-        make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
-        timestamp=datetime.now(UTC) + timedelta(minutes=1),
+    cached = CachedDepth(
+        depth=make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
+        broker="dhan",
+        received_at=datetime.now(UTC) + timedelta(minutes=1),
     )
     service = DepthService(
         directory,
         router,
-        live_depth=lambda _: (ahead, "dhan"),
+        live_depth=lambda _: cached,
         live_depth_ttl=5.0,
     )
     result = service.depth("IDX:NIFTY", 10)
