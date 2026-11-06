@@ -701,11 +701,18 @@ def _boot_tail(
     # 6. Create execution engine
     live_fail_closed = cfg.mode == "live"
     durable_mode = cfg.mode in ("paper", "live") and event_store is not None
+    # MP-1: pass the durable fill dedup explicitly when a store is present.
+    _fill_dedup = None
+    if event_store is not None:
+        from tradex_execution.idempotency import DurableFillDedup
+
+        _fill_dedup = DurableFillDedup(event_store)
     engine = ExecutionEngine(
         bus=bus, fill_source=fill_source, risk_manager=risk_manager, metrics=metrics,
         idempotency_guard=guard, fee_calculator=fee_calculator,
         feed_supervisor=feed_supervisor,
         event_store=event_store,
+        fill_dedup=_fill_dedup,
         require_risk=live_fail_closed,
         require_feed=live_fail_closed,
         require_durable_events=durable_mode,
