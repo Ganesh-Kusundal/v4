@@ -20,6 +20,7 @@ Every rule passes on the landed tree; this file is enforcement, not aspiration.
 from __future__ import annotations
 
 import ast
+import pytest
 import re
 import sys
 from pathlib import Path
@@ -375,3 +376,14 @@ def test_deleted_packages_stay_deleted() -> None:
         assert not (_ROOT / gone).is_dir(), (
             f"{gone}/ was re-created; it was deleted deliberately (REF-15)"
         )
+
+
+@pytest.mark.xfail(reason="gate wiring lands in track G")
+def test_gateway_in_coverage_list() -> None:
+    """The quality-gate workflow must keep ``tradex_gateway`` under the
+    coverage ratchet (grep-based guard)."""
+    workflow = _ROOT / ".github" / "workflows" / "quality-gate.yml"
+    text = workflow.read_text()
+    assert "tradex_gateway" in text, (
+        "tradex_gateway missing from the quality-gate coverage list"
+    )
