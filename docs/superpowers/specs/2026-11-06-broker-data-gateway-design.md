@@ -130,8 +130,12 @@ does not mean the broker knows the instrument.
 Semantics:
 
 - History `from`/`to` (REST and batch) are ISO-8601 and must include a UTC
-  offset (`Z` or `±HH:MM`); naive timestamps are rejected with
-  `400 invalid_request`. Bar timestamps (`t`) remain epoch milliseconds UTC.
+  offset (`Z` or `±HH:MM`); naive timestamps are rejected with error code
+  `invalid_request`. `GET /v1/history/{instrument_id}` answers that error with
+  HTTP `400`. `POST /v1/history/batch` answers HTTP `200` under its per-item
+  partial-failure contract: only the affected item carries
+  `{"error":{"code":"invalid_request",…}}`, sibling items still succeed. Bar
+  timestamps (`t`) remain epoch milliseconds UTC.
 - History `source=auto`: NSE spot equity reads the datalake first;
   index/future/option and non-NSE equity go broker-direct. `source=datalake`
   never calls a broker; `source=broker` skips the datalake.

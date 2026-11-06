@@ -98,6 +98,31 @@ def test_naive_history_timestamps_are_rejected():
             params={"from": "2026-11-06T09:15:00", "to": "2026-11-06T09:16:00"},
         )
         assert response.status_code == 400
+        error = response.json()["error"]
+        assert error["code"] == "invalid_request"
+        assert "UTC offset" in error["message"]
+
+
+def test_naive_batch_history_timestamps_are_per_item_errors():
+    app, _, _ = _app()
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/history/batch",
+            json={
+                "requests": [
+                    {
+                        "instrument_id": "IDX:NIFTY",
+                        "from": "2026-11-06T09:15:00",
+                        "to": "2026-11-06T09:16:00",
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 200
+        item = response.json()[0]
+        assert item["instrument_id"] == "IDX:NIFTY"
+        assert item["error"]["code"] == "invalid_request"
+        assert "UTC offset" in item["error"]["message"]
 
 
 def test_auth_required_when_configured():
