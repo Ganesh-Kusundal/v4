@@ -56,7 +56,7 @@ async def get_positions(
 
 
 @router.get("/holdings", response_model=list)
-async def get_holdings(session: Any | None = Depends(get_session)) -> list[dict]:
+async def get_holdings(session: Any | None = Depends(get_session)) -> Any:
     """Get holdings (long-term positions)."""
     if session is None:
         raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)

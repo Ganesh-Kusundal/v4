@@ -47,14 +47,7 @@ def test_revision_conflict_409_and_force():
     # now revision 1 is stale
     conflict = client.put("/api/charts/workspace/lay", json={"data": {"v": 3}, "revision": 1})
     assert conflict.status_code == 409
-    detail = (
-        conflict.json()["detail"] if "detail" in conflict.json()
-        else conflict.json()["error"]["message"]
-    )
-    if isinstance(detail, dict):
-        assert detail["stored_revision"] == 2
-    else:
-        assert "2" in str(conflict.json())
+    assert conflict.json()["error"]["code"] == "stale_revision"
     forced = client.put(
         "/api/charts/workspace/lay", json={"data": {"v": 3}, "revision": 1, "force": True}
     )

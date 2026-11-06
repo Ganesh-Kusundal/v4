@@ -14,10 +14,13 @@ Migration note (Section 10 of the design):
 from __future__ import annotations
 
 import logging
+import os
 import secrets
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+
+from .deps import require_csrf_if_session
 
 from .session_store import SESSION_ABSOLUTE_TTL, InMemorySessionStore
 
@@ -33,11 +36,12 @@ _COOKIE_NAME = "tradex_session"
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _tls_enabled() -> bool:
+    return os.environ.get("TRADEX_TLS", "").strip().lower() in {"on", "1", "true", "yes"}
+
+
 def _set_session_cookie(response: Response, raw_id: str) -> None:
-    """Write the session cookie.  Never set Secure here — callers that are on
-    HTTPS must set it via a deployment reverse-proxy or a config flag (not yet
-    plumbed; ponytail: HTTP loopback only for now).
-    """
+    """Write the session cookie. ``Secure`` is set only when TRADEX_TLS is on."""
     response.set_cookie(
         key=_COOKIE_NAME,
         value=raw_id,
@@ -45,12 +49,14 @@ def _set_session_cookie(response: Response, raw_id: str) -> None:
         samesite="lax",
         path="/",
         max_age=int(SESSION_ABSOLUTE_TTL.total_seconds()),
-        secure=False,   # ponytail: loopback HTTP; upgrade to True for HTTPS
+        secure=_tls_enabled(),
     )
 
 
 def _clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(key=_COOKIE_NAME, path="/", httponly=True, samesite="lax")
+    response.delete_cookie(
+        key=_COOKIE_NAME, path="/", httponly=True, samesite="lax", secure=_tls_enabled()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -155,7 +161,7 @@ async def login(request: Request, response: Response) -> dict[str, Any]:
     }
 
 
-@router.post("/logout")
+@router.post("/logout", dependencies=[Depends(require_csrf_if_session)])
 async def logout(request: Request, response: Response) -> dict[str, Any]:
     """Revoke the current session and clear the session cookie.
 

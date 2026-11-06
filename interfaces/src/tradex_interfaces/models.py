@@ -10,6 +10,18 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
+# Re-export typed wire DTOs so callers can import them from either home.
+from tradex_interfaces.contracts import (  # noqa: F401
+    BacktestRequest,
+    BacktestResponse,
+    BracketOrderRequestDto,
+    OrderMutationResponse,
+    OrderUpdateRequest,
+    OrdersListResponse,
+    PlaceOrderRequest,
+    ScannerRunRequest,
+)
+
 
 class HealthResponse(BaseModel):
     model_config = ConfigDict(json_schema_extra={"exclude_none": True})

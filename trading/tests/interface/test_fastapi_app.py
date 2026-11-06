@@ -102,7 +102,7 @@ def test_place_order_no_session():
     client = TestClient(app)
     r = client.post(
         "/orders",
-        json={"symbol": "RELIANCE"},
+        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
         headers={"Idempotency-Key": "no-session-post"},
     )
     assert r.status_code == 503
@@ -276,7 +276,7 @@ def test_auth_no_key_configured():
     client = TestClient(app)
     r = client.post(
         "/orders",
-        json={"symbol": "RELIANCE"},
+        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
         headers={"Idempotency-Key": "post-missing-session-auth-test"},
     )
     assert r.status_code == 503
@@ -286,8 +286,8 @@ def test_auth_key_configured_rejects_missing():
     """When api_key is set, requests without the key should be rejected."""
     app = create_app(api_key="secret-key")
     client = TestClient(app)
-    r = client.post("/orders", json={"symbol": "RELIANCE"})
-    assert r.status_code == 403
+    r = client.post("/orders", json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1})
+    assert r.status_code == 401
 
 
 def test_auth_key_configured_rejects_wrong():
@@ -296,11 +296,11 @@ def test_auth_key_configured_rejects_wrong():
     client = TestClient(app)
     r = client.post(
         "/orders",
-        json={"symbol": "RELIANCE"},
+        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
         headers={"X-API-Key": "wrong", "Idempotency-Key": "post-auth-wrong"},
     )
-    assert r.status_code == 403
-    assert r.status_code == 403
+    assert r.status_code == 401
+    assert r.status_code == 401
 
 
 def test_auth_key_configured_accepts_correct():
@@ -309,7 +309,7 @@ def test_auth_key_configured_accepts_correct():
     client = TestClient(app)
     r = client.post(
         "/orders",
-        json={"symbol": "RELIANCE"},
+        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
         headers={"X-API-Key": "secret-key", "Idempotency-Key": "post-auth-ok"},
     )
     assert r.status_code == 503
@@ -334,7 +334,7 @@ def test_auth_get_endpoints_require_key_except_probes():
 
     # Data reads: refused without the key.
     for path in ("/orders", "/positions", "/holdings", "/account"):
-        assert client.get(path).status_code == 403, f"{path} was readable unauthenticated"
+        assert client.get(path).status_code == 401, f"{path} was readable unauthenticated"
 
     # ...and get past auth with it. Some of these then answer 400/404 with
     # "no session bound" because this app has no session, which is fine: the
@@ -349,7 +349,7 @@ def test_chart_data_routes_require_key_when_configured():
     app = create_app(api_key="secret-key")
     client = TestClient(app)
     for path in ("/api/charts/account", "/api/charts/book", "/api/charts/strategies"):
-        assert client.get(path).status_code == 403, f"{path} was readable unauthenticated"
+        assert client.get(path).status_code == 401, f"{path} was readable unauthenticated"
         r = client.get(path, headers={"X-API-Key": "secret-key"})
         assert r.status_code == 200, f"{path} rejected a valid key: {r.status_code}"
 
@@ -371,7 +371,7 @@ def test_auth_delete_requires_key():
         "/orders/abc",
         headers={"Idempotency-Key": "auth-delete"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 401
 
 
 def test_auth_put_requires_key():
@@ -383,7 +383,7 @@ def test_auth_put_requires_key():
         json={"qty": 1},
         headers={"Idempotency-Key": "auth-put"},
     )
-    assert r.status_code == 403
+    assert r.status_code == 401
 
 
 # ---------------------------------------------------------------------------

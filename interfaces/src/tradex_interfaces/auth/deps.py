@@ -121,7 +121,9 @@ def require_auth(request: Request) -> SessionRecord | None:
         if provided and secrets.compare_digest(str(provided), str(expected_key)):
             return None  # authenticated; no session record
         # Key is configured but didn't match → fail closed
-        raise HTTPException(status_code=403, detail="Invalid API key")
+        if not provided:
+            raise HTTPException(status_code=401, detail="auth_missing")
+        raise HTTPException(status_code=401, detail="auth_invalid")
 
     # --- dev/paper: no auth configured ---
     return None
