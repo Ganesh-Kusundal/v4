@@ -172,9 +172,10 @@ class QuoteService:
 
 
 def _fresh(depth: Depth, now: datetime, ttl: float) -> bool:
-    if depth.timestamp is None:
+    if depth.timestamp is None or depth.timestamp.tzinfo is None:
         return False
-    return (now - depth.timestamp).total_seconds() <= ttl
+    age = (now - depth.timestamp).total_seconds()
+    return 0 <= age <= ttl
 
 
 class DepthService:

@@ -68,6 +68,40 @@ def test_depth_cache_older_than_ttl_falls_back_to_rest():
     assert result["degraded"] is True
 
 
+def test_depth_cache_with_naive_timestamp_falls_back_to_rest():
+    directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
+    naive = dataclasses.replace(
+        make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
+        timestamp=datetime(2026, 11, 6, 9, 15),
+    )
+    service = DepthService(
+        directory,
+        router,
+        live_depth=lambda _: (naive, "dhan"),
+        live_depth_ttl=5.0,
+    )
+    result = service.depth("IDX:NIFTY", 10)
+    assert result["source"] == "rest"
+    assert result["degraded"] is True
+
+
+def test_depth_cache_with_future_timestamp_falls_back_to_rest():
+    directory, router = _setup(FakeBroker("dhan"), FakeBroker("upstox"))
+    ahead = dataclasses.replace(
+        make_depth(directory.resolve("IDX:NIFTY").instrument, levels=20),
+        timestamp=datetime.now(UTC) + timedelta(minutes=1),
+    )
+    service = DepthService(
+        directory,
+        router,
+        live_depth=lambda _: (ahead, "dhan"),
+        live_depth_ttl=5.0,
+    )
+    result = service.depth("IDX:NIFTY", 10)
+    assert result["source"] == "rest"
+    assert result["degraded"] is True
+
+
 def test_option_chain_defaults_to_nearest_expiry_and_caches():
     dhan = FakeBroker("dhan")
     expiry = date.today() + timedelta(days=7)
