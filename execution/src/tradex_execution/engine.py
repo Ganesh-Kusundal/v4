@@ -68,6 +68,7 @@ from tradex_execution.fees import (
 )
 from tradex_execution.fill_sources import FillSource
 from tradex_execution.idempotency import (
+    DurableFillDedup,
     FillDedup,
     IdempotencyDuplicate,  # noqa: F401 — re-exported for callers of engine
     IdempotencyGuard,
@@ -274,13 +275,25 @@ class ExecutionEngine:
         #: Bounded LRU dedup for applied fill events — re-published broker
         #: fills are skipped, distinct partial fills are each applied in full.
         #: Eviction is observable via the ``bus.applied_fills.evicted`` counter.
-        self._fill_dedup = fill_dedup if fill_dedup is not None else FillDedup(
-            max_size=applied_fills_max,
-            on_evict=lambda: (
-                self._metrics.counter("bus.applied_fills.evicted").inc()
-                if self._metrics is not None else None
-            ),
-        )
+        if fill_dedup is not None:
+            self._fill_dedup = fill_dedup
+        elif event_store is not None:
+            self._fill_dedup = DurableFillDedup(
+                store=event_store,
+                max_size=applied_fills_max,
+                on_evict=lambda: (
+                    self._metrics.counter("bus.applied_fills.evicted").inc()
+                    if self._metrics is not None else None
+                ),
+            )
+        else:
+            self._fill_dedup = FillDedup(
+                max_size=applied_fills_max,
+                on_evict=lambda: (
+                    self._metrics.counter("bus.applied_fills.evicted").inc()
+                    if self._metrics is not None else None
+                ),
+            )
         #: M2: side-table mapping each order_id to the CorrelationId reserved
         #: for it in the pipeline. Populated when ``check_and_reserve`` returns
         #: ``None`` (cid is fresh); consulted by ``cancel()`` so the cid is
@@ -1030,18 +1043,20 @@ class ExecutionEngine:
         cannot be separated by a concurrent submit. One formula, two doors,
         one lock.
 
-        A SELL is held to its fee against the balance as it stands, before
-        this fill's own credit lands, so a sell out of an empty account is
-        refused on a fee its credit would have covered. That is the formula the
-        synchronous door has always used and it is reused verbatim rather than
-        re-decided per door; it fails closed, and it turns away only the case
-        where the account holds no cash at all.
+        A SELL is gated on net proceeds: max(0, fee - notional), so a sell
+        whose proceeds cover its fee needs no idle cash (sells self-fund from
+        proceeds); only a fee larger than the proceeds is refused. BUY proof
+        is unchanged (notional + fee vs cash). It fails closed for BUYs and
+        for sells whose fee exceeds proceeds.
         """
         if self._cash_ledger is None:
             return
         notional = fill.quantity.value * fill.price.value
-        debit = notional if fill.side is OrderSide.BUY else Decimal(0)
-        self._cash_ledger.require_debit(debit + charged_fee, f"fill {fill.order_id}")
+        if fill.side is OrderSide.BUY:
+            required = notional + charged_fee
+        else:
+            required = max(Decimal(0), charged_fee - notional)
+        self._cash_ledger.require_debit(required, f"fill {fill.order_id}")
 
     def _apply_fee(self, fill: Fill, charged: Decimal | None = None) -> None:
         """Deduct *fill*'s fee from the position's realized P&L and cash.
@@ -1074,7 +1089,10 @@ class ExecutionEngine:
         if charged_fee > 0:
             self._position_manager.on_fee(fill, Money(amount=charged_fee))
 
-    def _apply_fill_effect(self, fill: Fill, charged_fee: Decimal) -> None:
+    def _apply_fill_effect(
+        self, fill: Fill, charged_fee: Decimal,
+        skip_proof: bool = False, allow_overdraft: bool = False,
+    ) -> None:
         """Apply one fill's whole effect -- position, notional, fee -- atomically.
 
         Delegates to ``CashLedger.apply_fill``, the single operation by which a
@@ -1103,6 +1121,8 @@ class ExecutionEngine:
             charged_fee,
             f"fill {fill.order_id}",
             book=lambda: self._book_position(fill, charged_fee),
+            skip_proof=skip_proof,
+            allow_overdraft=allow_overdraft,
         )
 
     def _make_order(self, request: OrderRequest, status: OrderStatus) -> Order:
@@ -1145,19 +1165,6 @@ class ExecutionEngine:
         one operation that cannot fail (AC-2).
         """
         fill = event.fill
-        # Membership is checked WITHOUT recording: the fingerprint is committed
-        # only after the durable write succeeds, so a failed write leaves the
-        # venue's identical retry free to be applied rather than looking like a
-        # duplicate forever.
-        if self._seen_applied_fill(fill):
-            # Re-published fingerprint (same fill_id, or same
-            # (order, side, qty, price) when no fill_id). Skip
-            # silently — this is the contract that protects the
-            # synchronous pipeline path from double-apply via
-            # the live-fill bridge, and protects the bridge from
-            # its own re-publishes.
-            return
-
         existing = self._cache.get_order(fill.order_id.value)
         if existing is not None and existing.status == OrderStatus.REJECTED:
             # REJECTED stays rejected — do not position-update.
@@ -1186,6 +1193,15 @@ class ExecutionEngine:
             else nullcontext()
         )
         with scope:
+            # Membership is checked WITHOUT recording: the fingerprint is committed
+            # only after the durable write succeeds, so a failed write leaves the
+            # venue's identical retry free to be applied rather than looking like a
+            # duplicate forever. Runs inside the ledger lock (when present) so the
+            # check->append->record window cannot be interleaved by another thread.
+            if self._seen_applied_fill(fill):
+                # Re-published fingerprint. Skip silently.
+                return
+            _unaffordable = False
             if not owns_projection:
                 # Prove affordability BEFORE booking anything, and BEFORE the two
                 # records below that would make this fill un-refusable. The debits
@@ -1213,8 +1229,34 @@ class ExecutionEngine:
                 try:
                     self._require_cash_for_fill(fill, charged_fee)
                 except ValueError as exc:
-                    self._bus.publish(ErrorOccurred(error=exc))
-                    raise
+                    # MP-4: a venue-confirmed fill that the local ledger deems
+                    # unaffordable is still history. Book it, flag it, never
+                    # drop it or raise into the bus's subscriber isolation.
+                    marker = f"unaffordable_venue_fill={fill.order_id.value}"
+                    flagged_exc = ValueError(f"{marker}: {exc}")
+                    self._bus.publish(ErrorOccurred(error=flagged_exc))
+                    if self._metrics is not None:
+                        self._metrics.counter("bus.fill.unadoptable").inc()
+                    try:
+                        from tradex_execution.reconciliation import (
+                            DriftItem,
+                            DriftSeverity,
+                        )
+
+                        self._bus.publish(
+                            DriftItem(
+                                kind="unaffordable_venue_fill",
+                                key=marker,
+                                severity=DriftSeverity.HIGH,
+                                reason=marker,
+                            )
+                        )
+                    except Exception:  # pragma: no cover - defensive
+                        pass
+                    # Mark for the booking step below to bypass the proof.
+                    _unaffordable = True
+                else:
+                    _unaffordable = False
             # Persist BEFORE mutating -- same invariant as the sync fill path, and
             # still ahead of the booking. It sits inside the ledger lock so the
             # whole proof->append->book sequence is atomic against other submitters.
@@ -1229,7 +1271,12 @@ class ExecutionEngine:
             if not owns_projection:
                 # Position, notional and fee as ONE operation under the same lock
                 # that proved affordability above (AC-21).
-                self._apply_fill_effect(fill, charged_fee)
+                if _unaffordable:
+                    self._apply_fill_effect(
+                        fill, charged_fee, skip_proof=True, allow_overdraft=True,
+                    )
+                else:
+                    self._apply_fill_effect(fill, charged_fee)
         with self._cid_for_order_lock:
             if existing is not None:
                 # Existing order (any non-rejected status). G3: a
