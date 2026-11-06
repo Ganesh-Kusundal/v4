@@ -24,6 +24,7 @@ testpaths = [
     # config's own tests were the omission, not its package.
     "config/tests",
     "services/duckdb-analytics/tests",
+    "gateway/tests",
 ]
 # Editable installs own extracted packages; pythonpath keeps composition + shims.
 pythonpath = [
@@ -41,6 +42,7 @@ pythonpath = [
     "interfaces/src",
     "runtime/src",
     "services/duckdb-analytics/src",
+    "gateway/src",
     "brokers/tests",
 ]
 filterwarnings = [
@@ -159,6 +161,7 @@ root_packages = [
     "tradex_analytics",
     "duck_analytics",
     "tradex_application",
+    "tradex_gateway",
 ]
 
 [[tool.importlinter.contracts]]
@@ -370,6 +373,21 @@ forbidden_modules = [
     "duck_analytics",
 ]
 
+[[tool.importlinter.contracts]]
+# Data-only composition root: it may sit above brokers/market_data/runtime but
+# must never reach into the trading app, execution, strategy or replay layers.
+name = "gateway layer"
+type = "forbidden"
+source_modules = ["tradex_gateway"]
+forbidden_modules = [
+    "tradex_interfaces",
+    "tradex_application",
+    "tradex_execution",
+    "tradex_strategy",
+    "tradex_replay",
+    "duck_analytics",
+]
+
 [tool.uv.workspace]
 members = [
     "domain",
@@ -398,6 +416,7 @@ members = [
     # the root suite. It is now a member, so `uv sync` installs it (below) and its
     # declared deps resolve from the root lock instead of a second one.
     "services/duckdb-analytics",
+    "gateway",
 ]
 
 [tool.uv.sources]
@@ -416,6 +435,7 @@ tradex-market-data = { workspace = true }
 tradex-interfaces = { workspace = true }
 tradex-runtime = { workspace = true }
 tradex-duckdb = { workspace = true }
+tradex-gateway = { workspace = true }
 
 [dependency-groups]
 dev = [
@@ -442,6 +462,7 @@ dev = [
     "tradex-market-data",
     "tradex-interfaces",
     "tradex-runtime",
+    "tradex-gateway",
     # Read-only DuckDB analytics service over the parquet datalake (MCP too).
     # In the dev group so `uv sync` installs it and services/duckdb-analytics/tests
     # is runnable from the root suite rather than only from its own directory.

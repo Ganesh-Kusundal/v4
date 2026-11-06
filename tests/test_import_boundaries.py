@@ -25,6 +25,7 @@ _SRC = {
     "market_data": _ROOT / "market_data/src",
     "interfaces": _ROOT / "interfaces/src",
     "runtime": _ROOT / "runtime/src",
+    "gateway": _ROOT / "gateway/src",
 }
 
 _INTERNAL = {
@@ -52,6 +53,7 @@ _INTERNAL = {
     "tradex_market_data",
     "tradex_interfaces",
     "tradex_runtime",
+    "tradex_gateway",
 }
 # ``operations`` (``tradex_operations`` — a docs-path index) and ``persistence``
 # (``tradex_persistence`` — a re-export shim over ``tradex_execution``) had zero
@@ -113,6 +115,14 @@ _ALLOWED: dict[str, set[str]] = {
         # one lazy import (dependency-injection would remove it entirely).
         "tradex_replay",
         "tradex_trading",  # sdk session only (config → tradex_config)
+    },
+    "gateway": {
+        "tradex_domain",
+        "tradex_brokers",
+        "tradex_config",
+        "tradex_market_data",
+        "tradex_runtime",
+        "tradex_observability",
     },
 }
 # ``market_data`` never imported ``tradex_brokers`` (verified 2026-10-01: zero
@@ -251,6 +261,7 @@ def test_extracted_packages_respect_allowed_internals() -> None:
             "market_data": "tradex_market_data",
             "interfaces": "tradex_interfaces",
             "runtime": "tradex_runtime",
+            "gateway": "tradex_gateway",
         }[pkg]
         for path in _py_files(_SRC[pkg]):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))

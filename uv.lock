@@ -22,6 +22,7 @@ members = [
     "tradex-domain",
     "tradex-duckdb",
     "tradex-execution",
+    "tradex-gateway",
     "tradex-interfaces",
     "tradex-market-data",
     "tradex-observability",
@@ -47,6 +48,7 @@ dev = [
     { name = "tradex-domain", editable = "domain" },
     { name = "tradex-duckdb", editable = "services/duckdb-analytics" },
     { name = "tradex-execution", editable = "execution" },
+    { name = "tradex-gateway", editable = "gateway" },
     { name = "tradex-interfaces", editable = "interfaces" },
     { name = "tradex-market-data", editable = "market_data" },
     { name = "tradex-observability", editable = "observability" },
@@ -1872,6 +1874,33 @@ requires-dist = [
     { name = "tradex-domain", editable = "domain" },
     { name = "tradex-observability", editable = "observability" },
     { name = "tradex-reactive", editable = "reactive" },
+]
+
+[[package]]
+name = "tradex-gateway"
+version = "0.1.0"
+source = { editable = "gateway" }
+dependencies = [
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "tradex-brokers" },
+    { name = "tradex-config" },
+    { name = "tradex-domain" },
+    { name = "tradex-market-data" },
+    { name = "tradex-runtime" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", specifier = ">=0.110,<1" },
+    { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "tradex-brokers", editable = "brokers" },
+    { name = "tradex-config", editable = "config" },
+    { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-market-data", editable = "market_data" },
+    { name = "tradex-runtime", editable = "runtime" },
+    { name = "uvicorn", specifier = ">=0.29,<1" },
 ]
 
 [[package]]
