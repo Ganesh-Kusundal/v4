@@ -91,7 +91,10 @@ def test_live_hub_refcounts_fans_out_and_fails_over():
         hub._switch_to("upstox", reason="test")
         assert hub.status()["broker"] == "upstox"
         assert upstox.quote_sub_calls == 1
-        assert upstox.depth_sub_calls == 1
+        # upstox declares 30-level depth, so the capability path selects the
+        # deep stream regardless of the broker's name.
+        assert upstox.depth30_sub_calls == 1
+        assert upstox.depth_sub_calls == 0
         hub.stop()
 
     asyncio.run(scenario())
@@ -364,6 +367,29 @@ def test_latest_depth_carries_receipt_time_and_keeps_exchange_ts(monkeypatch):
         frames = await _drain(queue)
         assert frames[0]["op"] == "depth"
         assert frames[0]["ts"] == to_epoch_ms(exchange_time)
+        hub.stop()
+
+    asyncio.run(scenario())
+
+
+def test_depth_30_is_selected_by_capability_not_broker_name():
+    async def scenario() -> None:
+        broker = FakeBroker("custom", depth_levels=30)
+        runtime = BrokerRuntime("custom", broker)
+        config = gateway_config(brokers=("custom",), primary_live="custom")
+        hub = LiveHub(
+            config,
+            MarketDataRouter(config, {"custom": runtime}),
+            InstrumentDirectory({"custom": runtime}),
+            {"custom": runtime},
+        )
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        control: asyncio.Queue = asyncio.Queue()
+        hub.add_client("c1", loop, queue, control)
+        hub.subscribe("c1", ["NSE:RELIANCE"], "depth", 10)
+        assert broker.depth30_sub_calls == 1
+        assert broker.depth_sub_calls == 0
         hub.stop()
 
     asyncio.run(scenario())

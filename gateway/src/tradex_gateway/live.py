@@ -81,12 +81,16 @@ class _BrokerFeed:
             if self._depth_sub is not None:
                 self._stop_depth()
             if instruments:
-                subscribe = self.broker.subscribe_depth
-                if self.name == "upstox" and levels > 5:
-                    subscribe = getattr(self.broker, "subscribe_depth_30", subscribe)
-                self._depth_sub = subscribe(list(instruments.values()), self._depth_cb)
+                self._depth_sub = self._subscribe_depth(list(instruments.values()), levels)
                 self._depths = dict(instruments)
                 self._levels = levels
+
+    def _subscribe_depth(self, instruments: list[Instrument], levels: int) -> Any:
+        declared = int(getattr(self.runtime.capabilities, "depth_levels", 0) or 0)
+        deep = getattr(self.broker, "subscribe_depth_30", None)
+        if levels > 5 and declared >= 30 and callable(deep):
+            return deep(instruments, self._depth_cb)
+        return self.broker.subscribe_depth(instruments, self._depth_cb)
 
     def _stop_depth(self) -> None:
         if self._depth_sub is not None:

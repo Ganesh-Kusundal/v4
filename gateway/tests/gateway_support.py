@@ -158,6 +158,7 @@ class FakeBroker:
         self.depth_handlers: list = []
         self.quote_sub_calls = 0
         self.depth_sub_calls = 0
+        self.depth30_sub_calls = 0
         self.fail_subscribe = False
         self.unsubscribed: list = []
         self.universe = universe or [equity(), index(), option(), option(right="PE")]
@@ -214,9 +215,9 @@ class FakeBroker:
         return f"{self.name}-depth-{self.depth_sub_calls}"
 
     def subscribe_depth_30(self, instruments, handler):
-        self.depth_sub_calls += 1
+        self.depth30_sub_calls += 1
         self.depth_handlers.append(handler)
-        return f"{self.name}-depth30-{self.depth_sub_calls}"
+        return f"{self.name}-depth30-{self.depth30_sub_calls}"
 
     def unsubscribe_instruments(self, instruments):
         self.unsubscribed.extend(str(item.instrument_id) for item in instruments)
