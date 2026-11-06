@@ -146,6 +146,18 @@ class BrokerRuntime:
         except Exception:  # noqa: BLE001 - metadata is best effort
             return None
 
+    def known(self, instrument_id: InstrumentId) -> bool:
+        """Whether the broker's own registry has this instrument registered."""
+        if self.broker is None:
+            return False
+        registry = getattr(self.broker, "registry", None)
+        if registry is None:
+            return False
+        try:
+            return bool(registry.meta(instrument_id))
+        except Exception:  # noqa: BLE001 - registry metadata is best effort
+            return False
+
     def close(self) -> None:
         if self.broker is None:
             return

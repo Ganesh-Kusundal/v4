@@ -34,6 +34,7 @@ class FakeRegistry:
     ) -> None:
         self.mapping = mapping or {}
         self.lot_sizes = lot_sizes or {}
+        self.known: set[str] = set()
 
     def resolve(self, name: str) -> InstrumentId | None:
         if name in self.mapping:
@@ -44,8 +45,14 @@ class FakeRegistry:
             return None
 
     def meta(self, instrument_id: InstrumentId) -> dict[str, object]:
-        value = self.lot_sizes.get(str(instrument_id))
-        return {"lot_size": value} if value is not None else {}
+        key = str(instrument_id)
+        if key not in self.known and key not in self.lot_sizes:
+            return {}
+        meta: dict[str, object] = {"known": True}
+        value = self.lot_sizes.get(key)
+        if value is not None:
+            meta["lot_size"] = value
+        return meta
 
 
 def equity(symbol: str = "RELIANCE") -> Equity:
@@ -161,7 +168,10 @@ class FakeBroker:
         self.depth30_sub_calls = 0
         self.fail_subscribe = False
         self.unsubscribed: list = []
-        self.universe = universe or [equity(), index(), option(), option(right="PE")]
+        self.universe = (
+            universe if universe is not None else [equity(), index(), option(), option(right="PE")]
+        )
+        self.registry.known = {str(item.instrument_id) for item in self.universe}
 
     def _universe(self):
         return list(self.universe)

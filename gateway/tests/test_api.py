@@ -90,6 +90,16 @@ def test_history_quote_depth_chain_and_futures():
         assert futures.json()["futures"] == []
 
 
+def test_naive_history_timestamps_are_rejected():
+    app, _, _ = _app()
+    with TestClient(app) as client:
+        response = client.get(
+            "/v1/history/IDX:NIFTY",
+            params={"from": "2026-11-06T09:15:00", "to": "2026-11-06T09:16:00"},
+        )
+        assert response.status_code == 400
+
+
 def test_auth_required_when_configured():
     app, _, _ = _app(api_key="secret", allow_anon=False)
     with TestClient(app) as client:

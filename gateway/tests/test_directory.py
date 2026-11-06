@@ -29,6 +29,14 @@ def test_resolve_accepts_asset_class_hint():
     assert str(resolved.instrument_id) == "IDX:NIFTY"
 
 
+def test_resolve_only_reports_brokers_that_know_the_instrument():
+    dhan = FakeBroker("dhan", universe=[equity("RELIANCE")])
+    upstox = FakeBroker("upstox", universe=[])
+    directory = _directory(dhan, upstox)
+    resolved = directory.resolve("NSE:RELIANCE")
+    assert resolved.brokers == ("dhan",)
+
+
 def test_search_dedupes_and_lists_brokers():
     workspace = [equity("RELIANCE"), option()]
     directory = _directory(

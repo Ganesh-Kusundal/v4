@@ -77,7 +77,7 @@ class InstrumentDirectory:
             instrument = runtime.instrument(instrument_id)
             per_broker[name] = instrument
             lot_sizes[name] = runtime.lot_size(instrument_id)
-            if instrument is not None and runtime.available:
+            if instrument is not None and runtime.available and runtime.known(instrument_id):
                 brokers.append(name)
         try:
             canonical = instrument_from_id(instrument_id)

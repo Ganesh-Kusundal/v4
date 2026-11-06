@@ -469,7 +469,9 @@ def _query_moment(value: str) -> datetime:
         parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
     except ValueError as exc:
         raise BadRequest(f"invalid timestamp: {value!r}") from exc
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+    if parsed.tzinfo is None:
+        raise BadRequest("timestamp must include a UTC offset")
+    return parsed
 
 
 def _now_ms() -> int:

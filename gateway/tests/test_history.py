@@ -130,6 +130,21 @@ def test_broker_bars_are_clipped_to_the_requested_window():
     ]
 
 
+def test_batch_naive_timestamps_are_rejected():
+    service = _service(FakeWindowLoader(()), FakeBroker("dhan"), FakeBroker("upstox"))
+    results = service.batch(
+        [
+            {
+                "instrument_id": "IDX:NIFTY",
+                "from_": "2026-11-06T09:15:00",
+                "to": "2026-11-06T09:16:00",
+            }
+        ]
+    )
+    assert results[0]["error"]["code"] == "invalid_request"
+    assert "UTC offset" in results[0]["error"]["message"]
+
+
 def test_datalake_only_source_returns_empty_when_lake_misses():
     moment = datetime(2026, 11, 6, 9, 15, tzinfo=UTC)
     service = _service(FakeWindowLoader(()), FakeBroker("dhan"), FakeBroker("upstox"))

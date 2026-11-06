@@ -101,6 +101,7 @@ class ChaosBroker:
             ),
         )
         self._instruments = list(instruments)
+        self.registry.known = {str(item.instrument_id) for item in self._instruments}
         self._fail_rate = max(0.0, min(1.0, fail_rate))
         self._rng = random.Random(seed)
         self._lock = threading.Lock()

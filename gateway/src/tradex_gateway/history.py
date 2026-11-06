@@ -365,4 +365,6 @@ def _parse_moment(value: str | None) -> datetime:
         parsed = datetime.fromisoformat(text)
     except ValueError as exc:
         raise BadRequest(f"invalid timestamp: {value!r}") from exc
+    if parsed.tzinfo is None:
+        raise BadRequest("timestamp must include a UTC offset")
     return _to_utc(parsed)
