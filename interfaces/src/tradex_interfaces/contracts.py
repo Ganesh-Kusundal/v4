@@ -326,6 +326,204 @@ class ExtensionsResponse(BaseModel):
     capabilities: dict[str, Any]
 
 
+# ---------------------------------------------------------------------------
+# Market data request/response DTOs
+#
+# These models type the wire contract for /quotes, /search, /history,
+# /option-chain, and /future-chain endpoints. They follow the same pattern
+# as the rest of this module: strict validation with ``extra="forbid"``.
+# ---------------------------------------------------------------------------
+
+
+class QuoteRequest(_Strict):
+    """GET /quotes/{exchange}:{symbol} — path parameters only."""
+
+    exchange: str
+    symbol: str
+
+
+class QuoteResponse(BaseModel):
+    """Real-time quote envelope."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    instrument_id: str | None = None
+    symbol: str | None = None
+    exchange: str | None = None
+    last_price: float | None = None
+    bid: float | None = None
+    ask: float | None = None
+    volume: float | None = None
+    timestamp: str | None = None
+
+
+class SearchRequest(_Strict):
+    """GET /search?q=..."""
+
+    q: str
+
+
+class SearchResultItem(BaseModel):
+    """Single search result row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instrument_id: str
+    symbol: str
+    exchange: str
+    asset_class: str
+
+
+SearchResponse = list[SearchResultItem]
+
+
+class HistoryRequest(_Strict):
+    """GET /history/{instrument_id}?timeframe=&limit="""
+
+    instrument_id: str
+    timeframe: str = "1d"
+    limit: int = 100
+
+
+class HistoryBar(BaseModel):
+    """Single OHLCV bar."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    timestamp: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+HistoryResponse = list[HistoryBar]
+
+
+class OptionChainRequest(_Strict):
+    """GET /option-chain/{underlying}?expiry=&live="""
+
+    underlying: str
+    expiry: str | None = None
+    live: bool = False
+
+
+class OptionChainResponse(BaseModel):
+    """Option chain envelope — payload shape varies by broker/exchange."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    underlying: str | None = None
+    expiry: str | None = None
+    strikes: list[dict[str, Any]] | None = None
+    enriched: bool = False
+
+
+class FutureChainRequest(_Strict):
+    """GET /future-chain/{underlying}"""
+
+    underlying: str
+
+
+class FutureContract(BaseModel):
+    """Single future contract row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    instrument: str
+    symbol: str
+    expiry: str | None = None
+
+
+class FutureChainResponse(BaseModel):
+    """Future chain envelope."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    underlying: str
+    futures: list[FutureContract]
+
+
+# ---------------------------------------------------------------------------
+# WebSocket stream message DTOs (spec 0003 tranche 1)
+#
+# These model the JSON messages exchanged over /ws/stream. Each handler in
+# stream.py validates incoming messages against these shapes before acting on
+# them, so malformed payloads are rejected with a structured error rather than
+# causing an unhandled exception mid-handler.
+# ---------------------------------------------------------------------------
+
+
+class WSSubscribeRequest(_Strict):
+    """``{type: "subscribe", instruments: [...], depth: str, snapshot?: bool}``"""
+
+    type: str = "subscribe"
+    instruments: list[str]
+    depth: str = "off"
+    snapshot: bool = False
+
+
+class WSUnsubscribeRequest(_Strict):
+    """``{type: "unsubscribe", instruments: [...]}``"""
+
+    type: str = "unsubscribe"
+    instruments: list[str]
+
+
+class WSSubscribeBarsRequest(_Strict):
+    """``{type: "subscribe_bars", bars: [{instrument, interval, ...}]}``"""
+
+    type: str = "subscribe_bars"
+    bars: list[dict[str, Any]] | None = None
+    instruments: list[dict[str, Any]] | None = None
+
+
+class WSUnsubscribeBarsRequest(_Strict):
+    """``{type: "unsubscribe_bars", bars: [...]}``"""
+
+    type: str = "unsubscribe_bars"
+    bars: list[dict[str, Any] | str]
+
+
+class WSIndicatorSubRequest(_Strict):
+    """``{type: "indicator-sub", indicators: [{instrument, interval, ids, mode?}]}``"""
+
+    type: str = "indicator-sub"
+    indicators: list[dict[str, Any]]
+
+
+class WSIndicatorUnsubRequest(_Strict):
+    """``{type: "indicator-unsub", indicators: [{instrument, interval, ids?}]}``"""
+
+    type: str = "indicator-unsub"
+    indicators: list[dict[str, Any]]
+
+
+class WSReplayStartRequest(_Strict):
+    """``{type: "replay-start", instrument, minutes?, start_time?, speed?}``"""
+
+    type: str = "replay-start"
+    instrument: str
+    minutes: int | None = None
+    start_time: str | None = None
+    speed: float | None = None
+
+
+class WSReplaySeekRequest(_Strict):
+    """``{type: "replay-seek", timestamp}``"""
+
+    type: str = "replay-seek"
+    timestamp: int
+
+
+class WSReplaySpeedRequest(_Strict):
+    """``{type: "replay-speed", speed}``"""
+
+    type: str = "replay-speed"
+    speed: float
+
+
 __all__ = [
     "BacktestRequest",
     "BacktestResponse",
@@ -333,24 +531,45 @@ __all__ = [
     "BracketOrderRequestDto",
     "ChartAccountResponse",
     "ExtensionsResponse",
+    "FutureChainRequest",
+    "FutureChainResponse",
+    "FutureContract",
+    "HistoryBar",
+    "HistoryRequest",
     "HistoryResponse",
     "HoldingRow",
     "IndicatorCatalogueResponse",
     "IndicatorComputeRequest",
     "IndicatorComputeResponse",
+    "OptionChainRequest",
+    "OptionChainResponse",
     "OrderMutationResponse",
     "OrderUpdateRequest",
     "PlaceOrderRequest",
     "ProfileResponse",
+    "QuoteRequest",
+    "QuoteResponse",
     "SafetyWireResponse",
     "ScannerRunRequest",
     "ScannerRunResponse",
+    "SearchRequest",
+    "SearchResponse",
+    "SearchResultItem",
     "SeasonalityRequest",
     "SeasonalityResponse",
     "SeriesComputeRequest",
     "SeriesTransformResponse",
     "StrategiesResponse",
     "SymbolsResponse",
+    "WSIndicatorSubRequest",
+    "WSIndicatorUnsubRequest",
+    "WSReplaySeekRequest",
+    "WSReplaySpeedRequest",
+    "WSReplayStartRequest",
+    "WSSubscribeBarsRequest",
+    "WSSubscribeRequest",
+    "WSUnsubscribeBarsRequest",
+    "WSUnsubscribeRequest",
     "WorkspaceDetail",
     "WorkspacePutResponse",
     "WorkspaceSummary",
