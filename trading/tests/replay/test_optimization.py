@@ -13,8 +13,6 @@ from tradex_replay.optimization import (
     make_grid_optimizer,
 )
 
-pytestmark = pytest.mark.xfail(reason="pre-existing optimization test failures", strict=False)
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

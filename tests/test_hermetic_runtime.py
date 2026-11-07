@@ -42,7 +42,6 @@ def test_app_config_reads_the_pinned_runtime_dir() -> None:
     assert Path(AppConfig().runtime_dir).resolve() == pinned
 
 
-@pytest.mark.xfail(reason="pre-existing: test ordering writes to repo runtime", strict=False)
 def test_the_guard_reports_a_clean_repository_runtime_dir() -> None:
     """The session guard's own snapshot API sees no writes into the repository.
 
@@ -56,7 +55,6 @@ def test_the_guard_reports_a_clean_repository_runtime_dir() -> None:
     )
 
 
-@pytest.mark.xfail(reason="pre-existing: test ordering writes to repo runtime", strict=False)
 def test_the_guard_snapshot_detects_a_new_file(tmp_path: Path) -> None:
     """The guard is not vacuously empty: a new file under the root is reported."""
     import conftest as root_conftest

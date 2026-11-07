@@ -252,9 +252,9 @@ def test_order_response_model():
 def test_error_response_model():
     from tradex_interfaces.models import ErrorDetail
 
-    resp = ErrorResponse(error=ErrorDetail(code="bad_request", message="something went wrong"))
+    resp = ErrorResponse(error=ErrorDetail(code="validation_error", message="something went wrong"))
     assert resp.model_dump() == {
-        "error": {"code": "bad_request", "message": "something went wrong"},
+        "error": {"code": "validation_error", "message": "something went wrong"},
     }
 
 
