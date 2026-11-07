@@ -82,6 +82,7 @@ from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.reconciliation import (
     AdoptionOutcome,
     DriftItem,
+    DriftSeverity,
     ReconciliationEngine,
 )
 from tradex_execution.reconciliation import (
@@ -1244,11 +1245,6 @@ class ExecutionEngine:
                     if self._metrics is not None:
                         self._metrics.counter("bus.fill.unadoptable").inc()
                     try:
-                        from tradex_execution.reconciliation import (
-                            DriftItem,
-                            DriftSeverity,
-                        )
-
                         self._bus.publish(
                             DriftItem(
                                 kind="unaffordable_venue_fill",
@@ -1257,8 +1253,15 @@ class ExecutionEngine:
                                 reason=marker,
                             )
                         )
-                    except Exception:  # pragma: no cover - defensive
-                        pass
+                    except Exception as drift_exc:
+                        # The adoption itself must not be lost because the
+                        # drift signal failed — but a swallowed exception left
+                        # MP-4's drift half permanently invisible in the logs.
+                        log.warning(
+                            "DriftItem publish failed for %s: %s",
+                            marker,
+                            drift_exc,
+                        )
                     # Mark for the booking step below to bypass the proof.
                     _unaffordable = True
                 else:
