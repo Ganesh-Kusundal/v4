@@ -23,15 +23,6 @@ events(
     event_hash      TEXT                     -- hash of THIS row's content
 )
 
-snapshots(
-    stream_id        TEXT    NOT NULL,  -- the account stream the snapshot folds
-    through_sequence INTEGER NOT NULL,  -- highest sequence folded into it
-    payload          TEXT    NOT NULL,  -- canonical JSON (never pickle)
-    created_at       TEXT    NOT NULL,
-    reason           TEXT    NOT NULL,  -- "ready" | "periodic"
-    PRIMARY KEY (stream_id, through_sequence)
-)
-
 Three durability properties hang off those tables, and all of them are
 enforced on the READ path, not merely recorded on write:
 
@@ -62,12 +53,6 @@ Rather than rewrite history (which is exactly what the chain exists to detect)
 the store keeps both hash functions: a v1 row is verified with the v1 hash over
 its own stored fields, a v2 row with the account-scoped hash. Old history still
 replays with verification passing, and new rows are account-scoped.
-
-Snapshots bound the replay cost: recovery reads the newest snapshot for its
-account stream and replays strictly after it. A snapshot is written when the
-session reaches READY and every :data:`SNAPSHOT_INTERVAL` events, and the log
-below a snapshot's ``through_sequence`` is never read except by that snapshot,
-with the chain still verified across the boundary.
 
 Supported event types (SDD §2.2)
 ---------------------------------
@@ -163,11 +148,6 @@ GENESIS_HASH = "0" * 64
 #: existing database on disk still holds.
 UNSCOPED_ACCOUNT = "*"
 
-#: How many appended events elapse between periodic snapshots. The spec sets
-#: this at 10,000; a snapshot is also written once per stream when the session
-#: reaches READY (see :meth:`SQLiteEventStore.write_snapshot`).
-SNAPSHOT_INTERVAL = 10_000
-
 
 class EventDecodeError(RuntimeError):
     """A stored event could not be turned back into a domain event.
@@ -212,72 +192,6 @@ class UnpickleSecurityError(EventDecodeError):
     already handles "this row cannot be read" keeps handling it — refusing to
     start is the correct behaviour for both.
     """
-
-
-@dataclass(frozen=True, slots=True)
-class Snapshot:
-    """A folded view of one account stream at a sequence number.
-
-    ``payload`` is canonical JSON, never pickle: a snapshot is a recovery
-    artefact that a later build must be able to read without reconstructing
-    the exact object graph that wrote it, and a pickle would couple the
-    snapshot's readability to the class layout of the build that produced it.
-
-    ``through_sequence`` is the highest event sequence folded into the
-    snapshot, and replay starts strictly AFTER it. The log below it is never
-    read except by the snapshot itself, and the chain is still verified across
-    the boundary.
-    """
-
-    stream_id: str
-    through_sequence: int
-    payload: dict
-    created_at: str
-    reason: str = "periodic"
-
-    @staticmethod
-    def serialise(state: object) -> str:
-        """Canonical JSON for *state*, so equal states always serialise equal.
-
-        ``sort_keys`` and no cosmetic whitespace make the digest of a snapshot
-        byte-stable, which is what a test or an audit needs to compare two
-        snapshots for equality rather than two serialisations for style.
-        """
-        return json.dumps(state, sort_keys=True, separators=(",", ":"))
-
-    @staticmethod
-    def deserialise(text: str) -> dict:
-        return json.loads(text)
-
-    def payload_json(self) -> str:
-        return Snapshot.serialise(self.payload)
-
-    @staticmethod
-    def from_row(stream_id: str, through_sequence: int, payload: str,
-                 created_at: str, reason: str) -> Snapshot:
-        return Snapshot(
-            stream_id=stream_id,
-            through_sequence=int(through_sequence),
-            payload=Snapshot.deserialise(payload),
-            created_at=created_at,
-            reason=reason,
-        )
-
-    @staticmethod
-    def empty(stream_id: str, sequence: int, reason: str = "ready") -> Snapshot:
-        """The READY snapshot for a stream with no folded state of its own.
-
-        ``through_sequence`` still names the sequence the snapshot was taken
-        after, so replay starts strictly after it and cannot re-read the rows
-        the snapshot already folded.
-        """
-        return Snapshot(
-            stream_id=stream_id,
-            through_sequence=int(sequence),
-            payload={},
-            created_at=datetime.now(UTC).isoformat(),
-            reason=reason,
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -846,17 +760,6 @@ class SQLiteEventStore:
         event_hash     TEXT
     );
     CREATE INDEX IF NOT EXISTS events_stream ON events (stream_id, sequence);
-
-    CREATE TABLE IF NOT EXISTS snapshots (
-        stream_id       TEXT    NOT NULL,
-        through_sequence INTEGER NOT NULL,
-        payload         TEXT    NOT NULL,
-        created_at      TEXT    NOT NULL,
-        reason          TEXT    NOT NULL DEFAULT 'periodic',
-        PRIMARY KEY (stream_id, through_sequence)
-    );
-    CREATE INDEX IF NOT EXISTS snapshots_stream
-        ON snapshots (stream_id, through_sequence);
     """
 
     def __init__(
@@ -883,7 +786,6 @@ class SQLiteEventStore:
         self._conn.executescript(self._DDL)
         self._conn.commit()
         self._lock = threading.Lock()
-        self._events_since_snapshot = self._events_since_last_snapshot()
         self._dedup_tables: set[str] = set()
         self._migrate_legacy_rows()
 
@@ -921,20 +823,6 @@ class SQLiteEventStore:
     def _event_count(self) -> int:
         row = self._conn.execute("SELECT COUNT(*) FROM events").fetchone()
         return int(row[0]) if row else 0
-
-    def _events_since_last_snapshot(self) -> int:
-        """Events appended since the newest snapshot of the store's own scope.
-
-        A reopen must not treat the whole log as "since the last snapshot" —
-        the snapshot already folds everything below its ``through_sequence``,
-        and counting it again would fire a periodic snapshot immediately. The
-        counter is the distance from the snapshot's position, and zero when a
-        snapshot already covers the whole log.
-        """
-        snapshot = self.latest_snapshot()
-        if snapshot is None:
-            return self._event_count()
-        return max(0, self._event_count() - snapshot.through_sequence)
 
     # ------------------------------------------------------------------
     # Migration
@@ -1062,7 +950,6 @@ class SQLiteEventStore:
                 (prev_hash, digest, sequence),
             )
             self._conn.commit()
-            self._events_since_snapshot += 1
             return sequence  # type: ignore[return-value]
 
     def _verify_chain(
@@ -1155,11 +1042,11 @@ class SQLiteEventStore:
         that stream, and a scoped name only its own. An empty string or
         ``"*"`` returns every stream.
 
-        *after_sequence* yields only rows strictly above it, which is what makes
-        a snapshot fold cheap: recovery passes the snapshot's
-        ``through_sequence`` and the store reads the tail instead of the whole
-        log, so restart cost stops growing with uptime. It is a keyword with a
-        ``None`` default, so every existing call site is unchanged.
+        *after_sequence* yields only rows strictly above it, which makes tail
+        reads cheap: a caller passes the last sequence it has already processed
+        and the store reads only the new events instead of the whole log. It is
+        a keyword with a ``None`` default, so every existing call site is
+        unchanged.
 
         The hash chain is verified as the log is read, so a row that has been
         edited, reordered, or removed from the middle stops the replay with
@@ -1180,132 +1067,6 @@ class SQLiteEventStore:
             if after_sequence is not None and sequence <= after_sequence:
                 continue
             yield _decode(payload, schema_version)
-
-    # ------------------------------------------------------------------
-    # Snapshots
-    # ------------------------------------------------------------------
-
-    def write_snapshot(
-        self,
-        state: object | None = None,
-        *,
-        stream: str = "orders",
-        reason: str = "periodic",
-        through_sequence: int | None = None,
-    ) -> Snapshot | None:
-        """Fold *state* into a snapshot of *stream* and persist it.
-
-        A snapshot is written when the session reaches READY and every
-        :data:`SNAPSHOT_INTERVAL` events appended since the last one — the
-        periodic path is :meth:`maybe_snapshot`, which this method performs
-        unconditionally when called by name.
-
-        ``through_sequence`` defaults to the store's last appended sequence,
-        and replay starts strictly after it. The snapshot's payload is
-        canonical JSON, never pickle, so a later build can read it without
-        reconstructing the object graph that wrote it. ``state=None`` writes
-        the READY snapshot, which records the position and no folded state.
-
-        Returns the persisted :class:`Snapshot`, or ``None`` when there is
-        nothing to snapshot — a store that has never appended an event has no
-        position to fold.
-        """
-        sid = self._scope(stream)
-        # The position is taken on the SID, which is the stream the snapshot
-        # will actually be keyed under — not the bare name the caller passed.
-        # A scoped store snapshotting an un-scoped log must still find the
-        # position of the rows it is folding.
-        if through_sequence is None:
-            through_sequence = self.last_sequence(sid) or self.last_sequence(stream)
-        if through_sequence is None or through_sequence <= 0:
-            return None
-
-        snapshot = (
-            Snapshot.empty(sid, through_sequence, reason=reason)
-            if state is None
-            else Snapshot(
-                stream_id=sid,
-                through_sequence=int(through_sequence),
-                payload=state if isinstance(state, dict) else {"state": state},
-                created_at=datetime.now(UTC).isoformat(),
-                reason=reason,
-            )
-        )
-        with self._lock:
-            self._conn.execute(
-                "INSERT OR REPLACE INTO snapshots "
-                "(stream_id, through_sequence, payload, created_at, reason) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (
-                    snapshot.stream_id,
-                    snapshot.through_sequence,
-                    snapshot.payload_json(),
-                    snapshot.created_at,
-                    snapshot.reason,
-                ),
-            )
-            self._conn.commit()
-        self._events_since_snapshot = 0
-        return snapshot
-
-    def maybe_snapshot(
-        self,
-        state: object | None = None,
-        *,
-        stream: str = "orders",
-    ) -> Snapshot | None:
-        """Write a periodic snapshot once :data:`SNAPSHOT_INTERVAL` events pass.
-
-        This is the every-10,000-events half of the spec; the READY half is a
-        direct :meth:`write_snapshot` call with ``reason="ready"``. Returns the
-        snapshot written this call, or ``None`` when the interval has not
-        elapsed — so a caller can tell "a snapshot landed" from "it did not".
-        """
-        if self._events_since_snapshot < SNAPSHOT_INTERVAL:
-            return None
-        return self.write_snapshot(state, stream=stream, reason="periodic")
-
-    def latest_snapshot(self, stream: str = "orders") -> Snapshot | None:
-        """The newest snapshot for *stream*, or ``None`` when there is none.
-
-        Recovery reads this and replays strictly after
-        ``through_sequence`` — the log below a snapshot is never read except
-        by the snapshot itself.
-        """
-        sid = self._scope(stream)
-        rows = self._conn.execute(
-            "SELECT stream_id, through_sequence, payload, created_at, reason "
-            "FROM snapshots WHERE stream_id = ? "
-            "ORDER BY through_sequence DESC LIMIT 1",
-            (sid,),
-        ).fetchall()
-        if not rows:
-            # An un-scoped caller reading a scoped store's snapshots, or vice
-            # versa: fall back to the bare name so a READY snapshot written by
-            # either scope is found by either.
-            rows = self._conn.execute(
-                "SELECT stream_id, through_sequence, payload, created_at, reason "
-                "FROM snapshots WHERE stream_id LIKE ? "
-                "ORDER BY through_sequence DESC LIMIT 1",
-                (f"%:{stream_suffix(stream)}",),
-            ).fetchall()
-        if not rows:
-            return None
-        stream_id, through_sequence, payload, created_at, reason = rows[0]
-        return Snapshot.from_row(
-            stream_id, through_sequence, payload, created_at, reason,
-        )
-
-    def snapshot_count(self, stream: str = "*") -> int:
-        """Number of snapshots held for *stream* (or all streams)."""
-        if not stream or stream == "*":
-            row = self._conn.execute("SELECT COUNT(*) FROM snapshots").fetchone()
-        else:
-            row = self._conn.execute(
-                "SELECT COUNT(*) FROM snapshots WHERE stream_id = ?",
-                (self._scope(stream),),
-            ).fetchone()
-        return int(row[0]) if row else 0
 
     # ------------------------------------------------------------------
     # Account-scoped fill dedup
