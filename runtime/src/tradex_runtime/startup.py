@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from tradex_runtime.feed_supervisor import FeedSupervisor
     from tradex_runtime.market_feed import MarketFeed
 
-from tradex_config.permissions import assert_secret_file_mode
+from tradex_config.permissions import assert_runtime_secret_permissions, assert_secret_file_mode
 from tradex_config.schema import FEED_INSTRUMENTS_ENV, AppConfig
 from tradex_execution.engine import (
     ExecutionEngine,
@@ -442,6 +442,10 @@ def boot(
     # credentials), so absence never blocks a boot.
     for _secret in cfg.secret_files():
         assert_secret_file_mode(_secret)
+    # H/Task 4: scan the runtime dir for any group/world-readable secret
+    # files the operator may have dropped in (token_state, idempotency DBs,
+    # workspace sqlite, .env.local) and refuse to boot if any are permissive.
+    assert_runtime_secret_permissions(cfg.runtime_dir)
     if cfg.mode == "live" and not cfg.persistence.path:
         raise ValueError("live mode requires persistence path")
 
@@ -701,11 +705,24 @@ def _boot_tail(
     # 6. Create execution engine
     live_fail_closed = cfg.mode == "live"
     durable_mode = cfg.mode in ("paper", "live") and event_store is not None
+    # MP-1: pass the durable fill dedup explicitly when a store is present
+    # (plan Task 5 Step 5b). Mirror the engine's own construction branch so
+    # LRU eviction still ticks `bus.applied_fills.evicted` — without the
+    # hook the cap silently discarded fingerprints with no counter behind it.
+    _fill_dedup = None
+    if event_store is not None:
+        from tradex_execution.idempotency import DurableFillDedup
+
+        _fill_dedup = DurableFillDedup(
+            event_store,
+            on_evict=lambda: metrics.counter("bus.applied_fills.evicted").inc(),
+        )
     engine = ExecutionEngine(
         bus=bus, fill_source=fill_source, risk_manager=risk_manager, metrics=metrics,
         idempotency_guard=guard, fee_calculator=fee_calculator,
         feed_supervisor=feed_supervisor,
         event_store=event_store,
+        fill_dedup=_fill_dedup,
         require_risk=live_fail_closed,
         require_feed=live_fail_closed,
         require_durable_events=durable_mode,

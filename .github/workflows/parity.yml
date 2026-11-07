@@ -38,6 +38,33 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
+      - name: Every workspace package imports
+        run: |
+          uv run --no-sync python - <<'PY'
+          import importlib
+
+          packages = [
+              "tradex_domain",
+              "tradex_brokers",
+              "tradex_config",
+              "tradex_observability",
+              "tradex_analytics",
+              "tradex_reactive",
+              "tradex_execution",
+              "tradex_strategy",
+              "tradex_replay",
+              "tradex_application",
+              "tradex_market_data",
+              "tradex_interfaces",
+              "tradex_runtime",
+              "duck_analytics",
+              "tradex_gateway",
+          ]
+          for name in packages:
+              importlib.import_module(name)
+          print(f"{len(packages)} packages import")
+          PY
+
       # `uv run --no-sync` is what actually puts .venv/bin on PATH. A bare
       # `python -m pytest` here would use the setup-python interpreter, which
       # has none of these packages installed.

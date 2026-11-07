@@ -1772,6 +1772,7 @@ source = { editable = "brokers" }
 dependencies = [
     { name = "protobuf" },
     { name = "rx" },
+    { name = "tradex-config" },
     { name = "tradex-domain" },
 ]
 
@@ -1799,6 +1800,7 @@ requires-dist = [
     { name = "dhan-tradehull", marker = "extra == 'full'", specifier = ">=3.3.1,<4" },
     { name = "protobuf", specifier = ">=6.33,<7" },
     { name = "rx", specifier = ">=3.2,<4" },
+    { name = "tradex-config", editable = "config" },
     { name = "tradex-domain", editable = "domain" },
     { name = "upstox-totp", marker = "extra == 'full'", specifier = ">=1.0.8,<2" },
     { name = "upstox-totp", marker = "extra == 'upstox'", specifier = ">=1.0.8,<2" },

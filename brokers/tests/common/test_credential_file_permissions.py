@@ -28,8 +28,8 @@ import pytest
 
 from tradex_domain import paths as broker_paths
 from tradex_brokers.common import token_lifecycle as tl
+from tradex_config.permissions import EXPECTED_SECRET_MODE
 from tradex_brokers.common.token_lifecycle import (
-    SECRET_FILE_MODE,
     MintTokenManager,
     PortTokenManager,
     _atomic_write_text,
@@ -80,7 +80,7 @@ class TestSecretFileMode:
     def test_mode_is_exactly_0600(self, tmp_path: Path) -> None:
         path = tmp_path / "token_state.json"
         _atomic_write_text(path, json.dumps({"access_token": "x"}))
-        assert _mode(path) == SECRET_FILE_MODE == 0o600
+        assert _mode(path) == EXPECTED_SECRET_MODE == 0o600
 
     @requires_posix_modes
     def test_no_group_or_other_bits(self, tmp_path: Path) -> None:
@@ -417,8 +417,8 @@ class TestNoUmaskDefaultedSecretWrites:
 
     def test_atomic_write_declares_a_secret_mode_constant(self) -> None:
         source = _TOKEN_LIFECYCLE_SRC.read_text()
-        assert "SECRET_FILE_MODE = 0o600" in source, (
-            "the 0600 contract must be a named, greppable constant"
+        assert "from tradex_config.permissions import EXPECTED_SECRET_MODE" in source, (
+            "the 0600 contract must come from the single config source"
         )
         assert "SECRET_DIR_MODE = 0o700" in source
 
@@ -426,10 +426,10 @@ class TestNoUmaskDefaultedSecretWrites:
         """Guard the ordering: mode must be set at creation, not after."""
         source = ast.unparse(ast.parse(_TOKEN_LIFECYCLE_SRC.read_text()))
         create = re.search(
-            r"os\.open\(\s*temp\s*,\s*flags\s*,\s*SECRET_FILE_MODE\s*\)", source
+            r"os\.open\(\s*temp\s*,\s*flags\s*,\s*EXPECTED_SECRET_MODE\s*\)", source
         )
-        assert create, "the temp file must be created via os.open(..., SECRET_FILE_MODE)"
-        assert "SECRET_FILE_MODE" in create.group(0)
+        assert create, "the temp file must be created via os.open(..., EXPECTED_SECRET_MODE)"
+        assert "EXPECTED_SECRET_MODE" in create.group(0)
 
 
 # ---------------------------------------------------------------------------
@@ -443,7 +443,7 @@ def test_secret_mode_constants_are_the_documented_values() -> None:
     ``os.chmod`` on Windows only toggles the read-only bit, so the numeric
     expectations are pinned here rather than being re-derived per platform.
     """
-    assert SECRET_FILE_MODE == 0o600
+    assert EXPECTED_SECRET_MODE == 0o600
     assert tl.SECRET_DIR_MODE == 0o700
     assert broker_paths.SECRET_DIR_MODE == 0o700
 

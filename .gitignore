@@ -66,6 +66,8 @@ venv/
 
 # Agent tool state
 .commandcode/
+.qoder/
+.kanban/
 
 # Market data store (281MB+ binary churn; rebuild via backfill_parquet.py)
 data/ohlcv/

@@ -18,7 +18,7 @@ router = APIRouter(dependencies=[Depends(require_auth)])
 
 
 @router.get("/extensions")
-async def list_extensions(session: Any | None = Depends(get_session)) -> dict:
+async def list_extensions(session: Any | None = Depends(get_session)) -> Any:
     """List broker capability flags."""
     if session is None:
         raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)

@@ -48,6 +48,7 @@ from tradex_domain.constants import (
     UNKNOWN_SYMBOL_MESSAGE,
 )
 from tradex_domain.enums import ProductType
+from tradex_domain.execution import OrderReceipt
 from tradex_domain.value_objects import CorrelationId, OrderId
 from tradex_execution.engine import (
     IdempotencyInflight,
@@ -58,6 +59,11 @@ from tradex_interfaces.auth import (
     audit_identity,
     require_auth,
     require_csrf_if_session,
+)
+from tradex_interfaces.contracts import (
+    BracketOrderRequestDto,
+    OrderUpdateRequest,
+    PlaceOrderRequest,
 )
 from tradex_interfaces.models import OrderResponse
 from tradex_interfaces.replay_guard import ReplayGuard
@@ -80,7 +86,7 @@ _PRODUCT_BY_WIRE: dict[str, ProductType] = {
 }
 
 
-def _parse_product(body: dict) -> ProductType:
+def _parse_product(body: Any) -> ProductType:
     """Resolve ``body["product"]`` to a domain ``ProductType``.
 
     Uses the canonical ``ProductType.from_wire`` single source of truth.
@@ -95,14 +101,14 @@ def _parse_product(body: dict) -> ProductType:
         ) from None
 
 
-def _map_receipt(receipt: Any) -> OrderResponse:
+def _map_receipt(receipt: OrderReceipt) -> OrderResponse:
     """Map an engine ``OrderReceipt`` → ``OrderResponse``.
 
     ``submit()`` returns one type for a first submission and for an
     idempotency replay (the recorded receipt); an in-flight reservation is
     surfaced as 409 before reaching this helper.
     """
-    if getattr(receipt, "message", None) == IDEMPOTENCY_IN_FLIGHT:
+    if receipt.message == IDEMPOTENCY_IN_FLIGHT:
         raise HTTPException(status_code=409, detail="idempotency key is being processed")
     return OrderResponse(
         order_id=receipt.order_id.value,
@@ -148,6 +154,20 @@ def _request_replay_guard(request: Request | None) -> ReplayGuard | None:
     return getattr(request.state, "replay_guard", None)
 
 
+def _live_orders_enabled(request: Request | None, session: Any) -> bool:
+    app = getattr(request, "app", None) if request is not None else None
+    state = getattr(app, "state", None) if app is not None else None
+    if state is not None:
+        if hasattr(state, "live_orders_enabled"):
+            return bool(state.live_orders_enabled)
+        cfg = getattr(state, "config", None)
+        if cfg is not None and hasattr(cfg, "live_orders_enabled"):
+            return bool(cfg.live_orders_enabled)
+    return bool(
+        getattr(session, "_live_orders_enabled", getattr(session, "live_orders_enabled", True))
+    )
+
+
 def _price(value: Any, name: str) -> Any:
     """Parse a decimal ``Price`` from an HTTP body value."""
     from tradex_domain.value_objects import Price
@@ -159,7 +179,7 @@ def _price(value: Any, name: str) -> Any:
 
 
 def _build_order_request(
-    body: dict, session: Any, correlation_id: CorrelationId | None = None,
+    body: Any, session: Any, correlation_id: CorrelationId | None = None,
 ) -> Any:
     """Parse an HTTP order body into a domain OrderRequest.
 
@@ -220,7 +240,7 @@ def _build_order_request(
 
 def _build_bracket_modify_request(
     existing: Any,
-    body: dict,
+    body: Any,
     instrument: Any,
     correlation_id: CorrelationId,
 ) -> Any:
@@ -323,15 +343,18 @@ async def get_order(
 
 
 async def place_order(
-    body: dict,
+    body: PlaceOrderRequest,
     session: Any | None = Depends(get_session),
     idempotency_key: str | None = Header(default=None, alias=IDEMPOTENCY_KEY_HEADER),
     request: Request = cast(Request, None),
 ) -> OrderResponse:
+    body = body.model_dump()
     correlation_id = _require_idempotency_key(idempotency_key)
     _require_trading_mode(session, _request_replay_guard(request))
     if session is None:
         raise HTTPException(status_code=503, detail=NO_SESSION_BOUND)
+    if str(getattr(session, "mode", "")).strip().lower() == "live" and not _live_orders_enabled(request, session):
+        raise HTTPException(status_code=503, detail="live_orders_disabled")
     try:
         order_request = _build_order_request(body, session, correlation_id)
         receipt = app_submit_order(session.engine, order_request)
@@ -354,11 +377,12 @@ async def place_order(
 
 
 async def place_bracket_order(
-    body: dict,
+    body: BracketOrderRequestDto,
     session: Any | None = Depends(get_session),
     idempotency_key: str | None = Header(default=None, alias=IDEMPOTENCY_KEY_HEADER),
     request: Request = cast(Request, None),
 ) -> OrderResponse:
+    body = body.model_dump()  # type: ignore[assignment]
     """Place a bracket (super) order — entry + protective stop/target legs.
 
     Capability-gated like ``/orders`` is session-bound; the submission itself
@@ -372,6 +396,8 @@ async def place_bracket_order(
     _require_trading_mode(session, _request_replay_guard(request))
     if session is None:
         raise HTTPException(status_code=503, detail=NO_SESSION_BOUND)
+    if str(getattr(session, "mode", "")).strip().lower() == "live" and not _live_orders_enabled(request, session):
+        raise HTTPException(status_code=503, detail="live_orders_disabled")
     broker = getattr(session, "_broker", None) or getattr(session, "broker", None)
     if broker is None:
         raise HTTPException(status_code=503, detail=BROKER_UNAVAILABLE_MESSAGE)
@@ -394,11 +420,12 @@ async def place_bracket_order(
 
 async def modify_order(
     order_id: str,
-    body: dict,
+    body: OrderUpdateRequest,
     session: Any | None = Depends(get_session),
     idempotency_key: str | None = Header(default=None, alias=IDEMPOTENCY_KEY_HEADER),
     request: Request = cast(Request, None),
 ) -> OrderResponse:
+    body = body.model_dump()  # type: ignore[assignment]
     correlation_id = _require_idempotency_key(idempotency_key)
     _require_trading_mode(session, _request_replay_guard(request))
     if session is None:

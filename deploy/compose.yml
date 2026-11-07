@@ -100,6 +100,34 @@ services:
       - tradex
 
   # ---------------------------------------------------------------------------
+  # The broker data gateway (profile-gated; opt-in via --profile gateway).
+  # ---------------------------------------------------------------------------
+  gateway:
+    profiles: ["gateway"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: tradex-gateway:local
+    entrypoint: ["tradex-gateway"]
+    command: ["serve"]
+    environment:
+      GATEWAY_HOST: "${GATEWAY_HOST:-0.0.0.0}"
+      GATEWAY_PORT: "${GATEWAY_PORT:-8100}"
+      GATEWAY_API_KEY: "${GATEWAY_API_KEY:-}"
+      GATEWAY_ALLOW_ANON: "${GATEWAY_ALLOW_ANON:-false}"
+      GATEWAY_BROKERS: "${GATEWAY_BROKERS:-dhan,upstox}"
+      GATEWAY_PRIMARY_LIVE: "${GATEWAY_PRIMARY_LIVE:-dhan}"
+      GATEWAY_PRIMARY_QUOTES: "${GATEWAY_PRIMARY_QUOTES:-upstox}"
+      GATEWAY_PRIMARY_HISTORY: "${GATEWAY_PRIMARY_HISTORY:-upstox}"
+      GATEWAY_PRIMARY_CHAIN: "${GATEWAY_PRIMARY_CHAIN:-dhan}"
+      TRADEX_ENV_FILE: "${TRADEX_ENV_FILE:-}"
+    ports:
+      - "${GATEWAY_PORT:-8100}:${GATEWAY_PORT:-8100}"
+    restart: unless-stopped
+    networks:
+      - tradex
+
+  # ---------------------------------------------------------------------------
   # The sink behind lane 5b's receiver URLs.
   # ---------------------------------------------------------------------------
   # deploy/alertmanager.yml points both receivers at

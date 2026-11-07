@@ -94,7 +94,7 @@ Additional confirmed findings:
 | Trees | `analytics/src/tradex_analytics/goldens/` (**90**, ships in the wheel) vs `trading/tests/analytics/goldens/` (**145** incl. `settings2/`, `transforms/`, `profiles/`, `fixtures.json`, `PROVENANCE.json`) |
 | Who reads it | **Nothing.** All 6 consumers resolve `Path(__file__).parent / "goldens"`. The `src/` copy has no `__init__.py`, so it is not importable. |
 | Who writes it | **Nothing.** All generators (`generate_goldens*.mjs`, `write-provenance.mjs`, `goldens-provenance.mjs:25`) target `trading/tests/analytics/goldens/` only. |
-| Divergence | **30 of 90 differ.** 8 differ in `settings`; 20 lack plots. The direction is decisive: `src/` has `sma.length: 20`, `stochastic.kSmoothing: 3`; the real set has `9` and `1` — **exactly the 2.1.8 bump CLAUDE.md documents.** `PROVENANCE.json` records the real set as `2.3.2` / `be7418e9…`, matching the pin. |
+| Divergence | **30 of 90 differ.** 8 differ in `settings`; 20 lack plots. The direction is decisive: `src/` has `sma.length: 20`, `stochastic.kSmoothing: 3`; the real set has `9` and `1` — **exactly the v2.3.2 bump CLAUDE.md documents.** `PROVENANCE.json` records the real set as `2.3.2` / `be7418e9…`, matching the pin. |
 | Consequence | The wheel carries 90 expected-values files that are a **pre-bump snapshot, read by zero tests, and can never be regenerated**. This is precisely the failure CLAUDE.md warns about ("fixtures captured from a version nobody runs"). It is not covered by the provenance hash, which is why it rotted unnoticed. |
 
 Two structural blindnesses in the parity gate itself:

@@ -100,6 +100,7 @@ class PositionAccountant:
                 mark_price=existing.mark_price,
                 marked_at=existing.marked_at,
                 mark_source=existing.mark_source,
+                strategy_id=existing.strategy_id,
             )
             self._cache.update_position(pos)
         log.info(
@@ -203,6 +204,7 @@ class PositionAccountant:
             mark_price=mark,
             marked_at=quote.timestamp,
             mark_source=source,
+            strategy_id=position.strategy_id,
         )
 
     # ------------------------------------------------------------------

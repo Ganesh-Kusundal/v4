@@ -151,17 +151,20 @@ class CashLedger:
         fee: Decimal | Money,
         what: str,
         book: Callable[[], None] | None = None,
+        skip_proof: bool = False,
+        allow_overdraft: bool = False,
     ) -> None:
         """Apply one fill's whole cash effect atomically, with its booking.
 
         THE single entry point by which a fill moves money (AC-21). One lock
         spans the ordered steps:
 
-        1. **Affordability proof** -- the notional (BUY only) plus the fee is
-           proved against the current balance, exactly as :meth:`require_debit`
-           does. This is the step that used to run in a *separate* critical
-           section from the debits that follow it, so two concurrent submits
-           could both pass and both debit.
+        1. **Affordability proof** -- BUY: notional + fee against the current
+           balance; SELL: max(0, fee - notional) (sells self-fund from
+           proceeds), exactly as :meth:`require_debit` does. This is the step
+           that used to run in a *separate* critical section from the debits
+           that follow it, so two concurrent submits could both pass and both
+           debit.
         2. **Position booking** -- ``book()`` (the engine passes the position
            booker's fill hook) runs here, still under the ledger lock, so the
            position, cash and fee move as one operation.
@@ -182,24 +185,40 @@ class CashLedger:
         """
         amount = fee.amount if isinstance(fee, Money) else Decimal(str(fee))
         notional = quantity.value * price.value
-        debit = (notional if side is OrderSide.BUY else Decimal(0)) + amount
+        # Net-proceeds proof (MP-3): a BUY is gated on notional + fee; a SELL
+        # only needs cash when the fee exceeds the proceeds (sells self-fund).
+        if side is OrderSide.BUY:
+            debit = notional + amount
+        else:
+            debit = max(Decimal(0), amount - notional)
         with self._lock:
-            # 1. Prove affordability (no mutation), through the PUBLIC
-            #    require_debit so the one named affordability check both doors
-            #    and the negative controls exercise is the one that runs here.
-            #    A refusal raises now, so book(), the notional and the fee never run.
-            self.require_debit(debit, what)
-            # 2. Position booking, still under this lock.
-            if book is not None:
-                book()
-            # 3. Notional: BUY debits, SELL credits.
-            if side is OrderSide.BUY:
-                self._debit_unlocked(notional, what)
-            else:
-                self._cash += notional
-            # 4. Fee always debited (the proof above already covered it).
-            self._debit_unlocked(amount, "fee")
-            self._fees += amount
+            # Temporarily allow overdraft for adopted venue fills.
+            saved_allow = self._allow_negative
+            if allow_overdraft:
+                self._allow_negative = True
+            try:
+                # 1. Prove affordability (no mutation), unless skipped for an
+                #    adopted venue-confirmed fill (affordability governs
+                #    placement, not a fill that already happened).
+                if not skip_proof and debit > 0:
+                    # debit == 0 on a SELL whose proceeds cover its fee:
+                    # self-funding, cash-independent (require_debit(0) would
+                    # still refuse at a negative balance). BUY always has
+                    # debit > 0 (notional + fee).
+                    self.require_debit(debit, what)
+                # 2. Position booking, still under this lock.
+                if book is not None:
+                    book()
+                # 3. Notional: BUY debits, SELL credits.
+                if side is OrderSide.BUY:
+                    self._debit_unlocked(notional, what)
+                else:
+                    self._cash += notional
+                # 4. Fee always debited (the proof above already covered it).
+                self._debit_unlocked(amount, "fee")
+                self._fees += amount
+            finally:
+                self._allow_negative = saved_allow
 
     def on_fill(self, side: OrderSide, quantity: Quantity, price: Price) -> None:
         """Apply a fill's notional to cash (debit BUY, credit SELL).

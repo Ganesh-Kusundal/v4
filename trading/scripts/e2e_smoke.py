@@ -99,7 +99,7 @@ async def ws_checks() -> None:
             for _ in range(300):
                 msg = json.loads(await asyncio.wait_for(ws.recv(), 6))
                 t = msg.get("type")
-                if t == "replay_stopped":
+                if t == "replay-stopped":
                     stopped = True
                     break
                 if t == "bar":

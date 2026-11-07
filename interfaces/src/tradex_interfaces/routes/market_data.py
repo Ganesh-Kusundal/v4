@@ -8,6 +8,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from tradex_domain.constants import NO_SESSION_BOUND
 
 from tradex_interfaces.auth.deps import require_auth
+from tradex_interfaces.contracts import (
+    FutureChainRequest,
+    FutureChainResponse,
+    HistoryBar,
+    HistoryRequest,
+    OptionChainRequest,
+    OptionChainResponse,
+    QuoteRequest,
+    QuoteResponse,
+    SearchRequest,
+    SearchResultItem,
+)
 from tradex_interfaces.routes._market_helpers import (
     enrich_chain_live,
     resolve_underlying_instrument,
@@ -18,47 +30,68 @@ from tradex_interfaces.routes.deps import get_session
 router = APIRouter(dependencies=[Depends(require_auth)])
 
 
-@router.get("/quotes/{exchange}:{symbol}", response_model=dict[str, Any])
+@router.get(
+    "/quotes/{exchange}:{symbol}",
+    response_model=QuoteResponse,
+)
 async def get_quote(
     exchange: str,
     symbol: str,
     session: Any | None = Depends(get_session),
-) -> dict[str, Any]:
+) -> QuoteResponse:
+    """Get real-time quote for an instrument."""
     if session is None:
         raise HTTPException(status_code=404, detail=NO_SESSION_BOUND)
     try:
         from tradex_brokers.common.provider_common import instrument_from_id
+        from tradex_domain.serialization import to_dict
         from tradex_domain.value_objects import InstrumentId
 
         iid = InstrumentId.parse(f"{exchange}:{symbol}")
         instrument = instrument_from_id(iid)
         quote = session.broker.get_quote(instrument)
-        return dict(quote) if not isinstance(quote, dict) else quote
+        raw = to_dict(quote) if not isinstance(quote, dict) else quote
+        return QuoteResponse(**raw)
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
 
-@router.get("/search", response_model=list[str])
+@router.get(
+    "/search",
+    response_model=list[SearchResultItem],
+)
 async def search_instruments(
     q: str,
     session: Any | None = Depends(get_session),
-) -> list[str]:
+) -> list[SearchResultItem]:
+    """Search instruments by query string."""
     if session is None:
         return []
     try:
         results = session.broker.search(q)
-        return list(results)
+        return [
+            SearchResultItem(
+                instrument_id=str(instrument.instrument_id),
+                symbol=instrument.symbol,
+                exchange=str(instrument.exchange),
+                asset_class=str(instrument.asset_class.value).lower(),
+            )
+            for instrument in results
+        ]
     except Exception:
         return []
 
 
-@router.get("/history/{instrument_id}", response_model=list)
+@router.get(
+    "/history/{instrument_id}",
+    response_model=list[HistoryBar],
+)
 async def get_history(
     instrument_id: str,
     timeframe: str = "1d",
     limit: int = 100,
     session: Any | None = Depends(get_session),
-) -> list[dict]:
+) -> list[HistoryBar]:
     """Get historical bars for an instrument."""
     if session is None:
         raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
@@ -73,26 +106,29 @@ async def get_history(
         history = session.broker.history(instrument, tf)
         bars = []
         for bar in history:
-            bars.append({
-                "timestamp": str(bar.timestamp),
-                "open": float(bar.ohlc.open.value),
-                "high": float(bar.ohlc.high.value),
-                "low": float(bar.ohlc.low.value),
-                "close": float(bar.ohlc.close.value),
-                "volume": float(bar.volume.value) if bar.volume else 0,
-            })
+            bars.append(HistoryBar(
+                timestamp=str(bar.timestamp),
+                open=float(bar.ohlc.open.value),
+                high=float(bar.ohlc.high.value),
+                low=float(bar.ohlc.low.value),
+                close=float(bar.ohlc.close.value),
+                volume=float(bar.volume.value) if bar.volume else 0,
+            ))
         return bars[:limit]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/option-chain/{underlying}")
+@router.get(
+    "/option-chain/{underlying}",
+    response_model=OptionChainResponse,
+)
 async def get_option_chain(
     underlying: str,
     expiry: str | None = None,
     live: bool = False,
     session: Any | None = Depends(get_session),
-) -> dict:
+) -> OptionChainResponse:
     """Option chain for an underlying.
 
     ``underlying`` accepts ``EXCHANGE:SYMBOL`` (e.g. ``MCX:GOLD``), a
@@ -109,8 +145,10 @@ async def get_option_chain(
         inst = resolve_underlying_instrument(session, underlying)
         chain = session.broker.get_option_chain(inst, expiry)
         if live:
-            return enrich_chain_live(session, chain)
-        return serialize_option_chain(chain)
+            raw = enrich_chain_live(session, chain)
+            return OptionChainResponse(**raw)
+        raw = serialize_option_chain(chain)
+        return OptionChainResponse(**raw)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except HTTPException:
@@ -119,20 +157,23 @@ async def get_option_chain(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/future-chain/{underlying}")
+@router.get(
+    "/future-chain/{underlying}",
+    response_model=FutureChainResponse,
+)
 async def get_future_chain(
     underlying: str,
     session: Any | None = Depends(get_session),
-) -> dict:
+) -> FutureChainResponse:
     """Future contracts on an underlying, derived from the loaded master."""
     if session is None:
         raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         inst = resolve_underlying_instrument(session, underlying)
         futures = session.broker.future_chain(inst)
-        return {
-            "underlying": str(inst.instrument_id),
-            "futures": [
+        return FutureChainResponse(
+            underlying=str(inst.instrument_id),
+            futures=[
                 {
                     "instrument": str(f.instrument_id),
                     "symbol": f.symbol,
@@ -140,7 +181,7 @@ async def get_future_chain(
                 }
                 for f in futures
             ],
-        }
+        )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except HTTPException:

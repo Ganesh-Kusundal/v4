@@ -15,11 +15,11 @@ that binds the four state values (``session``, ``feed_registry``,
 from __future__ import annotations
 
 import asyncio
-import threading
 import json
 import logging
 import math
 import secrets
+import threading
 from datetime import UTC
 from typing import Any
 from urllib.parse import parse_qs
@@ -46,6 +46,17 @@ from tradex_runtime.replay_controller import (
 )
 
 from tradex_interfaces._helpers import feed_status_payload
+from tradex_interfaces.contracts import (
+    WSIndicatorSubRequest,
+    WSIndicatorUnsubRequest,
+    WSReplaySeekRequest,
+    WSReplaySpeedRequest,
+    WSReplayStartRequest,
+    WSSubscribeBarsRequest,
+    WSSubscribeRequest,
+    WSUnsubscribeBarsRequest,
+    WSUnsubscribeRequest,
+)
 from tradex_interfaces.queueing import (
     CONTROL_QUEUE_MAX,
     WS_CLOSE_CONTROL_OVERFLOW,
@@ -67,10 +78,10 @@ log = logging.getLogger(__name__)
 FEED_STATUS_POLL_SECONDS = 2.0
 
 
-async _REPLAY_GUARD_LOCK = threading.Lock()
+_REPLAY_GUARD_LOCK = threading.Lock()
 
 
-def ws_stream(
+async def ws_stream(
     app: Any,
     ws: WebSocket,
     session: Any,
@@ -489,17 +500,27 @@ def ws_stream(
             msg_type = msg.get("type")
             if msg_type == "subscribe":
                 try:
-                    instruments = _parse_instruments(msg.get("instruments"))
+                    req = WSSubscribeRequest.model_validate(msg)
                 except ValueError as exc:
                     _ack({"type": "error", "message": str(exc)})
                     return
-                depth = normalize_depth(msg.get("depth"))
+                try:
+                    instruments = _parse_instruments(req.instruments)
+                except ValueError as exc:
+                    _ack({"type": "error", "message": str(exc)})
+                    return
+                depth = normalize_depth(req.depth)
                 await _subscribe(instruments, depth)
-                if msg.get("snapshot") is True:
+                if req.snapshot:
                     await _snapshot(instruments)
             elif msg_type == "unsubscribe":
                 try:
-                    instruments = _parse_instruments(msg.get("instruments"))
+                    req = WSUnsubscribeRequest.model_validate(msg)
+                except ValueError as exc:
+                    _ack({"type": "error", "message": str(exc)})
+                    return
+                try:
+                    instruments = _parse_instruments(req.instruments)
                 except ValueError as exc:
                     _ack({"type": "error", "message": str(exc)})
                     return
@@ -518,27 +539,63 @@ def ws_stream(
                 _unsubscribe_orders()
                 _ack({"type": "unsubscribed_orders"})
             elif msg_type == WS_SUBSCRIBE_BARS:
-                await _subscribe_bars(msg)
+                try:
+                    req = WSSubscribeBarsRequest.model_validate(msg)
+                except ValueError as exc:
+                    _ack({"type": "error", "message": str(exc)})
+                    return
+                await _subscribe_bars(req)
             elif msg_type == "unsubscribe_bars":
-                _unsubscribe_bars(msg)
+                try:
+                    req = WSUnsubscribeBarsRequest.model_validate(msg)
+                except ValueError as exc:
+                    _ack({"type": "error", "message": str(exc)})
+                    return
+                _unsubscribe_bars(req)
                 _ack({"type": "unsubscribed_bars"})
             elif msg_type == WS_INDICATOR_SUB:
-                _indicator_sub(msg)
+                try:
+                    req = WSIndicatorSubRequest.model_validate(msg)
+                except ValueError as exc:
+                    _ack({"type": "error", "message": str(exc)})
+                    return
+                _indicator_sub(req)
             elif msg_type == WS_INDICATOR_UNSUB:
-                _indicator_unsub(msg)
+                try:
+                    req = WSIndicatorUnsubRequest.model_validate(msg)
+                except ValueError as exc:
+                    _ack({"type": "error", "message": str(exc)})
+                    return
+                _indicator_unsub(req)
             elif msg_type == WS_REPLAY_START:
-                await _replay_start(msg)
+                try:
+                    req = WSReplayStartRequest.model_validate(msg)
+                except ValueError as exc:
+                    _replay_error(str(exc))
+                    return
+                await _replay_start(req)
             elif msg_type == WS_REPLAY_PAUSE:
                 await _replay_pause()
-            elif msg_type == "replay_resume":
+            elif msg_type == "replay-resume":
                 await _replay_resume()
-            elif msg_type == "replay_speed":
-                await _replay_speed(msg)
-            elif msg_type == "replay_step":
+            elif msg_type == "replay-speed":
+                try:
+                    req = WSReplaySpeedRequest.model_validate(msg)
+                except ValueError as exc:
+                    _replay_error(str(exc), replay_controller.run_id)
+                    await _replay_stop()
+                    return
+                await _replay_speed(req)
+            elif msg_type == "replay-step":
                 await _replay_step()
             elif msg_type == WS_REPLAY_SEEK:
-                await _replay_seek(msg)
-            elif msg_type == "replay_stop":
+                try:
+                    req = WSReplaySeekRequest.model_validate(msg)
+                except ValueError as exc:
+                    _replay_error(str(exc), replay_controller.run_id)
+                    return
+                await _replay_seek(req)
+            elif msg_type == "replay-stop":
                 await _replay_stop()
             elif msg_type == "stats":
                 # Surface backpressure + resync health so a client can
@@ -679,11 +736,11 @@ def ws_stream(
         )
         indicator_stream = IndicatorStream(indicator_registry, _ack)
 
-        def _indicator_sub(msg: dict[str, Any]) -> None:
-            indicator_stream.sub(msg)
+        def _indicator_sub(req: WSIndicatorSubRequest) -> None:
+            indicator_stream.sub(req.model_dump())
 
-        def _indicator_unsub(msg: dict[str, Any]) -> None:
-            indicator_stream.unsub(msg)
+        def _indicator_unsub(req: WSIndicatorUnsubRequest) -> None:
+            indicator_stream.unsub(req.model_dump())
         def _make_aggregator(
             inst_id: str,
             interval: str,
@@ -815,8 +872,8 @@ def ws_stream(
             except RuntimeError:
                 return
 
-        async def _subscribe_bars(msg: dict[str, Any]) -> None:
-            raw = msg.get("bars") or msg.get("instruments")
+        async def _subscribe_bars(req: WSSubscribeBarsRequest) -> None:
+            raw = req.bars or req.instruments
             if not isinstance(raw, list) or not raw:
                 _ack({
                     "type": "error",
@@ -881,8 +938,8 @@ def ws_stream(
                 "active": len(bar_aggregators),
             })
 
-        def _unsubscribe_bars(msg: dict[str, Any]) -> None:
-            raw = msg.get("bars")
+        def _unsubscribe_bars(req: WSUnsubscribeBarsRequest) -> None:
+            raw = req.bars
             if not isinstance(raw, list):
                 return
             for item in raw:
@@ -941,7 +998,7 @@ def ws_stream(
 
         def _replay_error(message: str, run_id: str | None = None) -> None:
             frame: dict[str, Any] = {
-                "type": "replay_error",
+                "type": "replay-error",
                 "message": str(message),
             }
             if run_id is not None:
@@ -950,7 +1007,7 @@ def ws_stream(
 
         def _replay_error(message: str, run_id: str | None = None) -> None:
             frame: dict[str, Any] = {
-                "type": "replay_error",
+                "type": "replay-error",
                 "message": str(message),
             }
             if run_id is not None:
@@ -1019,10 +1076,11 @@ def ws_stream(
             return window.candles
 
         async def _replay_start(
-            msg: dict[str, Any], dataset: tuple[Any, ...] | None = None
+            req: WSReplayStartRequest, dataset: tuple[Any, ...] | None = None
         ) -> None:
+            msg_dict = {k: v for k, v in req.model_dump().items() if v is not None}
             try:
-                params = parse_replay_start(msg)
+                params = parse_replay_start(msg_dict)
             except ValueError as exc:
                 _replay_error(str(exc))
                 return
@@ -1065,15 +1123,15 @@ def ws_stream(
             except ReplayTransitionError as exc:
                 _replay_error(str(exc), replay_controller.run_id)
 
-        async def _replay_seek(msg: dict[str, Any]) -> None:
+        async def _replay_seek(req: WSReplaySeekRequest) -> None:
             try:
-                await replay_controller.seek(msg)
+                await replay_controller.seek(req.model_dump())
             except ReplayTransitionError as exc:
                 _replay_error(str(exc), replay_controller.run_id)
 
-        async def _replay_speed(msg: dict[str, Any]) -> None:
+        async def _replay_speed(req: WSReplaySpeedRequest) -> None:
             try:
-                replay_controller.set_speed(msg.get("speed"))
+                replay_controller.set_speed(req.speed)
             except (ReplayTransitionError, ValueError) as exc:
                 _replay_error(str(exc), replay_controller.run_id)
                 await replay_controller.stop()

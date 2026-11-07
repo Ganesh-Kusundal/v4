@@ -9,6 +9,25 @@ runs. Pinning in a fixture left those modules anchored to ``<repo>/runtime``
 and wrote operator state into the repository. A test that wants the
 repository-anchored default deletes the variable with ``monkeypatch.delenv``.
 
+Why pytest_configure (not a fixture)?
+--------------------------------------
+Pytest's lifecycle is:
+
+1. **pytest_configure** — called once, before any test module is imported
+2. Collection — imports all test modules (module-level code runs here)
+3. Session fixtures — created after collection completes
+4. Test execution
+
+If we pinned ``TRADEX_RUNTIME_DIR`` in a session-scoped fixture, step 2
+would have already imported modules that call ``AppConfig()`` at module level
+(e.g. ``_DEFAULT_CFG = AppConfig()``). Those calls would read the *unpinned*
+environment variable and resolve to ``<repo>/runtime``, permanently anchoring
+that module to the repository directory for the rest of the session.
+
+By pinning in ``pytest_configure`` (step 1), we guarantee the variable is set
+before *any* Python code in the test suite runs, including module-level
+constants, class bodies, and decorator arguments.
+
 The same hook snapshots ``<repo>/runtime`` and ``pytest_sessionfinish`` fails
 the session if anything under it appeared or changed, so the next regression
 of this class cannot pass quietly.
@@ -84,11 +103,38 @@ def runtime_dir_violations() -> list[str]:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    """Pin the runtime root before any test module is imported."""
+    """Pin the runtime root before any test module is imported.
+
+    This hook runs **before collection**, which means before any test module
+    is imported. That is critical: modules that call ``AppConfig()`` at import
+    time (module-level constants, class bodies, decorator arguments) will see
+    the pinned directory, not ``<repo>/runtime``.
+
+    Raises
+    ------
+    AssertionError
+        If the pin fails or if a previous session left the variable set in a
+        way that would indicate incomplete cleanup.
+    """
     global _pinned_runtime_dir, _previous_runtime_dir, _runtime_snapshot
+
+    # Safety check: if we're being called twice in the same process (e.g.
+    # multiple pytest.main() calls), refuse rather than silently leaking state.
+    assert _pinned_runtime_dir is None, (
+        "pytest_configure called twice without pytest_unconfigure; "
+        "previous pinned dir: " + str(_pinned_runtime_dir)
+    )
+
     _pinned_runtime_dir = tempfile.mkdtemp(prefix="tradex-runtime")
     _previous_runtime_dir = os.environ.get("TRADEX_RUNTIME_DIR")
     os.environ["TRADEX_RUNTIME_DIR"] = _pinned_runtime_dir
+
+    # Verify the pin took effect immediately — this catches the case where
+    # something else in the process overwrites the variable after we set it.
+    assert os.environ.get("TRADEX_RUNTIME_DIR") == _pinned_runtime_dir, (
+        "TRADEX_RUNTIME_DIR was overwritten between setting and verification"
+    )
+
     _runtime_snapshot = snapshot_runtime_dir()
 
 
@@ -120,6 +166,38 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
 @pytest.fixture(scope="session")
 def tradex_runtime_dir() -> str:
-    """The runtime directory pinned for this session by ``pytest_configure``."""
-    assert _pinned_runtime_dir is not None, "pytest_configure did not pin a runtime dir"
+    """The runtime directory pinned for this session by ``pytest_configure``.
+
+    This fixture exists so tests can *use* the pinned directory (e.g. to write
+    test-specific state into it), but the actual pinning happens in
+    ``pytest_configure``, **not** here. See the module docstring for why.
+
+    The assertion below is a safety net: if pytest ever changes its lifecycle
+    or if someone calls this fixture before pytest_configure runs, we fail
+    loudly rather than returning None or the wrong directory.
+
+    Returns
+    -------
+    str
+        Absolute path to the temporary runtime directory for this session.
+
+    Raises
+    ------
+    AssertionError
+        If pytest_configure has not yet run (should never happen in normal
+        pytest usage, but guards against manual fixture invocation or
+        lifecycle changes).
+    """
+    assert _pinned_runtime_dir is not None, (
+        "pytest_configure did not pin a runtime dir — "
+        "this fixture must only be used during an active pytest session"
+    )
+    # Double-check that the environment variable still points to our pinned dir.
+    # This catches the pathological case where something overwrote it after
+    # pytest_configure but before this fixture was requested.
+    env_value = os.environ.get("TRADEX_RUNTIME_DIR")
+    assert env_value == _pinned_runtime_dir, (
+        f"TRADEX_RUNTIME_DIR was overwritten: env={env_value!r}, "
+        f"pinned={_pinned_runtime_dir!r}"
+    )
     return _pinned_runtime_dir

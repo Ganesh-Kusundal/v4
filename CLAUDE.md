@@ -244,7 +244,7 @@ asserts the backend against **checked-in** fixtures captured from the library's
 TypeScript indicator math, so those tests do not read `openalgo-charts/` at all:
 they pass against a library whose math has drifted, and equally against fixtures
 captured from a version nobody runs. That is what had happened — the fixtures were
-a 2.1.7 snapshot while the repo pinned 2.1.8 — so the pin now lives in
+a stale snapshot while the repo pinned v2.3.2 (be7418e) — so the pin now lives in
 `openalgo-charts.pin` and a bump is an act with consequences:
 
 ```bash
@@ -254,7 +254,7 @@ git diff --stat trading/tests/analytics/goldens   # the diff IS the review
 .venv/bin/python -m pytest trading/tests/analytics -q
 ```
 
-The 2.1.8 bump was not plumbing: it changed indicator input defaults
+The pin bump to v2.3.2 (be7418e) was not plumbing: it changed indicator input defaults
 (`sma.length` 20 → 9, `stochastic.kSmoothing` 3 → 1), dropped `supertrend`'s
 `bodyMid` plot, and added fields to the footprint result (implemented in
 `analytics/profiles.py`). A fixture captured under the old defaults is

@@ -99,7 +99,7 @@ def _widen_the_window(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     original = module.CashLedger.apply_fill
 
-    def widened(self, side, quantity, price, fee, what, book=None):  # noqa: ANN001, ANN202
+    def widened(self, side, quantity, price, fee, what, book=None, skip_proof=False, allow_overdraft=False):  # noqa: ANN001, ANN202
         amount = fee.amount if hasattr(fee, "amount") else Decimal(str(fee))
         notional = quantity.value * price.value
         debit = (notional if side is OrderSide.BUY else Decimal(0)) + amount
