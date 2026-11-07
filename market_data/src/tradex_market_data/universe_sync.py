@@ -166,7 +166,7 @@ class UniverseSyncManager:
             if not csv_isin:
                 continue
 
-            broker_symbol = isin_index.get(csv_isin)
+            broker_symbol = isin_index.get(str(csv_isin).strip().upper())
             if broker_symbol and broker_symbol != inst.symbol:
                 # Check if old symbol exists in datalake
                 old_exists = (self._datalake_root / "ohlcv" / f"symbol={inst.symbol}").exists()
