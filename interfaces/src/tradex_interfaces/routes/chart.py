@@ -29,7 +29,29 @@ from tradex_domain.timezones import IST_ZONE
 from tradex_execution.projection import execution_projection
 
 from tradex_interfaces.auth.deps import require_auth, require_csrf_if_session
-from tradex_interfaces.contracts import BacktestRequest, BacktestResponse, ScannerRunRequest
+from tradex_interfaces.contracts import (
+    BacktestRequest,
+    BacktestResponse,
+    BookResponse,
+    ChartAccountResponse,
+    HistoryResponse,
+    IndicatorCatalogueResponse,
+    IndicatorComputeRequest,
+    IndicatorComputeResponse,
+    ProfileResponse,
+    SafetyWireResponse,
+    ScannerRunRequest,
+    ScannerRunResponse,
+    SeasonalityRequest,
+    SeasonalityResponse,
+    SeriesComputeRequest,
+    SeriesTransformResponse,
+    StrategiesResponse,
+    SymbolsResponse,
+    WorkspaceDetail,
+    WorkspacePutResponse,
+    WorkspaceSummary,
+)
 from tradex_interfaces.safety import build_safety_report
 
 #: Interval codes the chart may request, mapped to canonical Timeframes.
@@ -315,10 +337,17 @@ def create_chart_router(
 
     # ---------------------------------------------------------------- symbols
 
-    @router.get("/symbols", dependencies=[Depends(require_auth)])
+    @router.get(
+        "/symbols",
+        response_model=SymbolsResponse,
+        # The datalake branch has no ``universe`` key at all; without this the
+        # model would inject ``"universe": null`` and change the wire shape.
+        response_model_exclude_none=True,
+        dependencies=[Depends(require_auth)],
+    )
     async def list_symbols(
         q: str | None = None, source: str = "datalake", universe: str = "nifty50"
-    ) -> Any:
+    ) -> SymbolsResponse:
         """Symbols available to chart, type-ahead ready.
 
         ``source=datalake`` (default): every symbol actually in the datalake —
@@ -358,7 +387,11 @@ def create_chart_router(
 
     # ---------------------------------------------------------------- history
 
-    @router.get("/history/{exchange}:{symbol}", dependencies=[Depends(require_auth)])
+    @router.get(
+        "/history/{exchange}:{symbol}",
+        response_model=HistoryResponse,
+        dependencies=[Depends(require_auth)],
+    )
     async def get_history(
         exchange: str,
         symbol: str,
@@ -366,7 +399,7 @@ def create_chart_router(
         from_utc: int | None = Query(default=None, alias="from"),
         to_utc: int | None = Query(default=None, alias="to"),
         limit: int = Query(default=5000, le=20000),
-    ) -> Any:
+    ) -> HistoryResponse:
         """Closed OHLCV bars for the chart, oldest first.
 
         Source precedence: parquet datalake first (offline, deterministic),
@@ -421,8 +454,12 @@ def create_chart_router(
 
     # ------------------------------------------------------------- indicators
 
-    @router.get("/indicators", dependencies=[Depends(require_auth)])
-    async def list_indicators() -> Any:
+    @router.get(
+        "/indicators",
+        response_model=IndicatorCatalogueResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def list_indicators() -> IndicatorCatalogueResponse:
         """The whole indicator catalogue: ids, param schemas, plot shapes.
 
         The frontend builds its indicator menu entirely from this; adding an
@@ -433,8 +470,14 @@ def create_chart_router(
 
         return {"indicators": indicator_catalogue()}
 
-    @router.post("/indicators/compute", dependencies=[Depends(require_auth)])
-    async def compute_indicator_endpoint(body: Any = Body()) -> Any:
+    @router.post(
+        "/indicators/compute",
+        response_model=IndicatorComputeResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def compute_indicator_endpoint(
+        body: IndicatorComputeRequest,
+    ) -> IndicatorComputeResponse:
         """Compute one registered indicator over the SAME bar window the
         chart holds, so returned points are index-aligned with its bars.
 
@@ -442,18 +485,14 @@ def create_chart_router(
         Points carry null (never NaN — json.dumps would emit a bare NaN and
         break JSON parsing) wherever the indicator has no value yet.
         """
-        indicator_id = body.get("id")
-        if not indicator_id or not isinstance(indicator_id, str):
+        indicator_id = body.id
+        if not indicator_id:
             raise HTTPException(status_code=422, detail="body must include string 'id'")
-        params = body.get("params") or {}
-        if not isinstance(params, dict):
-            raise HTTPException(status_code=422, detail="'params' must be an object")
-        tf = INTERVAL_TIMEFRAME.get(str(body.get("interval", "5m")))
+        params = body.params or {}
+        tf = INTERVAL_TIMEFRAME.get(body.interval)
         if tf is None:
             raise HTTPException(status_code=422, detail="unsupported interval")
-        instrument = _resolve_instrument(
-            str(body.get("exchange", "NSE")), str(body.get("symbol", ""))
-        )
+        instrument = _resolve_instrument(body.exchange, body.symbol)
         # Resolve the id and its params BEFORE reading the lake. A malformed
         # request is malformed whatever the window holds — and the default
         # window (no from/to -> "now minus lookback") often covers no data at
@@ -469,7 +508,7 @@ def create_chart_router(
             merged_params = validate_indicator_request(indicator_id, params)[1]
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        start, end = _window(body.get("from"), body.get("to"))
+        start, end = _window(body.from_utc, body.to_utc)
 
         bars, _ = _bars_from_datalake(instrument, tf, start, end, limit=20000)
         if not bars:
@@ -506,8 +545,14 @@ def create_chart_router(
             "meta": {"source": "datalake", "params": params},
         }
 
-    @router.post("/transforms/{transform_id}", dependencies=[Depends(require_auth)])
-    async def compute_transform_endpoint(transform_id: str, body: Any = Body()) -> Any:
+    @router.post(
+        "/transforms/{transform_id}",
+        response_model=SeriesTransformResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def compute_transform_endpoint(
+        transform_id: str, body: SeriesComputeRequest
+    ) -> SeriesTransformResponse:
         """Rebucket a bar window through one series transform (stateless).
 
         Body: {id, params?, bars: [{time, open, high, low, close, volume}]}.
@@ -516,22 +561,26 @@ def create_chart_router(
         """
         from tradex_analytics.transforms import compute_transform
 
-        bars = body.get("bars") or []
-        if not isinstance(bars, list) or not bars:
+        bars = body.bars or []
+        if not bars:
             raise HTTPException(
                 status_code=422, detail="transform requires a non-empty bars array"
             )
-        params = body.get("params") or {}
-        if not isinstance(params, dict):
-            raise HTTPException(status_code=422, detail="'params' must be an object")
+        params = body.params or {}
         try:
             result = compute_transform(transform_id, bars, params)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"id": transform_id, "bars": result}
 
-    @router.post("/profiles/{profile_id}", dependencies=[Depends(require_auth)])
-    async def compute_profile_endpoint(profile_id: str, body: Any = Body()) -> Any:
+    @router.post(
+        "/profiles/{profile_id}",
+        response_model=ProfileResponse,
+        dependencies=[Depends(require_auth)],
+    )
+    async def compute_profile_endpoint(
+        profile_id: str, body: SeriesComputeRequest
+    ) -> ProfileResponse:
         """Compute one profile study (or the seasonality table) over the bar
         window the chart holds (stateless).
 
@@ -543,12 +592,12 @@ def create_chart_router(
         from tradex_analytics.profiles import compute_profile
         from tradex_analytics.seasonality import compute_seasonality
 
-        bars = body.get("bars") or []
-        if not isinstance(bars, list) or not bars:
+        bars = body.bars or []
+        if not bars:
             raise HTTPException(
                 status_code=422, detail="profile requires a non-empty bars array"
             )
-        params = body.get("params") or {}
+        params = body.params or {}
         try:
             if profile_id == "seasonality":
                 result = compute_seasonality(bars, params)
@@ -558,9 +607,13 @@ def create_chart_router(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"id": profile_id, "result": result}
 
-    @router.post("/seasonality", dependencies=[Depends(require_auth)])
+    @router.post(
+        "/seasonality",
+        response_model=SeasonalityResponse,
+        dependencies=[Depends(require_auth)],
+    )
     async def compute_seasonality_endpoint(
-        body: Any = Body(),
+        body: SeasonalityRequest,
         startYear: int | None = Query(default=None),
         ignoredMonths: str | None = Query(default=None),
         cutoffPercent: float | None = Query(default=None),
@@ -570,7 +623,7 @@ def create_chart_router(
         showAvg: bool | None = Query(default=None),
         showStDev: bool | None = Query(default=None),
         showPos: bool | None = Query(default=None),
-    ) -> Any:
+    ) -> SeasonalityResponse:
         """Monthly seasonality heatmap over a datalake bar window.
 
         Body: {exchange, symbol, interval, from?, to?, params?}. ``params``
@@ -586,11 +639,7 @@ def create_chart_router(
             normalize_seasonality_params,
         )
 
-        if not isinstance(body, dict):
-            raise HTTPException(status_code=422, detail="body must be an object")
-        raw_params = body.get("params") or {}
-        if not isinstance(raw_params, dict):
-            raise HTTPException(status_code=422, detail="'params' must be an object")
+        raw_params = body.params or {}
         merged_raw = dict(raw_params)
         for _key, _val in (
             ("startYear", startYear),
@@ -609,19 +658,11 @@ def create_chart_router(
             params = normalize_seasonality_params(merged_raw)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-        tf = INTERVAL_TIMEFRAME.get(str(body.get("interval", "D")))
+        tf = INTERVAL_TIMEFRAME.get(body.interval)
         if tf is None:
             raise HTTPException(status_code=422, detail="unsupported interval")
-        instrument = _resolve_instrument(
-            str(body.get("exchange", "NSE")), str(body.get("symbol", ""))
-        )
-        from_raw, to_raw = body.get("from"), body.get("to")
-        for _name, _t in (("from", from_raw), ("to", to_raw)):
-            if _t is not None and (isinstance(_t, bool) or not isinstance(_t, (int, float))):
-                raise HTTPException(
-                    status_code=422, detail=f"{_name!r} must be UTC seconds"
-                )
-        start, end = _window(from_raw, to_raw)
+        instrument = _resolve_instrument(body.exchange, body.symbol)
+        start, end = _window(body.from_utc, body.to_utc)
 
         bars, _ = _bars_from_datalake(instrument, tf, start, end, limit=20000)
         if not bars:
@@ -637,8 +678,8 @@ def create_chart_router(
 
     # ------------------------------------------------------------------ trading
 
-    @router.get("/book", dependencies=[Depends(require_auth)])
-    async def get_book() -> Any:
+    @router.get("/book", response_model=BookResponse, dependencies=[Depends(require_auth)])
+    async def get_book() -> BookResponse:
         """Chart-shaped working book: orders + positions in the trade tier's
         vocabulary (openalgo-charts Order/Position). Read-only; writes go
         through the existing /orders endpoints so they traverse the same
@@ -692,8 +733,10 @@ def create_chart_router(
 
     # ---------------------------------------------------------------- account
 
-    @router.get("/account", dependencies=[Depends(require_auth)])
-    async def get_account() -> Any:
+    @router.get(
+        "/account", response_model=ChartAccountResponse, dependencies=[Depends(require_auth)]
+    )
+    async def get_account() -> ChartAccountResponse:
         """Account snapshot for the chart host's account panel.
 
         Returns balance, margin, net P&L and the positions the engine is
@@ -762,8 +805,10 @@ def create_chart_router(
 
     # ---------------------------------------------------------------- strategies
 
-    @router.get("/strategies", dependencies=[Depends(require_auth)])
-    async def list_strategies() -> Any:
+    @router.get(
+        "/strategies", response_model=StrategiesResponse, dependencies=[Depends(require_auth)]
+    )
+    async def list_strategies() -> StrategiesResponse:
         """Auto-discovered strategies (extensions package) + scanners."""
         from tradex_strategy.extensions import all_scanners, all_strategies
         from tradex_strategy.extensions import scanners as scanners_pkg
@@ -818,8 +863,10 @@ def create_chart_router(
 
     # ----------------------------------------------------------------- safety
 
-    @router.get("/safety", dependencies=[Depends(require_auth)])
-    async def get_safety() -> Any:
+    @router.get(
+        "/safety", response_model=SafetyWireResponse, dependencies=[Depends(require_auth)]
+    )
+    async def get_safety() -> SafetyWireResponse:
         """The whole safety picture in one call (AC-17).
 
         Feed state and last-event age, unresolved UNKNOWN orders with their age

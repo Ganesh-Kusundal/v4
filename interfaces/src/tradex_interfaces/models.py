@@ -17,7 +17,6 @@ from tradex_interfaces.contracts import (  # noqa: F401
     BracketOrderRequestDto,
     OrderMutationResponse,
     OrderUpdateRequest,
-    OrdersListResponse,
     PlaceOrderRequest,
     ScannerRunRequest,
 )
