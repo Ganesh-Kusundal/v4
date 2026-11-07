@@ -78,3 +78,34 @@ def test_permissive_env_local_raises(tmp_path: Path) -> None:
             assert_runtime_secret_permissions(base)
     finally:
         env.unlink(missing_ok=True)
+
+
+def test_future_broker_subdir_is_swept(tmp_path: Path) -> None:
+    """A broker directory added after this scan must be checked too."""
+    base = tmp_path / "runtime"
+    base.mkdir()
+    _make_tree(base, bad=None)
+    new_broker = base / "groww"
+    new_broker.mkdir()
+    bad = new_broker / "token_state.json"
+    bad.write_text("{}")
+    bad.chmod(0o644)
+    assert _mode(bad) == 0o644
+    with pytest.raises(InsecureSecretFileError):
+        assert_runtime_secret_permissions(base)
+
+
+def test_parent_env_local_ignored_when_base_is_not_runtime(tmp_path: Path) -> None:
+    """A caller passing a non-`runtime` base must not get its parent's
+    unrelated `.env.local` refused (parent is only the repo root by the
+    `<repo>/runtime` convention)."""
+    base = tmp_path / "state"
+    base.mkdir()
+    _make_tree(base, bad=None)
+    env = base.parent / ".env.local"
+    env.write_text("SECRET=1\n")
+    env.chmod(0o644)
+    try:
+        assert_runtime_secret_permissions(base)  # must NOT refuse
+    finally:
+        env.unlink(missing_ok=True)

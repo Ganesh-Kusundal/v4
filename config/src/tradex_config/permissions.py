@@ -96,13 +96,15 @@ def assert_runtime_secret_permissions(base: str | Path) -> None:
 
     Scans the broker runtime state tree under *base*:
 
-    - ``<base>/dhan/token_state.json*``
-    - ``<base>/upstox/token_state.json*``
+    - ``<base>/<broker>/token_state.json*`` for every broker subdirectory
+      (not just today's ``dhan``/``upstox`` — a future broker dir is swept too)
     - ``<base>/dhan.idempotency.db``
     - ``<base>/paper.idempotency.db``
     - ``<base>/workspace.sqlite``
-    - the repo-root ``.env.local`` (``<base>/../.env.local``) and
-      ``<base>/.env.local`` when present
+    - the repo-root ``.env.local`` (``<base>/../.env.local``, only when
+      *base* is the conventional ``<repo>/runtime`` directory — a caller
+      passing an unrelated runtime dir must not get its parent's file
+      refused) and ``<base>/.env.local`` when present
 
     A missing file is never a violation (paper/backtest legitimately run with
     no credentials on disk); only a file that exists with too-permissive
@@ -110,15 +112,18 @@ def assert_runtime_secret_permissions(base: str | Path) -> None:
     """
     base = Path(base)
     candidates: list[Path] = []
-    for subdir in ("dhan", "upstox"):
-        directory = base / subdir
-        if directory.is_dir():
+    if base.is_dir():
+        for directory in sorted(p for p in base.iterdir() if p.is_dir()):
             candidates.extend(sorted(directory.glob("token_state.json*")))
     for name in ("dhan.idempotency.db", "paper.idempotency.db", "workspace.sqlite"):
         candidates.append(base / name)
-    # Repo-root .env.local (base is typically <repo>/runtime) plus a
-    # base-local one, for callers that pass a repo root as base.
-    for env_candidate in (base.parent / ".env.local", base / ".env.local"):
+    # Repo-root .env.local (base is <repo>/runtime by convention — only then
+    # is the parent the repo root) plus a base-local one for callers that
+    # pass a repo root as base.
+    env_candidates = [base / ".env.local"]
+    if base.name == "runtime":
+        env_candidates.insert(0, base.parent / ".env.local")
+    for env_candidate in env_candidates:
         if env_candidate not in candidates:
             candidates.append(env_candidate)
     for path in candidates:
