@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tradex_domain.instruments import Equity
 from tradex_domain.universe import load_universe
 
 log = logging.getLogger(__name__)
@@ -134,3 +135,76 @@ class UniverseSyncManager:
         metadata_path = self._datalake_root / ".universe_metadata.json"
         with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
+
+    def detect_renames(
+        self,
+        universe_instruments: list[Equity] | None = None,
+    ) -> list[RenameCandidate]:
+        """Compare universe ISINs against broker master to find renamed symbols."""
+        if self._broker is None:
+            log.warning("No broker available for rename detection")
+            return []
+
+        if universe_instruments is None:
+            # Use existing _universe_instruments if set
+            universe_instruments = getattr(self, "_universe_instruments", None)  # type: ignore[attr-defined]
+            if universe_instruments is None:
+                # Fallback: load from default universe
+                try:
+                    universe_instruments = load_universe("nifty500", csv_dir=self._csv_dir)
+                except FileNotFoundError:
+                    return []
+
+        self._universe_instruments = universe_instruments  # type: ignore[attr-defined]
+
+        # Build ISIN index from broker master
+        isin_index = self._build_isin_index()
+
+        candidates = []
+        for inst in universe_instruments:
+            csv_isin = getattr(getattr(inst, "meta", None), "isin", None)
+            if not csv_isin:
+                continue
+
+            broker_symbol = isin_index.get(csv_isin)
+            if broker_symbol and broker_symbol != inst.symbol:
+                # Check if old symbol exists in datalake
+                old_exists = (self._datalake_root / "ohlcv" / f"symbol={inst.symbol}").exists()
+                # Check if new symbol already has data
+                new_exists = (self._datalake_root / "ohlcv" / f"symbol={broker_symbol}").exists()
+
+                if old_exists and not new_exists:
+                    candidates.append(RenameCandidate(
+                        old_symbol=inst.symbol,
+                        new_symbol=broker_symbol,
+                        isin=csv_isin,
+                        confidence=1.0,
+                        status="pending",
+                    ))
+                elif old_exists and new_exists:
+                    log.warning(
+                        "Rename conflict: both %s and %s have data (ISIN %s) — manual merge required",
+                        inst.symbol,
+                        broker_symbol,
+                        csv_isin,
+                    )
+
+        log.info("Rename detection: %d candidates found", len(candidates))
+        return candidates
+
+    def _build_isin_index(self) -> dict[str, str]:
+        """Build ISIN → trading symbol index from broker master."""
+        isin_index: dict[str, str] = {}
+        registry = self._broker.registry
+        loaded = getattr(self._broker, "_loaded_instruments", [])
+
+        for inst in loaded:
+            if not isinstance(inst, Equity):
+                continue
+            iid = inst.instrument_id
+            meta = registry.meta(iid)
+            isin = meta.get("isin")
+            if isin:
+                isin_index[str(isin).strip().upper()] = inst.symbol
+
+        return isin_index

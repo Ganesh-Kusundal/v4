@@ -1,0 +1,54 @@
+# market_data/tests/test_universe_sync_renames.py
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock
+from tradex_market_data.universe_sync import UniverseSyncManager, RenameCandidate
+from tradex_domain.universe import Equity
+from tradex_domain.value_objects import InstrumentId
+from tradex_domain.enums import ExchangeId
+
+
+def make_equity(symbol: str, isin: str | None = None) -> Equity:
+    from tradex_domain.instruments import InstrumentMeta
+    return Equity(
+        instrument_id=InstrumentId.equity("NSE", symbol),
+        symbol=symbol,
+        exchange=ExchangeId.NSE,
+        meta=InstrumentMeta(isin=isin),
+    )
+
+
+def test_detect_rename_same_isin_different_symbol():
+    # Mock broker with HEG→HEGAM rename
+    broker = MagicMock()
+    registry = MagicMock()
+
+    # Old symbol HEG in universe with ISIN
+    old_inst = make_equity("HEG", isin="INE545A01024")
+
+    # New symbol HEGAM in broker master with same ISIN
+    new_iid = MagicMock()
+    registry.provider_key.return_value = "NSE_EQ|INE545A01024"
+    registry.meta.return_value = {"isin": "INE545A01024"}
+
+    # Mock loaded instruments
+    new_inst = make_equity("HEGAM")
+    broker._loaded_instruments = [new_inst]
+    broker.registry = registry
+
+    # Setup datalake with old symbol directory
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        datalake_root = Path(tmp_dir)
+        ohlcv_dir = datalake_root / "ohlcv"
+        ohlcv_dir.mkdir()
+        (ohlcv_dir / "symbol=HEG").mkdir()  # Old symbol has data
+
+        manager = UniverseSyncManager(broker=broker, store=None, datalake_root=datalake_root)
+        manager._universe_instruments = [old_inst]  # type: ignore[attr-defined]
+
+        candidates = manager.detect_renames()
+
+        assert len(candidates) == 1
+        assert candidates[0].old_symbol == "HEG"
+        assert candidates[0].new_symbol == "HEGAM"
+        assert candidates[0].isin == "INE545A01024"
