@@ -576,16 +576,17 @@ async def ws_stream(
                 await _replay_start(req)
             elif msg_type == WS_REPLAY_PAUSE:
                 await _replay_pause()
-            elif msg_type == "replay_resume":
+            elif msg_type == "replay-resume":
                 await _replay_resume()
-            elif msg_type == "replay_speed":
+            elif msg_type == "replay-speed":
                 try:
                     req = WSReplaySpeedRequest.model_validate(msg)
                 except ValueError as exc:
                     _replay_error(str(exc), replay_controller.run_id)
+                    await _replay_stop()
                     return
                 await _replay_speed(req)
-            elif msg_type == "replay_step":
+            elif msg_type == "replay-step":
                 await _replay_step()
             elif msg_type == WS_REPLAY_SEEK:
                 try:
@@ -594,7 +595,7 @@ async def ws_stream(
                     _replay_error(str(exc), replay_controller.run_id)
                     return
                 await _replay_seek(req)
-            elif msg_type == "replay_stop":
+            elif msg_type == "replay-stop":
                 await _replay_stop()
             elif msg_type == "stats":
                 # Surface backpressure + resync health so a client can
@@ -997,7 +998,7 @@ async def ws_stream(
 
         def _replay_error(message: str, run_id: str | None = None) -> None:
             frame: dict[str, Any] = {
-                "type": "replay_error",
+                "type": "replay-error",
                 "message": str(message),
             }
             if run_id is not None:
@@ -1006,7 +1007,7 @@ async def ws_stream(
 
         def _replay_error(message: str, run_id: str | None = None) -> None:
             frame: dict[str, Any] = {
-                "type": "replay_error",
+                "type": "replay-error",
                 "message": str(message),
             }
             if run_id is not None:
@@ -1077,7 +1078,7 @@ async def ws_stream(
         async def _replay_start(
             req: WSReplayStartRequest, dataset: tuple[Any, ...] | None = None
         ) -> None:
-            msg_dict = req.model_dump()
+            msg_dict = {k: v for k, v in req.model_dump().items() if v is not None}
             try:
                 params = parse_replay_start(msg_dict)
             except ValueError as exc:

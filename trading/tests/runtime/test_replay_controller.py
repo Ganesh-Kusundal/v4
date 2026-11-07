@@ -129,7 +129,7 @@ class TestStateTransitionsAreExplicit:
             await c.close()
 
         _run(scenario())
-        assert h.index_of("replay_started") >= 0
+        assert h.index_of("replay-started") >= 0
         assert "bar" in h.types(), "no bars were emitted — the feed never ran"
 
     def test_pause_from_idle_is_refused_not_ignored(self) -> None:
@@ -147,7 +147,7 @@ class TestStateTransitionsAreExplicit:
                 await c.pause()
 
         _run(scenario())
-        assert "replay_paused" not in h.types(), (
+        assert "replay-paused" not in h.types(), (
             "a refused pause must not ack — the client would believe it paused"
         )
 
@@ -165,8 +165,8 @@ class TestStateTransitionsAreExplicit:
             await c.close()
 
         _run(scenario())
-        assert h.types().count("replay_paused") == 1
-        assert "replay_resumed" in h.types()
+        assert h.types().count("replay-paused") == 1
+        assert "replay-resumed" in h.types()
 
     def test_step_after_stop_is_refused(self) -> None:
         h = _Harness()
@@ -189,7 +189,7 @@ class TestStateTransitionsAreExplicit:
                 await h.controller().seek({"index": 0})
 
         _run(scenario())
-        assert "replay_error" not in h.types(), (
+        assert "replay-error" not in h.types(), (
             "seeking with no run should refuse, not emit a runtime error frame"
         )
 
@@ -208,13 +208,13 @@ class TestCausalOrdering:
             # Let the feed loop finish the step and publish its ack.
             for _ in range(200):
                 await asyncio.sleep(0.005)
-                if "replay_stepped" in h.types():
+                if "replay-stepped" in h.types():
                     break
             await c.close()
 
         _run(scenario())
 
-        step_idx = h.index_of("replay_stepped")
+        step_idx = h.index_of("replay-stepped")
         bars_before = [
             i for i, f in enumerate(h.frames[:step_idx]) if f["type"] == "bar"
         ]
@@ -240,14 +240,14 @@ class TestCausalOrdering:
             await c.step()
             for _ in range(200):
                 await asyncio.sleep(0.005)
-                if "replay_stepped" in h.types():
+                if "replay-stepped" in h.types():
                     break
             assert c.state is ReplayState.PAUSED, "a step must leave the run paused"
             await c.close()
 
         _run(scenario())
         types = h.types()
-        assert types.index("replay_stepped") < len(types) - 1
+        assert types.index("replay-stepped") < len(types) - 1
 
 
 class TestTerminalFrames:
@@ -278,7 +278,7 @@ class TestTerminalFrames:
             await asyncio.sleep(0.01)
             await c.stop()
             frame = h.controls[-1]
-            assert frame["type"] == "replay_stopped"
+            assert frame["type"] == "replay-stopped"
             assert frame["run_id"] == run_id
             await c.close()
 
@@ -291,7 +291,7 @@ class TestTerminalFrames:
             await h.controller().stop()
 
         _run(scenario())
-        assert h.types() == ["replay_stopped"]
+        assert h.types() == ["replay-stopped"]
 
     def test_stopping_purges_queued_bars_for_the_run(self) -> None:
         """A stopped replay must not emit bars after its terminal frame."""
@@ -322,7 +322,7 @@ class TestSpeedAndErrors:
             await c.close()
 
         _run(scenario())
-        assert any(f["type"] == "replay_error" for f in h.controls)
+        assert any(f["type"] == "replay-error" for f in h.controls)
 
     def test_empty_dataset_errors_instead_of_starting(self) -> None:
         h = _Harness(candles=[])
@@ -334,7 +334,7 @@ class TestSpeedAndErrors:
             assert c.state is ReplayState.IDLE, "a refused start left the controller dirty"
 
         _run(scenario())
-        assert any(f["type"] == "replay_error" for f in h.controls)
+        assert any(f["type"] == "replay-error" for f in h.controls)
 
 
 class TestParameterParsing:

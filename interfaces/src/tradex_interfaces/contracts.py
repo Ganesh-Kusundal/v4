@@ -498,20 +498,27 @@ class WSIndicatorUnsubRequest(_Strict):
 
 
 class WSReplayStartRequest(_Strict):
-    """``{type: "replay-start", instrument, minutes?, start_time?, speed?}``"""
+    """``{type: "replay-start", instrument, interval?, minutes?, start_time?, speed?, ticks_per_bar?}``"""
 
     type: str = "replay-start"
     instrument: str
+    interval: str | None = None
     minutes: int | None = None
-    start_time: str | None = None
+    start_time: int | None = None
     speed: float | None = None
+    ticks_per_bar: int | None = None
+    method: str | None = None
+    seed: int | None = None
+    paused: bool | None = None
 
 
 class WSReplaySeekRequest(_Strict):
-    """``{type: "replay-seek", timestamp}``"""
+    """``{type: "replay-seek", start_time?, index?}``"""
 
     type: str = "replay-seek"
-    timestamp: int
+    start_time: int | None = None
+    index: int | None = None
+    target_index: int | None = None
 
 
 class WSReplaySpeedRequest(_Strict):

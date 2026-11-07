@@ -66,8 +66,8 @@ def test_classify_outbound_splits_control_from_lossy_ticks():
     assert classify_outbound({"type": "quote"}) is OutboundLane.TICK
     assert classify_outbound({"type": "bar"}) is OutboundLane.TICK
     assert classify_outbound({"type": "order"}) is OutboundLane.CONTROL
-    assert classify_outbound({"type": "replay_stepped"}) is OutboundLane.CONTROL
-    assert classify_outbound({"type": "replay_stopped"}) is OutboundLane.CONTROL
+    assert classify_outbound({"type": "replay-stepped"}) is OutboundLane.CONTROL
+    assert classify_outbound({"type": "replay-stopped"}) is OutboundLane.CONTROL
     # Unknown types are control (fail-closed): never silently droppable.
     assert classify_outbound({"type": "mystery"}) is OutboundLane.CONTROL
 

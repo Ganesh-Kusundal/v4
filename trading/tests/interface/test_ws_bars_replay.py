@@ -291,37 +291,37 @@ class TestReplayControl:
         client = TestClient(_app())
         with client.websocket_connect("/ws/stream") as ws:
             for msg, expected in [
-                ({"type": "replay_pause"}, "replay_error"),
-                ({"type": "replay_resume"}, "replay_error"),
-                ({"type": "replay_speed", "speed": 2.0}, "replay_error"),
-                ({"type": "replay_stop"}, "replay_stopped"),
+                ({"type": "replay-pause"}, "replay-error"),
+                ({"type": "replay-resume"}, "replay-error"),
+                ({"type": "replay-speed", "speed": 2.0}, "replay-error"),
+                ({"type": "replay-stop"}, "replay-stopped"),
             ]:
                 ws.send_json(msg)
                 assert ws.receive_json()["type"] == expected
 
     def test_replay_start_without_instrument_is_error(self):
         with TestClient(_app()).websocket_connect("/ws/stream") as ws:
-            ws.send_json({"type": "replay_start"})
+            ws.send_json({"type": "replay-start"})
             resp = ws.receive_json()
-            assert resp["type"] in ("error", "replay_error")
+            assert resp["type"] in ("error", "replay-error")
 
     def test_replay_start_no_datalake_symbol_errors(self):
         """A symbol the datalake never saw surfaces an error frame, not a hang."""
         with TestClient(_app()).websocket_connect("/ws/stream") as ws:
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:NOSUCHSTOCKXYZ",
                 "minutes": 10,
             })
             got_started_or_error = False
             for _ in range(4):
                 msg = ws.receive_json()
-                if msg["type"] in ("error", "replay_error", "replay_done"):
+                if msg["type"] in ("error", "replay-error", "replay-done"):
                     got_started_or_error = True
                     break
-                if msg["type"] == "replay_started" and "NOSUCH" in str(msg):
+                if msg["type"] == "replay-started" and "NOSUCH" in str(msg):
                     continue
-            assert got_started_or_error or msg["type"] in ("error", "replay_error")
+            assert got_started_or_error or msg["type"] in ("error", "replay-error")
 
     @pytest.mark.timeout(10, func_only=True)
     def test_replay_step_ack_follows_stepped_bar_frame(self, monkeypatch):
@@ -392,7 +392,7 @@ class TestReplayControl:
         with client.websocket_connect("/ws/stream") as ws:
             ws._receive_timeout = 5
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "speed": 1.0,
@@ -404,7 +404,7 @@ class TestReplayControl:
             deadline = __import__("time").monotonic() + 5
             while __import__("time").monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     started = msg
                 elif msg["type"] == "bar" and msg.get("source") == "sim":
                     first_bar = msg
@@ -412,13 +412,13 @@ class TestReplayControl:
             assert started is not None
             assert first_bar is not None
 
-            ws.send_json({"type": "replay_pause"})
+            ws.send_json({"type": "replay-pause"})
             deadline = __import__("time").monotonic() + 5
             while __import__("time").monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_paused":
+                if ws.receive_json()["type"] == "replay-paused":
                     break
 
-            ws.send_json({"type": "replay_step"})
+            ws.send_json({"type": "replay-step"})
             # One step feeds M1 candles until the subscribed interval closes.
             # Feeding 9:16 closes the 9:15 bucket — that closed bar is the step.
             closed_time = int(
@@ -436,18 +436,18 @@ class TestReplayControl:
                     and msg.get("time") == closed_time
                 ):
                     saw_step_bar = True
-                if msg["type"] == "replay_stepped":
+                if msg["type"] == "replay-stepped":
                     saw_step_ack = True
                     break
             assert saw_step_ack, "replay_stepped acknowledgment was not emitted"
             assert saw_step_bar, "replay_stepped arrived before the closed stepped bar frame"
 
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = __import__("time").monotonic() + 5
             stopped = False
             while __import__("time").monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_stopped":
+                if msg["type"] == "replay-stopped":
                     stopped = True
                     break
             assert stopped, "expected replay_stopped after stop"
@@ -469,7 +469,7 @@ class TestReplayControl:
         with client.websocket_connect("/ws/stream") as ws:
             with patch("tradex_market_data.parquet_storage.ParquetStorage", _BadStore):
                 ws.send_json({
-                    "type": "replay_start",
+                    "type": "replay-start",
                     "instrument": "NSE:NOSUCH",
                     "interval": "1m",
                     "minutes": 10,
@@ -479,10 +479,10 @@ class TestReplayControl:
                 while __import__("time").monotonic() < deadline:
                     msg = ws.receive_json()
                     msgs.append(msg)
-                    if msg["type"] in ("error", "replay_error", "replay_done"):
+                    if msg["type"] in ("error", "replay-error", "replay-done"):
                         break
-                assert any(m["type"] in ("error", "replay_error") for m in msgs)
-                assert not any(m["type"] == "replay_started" for m in msgs)
+                assert any(m["type"] in ("error", "replay-error") for m in msgs)
+                assert not any(m["type"] == "replay-started" for m in msgs)
 
     def test_replay_stopped_state_reset(self, monkeypatch):
         """Stop must reset paused, step, speed, and key; restart is fresh."""
@@ -527,7 +527,7 @@ class TestReplayControl:
         with client.websocket_connect("/ws/stream") as ws:
             # Start replay then stop - state must clear
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "speed": 2.0,
@@ -537,17 +537,17 @@ class TestReplayControl:
             started = False
             while __import__("time").monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     started = True
-                if msg["type"] in ("replay_done", "replay_stopped"):
+                if msg["type"] in ("replay-done", "replay-stopped"):
                     break
             assert started
 
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = __import__("time").monotonic() + 5
             stopped = False
             while __import__("time").monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_stopped":
+                if ws.receive_json()["type"] == "replay-stopped":
                     stopped = True
                     break
             assert stopped
@@ -561,21 +561,21 @@ class TestReplayControl:
             # tradex_runtime.replay_controller), and an illegal transition is
             # refused with replay_error instead of silently acked.
             for command, payload in [
-                ("replay_pause", {}),
-                ("replay_resume", {}),
-                ("replay_speed", {"speed": 3.0}),
-                ("replay_step", {}),
+                ("replay-pause", {}),
+                ("replay-resume", {}),
+                ("replay-speed", {"speed": 3.0}),
+                ("replay-step", {}),
             ]:
                 ws.send_json({"type": command, **payload})
                 reply = ws.receive_json()
-                assert reply["type"] == "replay_error", (
+                assert reply["type"] == "replay-error", (
                     f"{command} on a stopped replay acked {reply['type']!r} "
                     "instead of refusing"
                 )
 
             # A fresh start after the stop still works — the reset is real.
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "speed": 2.0,
@@ -585,13 +585,13 @@ class TestReplayControl:
             restarted = False
             while __import__("time").monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     restarted = True
                     break
-                if msg["type"] == "replay_error":
+                if msg["type"] == "replay-error":
                     break
             assert restarted, "a fresh start after stop was refused"
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
 
     def test_replay_scoped_flush_no_unrelated_aggregator_mutation(self, monkeypatch):
         """Sim replay quotes route only to the selected replay aggregator.
@@ -681,7 +681,7 @@ class TestReplayControl:
             # Start replay on 1m only - the scoped route fix ensures
             # sim quotes never reach the 5m aggregator.
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "ticks_per_bar": 2,
@@ -690,18 +690,18 @@ class TestReplayControl:
             deadline = __import__("time").monotonic() + 10
             while __import__("time").monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     started = True
-                if msg["type"] == "replay_done":
+                if msg["type"] == "replay-done":
                     break
             assert started, "replay_started not received"
 
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = __import__("time").monotonic() + 5
             stopped = False
             while __import__("time").monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_stopped":
+                if msg["type"] == "replay-stopped":
                     stopped = True
                     break
             assert stopped, "expected replay_stopped"
@@ -788,7 +788,7 @@ class TestReplayCursorContract:
         with client.websocket_connect("/ws/stream") as ws:
             ws._receive_timeout = 5
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "5m",
                 "speed": 1.0,
@@ -796,15 +796,15 @@ class TestReplayCursorContract:
             })
             deadline = __import__("time").monotonic() + 5
             while __import__("time").monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_started":
+                if ws.receive_json()["type"] == "replay-started":
                     break
-            ws.send_json({"type": "replay_pause"})
+            ws.send_json({"type": "replay-pause"})
             deadline = __import__("time").monotonic() + 5
             while __import__("time").monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_paused":
+                if ws.receive_json()["type"] == "replay-paused":
                     break
 
-            ws.send_json({"type": "replay_step"})
+            ws.send_json({"type": "replay-step"})
             saw_closed = False
             saw_stepped = False
             deadline = __import__("time").monotonic() + 8
@@ -817,16 +817,16 @@ class TestReplayCursorContract:
                     and msg.get("source") == "sim"
                 ):
                     saw_closed = True
-                if msg["type"] == "replay_stepped":
+                if msg["type"] == "replay-stepped":
                     saw_stepped = True
                     break
             assert saw_stepped
             assert saw_closed, "5m step must emit one closed interval bar before replay_stepped"
 
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = __import__("time").monotonic() + 5
             while __import__("time").monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_stopped":
+                if ws.receive_json()["type"] == "replay-stopped":
                     break
 
     @pytest.mark.timeout(15, func_only=True)
@@ -843,32 +843,32 @@ class TestReplayCursorContract:
         with client.websocket_connect("/ws/stream") as ws:
             ws._receive_timeout = 5
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "ticks_per_bar": 2,
             })
             deadline = __import__("time").monotonic() + 5
             while __import__("time").monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_started":
+                if ws.receive_json()["type"] == "replay-started":
                     break
 
-            ws.send_json({"type": "replay_seek", "start_time": seek_ts})
+            ws.send_json({"type": "replay-seek", "start_time": seek_ts})
             restarted = None
             deadline = __import__("time").monotonic() + 5
             while __import__("time").monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     restarted = msg
                     break
             assert restarted is not None
             assert restarted["start_time"] == seek_ts
             assert restarted["total_bars"] == 3  # candles[2:]
 
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = __import__("time").monotonic() + 5
             while __import__("time").monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_stopped":
+                if ws.receive_json()["type"] == "replay-stopped":
                     break
 
 
@@ -1027,7 +1027,7 @@ class _ReplayFixture:
 
     def start(self, **overrides):
         message = {
-            "type": "replay_start",
+            "type": "replay-start",
             "instrument": "NSE:TEST",
             "interval": "1m",
             "speed": 1.0,
@@ -1037,7 +1037,7 @@ class _ReplayFixture:
         self.send(message)
 
     def natural_finish(self):
-        return self.receive_until("replay_done")
+        return self.receive_until("replay-done")
 
     def receive_bar_for_run(self, run_id):
         import time
@@ -1125,7 +1125,7 @@ def replay_fixture(monkeypatch):
 
 def test_replay_done_releases_live_key_and_guard(replay_fixture):
     replay_fixture.start()
-    replay_fixture.receive_until("replay_started")
+    replay_fixture.receive_until("replay-started")
     assert replay_fixture.guard.active is True
     replay_fixture.natural_finish()
     assert replay_fixture.guard.active is False
@@ -1137,7 +1137,7 @@ def test_replay_setup_error_releases_guard(replay_fixture, monkeypatch):
     replay_fixture.candles = []
     replay_fixture._patch_lake(monkeypatch)
     replay_fixture.start()
-    assert replay_fixture.receive_until("replay_error")["type"] == "replay_error"
+    assert replay_fixture.receive_until("replay-error")["type"] == "replay-error"
     assert replay_fixture.guard.active is False
     assert replay_fixture.publish_live().get("source") == "live"
 
@@ -1145,7 +1145,7 @@ def test_replay_setup_error_releases_guard(replay_fixture, monkeypatch):
 def test_replay_task_exception_releases_guard(replay_fixture):
     replay_fixture.break_replay_task()
     replay_fixture.start()
-    assert replay_fixture.receive_until("replay_error")["type"] == "replay_error"
+    assert replay_fixture.receive_until("replay-error")["type"] == "replay-error"
     assert replay_fixture.guard.active is False
     assert replay_fixture.publish_live().get("source") == "live"
 
@@ -1155,32 +1155,32 @@ def test_replay_seek_never_reuses_partial_bucket(replay_fixture):
     first = replay_fixture.receive_until("bar")
     partial = replay_fixture.receive_bar_after(first["time"])
     partial_time = partial["time"]
-    replay_fixture.send({"type": "replay_pause"})
-    replay_fixture.receive_until("replay_paused")
+    replay_fixture.send({"type": "replay-pause"})
+    replay_fixture.receive_until("replay-paused")
     previous_time = partial_time - 60
-    replay_fixture.send({"type": "replay_seek", "start_time": previous_time})
-    restarted = replay_fixture.receive_until("replay_started")
+    replay_fixture.send({"type": "replay-seek", "start_time": previous_time})
+    restarted = replay_fixture.receive_until("replay-started")
     first_after_seek = replay_fixture.receive_bar_for_run(restarted["run_id"])
     assert first_after_seek["time"] < partial_time
     assert first_after_seek["source"] == "sim"
-    replay_fixture.send({"type": "replay_stop"})
-    replay_fixture.receive_until("replay_stopped")
+    replay_fixture.send({"type": "replay-stop"})
+    replay_fixture.receive_until("replay-stopped")
     assert replay_fixture.publish_live().get("source") == "live"
 
 
 def test_invalid_replay_parameters_return_error_without_closing_socket(replay_fixture):
-    replay_fixture.send({"type": "replay_start", "speed": "not-a-number"})
-    assert replay_fixture.receive_until("replay_error")["type"] == "replay_error"
+    replay_fixture.send({"type": "replay-start", "speed": "not-a-number"})
+    assert replay_fixture.receive_until("replay-error")["type"] == "replay-error"
     assert replay_fixture.guard.active is False
     assert replay_fixture.publish_live().get("source") == "live"
 
 
 def test_active_replay_errors_include_run_id_and_stop_run(replay_fixture):
     replay_fixture.start()
-    started = replay_fixture.receive_until("replay_started")
-    replay_fixture.send({"type": "replay_speed", "speed": "invalid"})
-    error = replay_fixture.receive_until("replay_error")
-    stopped = replay_fixture.receive_until("replay_stopped")
+    started = replay_fixture.receive_until("replay-started")
+    replay_fixture.send({"type": "replay-speed", "speed": "invalid"})
+    error = replay_fixture.receive_until("replay-error")
+    stopped = replay_fixture.receive_until("replay-stopped")
     assert error["run_id"] == started["run_id"]
     assert stopped["run_id"] == started["run_id"]
     assert replay_fixture.guard.active is False
@@ -1188,15 +1188,15 @@ def test_active_replay_errors_include_run_id_and_stop_run(replay_fixture):
 
 def test_invalid_new_start_does_not_scope_to_active_run(replay_fixture):
     replay_fixture.start()
-    started = replay_fixture.receive_until("replay_started")
-    replay_fixture.send({"type": "replay_start", "speed": "invalid"})
-    error = replay_fixture.receive_until("replay_error")
+    started = replay_fixture.receive_until("replay-started")
+    replay_fixture.send({"type": "replay-start", "speed": "invalid"})
+    error = replay_fixture.receive_until("replay-error")
     assert "run_id" not in error
-    replay_fixture.send({"type": "replay_pause"})
-    paused = replay_fixture.receive_until("replay_paused")
+    replay_fixture.send({"type": "replay-pause"})
+    paused = replay_fixture.receive_until("replay-paused")
     assert paused["run_id"] == started["run_id"]
-    replay_fixture.send({"type": "replay_stop"})
-    replay_fixture.receive_until("replay_stopped")
+    replay_fixture.send({"type": "replay-stop"})
+    replay_fixture.receive_until("replay-stopped")
 
 
     json.dumps({})
@@ -1362,7 +1362,7 @@ class TestOnBarFrameIntegrityHook:
             ws._receive_timeout = 8
             # speed=1000 → delay per tick < 0.001s → no asyncio.sleep → finishes in ms
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "ticks_per_bar": 2,
@@ -1372,7 +1372,7 @@ class TestOnBarFrameIntegrityHook:
             deadline = time.monotonic() + 8
             while time.monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] in ("replay_done", "replay_error"):
+                if msg["type"] in ("replay-done", "replay-error"):
                     break
 
         # Replay emits sim bars — integrity hook must not fire for any of them.
@@ -1407,7 +1407,7 @@ class TestTerminalPathIsolation:
             ws._receive_timeout = 8
             # paused=True keeps the task alive so the disconnect is mid-replay.
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "ticks_per_bar": 2,
@@ -1415,7 +1415,7 @@ class TestTerminalPathIsolation:
             })
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_started":
+                if ws.receive_json()["type"] == "replay-started":
                     break
             assert guard.active, "guard must be active before disconnect"
             # Exit without replay_stop — simulates client crash / network drop.
@@ -1444,7 +1444,7 @@ class TestTerminalPathIsolation:
 
             # --- First replay (paused so it stays alive) ---
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "ticks_per_bar": 2,
@@ -1454,7 +1454,7 @@ class TestTerminalPathIsolation:
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     first_run_id = msg["run_id"]
                     break
             assert first_run_id is not None
@@ -1462,7 +1462,7 @@ class TestTerminalPathIsolation:
 
             # --- Start second replay WITHOUT sending replay_stop ---
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "ticks_per_bar": 2,
@@ -1471,7 +1471,7 @@ class TestTerminalPathIsolation:
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     second_run_id = msg["run_id"]
                     break
             assert second_run_id is not None
@@ -1479,10 +1479,10 @@ class TestTerminalPathIsolation:
             assert guard.active, "guard must still be active (second replay running)"
 
             # Drain until second replay finishes (not paused) or stop it.
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_stopped":
+                if ws.receive_json()["type"] == "replay-stopped":
                     break
 
         assert not guard.active, "guard must be fully released after second replay stops"
@@ -1495,8 +1495,8 @@ class TestTerminalPathIsolation:
         assert not replay_fixture.guard.active
 
         # Send two extra stop commands.
-        replay_fixture.send({"type": "replay_stop"})
-        replay_fixture.send({"type": "replay_stop"})
+        replay_fixture.send({"type": "replay-stop"})
+        replay_fixture.send({"type": "replay-stop"})
         import time
         time.sleep(0.1)
 
@@ -1528,30 +1528,30 @@ class TestTerminalPathIsolation:
         with TestClient(app).websocket_connect("/ws/stream") as ws:
             ws._receive_timeout = 8
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "ticks_per_bar": 2,
             })
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_started":
+                if ws.receive_json()["type"] == "replay-started":
                     break
 
             # Fire rapid control commands.
             for _ in range(3):
-                ws.send_json({"type": "replay_pause"})
-                ws.send_json({"type": "replay_resume"})
-            ws.send_json({"type": "replay_seek", "start_time": seek_ts})
+                ws.send_json({"type": "replay-pause"})
+                ws.send_json({"type": "replay-resume"})
+            ws.send_json({"type": "replay-seek", "start_time": seek_ts})
             # Allow seek to restart.
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_started":
+                if ws.receive_json()["type"] == "replay-started":
                     break
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_stopped":
+                if ws.receive_json()["type"] == "replay-stopped":
                     break
 
         assert not guard.active
@@ -1561,7 +1561,7 @@ class TestTerminalPathIsolation:
         """Task crash path (replay_error) must release guard; live bars resume."""
         replay_fixture.break_replay_task()
         replay_fixture.start()
-        assert replay_fixture.receive_until("replay_error")["type"] == "replay_error"
+        assert replay_fixture.receive_until("replay-error")["type"] == "replay-error"
         assert not replay_fixture.guard.active
         live = replay_fixture.publish_live()
         assert live.get("source") == "live", "live bars must flow after replay task crash"
@@ -1636,7 +1636,7 @@ class TestReplayContractFixes:
         with TestClient(_app()).websocket_connect("/ws/stream") as ws:
             ws._receive_timeout = 8
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "speed": 1000.0,
@@ -1647,14 +1647,14 @@ class TestReplayContractFixes:
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     started = msg
                     break
             assert started is not None
             assert started["simulated"] is True
             assert started["wall_seconds_per_bar"] == pytest.approx(1.0 / 1000.0)
 
-            ws.send_json({"type": "replay_step"})
+            ws.send_json({"type": "replay-step"})
             closed = None
             quotes = []
             deadline = time.monotonic() + 8
@@ -1668,7 +1668,7 @@ class TestReplayContractFixes:
                     and msg.get("source") == "sim"
                 ):
                     closed = msg
-                if msg["type"] == "replay_stepped":
+                if msg["type"] == "replay-stepped":
                     assert msg.get("bar_index") == 0
                     break
             assert closed is not None
@@ -1679,10 +1679,10 @@ class TestReplayContractFixes:
             assert closed["volume"] == float(first.volume.value)
             assert quotes == [], "replay must not emit quote frames"
 
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_stopped":
+                if ws.receive_json()["type"] == "replay-stopped":
                     break
 
     @pytest.mark.timeout(15, func_only=True)
@@ -1703,7 +1703,7 @@ class TestReplayContractFixes:
         with TestClient(app).websocket_connect("/ws/stream") as ws1:
             ws1._receive_timeout = 8
             ws1.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "speed": 1000.0,
@@ -1713,7 +1713,7 @@ class TestReplayContractFixes:
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 msg = ws1.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     first = msg
                     break
             assert first is not None
@@ -1722,7 +1722,7 @@ class TestReplayContractFixes:
             with TestClient(app).websocket_connect("/ws/stream") as ws2:
                 ws2._receive_timeout = 5
                 ws2.send_json({
-                    "type": "replay_start",
+                    "type": "replay-start",
                     "instrument": "NSE:TEST",
                     "interval": "1m",
                     "speed": 1000.0,
@@ -1731,16 +1731,16 @@ class TestReplayContractFixes:
                 deadline = time.monotonic() + 5
                 while time.monotonic() < deadline:
                     msg = ws2.receive_json()
-                    if msg["type"] == "replay_error":
+                    if msg["type"] == "replay-error":
                         err = msg
                         break
                 assert err is not None
                 assert "another replay" in err["message"]
 
-            ws1.send_json({"type": "replay_stop"})
+            ws1.send_json({"type": "replay-stop"})
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws1.receive_json()["type"] == "replay_stopped":
+                if ws1.receive_json()["type"] == "replay-stopped":
                     break
         assert not guard.active
 
@@ -1757,7 +1757,7 @@ class TestReplayContractFixes:
             # If pause were only checked between candles, the in-flight
             # candle would finish (closed bar) during the quiet window.
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "speed": 1.0,
@@ -1765,24 +1765,24 @@ class TestReplayContractFixes:
             })
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_started":
+                if ws.receive_json()["type"] == "replay-started":
                     break
-            ws.send_json({"type": "replay_resume"})
+            ws.send_json({"type": "replay-resume"})
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_resumed":
+                if ws.receive_json()["type"] == "replay-resumed":
                     break
             time.sleep(0.05)
-            ws.send_json({"type": "replay_pause"})
+            ws.send_json({"type": "replay-pause"})
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_paused":
+                if msg["type"] == "replay-paused":
                     break
             # Quiet window: do not drain — a closed bar would only appear
             # if the current candle finished despite pause.
             time.sleep(0.7)
-            ws.send_json({"type": "replay_step"})
+            ws.send_json({"type": "replay-step"})
             closed_after = 0
             saw_step = False
             deadline = time.monotonic() + 8
@@ -1794,16 +1794,16 @@ class TestReplayContractFixes:
                     and msg.get("source") == "sim"
                 ):
                     closed_after += 1
-                if msg["type"] == "replay_stepped":
+                if msg["type"] == "replay-stepped":
                     saw_step = True
                     break
             assert saw_step
             # Only the stepped bar should close after the quiet window.
             assert closed_after == 1
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_stopped":
+                if ws.receive_json()["type"] == "replay-stopped":
                     break
 
     @pytest.mark.timeout(15, func_only=True)
@@ -1815,7 +1815,7 @@ class TestReplayContractFixes:
         with TestClient(_app()).websocket_connect("/ws/stream") as ws:
             ws._receive_timeout = 8
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "speed": 1000.0,
@@ -1823,24 +1823,24 @@ class TestReplayContractFixes:
             })
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_started":
+                if ws.receive_json()["type"] == "replay-started":
                     break
 
             indices = []
             for expected in (0, 1):
-                ws.send_json({"type": "replay_step"})
+                ws.send_json({"type": "replay-step"})
                 deadline = time.monotonic() + 8
                 while time.monotonic() < deadline:
                     msg = ws.receive_json()
-                    if msg["type"] == "replay_stepped":
+                    if msg["type"] == "replay-stepped":
                         indices.append(msg["bar_index"])
                         assert msg["bar_index"] == expected
                         break
             assert indices == [0, 1]
-            ws.send_json({"type": "replay_stop"})
+            ws.send_json({"type": "replay-stop"})
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
-                if ws.receive_json()["type"] == "replay_stopped":
+                if ws.receive_json()["type"] == "replay-stopped":
                     break
 
     @pytest.mark.timeout(15, func_only=True)
@@ -1852,7 +1852,7 @@ class TestReplayContractFixes:
         with TestClient(_app()).websocket_connect("/ws/stream") as ws:
             ws._receive_timeout = 8
             ws.send_json({
-                "type": "replay_start",
+                "type": "replay-start",
                 "instrument": "NSE:TEST",
                 "interval": "1m",
                 "speed": 1000.0,
@@ -1862,17 +1862,17 @@ class TestReplayContractFixes:
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_started":
+                if msg["type"] == "replay-started":
                     started = msg
                     break
             assert started is not None
 
-            ws.send_json({"type": "replay_seek", "index": 999})
+            ws.send_json({"type": "replay-seek", "index": 999})
             err = None
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:
                 msg = ws.receive_json()
-                if msg["type"] == "replay_error":
+                if msg["type"] == "replay-error":
                     err = msg
                     break
             assert err is not None
