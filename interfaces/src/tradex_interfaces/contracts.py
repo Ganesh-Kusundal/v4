@@ -524,6 +524,320 @@ class WSReplaySpeedRequest(_Strict):
     speed: float
 
 
+# ---------------------------------------------------------------------------
+# WebSocket stream response/frame DTOs (spec 0003 tranche 2)
+#
+# Models for every frame type the /ws/stream endpoint emits to clients.
+# These complement the request models above and complete the bidirectional
+# wire contract. The stream handler builds frames by constructing these
+# models rather than ad hoc dicts, so field renames are type errors in
+# Python instead of silent wire changes.
+# ---------------------------------------------------------------------------
+
+
+class WSSubscribeOrdersRequest(_Strict):
+    """Client -> server: opt into broker order updates."""
+
+    type: str = "subscribe_orders"
+
+
+class WSUnsubscribeOrdersRequest(_Strict):
+    """Client -> server: stop receiving broker order updates."""
+
+    type: str = "unsubscribe_orders"
+
+
+class WSReplayPauseRequest(_Strict):
+    """Client -> server: pause a running replay."""
+
+    type: str = "replay-pause"
+
+
+class WSReplayResumeRequest(_Strict):
+    """Client -> server: resume a paused replay."""
+
+    type: str = "replay-resume"
+
+
+class WSReplayStepRequest(_Strict):
+    """Client -> server: step one bar in replay."""
+
+    type: str = "replay-step"
+
+
+class WSReplayStopRequest(_Strict):
+    """Client -> server: stop a replay run."""
+
+    type: str = "replay-stop"
+
+
+class WSStatsRequest(_Strict):
+    """Client -> server: request queue stats."""
+
+    type: str = "stats"
+
+
+class WSFeedStatusRequest(_Strict):
+    """Client -> server: request feed status."""
+
+    type: str = "feed_status"
+
+
+class WSQuoteFrame(BaseModel):
+    """Server -> client: live quote update."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "quote"
+    instrument: str
+    ltp: str
+    bid: str | None = None
+    ask: str | None = None
+
+
+class WSDepthLevel(BaseModel):
+    """One level in a depth book."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    price: float
+    qty: float
+
+
+class WSDepthFrame(BaseModel):
+    """Server -> client: depth book snapshot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "depth"
+    instrument: str
+    bids: list[WSDepthLevel]
+    asks: list[WSDepthLevel]
+    ltp: float
+
+
+class WSBarFrame(BaseModel):
+    """Server -> client: aggregated bar (live or replay)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "bar"
+    instrument: str
+    interval: str
+    time: int
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    closed: bool
+    source: str = "live"
+    run_id: str | None = None
+    provisional: bool = False
+
+
+class WSFillFrame(BaseModel):
+    """Server -> client: order fill notification."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "fill"
+    order_id: str
+    instrument: str
+    price: str
+    quantity: str
+
+
+class WSPositionFrame(BaseModel):
+    """Server -> client: position update."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "position"
+    instrument: str
+    quantity: str
+    avg_price: str
+    realized_pnl: str
+    unrealized_pnl: str
+    mark_price: str | None = None
+    marked_at: str | None = None
+    mark_source: str | None = None
+
+
+class WSOrderFrame(BaseModel):
+    """Server -> client: order status update."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "order"
+    order_id: str
+    status: str
+    instrument: str
+    side: str
+    quantity: str | None = None
+    price: str | None = None
+
+
+class WSSubscribedAck(BaseModel):
+    """Server -> client: subscription acknowledged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "subscribed"
+    instruments: list[str]
+    depth: str
+    feed: dict[str, Any]
+
+
+class WSUnsubscribedAck(BaseModel):
+    """Server -> client: unsubscription acknowledged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "unsubscribed"
+    instruments: list[str]
+
+
+class WSSubscribedOrdersAck(BaseModel):
+    """Server -> client: order subscription acknowledged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "subscribed_orders"
+
+
+class WSUnsubscribedOrdersAck(BaseModel):
+    """Server -> client: order unsubscription acknowledged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "unsubscribed_orders"
+
+
+class WSSubscribedBarsAck(BaseModel):
+    """Server -> client: bar subscription acknowledged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "subscribed_bars"
+    bars: list[str]
+    active: int
+
+
+class WSUnsubscribedBarsAck(BaseModel):
+    """Server -> client: bar unsubscription acknowledged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "unsubscribed_bars"
+
+
+class WSIndicatorAck(BaseModel):
+    """Server -> client: indicator subscription acknowledged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "indicator-ack"
+    id: str
+
+
+class WSReplayStartedFrame(BaseModel):
+    """Server -> client: replay started."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "replay-started"
+    run_id: str
+    instrument: str
+    interval: str
+    total_bars: int
+
+
+class WSReplayStoppedFrame(BaseModel):
+    """Server -> client: replay stopped."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "replay-stopped"
+    run_id: str
+
+
+class WSReplayPausedFrame(BaseModel):
+    """Server -> client: replay paused."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "replay-paused"
+    run_id: str
+
+
+class WSReplayResumedFrame(BaseModel):
+    """Server -> client: replay resumed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "replay-resumed"
+    run_id: str
+
+
+class WSReplaySteppedFrame(BaseModel):
+    """Server -> client: replay stepped one bar."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "replay-stepped"
+    run_id: str
+    index: int
+
+
+class WSReplayErrorFrame(BaseModel):
+    """Server -> client: replay error."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "replay-error"
+    message: str
+    run_id: str | None = None
+
+
+class WSFeedStatusFrame(BaseModel):
+    """Server -> client: feed health status."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "feed_status"
+    state: str
+    ready: bool
+    generation: int
+    last_event_at: str | None = None
+    age: float | None = None
+    live_orders_enabled: bool
+
+
+class WSQueueStatsFrame(BaseModel):
+    """Server -> client: outbound queue statistics."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "queue_stats"
+    dropped: int
+    queued_ticks: int
+    queued_control: int
+    queued_barrier: int
+    tick_cap: int
+    control_cap: int
+    resync_required: bool
+
+
+class WSErrorFrame(BaseModel):
+    """Server -> client: generic error."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str = "error"
+    message: str
+
+
 __all__ = [
     "BacktestRequest",
     "BacktestResponse",
@@ -561,15 +875,46 @@ __all__ = [
     "SeriesTransformResponse",
     "StrategiesResponse",
     "SymbolsResponse",
+    "WSBarFrame",
+    "WSDepthFrame",
+    "WSDepthLevel",
+    "WSErrorFrame",
+    "WSFeedStatusFrame",
+    "WSFeedStatusRequest",
+    "WSFillFrame",
+    "WSIndicatorAck",
     "WSIndicatorSubRequest",
     "WSIndicatorUnsubRequest",
+    "WSOrderFrame",
+    "WSPositionFrame",
+    "WSQueueStatsFrame",
+    "WSQuoteFrame",
+    "WSReplayErrorFrame",
+    "WSReplayPauseRequest",
+    "WSReplayPausedFrame",
+    "WSReplayResumeRequest",
+    "WSReplayResumedFrame",
     "WSReplaySeekRequest",
     "WSReplaySpeedRequest",
     "WSReplayStartRequest",
+    "WSReplayStartedFrame",
+    "WSReplayStepRequest",
+    "WSReplaySteppedFrame",
+    "WSReplayStopRequest",
+    "WSReplayStoppedFrame",
     "WSSubscribeBarsRequest",
+    "WSSubscribeOrdersRequest",
     "WSSubscribeRequest",
+    "WSSubscribedAck",
+    "WSSubscribedBarsAck",
+    "WSSubscribedOrdersAck",
+    "WSStatsRequest",
     "WSUnsubscribeBarsRequest",
+    "WSUnsubscribeOrdersRequest",
     "WSUnsubscribeRequest",
+    "WSUnsubscribedAck",
+    "WSUnsubscribedBarsAck",
+    "WSUnsubscribedOrdersAck",
     "WorkspaceDetail",
     "WorkspacePutResponse",
     "WorkspaceSummary",
