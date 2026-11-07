@@ -398,9 +398,6 @@ class HistoryBar(BaseModel):
     volume: float
 
 
-HistoryResponse = list[HistoryBar]
-
-
 class OptionChainRequest(_Strict):
     """GET /option-chain/{underlying}?expiry=&live="""
 

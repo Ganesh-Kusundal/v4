@@ -24,21 +24,27 @@ class _Session:
 
 
 def test_quote_handler_serializes_a_quote():
+    from tradex_interfaces.contracts import QuoteResponse
+
     result = asyncio.run(market_data.get_quote("NSE", "RELIANCE", _Session()))
-    assert isinstance(result, dict)
-    assert "instrument" in result
-    assert "ltp" in result
+    assert isinstance(result, QuoteResponse)
+    # QuoteResponse may have None values from mock broker; just verify it's a valid DTO
+    assert hasattr(result, 'instrument_id')
+    assert hasattr(result, 'last_price')
+    assert hasattr(result, 'timestamp')
 
 
 def test_search_handler_returns_metadata_dicts():
+    from tradex_interfaces.contracts import SearchResultItem
+
     result = asyncio.run(market_data.search_instruments("REL", _Session()))
     assert result == [
-        {
-            "instrument_id": "NSE:RELIANCE",
-            "symbol": "RELIANCE",
-            "exchange": "NSE",
-            "asset_class": "equity",
-        }
+        SearchResultItem(
+            instrument_id="NSE:RELIANCE",
+            symbol="RELIANCE",
+            exchange="NSE",
+            asset_class="equity",
+        )
     ]
 
 

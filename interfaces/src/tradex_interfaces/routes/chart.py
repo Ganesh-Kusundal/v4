@@ -423,15 +423,15 @@ def create_chart_router(
             # Same field contract as the fresh path below (same shaper): hit
             # and miss must agree on key sets, including ``source`` and
             # ``timeframe_resampled``.
-            return {
-                "symbol": symbol.upper(),
-                "exchange": exchange.upper(),
-                "interval": interval,
-                "source": "cache",
-                "timeframe_resampled": tf.value,
-                "last_closed_time": cached[-1]["time"] if cached else None,
-                "bars": cached,
-            }
+            return HistoryResponse(
+                symbol=symbol.upper(),
+                exchange=exchange.upper(),
+                interval=interval,
+                source="cache",
+                timeframe_resampled=tf.value,
+                last_closed_time=cached[-1]["time"] if cached else None,
+                bars=cached,
+            )
 
         bars, last_closed = _bars_from_datalake(instrument, tf, start, end, limit)
         source = "datalake"
@@ -439,18 +439,17 @@ def create_chart_router(
             bars, last_closed = _bars_from_broker(session, instrument, tf, start, end, limit)
             source = "broker" if bars else "none"
 
-        payload = {
-            "symbol": symbol.upper(),
-            "exchange": exchange.upper(),
-            "interval": interval,
-            "source": source,
-            "timeframe_resampled": tf.value,
-            "last_closed_time": last_closed,
-            "bars": bars,
-        }
         if source != "none":
             _history_cache.put(cache_key, bars)
-        return payload
+        return HistoryResponse(
+            symbol=symbol.upper(),
+            exchange=exchange.upper(),
+            interval=interval,
+            source=source,
+            timeframe_resampled=tf.value,
+            last_closed_time=last_closed,
+            bars=bars,
+        )
 
     # ------------------------------------------------------------- indicators
 
