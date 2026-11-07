@@ -8,6 +8,7 @@ All events inherit from ``DomainEvent`` which provides ``timestamp`` and
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import ClassVar
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -19,7 +20,23 @@ from tradex_domain.value_objects import CorrelationId
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DomainEvent:
-    """Base for all domain events. Subclasses carry specific payloads."""
+    """Base for all domain events. Subclasses carry specific payloads.
+
+    ``stream`` is the durable stream an event is filed under when the caller
+    does not name one explicitly. Every concrete subclass must declare it:
+    routing by class-name membership (the old ``_ORDER_EVENT_CLASSNAMES``
+    table) silently filed any unlisted event under ``"system"``, so a money
+    event added later vanished from ``replay("orders")`` on restart.
+    """
+
+    stream: ClassVar[str]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        super(DomainEvent, cls).__init_subclass__(**kwargs)
+        if "stream" not in cls.__dict__:
+            raise TypeError(
+                f"{cls.__name__} must declare stream = 'orders' or 'system'"
+            )
 
     timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     correlation_id: CorrelationId | None = None
@@ -27,11 +44,13 @@ class DomainEvent:
 
 @dataclass(frozen=True, slots=True)
 class OrderPlaced(DomainEvent):
+    stream: ClassVar[str] = "orders"
     order: Order
 
 
 @dataclass(frozen=True, slots=True)
 class OrderFilled(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """A fill occurred. ``fee_amount`` is the fee actually charged.
 
     The fee travels with the event because it cannot be re-derived on replay:
@@ -45,12 +64,14 @@ class OrderFilled(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class OrderRejected(DomainEvent):
+    stream: ClassVar[str] = "orders"
     order: Order
     reason: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class PositionUpdated(DomainEvent):
+    stream: ClassVar[str] = "system"
     """Position accounting or mark-to-market state changed."""
 
     position: Position
@@ -59,11 +80,13 @@ class PositionUpdated(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class ErrorOccurred(DomainEvent):
+    stream: ClassVar[str] = "system"
     error: Exception
 
 
 @dataclass(frozen=True, slots=True)
 class OrderCancelled(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """An open order was cancelled (post-transition state)."""
 
     order: Order
@@ -71,6 +94,7 @@ class OrderCancelled(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class OrderModified(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """An open order was modified — carries the post-modification state."""
 
     order: Order
@@ -78,6 +102,7 @@ class OrderModified(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class PlaceOrderCommand(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """A fully-formed order request, wrapped for transport.
 
     **Not an order-intake surface any more (AC-22).** This type used to be the
@@ -102,6 +127,7 @@ class PlaceOrderCommand(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class StaleFeed(DomainEvent):
+    stream: ClassVar[str] = "system"
     """Raised when a quote/depth feed has not been updated within the
     configured staleness threshold. Inherits from ``DomainEvent`` so it
     carries ``timestamp`` and ``correlation_id`` (L2 fix — previously
@@ -114,6 +140,7 @@ class StaleFeed(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class FeedGapDetected(DomainEvent):
+    stream: ClassVar[str] = "system"
     """A feed integrity violation was observed on the live tape.
 
     ``kind`` is one of the :class:`tradex_trading.runtime.feed_integrity.GapKind`
@@ -131,6 +158,7 @@ class FeedGapDetected(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class FeedRecovered(DomainEvent):
+    stream: ClassVar[str] = "system"
     """A resynchronising feed completed history replay and is safe to trade.
 
     Emitted only after the recovery coordinator has replayed subscribed
@@ -151,6 +179,7 @@ class FeedRecovered(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class RiskDecision(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """Risk gate verdict for a pending order request.
 
     ``approved=True`` is a pass; ``approved=False`` blocks submission and is
@@ -164,6 +193,7 @@ class RiskDecision(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class BrokerOrderRequested(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """Order dispatched to the broker / fill-source — before venue response."""
 
     request: OrderRequest
@@ -171,6 +201,7 @@ class BrokerOrderRequested(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class BrokerOrderAcknowledged(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """Broker / fill-source returned an order id — venue accepted the request."""
 
     order: Order
@@ -178,6 +209,7 @@ class BrokerOrderAcknowledged(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class CancelRequested(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """Cancel intent dispatched to broker before venue confirmation."""
 
     order_id: str
@@ -185,6 +217,7 @@ class CancelRequested(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class UnknownSubmission(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """Order crossed the broker boundary; outcome unknown (network fault etc.).
 
     Emitted when ``FillSource.submission_boundary_crossed`` is set and the
@@ -197,6 +230,7 @@ class UnknownSubmission(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class ReconciliationResult(DomainEvent):
+    stream: ClassVar[str] = "system"
     """Reconciliation run completed; ``drift_count`` is the number of discrepancies."""
 
     drift_count: int = 0
@@ -205,6 +239,7 @@ class ReconciliationResult(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class CashAccountInitialized(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """Opening cash anchor for an account.
 
     Cash cannot be folded from fills alone — a ledger needs a starting balance.
@@ -219,6 +254,7 @@ class CashAccountInitialized(DomainEvent):
 
 @dataclass(frozen=True, slots=True)
 class CashReconciled(DomainEvent):
+    stream: ClassVar[str] = "orders"
     """An accepted correction to cash after comparing against broker funds.
 
     Written when drift between the folded local balance and the broker's

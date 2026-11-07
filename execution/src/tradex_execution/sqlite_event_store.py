@@ -107,9 +107,11 @@ from tradex_execution._sqlite import configure_sqlite
 _log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Event types we explicitly recognise and route to stream "orders".
-# Any unknown DomainEvent subclass still goes into stream "system" so it is
-# durable without crashing the append path.
+# Stream routing is now declared on each DomainEvent subclass (its ``stream``
+# ClassVar). This frozenset is retained for callers and diagnostics that still
+# name the order-scoped set; it is DERIVED from those declarations rather than
+# being the source of truth, so a new event cannot be added to one list and
+# forgotten in the other.
 #
 # ``PlaceOrderCommand`` stays here even though AC-22 took it off the bus.
 # This list is a STREAM-ROUTING table, not a list of things that may be
@@ -121,29 +123,21 @@ _log = logging.getLogger(__name__)
 # changes nothing about reachability: nothing constructs or subscribes to a
 # command any more, so a new one can never be produced here.
 # ---------------------------------------------------------------------------
-_ORDER_EVENT_CLASSNAMES = frozenset({
-    "OrderPlaced",
-    "OrderFilled",
-    "OrderRejected",
-    "OrderCancelled",
-    "OrderModified",
-    "PlaceOrderCommand",
-    # Wave C1 — full OMS event set
-    "RiskDecision",
-    "BrokerOrderRequested",
-    "BrokerOrderAcknowledged",
-    "CancelRequested",
-    "UnknownSubmission",
-    # Cash fold — the opening anchor and accepted corrections are part of the
-    # order-scoped log a restart replays to rebuild the ledger.
-    "CashAccountInitialized",
-    "CashReconciled",
-    # ReconciliationResult → "system" stream (not order-scoped)
-})
+_ORDER_EVENT_CLASSNAMES = frozenset(
+    cls.__name__
+    for cls in DomainEvent.__subclasses__()
+    if getattr(cls, "stream", None) == "orders"
+)
 
 
 def _infer_stream(event: DomainEvent) -> str:
-    return "orders" if type(event).__name__ in _ORDER_EVENT_CLASSNAMES else "system"
+    stream = getattr(type(event), "stream", None)
+    if stream not in ("orders", "system"):
+        raise ValueError(
+            f"event {type(event).__name__} has no declared stream "
+            f"('orders' or 'system'); classify it before appending"
+        )
+    return stream
 
 
 #: Schema version this build WRITES. Bump when an event's shape changes — and,
@@ -1010,8 +1004,10 @@ class SQLiteEventStore:
     def append(self, event: DomainEvent, *, stream_id: str | None = None) -> int:
         """Persist *event* and return its monotonic sequence number.
 
-        *stream_id* defaults to ``"orders"`` for all recognised order
-        lifecycle event types, and ``"system"`` for anything else. The stored
+        *stream_id* defaults to the stream declared by the event type
+        (``"orders"`` for order/cash lifecycle events, ``"system"`` for the
+        rest); an event type with no declared stream raises ``ValueError``
+        rather than being filed under ``"system"``. The stored
         value is scoped to this store's account:
         ``f"{broker_id}:{account_id}:{stream}"``. Callers that route events
         to custom streams (e.g. ``"risk"``) may supply the override explicitly;
