@@ -90,7 +90,7 @@ ErrorCode = Literal[
     "forbidden",
     "internal",
     "live_orders_disabled",
-    "no_session",
+    "no_session",  # 503 when no TradingSession is bound (NO_SESSION_BOUND)
     "not_found",
     "rate_limited",
     "stale_revision",
