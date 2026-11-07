@@ -3508,14 +3508,17 @@ Things this document found that contradict other artefacts in the repo.
    coverage no longer cites the deleted `tradex_trading`, and the per-package
    mypy hard-fail is a ratchet because the tree carries known type debt.
 
-4. **Two new features are test-only — not wired into any production path.**
-   Each is well-built and each is currently dead code:
-   - `assert_runtime_secret_permissions` (`brokers/…/token_lifecycle.py`) —
-     called only from tests. The C6 exposure it fixes is still unguarded in
-     production.
-   - `DurableFillDedup` (`execution/idempotency.py`) — constructed nowhere. The
-     store's `fill_seen` / `record_fill` still have no production caller, so a
-     re-published fill after a crash is still applied twice.
+4. **Two new features were test-only when audited — both now wired (Wave 1).**
+   Both were well-built and both were dead code at the time; today:
+   - `assert_runtime_secret_permissions` (`config/…/permissions.py:94`) —
+     called during boot at `runtime/startup.py:448`, after config validation
+     and before broker construction. The `brokers/…/token_lifecycle.py`
+     duplicate was deleted, so C6 is now guarded in production.
+   - `DurableFillDedup` (`execution/idempotency.py`) — constructed by the
+     engine whenever an event store is present and passed explicitly at boot
+     (plan Task 5 Step 5b), so the store's `fill_seen` / `record_fill`
+     (`idempotency.py:301,315`) are on the production fill path and a
+     re-published fill after a crash is refused.
 
    Resolved since this audit: `account_sizer` (`strategy/core/sizing.py`) is now
    wired at `runtime/startup.py:808`, so the 8,333-vs-7,916 share divergence
@@ -3528,14 +3531,13 @@ Things this document found that contradict other artefacts in the repo.
      `runtime/startup.py:444`. Its docstring: "detects and refuses, never
      silently fixes… quietly changing the mode behind their back would hide a
      misconfiguration."
-   - `brokers/src/tradex_brokers/common/token_lifecycle.py:80` — **repairs**
-     (chmods) by default. Not wired. Its docstring: "a permissive mode is
-     *repaired* and logged, never merely reported… warning about it while
-     leaving the bits set is not a fix."
-
-   Both arguments are defensible; they cannot both be the boot behaviour under
-   the same name. Pick one policy, keep one function, and note the choice at
-   both call sites.
+   - ~~`brokers/…/token_lifecycle.py` — **repairs** (chmods) by default.~~
+     **Resolved since this audit (Wave 1, Track H):** the chmod-repair twin
+     was deleted; `config`'s refuse-and-raise function is now the single
+     policy under that name, and refusing (not repairing) is what boot does.
+   - The policy choice the audit asked for has therefore been made: **refuse,
+     never silently fix.** The only chmods left are on app-*created* files
+     (0600 at creation), never on operator-owned ones.
 
 ---
 
