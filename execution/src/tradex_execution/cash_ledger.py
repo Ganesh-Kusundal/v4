@@ -200,7 +200,11 @@ class CashLedger:
                 # 1. Prove affordability (no mutation), unless skipped for an
                 #    adopted venue-confirmed fill (affordability governs
                 #    placement, not a fill that already happened).
-                if not skip_proof:
+                if not skip_proof and debit > 0:
+                    # debit == 0 on a SELL whose proceeds cover its fee:
+                    # self-funding, cash-independent (require_debit(0) would
+                    # still refuse at a negative balance). BUY always has
+                    # debit > 0 (notional + fee).
                     self.require_debit(debit, what)
                 # 2. Position booking, still under this lock.
                 if book is not None:

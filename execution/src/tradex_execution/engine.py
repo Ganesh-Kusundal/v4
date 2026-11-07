@@ -1056,6 +1056,12 @@ class ExecutionEngine:
             required = notional + charged_fee
         else:
             required = max(Decimal(0), charged_fee - notional)
+        if required == 0:
+            # Net proceeds cover the fee: the sell self-funds from its own
+            # proceeds, so the proof is cash-independent. require_debit(0)
+            # would still refuse when cash is already negative (the MP-4
+            # adopted-overdraft state), blocking a self-funding exit.
+            return
         self._cash_ledger.require_debit(required, f"fill {fill.order_id}")
 
     def _apply_fee(self, fill: Fill, charged: Decimal | None = None) -> None:
@@ -1267,7 +1273,17 @@ class ExecutionEngine:
                 )
                 return
             # The write landed, so this fill is now applied and must dedup.
-            self._record_applied_fill(fill)
+            # The verdict is load-bearing: if another publisher recorded this
+            # fingerprint between our seen() check and here (possible when no
+            # CashLedger means no transaction() scope), the durable dedup says
+            # duplicate and the fill must NOT book twice.
+            if self._record_applied_fill(fill):
+                log.info(
+                    "Inbound fill recorded as duplicate at apply time; "
+                    "skipping booking for %s",
+                    fill.order_id,
+                )
+                return
             if not owns_projection:
                 # Position, notional and fee as ONE operation under the same lock
                 # that proved affordability above (AC-21).
