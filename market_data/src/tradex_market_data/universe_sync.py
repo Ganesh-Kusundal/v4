@@ -4,15 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
-from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
-import pandas as pd
 from tradex_domain.universe import load_universe
-from tradex_domain.instruments import Equity
 
 log = logging.getLogger(__name__)
 
