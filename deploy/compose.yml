@@ -122,7 +122,7 @@ services:
       GATEWAY_PRIMARY_CHAIN: "${GATEWAY_PRIMARY_CHAIN:-dhan}"
       TRADEX_ENV_FILE: "${TRADEX_ENV_FILE:-}"
     ports:
-      - "${GATEWAY_PORT:-8100}:8100"
+      - "${GATEWAY_PORT:-8100}:${GATEWAY_PORT:-8100}"
     restart: unless-stopped
     networks:
       - tradex

@@ -63,16 +63,6 @@ def _process_lock(path: Path) -> threading.RLock:
 SECRET_DIR_MODE = 0o700
 
 
-class InsecureCredentialPermissions(PermissionError):
-    """A credential file on disk is readable by group or other.
-
-    Raised only when ``strict=True``; the default is to tighten the file and
-    continue, because refusing to boot is a worse outcome than a repaired
-    mode.  The type exists so a caller that *does* want to fail closed can
-    catch exactly this and nothing else.
-    """
-
-
 
 def _create_secret_file(temp: Path) -> int:
     """Create ``temp`` empty with ``EXPECTED_SECRET_MODE`` and return its fd.
@@ -755,5 +745,4 @@ __all__ = [
     "TokenLifecyclePort",
     "TokenMintResult",
     "TokenRefreshScheduler",
-    "InsecureCredentialPermissions",
 ]
