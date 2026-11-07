@@ -378,10 +378,80 @@ def test_deleted_packages_stay_deleted() -> None:
         )
 
 
+#: Route-verb markers a decorator must carry to read as an ASGI route.
+_ROUTE_VERBS = (".get", ".post", ".put", ".delete", ".patch", ".websocket")
+
+
+def _dict_ann_violations(node: ast.AST, path: Path) -> list[str]:
+    """``file:line`` hits for ``dict``-typed params/returns on *node*."""
+    assert isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    bad_anns: list[str] = []
+    for arg in node.args.args + node.args.kwonlyargs:
+        if arg.annotation is not None and "dict" in ast.dump(arg.annotation):
+            bad_anns.append(f"{arg.arg}: {ast.unparse(arg.annotation)}")
+    if node.returns is not None and "dict" in ast.dump(node.returns):
+        bad_anns.append(f"-> {ast.unparse(node.returns)}")
+    if not bad_anns:
+        return []
+    return [
+        f"{path.relative_to(_ROOT)}:{node.lineno}: {node.name}({', '.join(bad_anns)})"
+    ]
+
+
+def _route_handler_nodes(tree: ast.AST) -> list[ast.AST]:
+    """Every ASGI route handler declared in *tree*, de-duplicated.
+
+    Two registration spellings exist in this codebase and BOTH are in scope:
+
+    * decorator-registered — ``@router.get(...)`` / ``@app.post(...)``, the
+      common case;
+    * imperative — ``router.add_api_route(path, handler, methods=[...])``.
+      The four order mutations (place / bracket / modify / cancel) are all
+      registered this way in ``routes/orders.py``, so a decorator-only scan
+      silently excluded the entire money path from this guard. The handler is
+      resolved by name inside the same module.
+    """
+    funcs = {
+        n.name: n
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    out: list[ast.AST] = []
+    seen: set[int] = set()
+
+    def _add(node: ast.AST) -> None:
+        if id(node) not in seen:
+            seen.add(id(node))
+            out.append(node)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        decs = [ast.unparse(d) for d in node.decorator_list]
+        if any(
+            ("router." in d or "app." in d) and any(v in d for v in _ROUTE_VERBS)
+            for d in decs
+        ):
+            _add(node)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if not (isinstance(fn, ast.Attribute) and fn.attr == "add_api_route"):
+            continue
+        if len(node.args) < 2 or not isinstance(node.args[1], ast.Name):
+            continue
+        target = funcs.get(node.args[1].id)
+        if target is not None:
+            _add(target)
+    return out
+
+
 def test_no_dict_route_bodies() -> None:
     """Spec 0003: route handlers under interfaces/routes must not take or
-    return bare ``dict`` bodies. Scan handler functions (those carrying a
-    route decorator) and report ``file:line`` on any violation."""
+    return bare ``dict`` bodies. Scans decorator-registered *and*
+    ``add_api_route``-registered handlers; reports ``file:line`` per violation."""
     routes_dir = _ROOT / "interfaces/src/tradex_interfaces/routes"
     # Contested owner-WIP modules are out of scope (Wave 2).
     excluded = {"stream.py", "market_data.py"}
@@ -390,29 +460,47 @@ def test_no_dict_route_bodies() -> None:
         if path.name in excluded:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            decs = [ast.unparse(d) for d in node.decorator_list]
-            is_handler = any(
-                ("router." in d or "app." in d)
-                and any(m in d for m in (".get", ".post", ".put", ".delete", ".patch", ".websocket"))
-                for d in decs
-            )
-            if not is_handler:
-                continue
-            bad_anns: list[str] = []
-            for arg in node.args.args + node.args.kwonlyargs:
-                if arg.annotation is not None and "dict" in ast.dump(arg.annotation):
-                    bad_anns.append(f"{arg.arg}: {ast.unparse(arg.annotation)}")
-            if node.returns is not None and "dict" in ast.dump(node.returns):
-                bad_anns.append(f"-> {ast.unparse(node.returns)}")
-            if bad_anns:
-                violations.append(
-                    f"{path.relative_to(_ROOT)}:{node.lineno}: "
-                    f"{node.name}({', '.join(bad_anns)})"
-                )
+        for node in _route_handler_nodes(tree):
+            violations.extend(_dict_ann_violations(node, path))
     assert not violations, "dict-typed route handler params/returns:\n" + "\n".join(violations)
+
+
+def test_dict_route_body_guard_covers_add_api_route_handlers() -> None:
+    """Regression net for the scan itself: a handler registered with
+    ``add_api_route`` has no route decorator, so a decorator-only scan never
+    saw it. This asserts the resolver finds that spelling (and the order
+    mutations below pin that it finds *this repo's* money path)."""
+    import textwrap
+
+    tree = ast.parse(
+        textwrap.dedent(
+            """
+            from fastapi import APIRouter
+            router = APIRouter()
+            async def mutate(body: dict) -> dict:
+                return body
+            router.add_api_route("/orders", mutate, methods=["POST"])
+            """
+        )
+    )
+    found = [n.name for n in _route_handler_nodes(tree)]
+    assert found == ["mutate"], found
+    hits = [
+        h
+        for node in _route_handler_nodes(tree)
+        for h in _dict_ann_violations(node, _ROOT / "synthetic.py")
+    ]
+    assert hits and hits[0].endswith("mutate(body: dict, -> dict)"), hits
+
+
+def test_dict_route_body_guard_sees_the_order_mutations() -> None:
+    """The four money mutations must be in the guard's line of sight."""
+    path = _ROOT / "interfaces/src/tradex_interfaces/routes/orders.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    names = {n.name for n in _route_handler_nodes(tree)}
+    assert {"place_order", "place_bracket_order", "modify_order", "cancel_order"} <= names, (
+        f"order mutations no longer resolved by the guard scan: {sorted(names)}"
+    )
 
 
 def test_gateway_in_coverage_list() -> None:
