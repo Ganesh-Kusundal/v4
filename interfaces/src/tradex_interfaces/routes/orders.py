@@ -48,6 +48,7 @@ from tradex_domain.constants import (
     UNKNOWN_SYMBOL_MESSAGE,
 )
 from tradex_domain.enums import ProductType
+from tradex_domain.execution import OrderReceipt
 from tradex_domain.value_objects import CorrelationId, OrderId
 from tradex_execution.engine import (
     IdempotencyInflight,
@@ -100,14 +101,14 @@ def _parse_product(body: Any) -> ProductType:
         ) from None
 
 
-def _map_receipt(receipt: Any) -> OrderResponse:
+def _map_receipt(receipt: OrderReceipt) -> OrderResponse:
     """Map an engine ``OrderReceipt`` → ``OrderResponse``.
 
     ``submit()`` returns one type for a first submission and for an
     idempotency replay (the recorded receipt); an in-flight reservation is
     surfaced as 409 before reaching this helper.
     """
-    if getattr(receipt, "message", None) == IDEMPOTENCY_IN_FLIGHT:
+    if receipt.message == IDEMPOTENCY_IN_FLIGHT:
         raise HTTPException(status_code=409, detail="idempotency key is being processed")
     return OrderResponse(
         order_id=receipt.order_id.value,
