@@ -28,26 +28,35 @@ async def get_quote(
         raise HTTPException(status_code=404, detail=NO_SESSION_BOUND)
     try:
         from tradex_brokers.common.provider_common import instrument_from_id
+        from tradex_domain.serialization import to_dict
         from tradex_domain.value_objects import InstrumentId
 
         iid = InstrumentId.parse(f"{exchange}:{symbol}")
         instrument = instrument_from_id(iid)
         quote = session.broker.get_quote(instrument)
-        return dict(quote) if not isinstance(quote, dict) else quote
+        return to_dict(quote) if not isinstance(quote, dict) else quote
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
 
-@router.get("/search", response_model=list[str])
+@router.get("/search", response_model=list[dict[str, Any]])
 async def search_instruments(
     q: str,
     session: Any | None = Depends(get_session),
-) -> list[str]:
+) -> list[dict[str, Any]]:
     if session is None:
         return []
     try:
         results = session.broker.search(q)
-        return list(results)
+        return [
+            {
+                "instrument_id": str(instrument.instrument_id),
+                "symbol": instrument.symbol,
+                "exchange": str(instrument.exchange),
+                "asset_class": str(instrument.asset_class.value).lower(),
+            }
+            for instrument in results
+        ]
     except Exception:
         return []
 
