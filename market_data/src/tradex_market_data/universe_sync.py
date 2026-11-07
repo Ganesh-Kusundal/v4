@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+
+import pandas as pd
 
 from tradex_domain.instruments import Equity
 from tradex_domain.universe import load_universe
@@ -208,3 +211,88 @@ class UniverseSyncManager:
                 isin_index[str(isin).strip().upper()] = inst.symbol
 
         return isin_index
+
+    def migrate_symbol_lake(
+        self,
+        old_symbol: str,
+        new_symbol: str,
+        isin: str,
+    ) -> MigrationResult:
+        """Rename lake directory, update parquet symbol column, log the rename."""
+        old_dir = self._datalake_root / "ohlcv" / f"symbol={old_symbol}"
+        new_dir = self._datalake_root / "ohlcv" / f"symbol={new_symbol}"
+
+        if not old_dir.exists():
+            return MigrationResult(success=False, error=f"Old directory not found: {old_dir}")
+
+        if new_dir.exists():
+            return MigrationResult(
+                success=False,
+                error=f"New directory already exists: {new_dir} — manual merge required",
+            )
+
+        try:
+            # Copy directory first (atomic-ish)
+            shutil.copytree(old_dir, new_dir)
+
+            # Update parquet symbol columns
+            total_rows = 0
+            for parquet_file in new_dir.rglob("*.parquet"):
+                df = pd.read_parquet(parquet_file)
+                if "symbol" in df.columns:
+                    row_count = len(df)
+                    df["symbol"] = new_symbol
+                    df.to_parquet(parquet_file, index=False)
+                    total_rows += row_count
+
+            # Verify copy succeeded
+            if total_rows == 0:
+                raise RuntimeError("No rows migrated — parquet files may be corrupted")
+
+            # Delete old directory only after successful copy
+            shutil.rmtree(old_dir)
+
+            # Log the rename
+            self._log_rename(old_symbol, new_symbol, isin, total_rows)
+
+            log.info("Lake migration: %s → %s (%d rows)", old_symbol, new_symbol, total_rows)
+            return MigrationResult(success=True, rows_migrated=total_rows)
+
+        except Exception as exc:
+            # Rollback: delete partial copy if it exists
+            if new_dir.exists():
+                shutil.rmtree(new_dir)
+            log.error("Migration failed for %s → %s: %s — rolled back", old_symbol, new_symbol, exc)
+            return MigrationResult(success=False, error=str(exc))
+
+    def _log_rename(
+        self,
+        old_symbol: str,
+        new_symbol: str,
+        isin: str,
+        rows_affected: int,
+    ) -> None:
+        """Append entry to data/.rename_log.json."""
+        rename_log_path = self._datalake_root / ".rename_log.json"
+
+        # Load existing log
+        rename_log = {}
+        if rename_log_path.exists():
+            with open(rename_log_path) as f:
+                try:
+                    rename_log = json.load(f)
+                except json.JSONDecodeError:
+                    log.warning("Corrupted rename log — starting fresh")
+
+        # Append new entry
+        rename_log[old_symbol] = {
+            "new_symbol": new_symbol,
+            "isin": isin,
+            "renamed_at": datetime.now(UTC).isoformat(),
+            "reason": "corporate_rename",
+            "lake_migrated": True,
+            "rows_affected": rows_affected,
+        }
+
+        with open(rename_log_path, "w") as f:
+            json.dump(rename_log, f, indent=2)
