@@ -15,11 +15,11 @@ that binds the four state values (``session``, ``feed_registry``,
 from __future__ import annotations
 
 import asyncio
-import threading
 import json
 import logging
 import math
 import secrets
+import threading
 from datetime import UTC
 from typing import Any
 from urllib.parse import parse_qs
