@@ -705,12 +705,18 @@ def _boot_tail(
     # 6. Create execution engine
     live_fail_closed = cfg.mode == "live"
     durable_mode = cfg.mode in ("paper", "live") and event_store is not None
-    # MP-1: pass the durable fill dedup explicitly when a store is present.
+    # MP-1: pass the durable fill dedup explicitly when a store is present
+    # (plan Task 5 Step 5b). Mirror the engine's own construction branch so
+    # LRU eviction still ticks `bus.applied_fills.evicted` — without the
+    # hook the cap silently discarded fingerprints with no counter behind it.
     _fill_dedup = None
     if event_store is not None:
         from tradex_execution.idempotency import DurableFillDedup
 
-        _fill_dedup = DurableFillDedup(event_store)
+        _fill_dedup = DurableFillDedup(
+            event_store,
+            on_evict=lambda: metrics.counter("bus.applied_fills.evicted").inc(),
+        )
     engine = ExecutionEngine(
         bus=bus, fill_source=fill_source, risk_manager=risk_manager, metrics=metrics,
         idempotency_guard=guard, fee_calculator=fee_calculator,
