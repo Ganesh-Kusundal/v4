@@ -45,6 +45,16 @@ class MigrationResult:
 
 
 @dataclass
+class FullSyncReport:
+    """Complete sync report covering all three phases."""
+    universe: UniverseDelta | None = None
+    renames: list[RenameCandidate] = field(default_factory=list)
+    migrations: list[MigrationResult] = field(default_factory=list)
+    retry: object | None = None  # SyncReport
+    elapsed_s: float = 0.0
+
+
+@dataclass
 class FailureRecord:
     """Persistent failure tracking with backoff."""
     symbol: str
@@ -504,3 +514,74 @@ class UniverseSyncManager:
                 exchange=ExchangeId.NSE,
             )
         return None
+
+    def sync_all(
+        self,
+        universe_name: str = "nifty500",
+        *,
+        skip_rename: bool = False,
+        skip_retry: bool = False,
+        start=None,
+        end=None,
+    ) -> FullSyncReport:
+        """Run all three phases in sequence with progress reporting."""
+        import time
+
+        t0 = time.monotonic()
+
+        log.info("=== Universe Sync Manager: Starting full sync ===")
+
+        # Phase 1: Universe refresh
+        log.info("Phase 1: Refreshing universe...")
+        universe_delta = self.refresh_universe(universe_name)
+
+        # Phase 2: Rename detection and migration
+        renames = []
+        migrations = []
+        if not skip_rename:
+            log.info("Phase 2: Detecting renames...")
+            rename_candidates = self.detect_renames()
+
+            for candidate in rename_candidates:
+                log.info("Migrating: %s → %s", candidate.old_symbol, candidate.new_symbol)
+                result = self.migrate_symbol_lake(
+                    candidate.old_symbol,
+                    candidate.new_symbol,
+                    candidate.isin,
+                )
+                candidate.status = "migrated" if result.success else "skipped"
+                renames.append(candidate)
+                migrations.append(result)
+        else:
+            log.info("Phase 2: Skipped (rename detection disabled)")
+
+        # Phase 3: Failed symbol retry
+        retry_report = None
+        if not skip_retry:
+            log.info("Phase 3: Retrying failed symbols...")
+            retry_report = self.retry_failed(
+                start=start,
+                end=end,
+            )
+        else:
+            log.info("Phase 3: Skipped (retry disabled)")
+
+        elapsed = time.monotonic() - t0
+
+        report = FullSyncReport(
+            universe=universe_delta,
+            renames=renames,
+            migrations=migrations,
+            retry=retry_report,
+            elapsed_s=elapsed,
+        )
+
+        log.info(
+            "=== Sync complete: +%d added, -%d removed, %d renames, %ds elapsed ===",
+            len(report.universe.added) if report.universe else 0,
+            len(report.universe.removed) if report.universe else 0,
+            len(report.renames),
+            report.elapsed_s,
+        )
+
+        return report
