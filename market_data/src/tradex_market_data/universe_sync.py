@@ -296,3 +296,65 @@ class UniverseSyncManager:
 
         with open(rename_log_path, "w") as f:
             json.dump(rename_log, f, indent=2)
+
+    def load_failures(self) -> dict[str, FailureRecord]:
+        """Load persistent failure tracker from data/.sync_failures.json."""
+        failures_path = self._datalake_root / ".sync_failures.json"
+
+        if not failures_path.exists():
+            return {}
+
+        try:
+            with open(failures_path) as f:
+                data = json.load(f)
+        except json.JSONDecodeError:
+            log.warning("Corrupted failure tracker — starting fresh")
+            return {}
+
+        records = {}
+        for symbol, record_data in data.items():
+            try:
+                records[symbol] = FailureRecord(
+                    symbol=record_data["symbol"],
+                    failed_at=datetime.fromisoformat(record_data["failed_at"]),
+                    reason=record_data["reason"],
+                    attempts=record_data.get("attempts", 1),
+                    last_error=record_data.get("last_error", ""),
+                    retry_after=(
+                        datetime.fromisoformat(record_data["retry_after"])
+                        if record_data.get("retry_after")
+                        else None
+                    ),
+                )
+            except (KeyError, ValueError) as exc:
+                log.warning("Skipping malformed failure record for %s: %s", symbol, exc)
+
+        return records
+
+    def save_failures(self, records: dict[str, FailureRecord]) -> None:
+        """Save failure tracker to data/.sync_failures.json."""
+        failures_path = self._datalake_root / ".sync_failures.json"
+
+        data = {}
+        for symbol, record in records.items():
+            data[symbol] = {
+                "symbol": record.symbol,
+                "failed_at": record.failed_at.isoformat(),
+                "reason": record.reason,
+                "attempts": record.attempts,
+                "last_error": record.last_error,
+                "retry_after": record.retry_after.isoformat() if record.retry_after else None,
+            }
+
+        with open(failures_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    def classify_failure(self, error_message: str) -> str:
+        """Classify failure reason from error message."""
+        if "rate limit" in error_message.lower() or "429" in error_message:
+            return "rate_limited"
+        if "not found" in error_message.lower() or "instrument not found" in error_message.lower():
+            return "not_found"
+        if "timeout" in error_message.lower() or "timed out" in error_message.lower():
+            return "timeout"
+        return "unknown"
