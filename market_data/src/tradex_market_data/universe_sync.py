@@ -6,7 +6,7 @@ import json
 import logging
 import shutil
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -358,3 +358,136 @@ class UniverseSyncManager:
         if "timeout" in error_message.lower() or "timed out" in error_message.lower():
             return "timeout"
         return "unknown"
+
+    def retry_failed(
+        self,
+        *,
+        off_peak: bool = False,
+        max_attempts: int = 3,
+        start=None,
+        end=None,
+    ) -> object | None:  # Returns SyncReport from sync_service
+        """Retry failed symbols with exponential backoff and classification."""
+        failures = self.load_failures()
+
+        if not failures:
+            log.info("No failures to retry")
+            return None
+
+        # Filter by retry_after
+        now = datetime.now(UTC)
+        due_failures = {
+            sym: rec
+            for sym, rec in failures.items()
+            if rec.retry_after is None or rec.retry_after <= now
+        }
+
+        if not due_failures:
+            log.info("No failures due for retry yet")
+            return None
+
+        log.info("Retrying %d failed symbols", len(due_failures))
+
+        # Resolve instruments
+        failed_instruments = []
+        for symbol in due_failures:
+            try:
+                inst = self._resolve_symbol(symbol)
+                if inst:
+                    failed_instruments.append(inst)
+            except Exception as exc:
+                log.warning("Cannot resolve %s: %s", symbol, exc)
+
+        if not failed_instruments:
+            return None
+
+        # Run sync
+        from tradex_market_data.sync_service import SyncService, SyncConfig
+
+        config = SyncConfig(
+            timeframe="1m",
+            batch_size=10,  # Smaller batch for retries
+            max_workers=2,
+            budget_seconds=3600,
+        )
+
+        sync_service = SyncService(self._broker, self._store, config)
+        report = sync_service.sync(
+            failed_instruments,
+            start=start,
+            end=end,
+        )
+
+        # Update failure records
+        self._update_failures_after_retry(report, due_failures, max_attempts)
+
+        return report
+
+    def _calculate_next_retry(self, record: FailureRecord) -> datetime:
+        """Calculate next retry time with exponential backoff."""
+        base_delay = 30  # seconds
+        delay = base_delay * (2 ** (record.attempts - 1))
+        delay = min(delay, 480)  # Cap at 480 seconds
+        return record.failed_at + timedelta(seconds=delay)
+
+    def _update_failures_after_retry(
+        self,
+        report,
+        due_failures: dict[str, FailureRecord],
+        max_attempts: int,
+    ) -> None:
+        """Update failure records based on retry results."""
+        all_failures = self.load_failures()
+
+        for symbol, record in due_failures.items():
+            if report and symbol in [str(i.instrument_id) for i in getattr(report, "fetched_instruments", [])]:
+                # Success: remove from failures
+                del all_failures[symbol]
+                log.info("Retry succeeded for %s — removed from failure queue", symbol)
+            else:
+                # Still failing: increment attempts
+                record.attempts += 1
+                record.failed_at = datetime.now(UTC)
+
+                if record.attempts >= max_attempts:
+                    record.reason = "permanent_failure"
+                    record.retry_after = None
+                    log.warning(
+                        "%s reached max attempts (%d) — marked permanent failure",
+                        symbol,
+                        max_attempts,
+                    )
+                else:
+                    record.retry_after = self._calculate_next_retry(record)
+                    log.info(
+                        "%s still failing (attempt %d/%d) — next retry at %s",
+                        symbol,
+                        record.attempts,
+                        max_attempts,
+                        record.retry_after,
+                    )
+
+                all_failures[symbol] = record
+
+        self.save_failures(all_failures)
+
+    def _resolve_symbol(self, symbol: str):
+        """Resolve symbol string to Equity instrument."""
+        # This depends on your instrument resolution strategy
+        # For now, use broker registry
+        if self._broker is None:
+            return None
+
+        from tradex_domain.value_objects import InstrumentId
+        from tradex_domain.enums import ExchangeId
+        from tradex_domain.instruments import Equity
+
+        iid = InstrumentId.equity("NSE", symbol)
+        provider_key = self._broker.registry.provider_key(iid)
+        if provider_key:
+            return Equity(
+                instrument_id=iid,
+                symbol=symbol,
+                exchange=ExchangeId.NSE,
+            )
+        return None
