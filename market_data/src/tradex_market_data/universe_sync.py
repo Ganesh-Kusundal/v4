@@ -107,6 +107,19 @@ class UniverseSyncManager:
         added_symbols = csv_symbols - datalake_symbols
         removed_symbols = datalake_symbols - csv_symbols
 
+        # Phase 1 step 4: Archive delisted symbols
+        archived_count = 0
+        for symbol in sorted(removed_symbols):
+            if self._is_symbol_delisted(symbol):
+                self._archive_symbol(symbol)
+                archived_count += 1
+                log.info("Archived delisted symbol: %s", symbol)
+            else:
+                log.info(
+                    "Symbol %s not in CSV but still active on broker — keeping in lake",
+                    symbol,
+                )
+
         # Categorize instruments
         added = [inst for inst in csv_instruments if inst.symbol in added_symbols]
         removed = sorted(removed_symbols)
@@ -123,13 +136,56 @@ class UniverseSyncManager:
         self._write_universe_metadata(universe_name, delta)
 
         log.info(
-            "Universe refresh: +%d added, -%d removed, %d unchanged",
+            "Universe refresh: +%d added, -%d removed (%d archived), %d unchanged",
             len(delta.added),
             len(delta.removed),
+            archived_count,
             len(delta.unchanged),
         )
 
         return delta
+
+    def _is_symbol_delisted(self, symbol: str) -> bool:
+        """Check if a symbol is delisted by querying broker master.
+
+        Returns True if symbol is not found on broker (delisted), False if still active.
+        If no broker is available, assumes symbol is delisted (conservative).
+        """
+        if self._broker is None:
+            # No broker available — conservative assumption: archive it
+            log.warning("No broker available to verify %s — assuming delisted", symbol)
+            return True
+
+        try:
+            from tradex_domain.value_objects import InstrumentId
+
+            iid = InstrumentId.equity("NSE", symbol)
+            provider_key = self._broker.registry.provider_key(iid)
+            # If provider_key exists, symbol is still active on broker
+            return provider_key is None or provider_key == ""
+        except Exception as exc:
+            log.warning("Cannot check broker for %s: %s — assuming delisted", symbol, exc)
+            return True
+
+    def _archive_symbol(self, symbol: str) -> None:
+        """Move symbol directory to data/archived/symbol={SYM}/."""
+        old_dir = self._datalake_root / "ohlcv" / f"symbol={symbol}"
+        archive_dir = self._datalake_root / "archived" / f"symbol={symbol}"
+
+        if not old_dir.exists():
+            log.warning("Cannot archive %s: directory not found", symbol)
+            return
+
+        if archive_dir.exists():
+            log.warning("Archive directory already exists for %s — skipping", symbol)
+            return
+
+        # Create archive parent directory
+        archive_dir.parent.mkdir(parents=True, exist_ok=True)
+
+        # Move directory to archive
+        shutil.move(str(old_dir), str(archive_dir))
+        log.info("Archived %s → %s", old_dir, archive_dir)
 
     def _write_universe_metadata(
         self,

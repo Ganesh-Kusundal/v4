@@ -2,8 +2,11 @@
 """CLI: Unified universe sync manager."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
+
+import pandas as pd
 
 # Add project roots to path
 project_root = Path(__file__).resolve().parents[2]
@@ -12,6 +15,7 @@ sys.path.insert(0, str(project_root / "brokers" / "src"))
 sys.path.insert(0, str(project_root / "domain" / "src"))
 
 from tradex_market_data.universe_sync import UniverseSyncManager
+from tradex_market_data.parquet_storage import ParquetStorage
 
 
 def main():
@@ -22,6 +26,12 @@ def main():
         "--universe",
         default="nifty500",
         help="Universe CSV name (default: nifty500)",
+    )
+    parser.add_argument(
+        "--broker",
+        type=str,
+        default=None,
+        help="Broker provider (dhan/upstox). Reads TRADEDX_BROKER env var if not specified.",
     )
     parser.add_argument(
         "--skip-rename",
@@ -56,25 +66,68 @@ def main():
 
     args = parser.parse_args()
 
-    # TODO: Wire up actual broker and store once integration is ready
-    # For now, show placeholder
+    # Determine broker provider from CLI arg or environment
+    import os
+    broker_provider = args.broker or os.environ.get("TRADEX_BROKER", "dhan").strip().lower()
+
     print("Universe Sync Manager CLI")
     print(f"Universe: {args.universe}")
+    print(f"Broker: {broker_provider}")
     print(f"Dry run: {args.dry_run}")
+
+    # Build broker and storage
+    try:
+        from tradex_runtime.live import build_broker_from_env
+        broker = build_broker_from_env(broker_provider)
+        broker.connect()
+        print(f"✓ Connected to {broker_provider} broker")
+    except Exception as exc:
+        print(f"⚠ Broker connection failed ({exc}) — continuing without broker for dry-run")
+        broker = None
+
+    store = ParquetStorage("data")
+    print(f"✓ Storage initialized at data/")
 
     if args.dry_run:
         print("\nDry run mode — showing planned changes:")
-        print(f"  Would refresh universe: {args.universe}")
+        if broker is None:
+            print("  ⚠ No broker available — skipping operations requiring broker")
+            return
+        manager = UniverseSyncManager(broker=broker, store=store)
+        delta = manager.refresh_universe(args.universe)
+        print(f"  Would add: {len(delta.added)} symbols")
+        print(f"  Would remove: {len(delta.removed)} symbols")
         if not args.skip_rename:
-            print("  Would detect renames")
-        if not args.skip_retry:
-            print("  Would retry failed symbols")
+            renames = manager.detect_renames()
+            print(f"  Would rename: {len(renames)} symbols")
         return
 
     print("\nExecuting full sync...")
-    # manager = UniverseSyncManager(broker=..., store=...)
-    # report = manager.sync_all(...)
-    print("TODO: Integrate with broker and store")
+    if broker is None:
+        print("ERROR: Cannot execute sync without broker. Set TRADEDX_BROKER env var or use --broker flag.")
+        sys.exit(1)
+
+    manager = UniverseSyncManager(broker=broker, store=store)
+
+    # Parse dates if provided
+    start_date = pd.Timestamp(args.start_date) if args.start_date else None
+    end_date = pd.Timestamp(args.end_date) if args.end_date else None
+
+    report = manager.sync_all(
+        universe_name=args.universe,
+        skip_rename=args.skip_rename,
+        skip_retry=args.skip_retry,
+        start=start_date,
+        end=end_date,
+    )
+
+    print(f"\n=== Sync Summary ===")
+    print(f"Universe: +{len(report.universe.added)} added, -{len(report.universe.removed)} removed")
+    print(f"Renames: {len(report.renames)} migrated")
+    if report.retry:
+        fetched = len(getattr(report.retry, "fetched_instruments", []))
+        print(f"Retry: {fetched} symbols retried")
+    print(f"Elapsed: {report.elapsed_s:.0f}s")
 
 
 if __name__ == "__main__":
