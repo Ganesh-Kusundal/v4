@@ -362,7 +362,7 @@ class UniverseSyncManager:
     def retry_failed(
         self,
         *,
-        off_peak: bool = False,
+        off_peak: bool = False,  # Reserved for future use: when True, could apply different batch sizing / rate limits
         max_attempts: int = 3,
         start=None,
         end=None,
@@ -439,8 +439,21 @@ class UniverseSyncManager:
         """Update failure records based on retry results."""
         all_failures = self.load_failures()
 
+        # Pre-compute set of successfully fetched symbols for O(1) lookup
+        # Normalize by extracting the symbol part from instrument_id (e.g., "NSE:RELIANCE" -> "RELIANCE")
+        fetched_symbols: set[str] = set()
+        if report:
+            for inst in getattr(report, "fetched_instruments", []):
+                iid_str = str(inst.instrument_id)
+                # Handle both formats: "RELIANCE" and "NSE:RELIANCE"
+                if ":" in iid_str:
+                    symbol_part = iid_str.split(":")[1]
+                else:
+                    symbol_part = iid_str
+                fetched_symbols.add(symbol_part)
+
         for symbol, record in due_failures.items():
-            if report and symbol in [str(i.instrument_id) for i in getattr(report, "fetched_instruments", [])]:
+            if symbol in fetched_symbols:
                 # Success: remove from failures
                 del all_failures[symbol]
                 log.info("Retry succeeded for %s — removed from failure queue", symbol)
