@@ -131,7 +131,9 @@ class MarketDataRouter:
         if isinstance(last, ValueError):
             raise UnsupportedTimeframe(str(last))
         if isinstance(last, InstrumentNotFoundError):
-            raise InstrumentNotFound(str(last))
+            # Canonical wire message: the broker's text names internal
+            # resolution mechanics (provider keys) and must not reach the wire.
+            raise InstrumentNotFound("unknown instrument")
         if isinstance(last, CapabilityNotSupportedError):
             raise CapabilityUnsupported(str(last))
         if isinstance(
@@ -143,12 +145,14 @@ class MarketDataRouter:
                 BrokerUnavailableError,
             ),
         ):
+            # Canonical wire message: broker exception text can carry URLs
+            # and provider details; the full text stays in logs only.
             raise NoHealthyBroker(
-                str(last) if last else f"all {capability} brokers failed",
+                f"all {capability} brokers failed",
                 retry_after=retry_after,
             ) from last
         raise BrokerUnavailable(
-            str(last) if last else f"all {capability} brokers failed",
+            f"all {capability} brokers failed",
             retry_after=retry_after,
         ) from last
 
