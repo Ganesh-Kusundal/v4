@@ -33,9 +33,15 @@ def parse_canonical(text: str, asset_class: str | None = None) -> InstrumentId:
             raise BadRequest(f"invalid index id: {text!r}")
         return InstrumentId.index("IDX", parts[1])
     try:
-        return InstrumentId.parse(raw)
+        parsed = InstrumentId.parse(raw)
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc
+    # A purely numeric underlying is a broker security ID, not a trading
+    # symbol — security IDs are internal to the broker and never accepted
+    # as canonical input.
+    if parsed.underlying.isdigit():
+        raise BadRequest(f"invalid instrument id: {text!r}")
+    return parsed
 
 
 @dataclass(frozen=True)
@@ -81,7 +87,9 @@ class InstrumentDirectory:
         try:
             canonical = instrument_from_id(instrument_id)
         except Exception as exc:  # noqa: BLE001 - malformed derivative IDs
-            raise InstrumentNotFound(str(exc)) from exc
+            # Canonical wire message: the domain text names internal
+            # construction details and must not reach the wire.
+            raise InstrumentNotFound("unknown instrument") from exc
         if not brokers and not any(runtime.available for runtime in self._runtimes.values()):
             raise InstrumentNotFound("no broker is available")
         return ResolvedInstrument(

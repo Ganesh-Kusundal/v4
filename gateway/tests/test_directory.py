@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
+import pytest
 from gateway_support import FakeBroker, equity, index, option
 from tradex_domain.instruments import Index
 from tradex_gateway.brokers import BrokerRuntime
-from tradex_gateway.directory import InstrumentDirectory
+from tradex_gateway.directory import InstrumentDirectory, parse_canonical
+from tradex_gateway.errors import BadRequest, InstrumentNotFound
 
 
 def _directory(*brokers: FakeBroker) -> InstrumentDirectory:
@@ -79,3 +81,22 @@ def test_search_and_resolve_include_lot_size():
         resolved.instrument, resolved.brokers, resolved.lot_sizes
     )
     assert meta["lot_size"] == 250
+
+
+def test_numeric_underlying_is_rejected_as_non_canonical():
+    with pytest.raises(BadRequest):
+        parse_canonical("NSE:14219")
+
+
+def test_provider_key_and_isin_inputs_are_rejected():
+    with pytest.raises(BadRequest):
+        parse_canonical("NSE_EQ|INE121A01024")
+    with pytest.raises(BadRequest):
+        parse_canonical("INE121A01024")
+
+
+def test_malformed_derivative_id_message_is_canonical():
+    directory = InstrumentDirectory({})
+    with pytest.raises(InstrumentNotFound) as excinfo:
+        directory.resolve("NFO:NIFTY:20261109:CE")
+    assert "no strike" not in excinfo.value.message
