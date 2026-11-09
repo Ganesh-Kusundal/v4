@@ -352,3 +352,60 @@ def test_search_resolve_chain_and_futures_include_lot_size():
 
         futures = client.get("/v1/futures/IDX:NIFTY")
         assert futures.json()["futures"][0]["lot_size"] == 50
+
+
+INTERNAL_ID_PATTERNS = [r"NSE_EQ\|", r"NSE_OPT\|", r"\bINE\d{5}[A-Z]{2}\d{4}\b", r"provider key"]
+
+
+def test_no_response_contains_internal_ids():
+    import re
+
+    app, _, _ = _app()
+    urls = [
+        "/v1/quote/NSE:RELIANCE",
+        "/v1/depth/NSE:RELIANCE",
+        "/v1/history/NSE:RELIANCE?timeframe=1m&from=2026-11-09T09:15:00%2B05:30&to=2026-11-09T09:20:00%2B05:30",
+        "/v1/option-chain/NSE:NIFTY",
+        "/v1/futures/NSE:NIFTY",
+        "/v1/instruments/search?q=REL",
+        "/v1/instruments/resolve?q=NSE:RELIANCE",
+        "/v1/health",
+        "/v1/brokers",
+    ]
+    with TestClient(app) as client:
+        for url in urls:
+            response = client.get(url)
+            body = response.text
+            for pattern in INTERNAL_ID_PATTERNS:
+                assert not re.search(pattern, body), f"{pattern} leaked in {url}"
+
+
+def test_market_data_surface_parity():
+    """Every market-data broker method has a gateway route."""
+    from tradex_brokers.common.base import BaseBroker
+    from tradex_brokers.dhan.adapter import DhanBroker
+    from tradex_brokers.upstox.adapter import UpstoxBroker
+
+    app, _, _ = _app()
+    paths = set()
+    for route in app.routes:
+        if getattr(route, "path", None):
+            paths.add(route.path)
+        original = getattr(route, "original_router", None)
+        if original is not None:
+            paths.update(getattr(r, "path", None) for r in original.routes)
+    paths.discard(None)
+    # get_option_chain is declared on the concrete adapters (not BaseBroker).
+    expected = {
+        (BaseBroker, "get_quote"): "/v1/quote/{instrument_id}",
+        (BaseBroker, "quote_batch"): "/v1/quotes",
+        (BaseBroker, "depth"): "/v1/depth/{instrument_id}",
+        (BaseBroker, "history"): "/v1/history/{instrument_id}",
+        (BaseBroker, "search"): "/v1/instruments/search",
+        (DhanBroker, "get_option_chain"): "/v1/option-chain/{underlying}",
+        (UpstoxBroker, "get_option_chain"): "/v1/option-chain/{underlying}",
+        (BaseBroker, "future_chain"): "/v1/futures/{underlying}",
+    }
+    for (cls, method), route in expected.items():
+        assert hasattr(cls, method), f"{cls.__name__}.{method}"
+        assert route in paths, route
