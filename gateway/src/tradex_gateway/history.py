@@ -139,12 +139,14 @@ class HistoryService:
                     "instrument_id": payload.get("instrument_id"),
                     **exc.to_envelope(),
                 }
-            except Exception as exc:  # noqa: BLE001 - one request must not sink the batch
+            except Exception:  # noqa: BLE001 - one request must not sink the batch
+                # Canonical wire message: unexpected exception text can carry
+                # internal details; the full text stays in logs only.
                 results[index] = {
                     "instrument_id": payload.get("instrument_id"),
                     "error": {
                         "code": "internal_error",
-                        "message": str(exc),
+                        "message": "internal error",
                         "broker": None,
                         "retryable": False,
                         "retry_after": None,

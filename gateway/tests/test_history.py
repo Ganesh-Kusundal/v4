@@ -375,3 +375,13 @@ def test_batch_never_waits_on_the_pool_that_runs_it():
     assert len(results) == 4
     assert all(item["bars"] for item in results), results
     assert not any("error" in item for item in results), results
+
+
+def test_batch_unexpected_error_message_is_canonical():
+    """A non-GatewayError in one batch item must not leak its text."""
+    service = _service(FakeWindowLoader(()), FakeBroker("dhan"), FakeBroker("upstox"))
+    # Missing instrument_id raises KeyError inside history() — a
+    # non-GatewayError that reaches the batch handler's fallback branch.
+    results = service.batch([{"timeframe": "1m"}])
+    assert results[0]["error"]["code"] == "internal_error"
+    assert results[0]["error"]["message"] == "internal error"
