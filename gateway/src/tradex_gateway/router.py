@@ -115,7 +115,9 @@ class MarketDataRouter:
                     log.exception("unmapped broker failure on %s for %s", runtime.name, capability)
                     cooldown = _UNKNOWN_COOLDOWN
                 self._event("broker_failures_total")
-                health.record_failure(capability, cooldown, str(exc))
+                # Error class only: message text can carry URLs/provider
+                # details and must not reach the health surface.
+                health.record_failure(capability, cooldown, type(exc).__name__)
                 last = exc
                 continue
             health.record_success(capability)

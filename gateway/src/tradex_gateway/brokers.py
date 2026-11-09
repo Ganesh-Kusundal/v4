@@ -214,5 +214,6 @@ def build_runtimes(
             session = factory(name)
             runtimes[name] = BrokerRuntime(name, session.broker, session=session)
         except Exception as exc:  # noqa: BLE001 - one broker outage must not stop the gateway
-            runtimes[name] = BrokerRuntime(name, None, error=f"{type(exc).__name__}: {exc}")
+            # Error class only: message text must not reach the brokers surface.
+            runtimes[name] = BrokerRuntime(name, None, error=type(exc).__name__)
     return runtimes

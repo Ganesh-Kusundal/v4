@@ -247,7 +247,7 @@ def test_monitor_switches_only_when_every_instrument_is_stale(monkeypatch):
         assert upstox.quote_sub_calls == 1
         health = hub._runtimes["dhan"].health.state("live")
         assert health.consecutive_failures == 1
-        assert health.last_error == "stale feed"
+        assert health.last_error == "StaleFeed"
         assert hub._next_switch_at == clock.now + 10.0
         frames = await _drain(control)
         assert {

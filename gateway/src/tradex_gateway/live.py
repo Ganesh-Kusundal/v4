@@ -424,7 +424,7 @@ class LiveHub:
                 feed.sync_depth({}, 0)
         except Exception as exc:  # noqa: BLE001 - a subscribe failure is a failover trigger
             log.warning("live subscribe failed on %s: %s", broker_name, exc)
-            self._runtimes[broker_name].health.record_failure("live", 15.0, str(exc))
+            self._runtimes[broker_name].health.record_failure("live", 15.0, type(exc).__name__)
             self._switch_to(self._other_broker(broker_name), reason="failover")
             return self._active
         self._ensure_monitor()
@@ -475,7 +475,7 @@ class LiveHub:
                 if depths:
                     feed.sync_depth(depths, effective)
             except Exception as exc:  # noqa: BLE001 - try the other broker
-                runtime.health.record_failure("live", 15.0, str(exc))
+                runtime.health.record_failure("live", 15.0, type(exc).__name__)
                 feed.stop()
                 target = self._other_broker(broker_name, exclude=attempted)
                 if target is not None:
@@ -554,7 +554,7 @@ class LiveHub:
             self._next_switch_at = now + 10.0
             self._rebalance()
             return
-        self._runtimes[stale_broker].health.record_failure("live", 15.0, "stale feed")
+        self._runtimes[stale_broker].health.record_failure("live", 15.0, "StaleFeed")
         self._next_switch_at = now + 10.0
         target = self._other_broker(stale_broker)
         if target is not None:
