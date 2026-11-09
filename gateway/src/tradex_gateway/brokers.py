@@ -88,18 +88,25 @@ class BrokerHealth:
 
 
 class BrokerRuntime:
-    """One broker adapter plus its health and registry helpers."""
+    """One broker adapter plus its health and registry helpers.
+
+    The adapter comes from a booted :class:`TradingSession` (``session.broker``),
+    which owns broker mapping, token generation, and the instrument registry.
+    ``close()`` stops the session when one is present, else closes the broker.
+    """
 
     def __init__(
         self,
         name: str,
         broker: Any | None,
         *,
+        session: Any | None = None,
         error: str | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.name = name
         self.broker = broker
+        self._session = session
         self.error = error
         self.health = BrokerHealth(clock)
 
@@ -159,6 +166,12 @@ class BrokerRuntime:
             return False
 
     def close(self) -> None:
+        if self._session is not None:
+            try:
+                self._session.stop()
+            except Exception:  # noqa: BLE001 - shutdown is best effort
+                pass
+            return
         if self.broker is None:
             return
         try:
@@ -167,26 +180,39 @@ class BrokerRuntime:
             pass
 
 
+def _boot_session(name: str):
+    """Boot one live trading session; the session owns broker mapping/token."""
+    from tradex_config.env import from_env, serve_config
+    from tradex_config.schema import parse_feed_instruments
+    from tradex_domain import BrokerId
+    from tradex_runtime.startup import boot
+
+    config = serve_config(from_env(), broker_id=BrokerId(name.upper()), mode="live")
+    # Live boot refuses an empty tape (AC-20). The session feed is unused by
+    # the gateway (LiveHub owns subscriptions), so a minimal default tape
+    # satisfies the gate when the operator named none.
+    tape = config.feed_instruments or parse_feed_instruments("IDX:NIFTY")
+    return boot(config, wire_strategies=False, feed_instruments=tape)
+
+
 def build_runtimes(
     config: GatewayConfig,
     *,
-    builder: Callable[..., Any] | None = None,
+    session_factory: Callable[[str], Any] | None = None,
 ) -> dict[str, BrokerRuntime]:
-    """Build every configured broker; a failure leaves that broker unavailable."""
-    from tradex_runtime.live import build_broker_from_env
+    """Boot every configured broker's session; a failure leaves it unavailable.
 
-    build = builder or build_broker_from_env
+    Each runtime's broker is ``session.broker`` — the standard broker
+    interface as exposed through the trading session, which manages mapping,
+    token generation, and the instrument registry internally. The gateway
+    never builds a broker directly.
+    """
+    factory = session_factory or _boot_session
     runtimes: dict[str, BrokerRuntime] = {}
     for name in config.brokers:
         try:
-            broker = build(
-                name,
-                allow_order_operations=False,
-                load_instruments=True,
-                master_cache_dir=config.master_cache_dir,
-            )
-            broker.connect()
-            runtimes[name] = BrokerRuntime(name, broker)
+            session = factory(name)
+            runtimes[name] = BrokerRuntime(name, session.broker, session=session)
         except Exception as exc:  # noqa: BLE001 - one broker outage must not stop the gateway
             runtimes[name] = BrokerRuntime(name, None, error=f"{type(exc).__name__}: {exc}")
     return runtimes

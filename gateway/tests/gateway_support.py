@@ -239,6 +239,17 @@ class FakeBroker:
         self.calls.append(("close",))
 
 
+class FakeSession:
+    """TradingSession double: exposes the standard broker interface."""
+
+    def __init__(self, broker):
+        self.broker = broker
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
+
+
 class FakeWindowLoader:
     def __init__(
         self,
