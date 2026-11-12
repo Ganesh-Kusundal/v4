@@ -101,12 +101,16 @@ Rules:
 ### 4. Serializers
 
 Gateway `serialize_chain` (`gateway/src/tradex_gateway/market.py`): inside
-each strike's `ce`/`pe` entry, when `pair.call_leg`/`pair.put_leg` is set,
-emit `"leg": <normalized dict>` alongside `instrument_id`/`lot_size`. When
-`None`, key omitted — existing output byte-compatible.
+each strike's `ce`/`pe` entry (already per-side), when `pair.call_leg`/
+`pair.put_leg` is set, emit `"leg": <normalized dict>` alongside
+`instrument_id`/`lot_size`. When `None`, key omitted — existing output
+byte-compatible.
 
 Interfaces `serialize_option_chain` (`interfaces/.../routes/_market_helpers.py`)
-— same: each `pairs[]` entry gains `"call_leg"`/`"put_leg"` keys when set.
+— each `pairs[]` entry (both legs in one object) gains `"call_leg"` /
+`"put_leg"` keys when set. Gateway uses a per-side `"leg"`; interfaces uses
+per-side `call_leg`/`put_leg` — intentional, each mirrors its existing
+naming. When unset, both serializers' output is unchanged.
 
 ### 5. Interfaces route + contract
 
@@ -117,9 +121,10 @@ Interfaces `serialize_option_chain` (`interfaces/.../routes/_market_helpers.py`)
   `enriched: bool = False`. Keep `extra="ignore"`.
 - `enrich_chain_live` — prefer OC-attached legs: if `p.call_leg` / `p.put_leg`
   is set by the broker parse, copy it into the pair output (merged: leg dict
-  provides greeks/iv/oi/volume; live batch quotes may still override `ltp`/
-  `oi`/`volume` with fresher values — OC values are the baseline). When
-  absent, keep current behavior (batch quotes, MCX LTP window).
+  provides greeks/iv/oi/volume/bid/ask as the baseline). Live batch quotes,
+  when available, may still override `ltp`/`oi`/`volume` with fresher values;
+  they never add greeks. When `p.call_leg` is absent, keep current behavior
+  (batch quotes, MCX LTP window).
 
 ### 6. Gateway live enrichment
 
