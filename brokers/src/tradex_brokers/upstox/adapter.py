@@ -35,7 +35,7 @@ from tradex_brokers.common.endpoints import (
 )
 from tradex_brokers.common.instruments import canonical_size_str
 from tradex_brokers.common.mixins import SharedAdminMixin, SharedPortfolioMixin
-from tradex_brokers.common.provider_common import option_chain_from_master
+from tradex_brokers.common.provider_common import option_chain_from_master, provider_key
 from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 from tradex_brokers.upstox.client import UpstoxApiClient
 
@@ -177,6 +177,38 @@ class UpstoxBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
                 )
                 return from_master
             raise
+
+    # ------------------------------------------------------------------
+    # expired instruments (Upstox Plus tier)
+    # ------------------------------------------------------------------
+
+    def expired_contracts(
+        self,
+        underlying: Instrument,
+        expiry: date,
+        kind: str = "option",
+    ) -> list[dict]:
+        """Expired option/future contracts for an underlying + expiry."""
+        key = provider_key(self._registry, underlying.instrument_id)
+        expiry_text = expiry.isoformat() if isinstance(expiry, date) else str(expiry)
+        if kind == "future":
+            return self._require().expired_future_contracts(key, expiry_text)
+        return self._require().expired_option_contracts(key, expiry_text)
+
+    def expired_candles(
+        self,
+        expired_instrument_key: str,
+        interval: str,
+        from_date: date,
+        to_date: date,
+    ) -> list:
+        """OHLC candles for an expired contract key."""
+        return self._require().expired_candles(
+            expired_instrument_key,
+            interval,
+            to_date.isoformat(),
+            from_date.isoformat(),
+        )
 
     # ------------------------------------------------------------------
     # instruments

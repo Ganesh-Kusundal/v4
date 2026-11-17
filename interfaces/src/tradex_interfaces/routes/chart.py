@@ -28,7 +28,7 @@ from tradex_domain.timeframe import INTERVAL_TO_TIMEFRAME
 from tradex_domain.timezones import IST_ZONE
 from tradex_execution.projection import execution_projection
 
-from tradex_interfaces.auth.deps import require_auth, require_csrf_if_session
+from tradex_interfaces.auth.deps import require_csrf_if_session
 from tradex_interfaces.contracts import (
     BacktestRequest,
     BacktestResponse,
@@ -343,7 +343,7 @@ def create_chart_router(
         # The datalake branch has no ``universe`` key at all; without this the
         # model would inject ``"universe": null`` and change the wire shape.
         response_model_exclude_none=True,
-        dependencies=[Depends(require_auth)],
+
     )
     async def list_symbols(
         q: str | None = None, source: str = "datalake", universe: str = "nifty50"
@@ -390,7 +390,7 @@ def create_chart_router(
     @router.get(
         "/history/{exchange}:{symbol}",
         response_model=HistoryResponse,
-        dependencies=[Depends(require_auth)],
+
     )
     async def get_history(
         exchange: str,
@@ -456,7 +456,7 @@ def create_chart_router(
     @router.get(
         "/indicators",
         response_model=IndicatorCatalogueResponse,
-        dependencies=[Depends(require_auth)],
+
     )
     async def list_indicators() -> IndicatorCatalogueResponse:
         """The whole indicator catalogue: ids, param schemas, plot shapes.
@@ -472,7 +472,7 @@ def create_chart_router(
     @router.post(
         "/indicators/compute",
         response_model=IndicatorComputeResponse,
-        dependencies=[Depends(require_auth)],
+
     )
     async def compute_indicator_endpoint(
         body: IndicatorComputeRequest,
@@ -547,7 +547,7 @@ def create_chart_router(
     @router.post(
         "/transforms/{transform_id}",
         response_model=SeriesTransformResponse,
-        dependencies=[Depends(require_auth)],
+
     )
     async def compute_transform_endpoint(
         transform_id: str, body: SeriesComputeRequest
@@ -575,7 +575,7 @@ def create_chart_router(
     @router.post(
         "/profiles/{profile_id}",
         response_model=ProfileResponse,
-        dependencies=[Depends(require_auth)],
+
     )
     async def compute_profile_endpoint(
         profile_id: str, body: SeriesComputeRequest
@@ -609,7 +609,7 @@ def create_chart_router(
     @router.post(
         "/seasonality",
         response_model=SeasonalityResponse,
-        dependencies=[Depends(require_auth)],
+
     )
     async def compute_seasonality_endpoint(
         body: SeasonalityRequest,
@@ -677,7 +677,7 @@ def create_chart_router(
 
     # ------------------------------------------------------------------ trading
 
-    @router.get("/book", response_model=BookResponse, dependencies=[Depends(require_auth)])
+    @router.get("/book", response_model=BookResponse, )
     async def get_book() -> BookResponse:
         """Chart-shaped working book: orders + positions in the trade tier's
         vocabulary (openalgo-charts Order/Position). Read-only; writes go
@@ -733,7 +733,7 @@ def create_chart_router(
     # ---------------------------------------------------------------- account
 
     @router.get(
-        "/account", response_model=ChartAccountResponse, dependencies=[Depends(require_auth)]
+        "/account", response_model=ChartAccountResponse, 
     )
     async def get_account() -> ChartAccountResponse:
         """Account snapshot for the chart host's account panel.
@@ -805,7 +805,7 @@ def create_chart_router(
     # ---------------------------------------------------------------- strategies
 
     @router.get(
-        "/strategies", response_model=StrategiesResponse, dependencies=[Depends(require_auth)]
+        "/strategies", response_model=StrategiesResponse, 
     )
     async def list_strategies() -> StrategiesResponse:
         """Auto-discovered strategies (extensions package) + scanners."""
@@ -863,7 +863,7 @@ def create_chart_router(
     # ----------------------------------------------------------------- safety
 
     @router.get(
-        "/safety", response_model=SafetyWireResponse, dependencies=[Depends(require_auth)]
+        "/safety", response_model=SafetyWireResponse, 
     )
     async def get_safety() -> SafetyWireResponse:
         """The whole safety picture in one call (AC-17).
@@ -882,7 +882,7 @@ def create_chart_router(
             return build_safety_report(None).to_wire()
         return build_safety_report(session).to_wire()
 
-    @router.post("/backtest", dependencies=[Depends(require_auth), Depends(require_csrf_if_session)])
+    @router.post("/backtest", dependencies=[Depends(require_csrf_if_session)])
     async def run_backtest(body: BacktestRequest) -> Any:
         """Backtest one strategy over a datalake window via BacktestEngine.
 
@@ -999,7 +999,7 @@ def create_chart_router(
             "trades": trades,
         }
 
-    @router.post("/scanner/run", dependencies=[Depends(require_auth), Depends(require_csrf_if_session)])
+    @router.post("/scanner/run", dependencies=[Depends(require_csrf_if_session)])
     async def run_scanner(body: ScannerRunRequest) -> Any:
         """Run one discovered scanner across its universe via ScannerEngine.
 

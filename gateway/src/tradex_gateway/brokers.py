@@ -14,7 +14,7 @@ from tradex_domain.value_objects import InstrumentId
 
 from tradex_gateway.config import GatewayConfig
 
-CAPABILITIES = ("live", "quotes", "history", "depth", "chain", "instruments")
+CAPABILITIES = ("live", "quotes", "history", "depth", "chain", "instruments", "expired")
 
 
 def _coerce_lot_size(value: object) -> int | None:

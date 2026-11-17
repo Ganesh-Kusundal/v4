@@ -21,9 +21,11 @@ from tradex_gateway.history import HistoryService
 from tradex_gateway.live import LiveHub
 from tradex_gateway.market import ChainService, DepthService, QuoteService
 from tradex_gateway.router import MarketDataRouter
+from tradex_gateway.expired import ExpiredService
 from tradex_gateway.routes import (
     chains,
     depth,
+    expired,
     health,
     history,
     instruments,
@@ -164,6 +166,7 @@ def create_app(
     app.include_router(chains.router)
     app.include_router(metrics.router)
     app.include_router(stream.router)
+    app.include_router(expired.router)
 
     return app
 
@@ -183,6 +186,7 @@ def _wire(app: FastAPI) -> None:
     app.state.quotes = quotes
     app.state.depth = DepthService(directory, router, live_depth=hub.latest_depth)
     app.state.chains = ChainService(directory, router, quotes)
+    app.state.expired = ExpiredService(directory, router)
     app.state.hub = hub
 
 

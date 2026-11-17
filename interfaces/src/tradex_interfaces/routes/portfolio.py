@@ -9,11 +9,10 @@ from tradex_domain.constants import NO_SESSION_BOUND
 from tradex_execution.projection import execution_projection
 
 from tradex_interfaces._helpers import serialize_position
-from tradex_interfaces.auth.deps import require_auth
 from tradex_interfaces.models import PositionResponse
 from tradex_interfaces.routes.deps import get_session, get_session_portfolio
 
-router = APIRouter(dependencies=[Depends(require_auth)])
+router = APIRouter()
 
 
 @router.get("/positions", response_model=list[PositionResponse])

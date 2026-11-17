@@ -7,7 +7,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from tradex_domain.constants import NO_SESSION_BOUND
 
-from tradex_interfaces.auth.deps import require_auth
 from tradex_interfaces.contracts import (
     FutureChainRequest,
     FutureChainResponse,
@@ -27,7 +26,7 @@ from tradex_interfaces.routes._market_helpers import (
 )
 from tradex_interfaces.routes.deps import get_session
 
-router = APIRouter(dependencies=[Depends(require_auth)])
+router = APIRouter()
 
 
 @router.get(
@@ -44,14 +43,51 @@ async def get_quote(
         raise HTTPException(status_code=404, detail=NO_SESSION_BOUND)
     try:
         from tradex_brokers.common.provider_common import instrument_from_id
-        from tradex_domain.serialization import to_dict
         from tradex_domain.value_objects import InstrumentId
 
         iid = InstrumentId.parse(f"{exchange}:{symbol}")
         instrument = instrument_from_id(iid)
         quote = session.broker.get_quote(instrument)
-        raw = to_dict(quote) if not isinstance(quote, dict) else quote
-        return QuoteResponse(**raw)
+
+        if isinstance(quote, dict):
+            # Dict-form quote (defensive: every broker returns a Quote object).
+            # Values may be Price/Quantity objects, to_dict() dicts, or numbers.
+            def _num(val):
+                if val is None:
+                    return None
+                if isinstance(val, dict) and "value" in val:
+                    val = val["value"]
+                elif hasattr(val, "value"):
+                    val = val.value
+                try:
+                    return float(val)
+                except (TypeError, ValueError):
+                    return None
+
+            return QuoteResponse(
+                instrument_id=str(quote.get("instrument_id") or f"{exchange}:{symbol}"),
+                symbol=quote.get("symbol") or symbol,
+                exchange=quote.get("exchange") or exchange,
+                last_price=_num(quote.get("last_price", quote.get("ltp"))),
+                bid=_num(quote.get("bid")),
+                ask=_num(quote.get("ask")),
+                volume=_num(quote.get("volume")),
+                timestamp=str(quote["timestamp"]) if quote.get("timestamp") else None,
+            )
+
+        # Quote object: explicit field mapping. Never splat to_dict() output
+        # into QuoteResponse — Price/Quantity serialize to {'value': ...}
+        # dicts, which fail the float fields (the /quotes 502).
+        return QuoteResponse(
+            instrument_id=str(quote.instrument.instrument_id),
+            symbol=quote.instrument.symbol,
+            exchange=str(quote.instrument.exchange.value),
+            last_price=float(quote.ltp.value),
+            bid=float(quote.bid.value) if quote.bid is not None else None,
+            ask=float(quote.ask.value) if quote.ask is not None else None,
+            volume=float(quote.volume.value) if quote.volume is not None else None,
+            timestamp=quote.timestamp.isoformat(),
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 

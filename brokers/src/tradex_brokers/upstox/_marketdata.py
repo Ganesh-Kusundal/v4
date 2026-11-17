@@ -416,3 +416,70 @@ class MarketDataMixin(Protocol):
         if isinstance(rows, list):
             return [r for r in rows if isinstance(r, dict)]
         return []
+
+    # ------------------------------------------------------------------
+    # expired instruments (Upstox Plus tier)
+    # ------------------------------------------------------------------
+
+    def expired_option_contracts(
+        self: UptoxFacade, underlying_key: str, expiry_date: str
+    ) -> list[dict]:
+        """Expired option contracts via GET /expired-instruments/option/contract."""
+        body = self._request(
+            "GET",
+            "/expired-instruments/option/contract",
+            cache_read=True,
+            params={"instrument_key": underlying_key, "expiry_date": expiry_date},
+        )
+        rows = unwrap_data(body)
+        if isinstance(rows, dict):
+            rows = rows.get("data", rows)
+        return (
+            [row for row in rows if isinstance(row, dict)]
+            if isinstance(rows, list)
+            else []
+        )
+
+    def expired_future_contracts(
+        self: UptoxFacade, underlying_key: str, expiry_date: str
+    ) -> list[dict]:
+        """Expired future contracts via GET /expired-instruments/future/contract."""
+        body = self._request(
+            "GET",
+            "/expired-instruments/future/contract",
+            cache_read=True,
+            params={"instrument_key": underlying_key, "expiry_date": expiry_date},
+        )
+        rows = unwrap_data(body)
+        if isinstance(rows, dict):
+            rows = rows.get("data", rows)
+        return (
+            [row for row in rows if isinstance(row, dict)]
+            if isinstance(rows, list)
+            else []
+        )
+
+    def expired_candles(
+        self: UptoxFacade,
+        expired_instrument_key: str,
+        interval: str,
+        to_date: str,
+        from_date: str,
+    ) -> list:
+        """Expired-contract OHLC via GET /expired-instruments/historical-candle/...
+
+        ``expired_instrument_key`` is the opaque key returned by the
+        expired-contracts endpoints (``NSE_FO|<token>|<dd-mm-yyyy>``); it is
+        URL-quoted because it contains ``|``.
+        """
+        from urllib.parse import quote
+
+        key = quote(str(expired_instrument_key), safe="")
+        path = (
+            f"/expired-instruments/historical-candle/{key}/{interval}"
+            f"/{to_date}/{from_date}"
+        )
+        body = self._request("GET", path, cache_read=True)
+        data = unwrap_data(body)
+        candles = data.get("candles", []) if isinstance(data, dict) else []
+        return candles if isinstance(candles, list) else []

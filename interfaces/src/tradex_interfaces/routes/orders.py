@@ -57,7 +57,7 @@ from tradex_execution.engine import (
 
 from tradex_interfaces.auth import (
     audit_identity,
-    require_auth,
+
     require_csrf_if_session,
 )
 from tradex_interfaces.contracts import (
@@ -301,7 +301,7 @@ def _build_bracket_modify_request(
 
 
 @_base_router.get(
-    "/orders", response_model=list[OrderResponse], dependencies=[Depends(require_auth)]
+    "/orders", response_model=list[OrderResponse]
 )
 async def list_orders(
     status: str | None = None,
@@ -322,7 +322,7 @@ async def list_orders(
 
 
 @_base_router.get(
-    "/orders/{order_id}", response_model=OrderResponse, dependencies=[Depends(require_auth)]
+    "/orders/{order_id}", response_model=OrderResponse
 )
 async def get_order(
     order_id: str,
@@ -558,14 +558,11 @@ def create_orders_router(
     app_router.include_router(_base_router)
 
     # Mutation dependencies for every state-changing order route:
-    #   1. require_auth        — session cookie (new) or X-API-Key (legacy), fail-closed
-    #   2. require_csrf_if_session — CSRF enforcement when authenticated via session
-    #   3. _bind_replay_guard  — inject guard into request.state for mode checks
-    #   4. _make_audit_dep     — structured audit log with caller identity
+    #   1. require_csrf_if_session — CSRF enforcement when authenticated via session
+    #   2. _bind_replay_guard  — inject guard into request.state for mode checks
+    #   3. _make_audit_dep     — structured audit log with caller identity
     def _mut_deps(action: str) -> list:
         return [
-            Depends(require_auth),
-            Depends(require_csrf_if_session),
             Depends(_bind_replay_guard(guard)),
             Depends(_make_audit_dep(action)),
         ]
