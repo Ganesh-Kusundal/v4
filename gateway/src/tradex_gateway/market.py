@@ -40,7 +40,7 @@ def _qty(value: Any) -> float | None:
 
 def quote_payload(quote: Quote, broker: str) -> dict[str, Any]:
     ohlc = quote.ohlc
-    return {
+    payload: dict[str, Any] = {
         "instrument": str(quote.instrument.instrument_id),
         "ltp": _price(quote.ltp),
         "bid": _price(quote.bid),
@@ -60,6 +60,13 @@ def quote_payload(quote: Quote, broker: str) -> dict[str, Any]:
         "ts": to_epoch_ms(quote.timestamp),
         "broker": broker,
     }
+    meta = getattr(quote, "metadata", None)
+    if isinstance(meta, dict):
+        if isinstance(meta.get("greeks"), dict):
+            payload["greeks"] = dict(meta["greeks"])
+        if meta.get("iv") is not None:
+            payload["iv"] = meta["iv"]
+    return payload
 
 
 def depth_payload(
@@ -86,6 +93,20 @@ def depth_payload(
     }
 
 
+def _serialize_leg(
+    option: Option,
+    leg: dict[str, object] | None,
+    lot_size_for: Callable[[Any], int | None] | None,
+) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "instrument_id": str(option.instrument_id),
+        "lot_size": lot_size_for(option.instrument_id) if lot_size_for is not None else None,
+    }
+    if leg:
+        out["leg"] = dict(leg)
+    return out
+
+
 def serialize_chain(
     chain: OptionChain,
     broker: str,
@@ -98,28 +119,15 @@ def serialize_chain(
             strikes.append(
                 {
                     "strike": str(pair.strike.value),
-                    "ce": {
-                        "instrument_id": str(pair.call.instrument_id),
-                        "lot_size": (
-                            lot_size_for(pair.call.instrument_id)
-                            if lot_size_for is not None
-                            else None
-                        ),
-                    },
-                    "pe": {
-                        "instrument_id": str(pair.put.instrument_id),
-                        "lot_size": (
-                            lot_size_for(pair.put.instrument_id)
-                            if lot_size_for is not None
-                            else None
-                        ),
-                    },
+                    "ce": _serialize_leg(pair.call, pair.call_leg, lot_size_for),
+                    "pe": _serialize_leg(pair.put, pair.put_leg, lot_size_for),
                 }
             )
     return {
         "underlying": str(chain.underlying.instrument_id),
         "expiry": expiries[0].expiry_date.isoformat() if expiries else None,
         "expiries": [expiry.expiry_date.isoformat() for expiry in expiries],
+        "reference_price": _price(expiries[0].reference_price) if expiries else None,
         "strikes": strikes,
         "broker": broker,
         "cached": False,
@@ -238,6 +246,19 @@ class DepthService:
         )
 
 
+def _chain_has_pairs(chain: OptionChain) -> bool:
+    """True when any expiry carries at least one paired strike.
+
+    ``expiries()`` lists ``Expiry`` rows even when every strike failed to
+    pair, so emptiness is judged on pairs, not on the expiry list.
+    """
+    return any(expiry.pairs for expiry in chain.expiries())
+
+
+def _call_option_chain(adapter: Any, underlying: Any, expiry_date: date | None) -> OptionChain:
+    return adapter.get_option_chain(underlying, expiry_date, allow_master_fallback=False)
+
+
 class ChainService:
     def __init__(
         self,
@@ -277,9 +298,18 @@ class ChainService:
             cached = self._cache.get(key, now)
             if cached is not None:
                 return {**cached, "cached": True}
+            def _fetch(adapter: Any) -> OptionChain:
+                res = _call_option_chain(adapter, resolved.instrument, expiry_date)
+                if expiry is None and not _chain_has_pairs(res):
+                    try:
+                        return _call_option_chain(adapter, resolved.instrument, None)
+                    except ValueError:
+                        return res
+                return res
+
             chain, name = self._router.call(
                 "chain",
-                lambda adapter: adapter.get_option_chain(resolved.instrument, expiry_date),
+                _fetch,
                 preferred=broker,
             )
             payload = serialize_chain(
@@ -287,6 +317,10 @@ class ChainService:
                 name,
                 lot_size_for=lambda iid: self._directory.lot_size(iid, broker=name),
             )
+            for row in payload["strikes"]:
+                for side in ("ce", "pe"):
+                    leg = row[side]
+                    leg["tick_size"] = self._directory.tick_size(leg["instrument_id"], broker=name)
             if live:
                 payload = self._enrich(chain, payload, name)
             self._cache.put(key, payload, 10.0, now)
@@ -317,15 +351,26 @@ class ChainService:
                     continue
                 leg.update(
                     {
-                        "ltp": _price(quote.ltp),
-                        "oi": _qty(quote.open_interest),
-                        "volume": _qty(quote.volume),
+                        key: value
+                        for key, value in (
+                            ("ltp", _price(quote.ltp)),
+                            ("oi", _qty(quote.open_interest)),
+                            ("volume", _qty(quote.volume)),
+                        )
+                        if value is not None
                     }
                 )
                 enriched = True
         for row in payload["strikes"]:
             for side in ("ce", "pe"):
-                row[side].update(legs.get(row[side]["instrument_id"], {}))
+                entry = row[side]
+                live = legs.get(entry["instrument_id"], {})
+                # An OC-attached leg is the baseline; live quotes overlay only
+                # ltp/oi/volume and never add greeks (spec §6).
+                if isinstance(entry.get("leg"), dict):
+                    entry["leg"].update(live)
+                else:
+                    entry.update(live)
         payload["live"] = enriched
         return payload
 
@@ -343,8 +388,10 @@ class ChainService:
                     "instrument_id": str(item.instrument_id),
                     "expiry": item.expiry.isoformat() if item.expiry else None,
                     "lot_size": self._directory.lot_size(item.instrument_id, broker=name),
+                    "tick_size": self._directory.tick_size(item.instrument_id, broker=name),
                 }
-                for item in futures
+                # nearest expiry first, so futures[0] is the front contract
+                for item in sorted(futures, key=lambda item: item.expiry or date.max)
             ],
             "broker": name,
         }

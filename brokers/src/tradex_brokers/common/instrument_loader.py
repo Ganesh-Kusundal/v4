@@ -166,7 +166,11 @@ def parse_dhan_master(raw: object, *, strict: bool) -> list[dict[str, Any]]:
         # Contract metadata the quant layer needs (position sizing, tick
         # maths, slippage): pass through lot/tick from the master columns.
         lot_size = str(row.get("SEM_LOT_UNITS", "") or "").strip() or None
-        tick_size = str(row.get("SEM_TICK_SIZE", "") or "").strip() or None
+        # Dhan publishes SEM_TICK_SIZE in paise (5.0 = Rs 0.05); rows carry rupees.
+        try:
+            tick_size = str(Decimal(str(row.get("SEM_TICK_SIZE") or "").strip()) / 100)
+        except ArithmeticError:
+            tick_size = None
         # The security's lifecycle state (SEM_STATUS). AC-12's cadence
         # exemption needs a real halted/delisted source, and the scrip master is
         # the only place Dhan publishes one. Normalized by

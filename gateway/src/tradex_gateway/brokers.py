@@ -153,6 +153,13 @@ class BrokerRuntime:
         except Exception:  # noqa: BLE001 - metadata is best effort
             return None
 
+    def tick_size(self, instrument_id: InstrumentId) -> float | None:
+        try:
+            value = float(self.broker.registry.meta(instrument_id)["tick_size"])
+        except Exception:  # noqa: BLE001 - metadata is best effort
+            return None
+        return value if value > 0 else None
+
     def known(self, instrument_id: InstrumentId) -> bool:
         """Whether the broker's own registry has this instrument registered."""
         if self.broker is None:

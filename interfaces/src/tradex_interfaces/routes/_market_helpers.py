@@ -60,6 +60,8 @@ def serialize_option_chain(chain: Any) -> dict:
                         "strike": str(p.strike.value),
                         "call": str(p.call.instrument_id),
                         "put": str(p.put.instrument_id),
+                        **({"call_leg": dict(p.call_leg)} if getattr(p, "call_leg", None) else {}),
+                        **({"put_leg": dict(p.put_leg)} if getattr(p, "put_leg", None) else {}),
                     }
                     for p in exp.pairs
                 ],
@@ -127,24 +129,44 @@ def enrich_chain_live(session: Any, chain: Any, max_strikes: int = 11) -> dict:
             "greeks": dict(greeks) if isinstance(greeks, dict) else None,
         }
 
+    def _merged_leg(static_leg: Any, live_leg: dict | None) -> dict | None:
+        """OC-attached leg baseline overlaid with fresher live ltp/oi/volume."""
+        if not static_leg:
+            return None
+        merged = dict(static_leg)
+        if live_leg:
+            for key in ("ltp", "oi", "volume"):
+                if live_leg.get(key) is not None:
+                    merged[key] = live_leg[key]
+        return merged
+
     out_expiries = []
     for exp in expiries:
+        pairs_out = []
+        for p in exp.pairs:
+            call_live = _leg(str(p.call.instrument_id), p.call)
+            put_live = _leg(str(p.put.instrument_id), p.put)
+            pair = {
+                "strike": str(p.strike.value),
+                "call": str(p.call.instrument_id),
+                "put": str(p.put.instrument_id),
+                "call_live": call_live,
+                "put_live": put_live,
+            }
+            call_leg = _merged_leg(getattr(p, "call_leg", None), call_live)
+            put_leg = _merged_leg(getattr(p, "put_leg", None), put_live)
+            if call_leg is not None:
+                pair["call_leg"] = call_leg
+            if put_leg is not None:
+                pair["put_leg"] = put_leg
+            pairs_out.append(pair)
         out_expiries.append(
             {
                 "expiry": exp.expiry_date.isoformat(),
                 "reference_price": (
                     str(exp.reference_price.value) if exp.reference_price is not None else None
                 ),
-                "pairs": [
-                    {
-                        "strike": str(p.strike.value),
-                        "call": str(p.call.instrument_id),
-                        "put": str(p.put.instrument_id),
-                        "call_live": _leg(str(p.call.instrument_id), p.call),
-                        "put_live": _leg(str(p.put.instrument_id), p.put),
-                    }
-                    for p in exp.pairs
-                ],
+                "pairs": pairs_out,
             }
         )
     return {

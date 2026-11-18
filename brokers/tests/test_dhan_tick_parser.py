@@ -15,7 +15,7 @@ from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.ws_reconnect import WSReconnectManager
 from tradex_brokers.dhan.adapter import DhanBroker
-from tradex_brokers.dhan.tick_parser import SEGMENT_EXCHANGE, parse_tick_frame
+from tradex_brokers.dhan.tick_parser import SEGMENT_EXCHANGE, parse_tick_frame, parse_tick_frames
 from tradex_brokers.dhan.ws_streams import DhanMarketDataStreamBackend
 
 #: Real frames captured from wss://api-feed.dhan.co for NSE:RELIANCE (id 2885).
@@ -130,8 +130,31 @@ class TestParseTickFrame:
         assert parse_tick_frame(CAPTURED_TICKER[:8]) is None
 
     def test_garbage_returns_none(self):
+        assert parse_tick_frame(b"not a frame") is None
         assert parse_tick_frame(b"") is None
         assert parse_tick_frame(b"\x02") is None
+
+    def test_parse_tick_frames_reads_coalesced_packets(self):
+        """A buffer holding several packets yields every row, not just the first."""
+        buf = _ticker(ltp=100.0, security_id=1) + _oi(oi=42, security_id=1) + _ticker(
+            ltp=101.0, security_id=2
+        )
+        rows = parse_tick_frames(buf)
+        assert rows is not None
+        assert len(rows) == 3
+        assert rows[0]["last_price"] == 100.0
+        assert rows[1]["oi"] == 42
+        assert rows[2]["last_price"] == 101.0
+        assert rows[2]["security_id"] == 2
+
+    def test_parse_tick_frames_stops_at_truncated_tail(self):
+        buf = _ticker(ltp=100.0) + CAPTURED_TICKER[:8]
+        rows = parse_tick_frames(buf)
+        assert rows is not None
+        assert len(rows) == 1
+
+    def test_parse_tick_frames_returns_none_for_json(self):
+        assert parse_tick_frames(b'{"type":"tick"}') is None
 
     def test_segment_exchange_mapping(self):
         assert SEGMENT_EXCHANGE[1] == "NSE"

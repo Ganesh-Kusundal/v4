@@ -34,7 +34,7 @@ from tradex_brokers.common.ws_shared import (
     row_to_quote,
 )
 from tradex_brokers.dhan.client import dhan_segment
-from tradex_brokers.dhan.tick_parser import SEGMENT_EXCHANGE, parse_tick_frame
+from tradex_brokers.dhan.tick_parser import SEGMENT_EXCHANGE, parse_tick_frames
 
 log = logging.getLogger(__name__)
 
@@ -47,8 +47,12 @@ DHAN_ORDER_UPDATE_WS_URL = "wss://api-feed.dhan.co/v2/orderUpdate"
 #: Official Dhan market-data websocket (modes selected by RequestCode:
 #: 15 ticker / 17 quote / 21 full — see dhanhq annexure).
 DHAN_MARKET_DATA_WS_URL = "wss://api-feed.dhan.co"
+#: Subscribe Ticker Packet (LTP + LTT). Required for IDX_I spot indices.
+DHAN_SUBSCRIBE_TICKER = 15
 #: Subscribe Full Packet (LTP + vol/OI + 5-level depth). Not 15 (ticker-only).
 DHAN_SUBSCRIBE_FULL = 21
+#: Dhan caps one subscribe frame's InstrumentList; larger sets are chunked.
+_DHAN_MAX_SUBSCRIBE_BATCH = 100
 #: Official Dhan depth-20 websocket (RequestCode 23 binary feed).
 DHAN_DEPTH_20_WS_URL = "wss://depth-api-feed.dhan.co/twentydepth"
 
@@ -368,16 +372,24 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
             instrument_list.append({"ExchangeSegment": segment, "SecurityId": str(key)})
         if not instrument_list:
             return
-        ws.send(
-            json.dumps(
-                {
-                    # ponytail: mode IS the RequestCode (15 ticker / 17 quote / 21 full)
-                    "RequestCode": DHAN_SUBSCRIBE_FULL,
-                    "InstrumentCount": len(instrument_list),
-                    "InstrumentList": instrument_list,
-                }
-            )
-        )
+        ticker_list = [item for item in instrument_list if item["ExchangeSegment"] == "IDX_I"]
+        full_list = [item for item in instrument_list if item["ExchangeSegment"] != "IDX_I"]
+        for request_code, items in (
+            (DHAN_SUBSCRIBE_TICKER, ticker_list),
+            (DHAN_SUBSCRIBE_FULL, full_list),
+        ):
+            for offset in range(0, len(items), _DHAN_MAX_SUBSCRIBE_BATCH):
+                chunk = items[offset : offset + _DHAN_MAX_SUBSCRIBE_BATCH]
+                ws.send(
+                    json.dumps(
+                        {
+                            # ponytail: mode IS the RequestCode (15 ticker / 17 quote / 21 full)
+                            "RequestCode": request_code,
+                            "InstrumentCount": len(chunk),
+                            "InstrumentList": chunk,
+                        }
+                    )
+                )
 
     def _receive_loop(self) -> None:
         ws = self._ws
@@ -405,21 +417,23 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
         """Return a cached Instrument for *key*, building on miss.
 
         *key* is Dhan's bare numeric security id. Master rows register
-        ``{exchange}:{security_id}`` keys, so a bare id first tries direct
-        resolution and then falls back to the segment-qualified key using the
-        exchange-segment code carried in the binary frame header.
+        ``{exchange}:{security_id}`` keys, so a segment-qualified lookup is
+        tried first when *segment* is present to prevent cross-segment collisions.
         """
-        if key in self._instrument_cache:
-            return self._instrument_cache[key]
-        instrument_id = self._registry.resolve(key)
-        if instrument_id is None and segment is not None:
+        cache_key = f"{segment}:{key}" if segment is not None else key
+        if cache_key in self._instrument_cache:
+            return self._instrument_cache[cache_key]
+        instrument_id = None
+        if segment is not None:
             exchange = SEGMENT_EXCHANGE.get(segment)
             if exchange is not None:
                 instrument_id = self._registry.resolve(f"{exchange}:{key}")
         if instrument_id is None:
+            instrument_id = self._registry.resolve(key)
+        if instrument_id is None:
             return None
         instrument = instrument_from_id(instrument_id)
-        self._instrument_cache[key] = instrument
+        self._instrument_cache[cache_key] = instrument
         return instrument
 
     def _dispatch_row(self, row: dict[str, Any]) -> None:
@@ -471,15 +485,16 @@ class DhanMarketDataStreamBackend(AutoReconnectMixin):
         skipped — the order feed is serviced by :class:`DhanOrderStreamBackend`.
         """
         if isinstance(raw, (bytes, bytearray)):
-            row = parse_tick_frame(bytes(raw))
-            if row is not None:
-                if row.get("type") == "disconnect":
-                    log.warning(
-                        "dhan_market_feed_disconnect code=%s", row.get("error_code")
-                    )
-                    self._handle_server_disconnect()
-                    return
-                self._dispatch_row(row)
+            rows = parse_tick_frames(raw)
+            if rows is not None:
+                for row in rows:
+                    if row.get("type") == "disconnect":
+                        log.warning(
+                            "dhan_market_feed_disconnect code=%s", row.get("error_code")
+                        )
+                        self._handle_server_disconnect()
+                        return
+                    self._dispatch_row(row)
                 return
             # Not a recognized binary frame — try the legacy JSON path.
             try:

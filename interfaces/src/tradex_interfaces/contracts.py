@@ -412,7 +412,9 @@ class OptionChainResponse(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     underlying: str | None = None
+    live: bool = False
     expiry: str | None = None
+    expiries: list[dict[str, Any]] | None = None
     strikes: list[dict[str, Any]] | None = None
     enriched: bool = False
 

@@ -16,6 +16,17 @@ class OptionPair(Serializable):
     call: Option
     put: Option
     strike: Price
+    #: Broker-supplied leg snapshot (premium/OI/volume/IV/greeks), normalized
+    #: per the option-chain spec; ``None`` when the source carried nothing.
+    call_leg: dict[str, object] | None = None
+    put_leg: dict[str, object] | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        out = super().to_dict()
+        for key in ("call_leg", "put_leg"):
+            if out.get(key) is None:
+                out.pop(key, None)
+        return out
 
 
 @dataclass(frozen=True, slots=True)

@@ -104,6 +104,17 @@ class InstrumentDirectory:
         return self.resolve(text, asset_class).instrument
 
     def lot_size(self, instrument_id: InstrumentId | str, broker: str | None = None) -> int | None:
+        return self._contract_meta("lot_size", instrument_id, broker)
+
+    def tick_size(
+        self, instrument_id: InstrumentId | str, broker: str | None = None
+    ) -> float | None:
+        """Minimum price step in rupees, or None when no broker master has it."""
+        return self._contract_meta("tick_size", instrument_id, broker)
+
+    def _contract_meta(
+        self, field_name: str, instrument_id: InstrumentId | str, broker: str | None
+    ) -> Any:
         if isinstance(instrument_id, InstrumentId):
             iid = instrument_id
         else:
@@ -116,7 +127,7 @@ class InstrumentDirectory:
             names.append(broker)
         names.extend(name for name in self._runtimes if name not in names)
         for name in names:
-            value = self._runtimes[name].lot_size(iid)
+            value = getattr(self._runtimes[name], field_name)(iid)
             if value is not None:
                 return value
         return None
@@ -144,7 +155,12 @@ class InstrumentDirectory:
                 if lot_size is not None:
                     entry["lot_sizes"][name] = lot_size
         rows = [
-            self.instrument_meta(entry["instrument"], sorted(entry["brokers"]), entry["lot_sizes"])
+            {
+                **self.instrument_meta(
+                    entry["instrument"], sorted(entry["brokers"]), entry["lot_sizes"]
+                ),
+                "tick_size": self.tick_size(entry["instrument"].instrument_id),
+            }
             for entry in merged.values()
         ]
         rows.sort(key=lambda row: (row["asset_class"], row["instrument_id"]))

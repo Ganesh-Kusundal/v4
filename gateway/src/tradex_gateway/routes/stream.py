@@ -100,6 +100,7 @@ async def stream(ws: WebSocket) -> None:
                         message.instruments,
                         message.mode,
                         message.levels,
+                        message.timeframe,
                     )
                     await control.put(ack)
                 case UnsubscribeMessage():

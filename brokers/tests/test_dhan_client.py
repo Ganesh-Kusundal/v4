@@ -833,6 +833,46 @@ class TestOptionChain:
         # No placeholder "0" key was registered.
         assert registry.resolve("0") is None
 
+    def test_chain_legs_carry_normalized_greeks_dict(self):
+        """OC leg payloads surface as normalized call_leg/put_leg dicts."""
+        leg = {
+            "security_id": 55001,
+            "last_price": 146.99,
+            "oi": 1250000,
+            "volume": 450000,
+            "previous_oi": 1200000,
+            "previous_volume": 400000,
+            "top_bid_price": 146.9,
+            "top_ask_price": 147.0,
+            "top_bid_quantity": 50,
+            "top_ask_quantity": 75,
+            "implied_volatility": 12.5,
+            "greeks": {"delta": 0.5387, "gamma": 0.00132, "theta": -15.15, "vega": 12.18},
+        }
+        put_leg = {**leg, "security_id": 55002}
+        responses = [
+            self._expiry_list_response(),
+            self._chain_response([{"strike": 23000, "ce": leg, "pe": put_leg}]),
+        ]
+        client, _, _ = _make_client(responses)
+        chain = client.get_option_chain(_index())
+        pair = list(chain.expiries()[0].pairs)[0]
+        assert pair.call_leg == {
+            "ltp": 146.99,
+            "oi": 1250000.0,
+            "volume": 450000.0,
+            "previous_oi": 1200000.0,
+            "previous_volume": 400000.0,
+            "bid": 146.9,
+            "ask": 147.0,
+            "bid_qty": 50.0,
+            "ask_qty": 75.0,
+            "iv": 12.5,
+            "greeks": {"delta": 0.5387, "gamma": 0.00132, "theta": -15.15, "vega": 12.18},
+            "provider": "dhan",
+        }
+        assert pair.put_leg == pair.call_leg
+
     def test_chain_maps_all_strikes_with_real_ids(self):
         responses = [
             self._expiry_list_response(),

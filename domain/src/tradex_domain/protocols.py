@@ -124,6 +124,8 @@ class BrokerAdapter(Protocol):
         self,
         underlying: Instrument,
         expiry: date | str | None = None,
+        *,
+        allow_master_fallback: bool = True,
     ) -> OptionChain: ...
     def search(self, query: str) -> list[Instrument]: ...
 

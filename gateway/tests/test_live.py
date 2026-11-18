@@ -210,6 +210,17 @@ def test_monitor_reports_partial_staleness_without_switching(monkeypatch):
 
         hub._monitor_cycle()
         assert await _drain(control) == []
+
+        hub._publish_quote(make_quote(equity()), "dhan")
+        hub._publish_quote(make_quote(index()), "dhan")
+        hub._monitor_cycle()
+        assert await _drain(control) == [
+            {
+                "op": "status",
+                "state": "ready",
+                "broker": "dhan",
+            }
+        ]
         hub.stop()
 
     asyncio.run(scenario())

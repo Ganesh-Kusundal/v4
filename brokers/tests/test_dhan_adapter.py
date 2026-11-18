@@ -29,7 +29,7 @@ from tradex_domain.execution import (
 )
 from tradex_domain.instruments import Equity, Index, Instrument
 from tradex_domain.market import Depth, HistoricalSeries, Quote
-from tradex_domain.options import OptionChain
+from tradex_domain.options import Expiry, OptionChain
 from tradex_domain.value_objects import (
     AccountId,
     InstrumentId,
@@ -456,6 +456,68 @@ class TestMarketDataDelegation:
         expiries = chain.expiries()
         assert len(expiries) == 1
         assert expiries[0].expiry_date == date(2026, 8, 24)
+        assert len(expiries[0].pairs) == 1
+        transport.get_option_chain.assert_called_once()
+
+    def test_get_option_chain_mcx_master_fallback_when_rest_returns_empty(self):
+        """An empty MCX REST chain (e.g. near future expiry) falls back to the master when it has strikes."""
+        from datetime import date
+
+        broker, transport = _make_broker()
+        rows = [
+            {
+                "symbol": "CRUDEOIL-16Dec2026-7900-CE", "exchange": "MCX",
+                "key": "MCX:10", "asset_class": "OTHER", "instrument_type": "OPTFUT",
+                "right": "CE", "expiry": "2026-12-16", "strike": "7900.00000",
+                "underlying": "CRUDEOIL",
+            },
+            {
+                "symbol": "CRUDEOIL-16Dec2026-7900-PE", "exchange": "MCX",
+                "key": "MCX:11", "asset_class": "OTHER", "instrument_type": "OPTFUT",
+                "right": "PE", "expiry": "2026-12-16", "strike": "7900.00000",
+                "underlying": "CRUDEOIL",
+            },
+        ]
+        broker.load_instruments(rows)
+        eq = Equity.of("MCX", "CRUDEOIL")
+        transport.get_option_chain.return_value = OptionChain(underlying=eq)
+        chain = broker.get_option_chain(eq)
+        expiries = chain.expiries()
+        assert len(expiries) == 1
+        assert expiries[0].expiry_date == date(2026, 12, 16)
+        assert len(expiries[0].pairs) == 1
+        transport.get_option_chain.assert_called_once()
+
+    def test_get_option_chain_mcx_master_fallback_when_rest_has_empty_expiries(self):
+        """Expiry rows with zero paired strikes still count as an empty chain."""
+        from datetime import date
+
+        broker, transport = _make_broker()
+        rows = [
+            {
+                "symbol": "CRUDEOIL-16Dec2026-7900-CE", "exchange": "MCX",
+                "key": "MCX:10", "asset_class": "OTHER", "instrument_type": "OPTFUT",
+                "right": "CE", "expiry": "2026-12-16", "strike": "7900.00000",
+                "underlying": "CRUDEOIL",
+            },
+            {
+                "symbol": "CRUDEOIL-16Dec2026-7900-PE", "exchange": "MCX",
+                "key": "MCX:11", "asset_class": "OTHER", "instrument_type": "OPTFUT",
+                "right": "PE", "expiry": "2026-12-16", "strike": "7900.00000",
+                "underlying": "CRUDEOIL",
+            },
+        ]
+        broker.load_instruments(rows)
+        eq = Equity.of("MCX", "CRUDEOIL")
+        # expiries() is non-empty but carries no pairs — must still fall back.
+        transport.get_option_chain.return_value = OptionChain(
+            underlying=eq,
+            _expiries=(Expiry(underlying=eq, expiry_date=date(2026, 12, 16), pairs=()),),
+        )
+        chain = broker.get_option_chain(eq)
+        expiries = chain.expiries()
+        assert len(expiries) == 1
+        assert expiries[0].expiry_date == date(2026, 12, 16)
         assert len(expiries[0].pairs) == 1
         transport.get_option_chain.assert_called_once()
 
