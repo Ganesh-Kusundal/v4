@@ -423,3 +423,17 @@ def test_slow_broker_call_returns_timeout_envelope():
     error = response.json()["error"]
     assert error["retryable"] is True
     assert error["message"] == "request timed out"
+
+
+def test_slow_boot_is_not_bounded_by_request_timeout(monkeypatch):
+    import tradex_gateway.app as app_module
+
+    def slow_build(cfg):
+        time.sleep(0.5)
+        return {"dhan": BrokerRuntime("dhan", FakeBroker("dhan"))}
+
+    monkeypatch.setattr(app_module, "build_runtimes", slow_build)
+    monkeypatch.setattr(app_module, "load_local_env", lambda: ())
+    app = create_app(gateway_config(request_timeout=0.1, brokers=("dhan",)))
+    with TestClient(app) as client:
+        assert client.get("/v1/health").status_code == 200

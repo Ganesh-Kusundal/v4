@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -76,7 +77,9 @@ def create_app(
         )
         if app.state.runtimes is None:
             load_local_env()
-            app.state.runtimes = await _run(app.state, build_runtimes, cfg)
+            app.state.runtimes = await asyncio.get_running_loop().run_in_executor(
+                app.state.executor, partial(build_runtimes, cfg)
+            )  # boot is deliberately not bounded by request_timeout
         _wire(app)
         try:
             yield
