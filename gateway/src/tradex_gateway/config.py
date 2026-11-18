@@ -51,6 +51,7 @@ class GatewayConfig:
     max_subscriptions: int = 1000
     stale_after_seconds: float = 15.0
     broker_workers: int = 8
+    request_timeout: float = 30.0
     master_cache_dir: str | None = None
 
     @classmethod
@@ -80,6 +81,7 @@ class GatewayConfig:
             max_subscriptions=_as_int(source.get("GATEWAY_MAX_SUBSCRIPTIONS"), 1000),
             stale_after_seconds=_as_float(source.get("GATEWAY_STALE_AFTER_SECONDS"), 15.0),
             broker_workers=_as_int(source.get("GATEWAY_BROKER_WORKERS"), 8),
+            request_timeout=_as_float(source.get("GATEWAY_REQUEST_TIMEOUT"), 30.0),
             master_cache_dir=(source.get("GATEWAY_MASTER_CACHE_DIR") or None),
         )
 
@@ -101,6 +103,8 @@ class GatewayConfig:
             raise ValueError("GATEWAY_STALE_AFTER_SECONDS must be > 0")
         if self.broker_workers <= 0:
             raise ValueError("GATEWAY_BROKER_WORKERS must be > 0")
+        if self.request_timeout <= 0:
+            raise ValueError("GATEWAY_REQUEST_TIMEOUT must be > 0")
         loopback = self.host in _LOOPBACK_HOSTS
         if not loopback and not self.api_key:
             raise ValueError("a non-loopback bind requires GATEWAY_API_KEY")

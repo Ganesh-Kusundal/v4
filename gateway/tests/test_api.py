@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
@@ -409,3 +410,16 @@ def test_market_data_surface_parity():
     for (cls, method), route in expected.items():
         assert hasattr(cls, method), f"{cls.__name__}.{method}"
         assert route in paths, route
+
+
+def test_slow_broker_call_returns_timeout_envelope():
+    app, _, upstox = _app(request_timeout=0.2)
+    upstox.get_quote = lambda instrument: time.sleep(2)
+    with TestClient(app) as client:
+        started = time.monotonic()
+        response = client.get("/v1/quote/IDX:NIFTY")
+        assert time.monotonic() - started < 1.5
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["retryable"] is True
+    assert error["message"] == "request timed out"

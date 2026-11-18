@@ -91,3 +91,14 @@ def test_token_bucket_refreshes_recently_used_key():
     bucket.consume("c")
     assert set(bucket._buckets) == {"a", "c"}
     assert "b" not in bucket._buckets
+
+
+def test_request_timeout_default_and_validation():
+    assert GatewayConfig.from_env({}).request_timeout == 30.0
+    cfg = GatewayConfig.from_env({"GATEWAY_REQUEST_TIMEOUT": "0", "GATEWAY_API_KEY": "k"})
+    try:
+        cfg.validate()
+    except ValueError as exc:
+        assert "GATEWAY_REQUEST_TIMEOUT" in str(exc)
+    else:  # pragma: no cover
+        raise AssertionError("validate() accepted request_timeout=0")

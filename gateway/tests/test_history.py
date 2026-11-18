@@ -385,3 +385,23 @@ def test_batch_unexpected_error_message_is_canonical():
     results = service.batch([{"timeframe": "1m"}])
     assert results[0]["error"]["code"] == "internal_error"
     assert results[0]["error"]["message"] == "internal error"
+
+
+def test_batch_wait_is_bounded_by_timeout():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    release = threading.Event()
+    pool = ThreadPoolExecutor(max_workers=1)
+    service = HistoryService.__new__(HistoryService)
+    service._executor, service._timeout = pool, 0.2
+    service.history = lambda *a, **k: release.wait(5)
+    try:
+        started = time.monotonic()
+        out = service.batch([{"instrument_id": "NSE:X"}])
+        assert time.monotonic() - started < 1.5
+        assert out[0]["error"]["message"] == "request timed out"
+        assert out[0]["error"]["retryable"] is True
+    finally:
+        release.set()
+        pool.shutdown(wait=False)
