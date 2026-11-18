@@ -312,7 +312,7 @@ class LiveHub:
                 return _error("unknown_client", "client is not registered")
             if subscription_id:
                 targets = client.subscription_map.pop(subscription_id, [])
-            elif instrument_ids:
+            elif instrument_ids is not None:
                 requested = set(instrument_ids)
                 targets = [key for key in client.subscriptions if key in requested]
                 for sid, keys in list(client.subscription_map.items()):
@@ -709,6 +709,8 @@ class LiveHub:
                 aggregator.flush()
             self._aggregators.clear()
         with self._lock:
+            for client in self._clients.values():
+                client.close_requested = True
             self._clients.clear()
 
 

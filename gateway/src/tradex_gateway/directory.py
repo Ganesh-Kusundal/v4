@@ -6,11 +6,12 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from tradex_brokers.common.instruments import instrument_from_id
 from tradex_domain.instruments import Instrument, Option
+from tradex_domain.market_calendar import to_ist_naive
 from tradex_domain.value_objects import InstrumentId
 
 from tradex_gateway.brokers import BrokerRuntime
@@ -173,7 +174,7 @@ class InstrumentDirectory:
             cached = self._expiry_cache.get(key)
             if cached is not None and cached.expires_at > now:
                 return cached.value
-        today = date.today()
+        today = to_ist_naive(datetime.now(UTC)).date()
         best: date | None = None
         for runtime in self._runtimes.values():
             if not runtime.available:

@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from gateway_support import FakeBroker, FakeWindowLoader, equity, gateway_config, make_candle
+from tradex_domain import Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_gateway.brokers import BrokerRuntime
 from tradex_gateway.directory import InstrumentDirectory
@@ -405,3 +406,21 @@ def test_batch_wait_is_bounded_by_timeout():
     finally:
         release.set()
         pool.shutdown(wait=False)
+
+
+def test_fetch_chunks_tolerates_naive_candle_timestamp():
+    from tradex_gateway.history import _fetch_chunks
+
+    start = datetime(2026, 11, 3, 3, 30, tzinfo=UTC)
+    end = datetime(2026, 11, 3, 4, 0, tzinfo=UTC)
+    broker = FakeBroker("dhan")
+    # naive candle timestamps follow the broker rule: UTC
+    broker.history_impl = lambda instrument, tf, ws, we: HistoricalSeries(
+        instrument=instrument,
+        timeframe=tf,
+        candles=[make_candle(instrument, datetime(2026, 11, 3, 3, 45))],
+        start=ws,
+        end=we,
+    )
+    series = _fetch_chunks(broker, equity(), Timeframe.M1, start, end)
+    assert len(series.candles) == 1

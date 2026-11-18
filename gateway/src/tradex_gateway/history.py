@@ -42,6 +42,12 @@ def _to_utc(moment: datetime) -> datetime:
     return moment.astimezone(UTC)
 
 
+def _candle_utc(candle: Candle) -> datetime:
+    # Broker timestamps are UTC; a naive one is taken as UTC, not IST.
+    ts = candle.timestamp
+    return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
+
+
 class HistoryService:
     def __init__(
         self,
@@ -325,10 +331,11 @@ def _fetch_chunks(
         # Brokers widen an intraday request to the whole day; keep only bars
         # that overlap the requested window. A bar is included when its span
         # (timestamp .. timestamp + timeframe) intersects it.
+        lo, hi = _to_utc(window_start), _to_utc(window_end)
         candles.extend(
             candle
             for candle in series.candles
-            if candle.timestamp + step > window_start and candle.timestamp <= window_end
+            if _candle_utc(candle) + step > lo and _candle_utc(candle) <= hi
         )
     unique: dict[datetime, Candle] = {}
     for candle in candles:

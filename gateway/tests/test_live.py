@@ -406,3 +406,22 @@ def test_depth_30_is_selected_by_capability_not_broker_name():
         hub.stop()
 
     asyncio.run(scenario())
+
+
+def test_unsubscribe_empty_list_is_noop_and_stop_flags_clients():
+    async def scenario() -> None:
+        runtimes = {"dhan": BrokerRuntime("dhan", FakeBroker("dhan"))}
+        directory = InstrumentDirectory(runtimes)
+        hub = LiveHub(
+            gateway_config(), MarketDataRouter(gateway_config(), runtimes), directory, runtimes
+        )
+        loop = asyncio.get_running_loop()
+        hub.add_client("c1", loop, asyncio.Queue(), asyncio.Queue())
+        hub.subscribe("c1", ["NSE:RELIANCE", "NSE:TCS"], "quote", 5)
+        hub.unsubscribe("c1", [])
+        assert len(hub._clients["c1"].subscriptions) == 2
+        client = hub._clients["c1"]
+        hub.stop()
+        assert client.close_requested is True
+
+    asyncio.run(scenario())
