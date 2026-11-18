@@ -168,17 +168,6 @@ def _has_transient_errors(errors: list[str]) -> bool:
     return any(_is_transient_error(e) for e in errors)
 
 
-def _provider_for(name: str) -> str:
-    if name in ("dhan", "upstox", "paper"):
-        return name
-    log.warning(
-        "ParallelHistoryFetcher: broker %r is not a known provider — "
-        "using the paper (unthrottled) rate-limit table",
-        name,
-    )
-    return "paper"
-
-
 class ParallelHistoryFetcher:
     """Fetch historical data for many instruments concurrently from one broker.
 

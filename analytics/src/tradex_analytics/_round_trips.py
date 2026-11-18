@@ -299,32 +299,6 @@ def _decimal(value: Any, what: str) -> Decimal:
     return q2(Decimal(str(value)))
 
 
-def _executed(records: Sequence[Any]) -> list[tuple[datetime, bool, Decimal, Decimal]]:
-    """The fill records that reached the book, as ``(time, is_buy, qty, price)``.
-
-    A rejected order never reached the book and a zero price is not a price, so
-    neither is a fill and neither may become half a round trip. Sorted by time,
-    stably, so two fills on one bar keep the order they were recorded in.
-    """
-    out: list[tuple[datetime, bool, Decimal, Decimal]] = []
-    for record in records:
-        if _field(record, "rejected"):
-            continue
-        qty = _decimal(_quantity_of(record), "quantity")
-        price = _decimal(_field(record, "price"), "price")
-        if qty == 0 or price <= 0:
-            continue
-        when = _time_of(record)
-        if when is None:
-            raise ValidationReportError(
-                "a fill record carries no timestamp, so it cannot be placed inside "
-                "or outside the out of sample window."
-            )
-        out.append((when, _is_buy(_field(record, "side")), qty, price))
-    out.sort(key=lambda item: item[0])
-    return out
-
-
 def _bar_instruments(bars: Sequence[Any]) -> dict[datetime, frozenset[str]]:
     """``timestamp -> instruments with a bar at that timestamp``.
 
