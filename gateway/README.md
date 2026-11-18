@@ -51,9 +51,11 @@ tradex-gateway check               # build brokers and print status
 | `GATEWAY_REST_RATE_PER_SECOND` | `20` | consumer REST rate |
 | `GATEWAY_REST_BURST` | `40` | consumer REST burst |
 | `GATEWAY_MAX_SUBSCRIPTIONS` | `1000` | WS instrument cap per client |
-| `GATEWAY_MAX_WS_CONNECTIONS` | `100` | concurrent WS connection cap (soft; refused with close 1013) |
+| `GATEWAY_MAX_WS_CONNECTIONS` | `100` | concurrent WS connection cap (soft; refused before accept, so under uvicorn clients see an HTTP 403 handshake rejection, the same as an auth refusal, not a 1013 close) |
 | `GATEWAY_STALE_AFTER_SECONDS` | `15` | live feed staleness threshold |
 | `GATEWAY_MASTER_CACHE_DIR` | runtime default | master cache directory |
+
+WS `unsubscribe` with `instruments: []` is a no-op (it no longer unsubscribes everything).
 
 Broker credentials come from the standard TradeX env (`.env.local`), never from
 this service's config. No broker creds are baked into the image.
