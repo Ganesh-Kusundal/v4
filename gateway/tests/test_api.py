@@ -6,6 +6,7 @@ from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 from gateway_support import FakeBroker, gateway_config, make_candle
+from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.instruments import Future, Option
 from tradex_domain.market import HistoricalSeries
 from tradex_gateway.app import create_app
@@ -470,3 +471,33 @@ def test_slow_batch_item_gets_timeout_envelope_while_fast_item_returns():
     assert fast["bars"]
     assert slow["error"]["message"] == "request timed out"
     assert slow["error"]["retryable"] is True
+
+
+def test_quotes_bad_id_is_per_item_error():
+    app, _, _ = _app()
+    with TestClient(app) as client:
+        response = client.post("/v1/quotes", json={"instruments": ["IDX:NIFTY", "bogus"]})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "IDX:NIFTY" in body["quotes"]
+    assert body["errors"]["bogus"]["code"] == "invalid_request"
+
+
+def test_quotes_fallback_is_capped():
+    app, dhan, upstox = _app(quote_fallback_cap=25)
+
+    def unsupported(instruments):
+        raise CapabilityNotSupportedError("quote_batch")
+
+    dhan.quote_batch = upstox.quote_batch = unsupported
+    ids = [f"NSE:SYM{i}" for i in range(60)]
+    with TestClient(app) as client:
+        response = client.post("/v1/quotes", json={"instruments": ids})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    calls = [c for b in (dhan, upstox) for c in b.calls if c[0] == "get_quote"]
+    assert len(calls) == 25
+    assert len(body["quotes"]) == 25
+    assert [e["message"] for e in body["errors"].values()] == [
+        "quote_batch unsupported; fallback capped"
+    ] * 35

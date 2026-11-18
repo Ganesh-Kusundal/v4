@@ -136,9 +136,15 @@ def serialize_chain(
 
 
 class QuoteService:
-    def __init__(self, directory: InstrumentDirectory, router: MarketDataRouter) -> None:
+    def __init__(
+        self,
+        directory: InstrumentDirectory,
+        router: MarketDataRouter,
+        fallback_cap: int = 25,
+    ) -> None:
         self._directory = directory
         self._router = router
+        self._fallback_cap = fallback_cap
 
     def quote(self, instrument_id: str, broker: str | None = None) -> dict[str, Any]:
         resolved = self._directory.resolve(instrument_id)
@@ -150,7 +156,15 @@ class QuoteService:
         return quote_payload(quote, name)
 
     def quotes(self, instrument_ids: list[str], broker: str | None = None) -> dict[str, Any]:
-        resolved = [self._directory.resolve(item) for item in instrument_ids]
+        resolved: list[ResolvedInstrument] = []
+        errors: dict[str, dict[str, Any]] = {}
+        for raw_id in instrument_ids:
+            try:
+                resolved.append(self._directory.resolve(raw_id))
+            except GatewayError as exc:
+                errors[raw_id] = {"code": exc.code, "message": exc.message}
+        if not resolved:
+            return {"quotes": {}, "errors": errors}
         instruments = [item.instrument for item in resolved]
         try:
             batch, name = self._router.call(
@@ -162,27 +176,27 @@ class QuoteService:
             # A broker without batch support still answers per-instrument calls.
             # Any non-capability failure surfaces to the caller instead of
             # being masked by N extra per-instrument calls.
-            return self._quotes_individually(resolved, broker)
+            return self._quotes_individually(resolved, broker, errors)
         quotes: dict[str, dict[str, Any]] = {}
         for quote in batch.values():
             key = str(quote.instrument.instrument_id)
             quotes[key] = quote_payload(quote, name)
-        errors = {
-            str(item.instrument_id): {
-                "code": "instrument_not_found",
-                "message": "broker returned no quote",
-            }
-            for item in resolved
-            if str(item.instrument_id) not in quotes
-        }
+        for item in resolved:
+            if str(item.instrument_id) not in quotes:
+                errors[str(item.instrument_id)] = {
+                    "code": "instrument_not_found",
+                    "message": "broker returned no quote",
+                }
         return {"quotes": quotes, "errors": errors}
 
     def _quotes_individually(
-        self, resolved: list[ResolvedInstrument], broker: str | None
+        self,
+        resolved: list[ResolvedInstrument],
+        broker: str | None,
+        errors: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
         quotes: dict[str, dict[str, Any]] = {}
-        errors: dict[str, dict[str, Any]] = {}
-        for item in resolved:
+        for item in resolved[: self._fallback_cap]:
             try:
                 quotes[str(item.instrument_id)] = self.quote(str(item.instrument_id), broker)
             except GatewayError as exc:
@@ -190,6 +204,11 @@ class QuoteService:
                     "code": exc.code,
                     "message": exc.message,
                 }
+        for item in resolved[self._fallback_cap :]:
+            errors[str(item.instrument_id)] = {
+                "code": "capability_not_supported",
+                "message": "quote_batch unsupported; fallback capped",
+            }
         return {"quotes": quotes, "errors": errors}
 
 

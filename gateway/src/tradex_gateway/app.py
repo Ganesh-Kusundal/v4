@@ -191,7 +191,7 @@ def _wire(app: FastAPI) -> None:
     cfg: GatewayConfig = app.state.config
     directory = InstrumentDirectory(runtimes)
     router = MarketDataRouter(cfg, runtimes, on_event=app.state.metrics.inc)
-    quotes = QuoteService(directory, router)
+    quotes = QuoteService(directory, router, cfg.quote_fallback_cap)
     hub = LiveHub(cfg, router, directory, runtimes, on_event=app.state.metrics.inc)
     app.state.directory = directory
     app.state.router = router
