@@ -52,7 +52,9 @@ from typing import Any, cast
 from tradex_analytics._math import (
     _rma,
     _rolling_sum,
+    _seeded_ema,
     _to_float,
+    _vwma,
     sma,
 )
 from tradex_analytics.indicators import (
@@ -61,7 +63,7 @@ from tradex_analytics.indicators import (
     _change,
     wma,
 )
-from tradex_analytics.studies.studies_simple import _src_val, _vwma
+from tradex_analytics.studies.studies_simple import _src_val
 from tradex_analytics.volume.volume_flow import _sma_skip_none
 from tradex_domain.timezones import IST_OFFSET_SECONDS
 
@@ -148,25 +150,6 @@ def _from_first_value(
     for i, v in enumerate(tail):
         if start + i < n:
             out[start + i] = v
-    return out
-
-
-def _seeded_ema(values: list[float | None], period: int) -> list[float | None]:
-    """ranges.ts ``seededEma``: the reference EMA with a NaN-strict SMA seed."""
-    n = len(values)
-    out: list[float | None] = [None] * n
-    if period <= 0:
-        return out
-    seed = _sma_skip_none(values, period)
-    k = 2.0 / (period + 1)
-    prev: float | None = None
-    for i in range(n):
-        if prev is None:
-            prev = seed[i]
-        else:
-            v = values[i]
-            prev = v * k + prev * (1.0 - k) if v is not None else None
-        out[i] = prev
     return out
 
 
