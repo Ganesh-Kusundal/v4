@@ -42,6 +42,7 @@ def _to_utc(moment: datetime) -> datetime:
     return moment.astimezone(UTC)
 
 
+# Clipped as UTC when naive, but serialized as IST by to_epoch_ms/_bar_dict.
 def _candle_utc(candle: Candle) -> datetime:
     # Broker timestamps are UTC; a naive one is taken as UTC, not IST.
     ts = candle.timestamp

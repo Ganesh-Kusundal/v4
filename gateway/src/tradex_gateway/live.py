@@ -334,6 +334,8 @@ class LiveHub:
         return {"op": "ack", "unsubscribed": removed}
 
     def close_requested(self, client_id: str) -> bool:
+        if self._stop.is_set():  # stop() clears the registry; the writer must still see it
+            return True
         with self._lock:
             client = self._clients.get(client_id)
             return bool(client is not None and client.close_requested)

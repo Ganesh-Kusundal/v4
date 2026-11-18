@@ -425,3 +425,20 @@ def test_unsubscribe_empty_list_is_noop_and_stop_flags_clients():
         assert client.close_requested is True
 
     asyncio.run(scenario())
+
+
+def test_close_requested_is_true_for_writer_after_stop():
+    async def scenario() -> None:
+        runtimes = {"dhan": BrokerRuntime("dhan", FakeBroker("dhan"))}
+        hub = LiveHub(
+            gateway_config(),
+            MarketDataRouter(gateway_config(), runtimes),
+            InstrumentDirectory(runtimes),
+            runtimes,
+        )
+        hub.add_client("c1", asyncio.get_running_loop(), asyncio.Queue(), asyncio.Queue())
+        assert hub.close_requested("c1") is False
+        hub.stop()
+        assert hub.close_requested("c1") is True
+
+    asyncio.run(scenario())
