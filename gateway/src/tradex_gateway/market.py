@@ -113,9 +113,10 @@ def serialize_chain(
     lot_size_for: Callable[[Any], int | None] | None = None,
 ) -> dict[str, Any]:
     expiries = chain.expiries()
+    selected = next((e for e in expiries if e.pairs), expiries[0]) if expiries else None
     strikes: list[dict[str, Any]] = []
-    for expiry in expiries:
-        for pair in expiry.pairs:
+    if selected is not None:
+        for pair in selected.pairs:
             strikes.append(
                 {
                     "strike": str(pair.strike.value),
@@ -125,9 +126,9 @@ def serialize_chain(
             )
     return {
         "underlying": str(chain.underlying.instrument_id),
-        "expiry": expiries[0].expiry_date.isoformat() if expiries else None,
+        "expiry": selected.expiry_date.isoformat() if selected else None,
         "expiries": [expiry.expiry_date.isoformat() for expiry in expiries],
-        "reference_price": _price(expiries[0].reference_price) if expiries else None,
+        "reference_price": _price(selected.reference_price) if selected else None,
         "strikes": strikes,
         "broker": broker,
         "cached": False,
@@ -329,8 +330,10 @@ class ChainService:
     def _enrich(self, chain: OptionChain, payload: dict[str, Any], broker: str) -> dict[str, Any]:
         legs: dict[str, dict[str, Any]] = {}
         instruments: list[Option] = []
-        for expiry in chain.expiries():
-            for pair in expiry.pairs:
+        expiries = chain.expiries()
+        selected = next((e for e in expiries if e.pairs), expiries[0]) if expiries else None
+        if selected is not None:
+            for pair in selected.pairs:
                 for option in (pair.call, pair.put):
                     instruments.append(option)
                     legs[str(option.instrument_id)] = {}
