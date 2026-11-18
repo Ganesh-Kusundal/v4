@@ -57,6 +57,8 @@ tradex-gateway check               # build brokers and print status
 
 WS `unsubscribe` with `instruments: []` is a no-op (it no longer unsubscribes everything).
 
+If a slow client's queue overflows, the oldest frames are dropped and the frame that replaces them carries `"dropped": N` (the number lost just before it). Absent means nothing was lost.
+
 Broker credentials come from the standard TradeX env (`.env.local`), never from
 this service's config. No broker creds are baked into the image.
 

@@ -442,3 +442,28 @@ def test_close_requested_is_true_for_writer_after_stop():
         assert hub.close_requested("c1") is True
 
     asyncio.run(scenario())
+
+
+def test_dropped_frames_are_reported_on_the_frame_that_replaced_them():
+    async def scenario() -> None:
+        runtimes = {"dhan": BrokerRuntime("dhan", FakeBroker("dhan"))}
+        hub = LiveHub(
+            gateway_config(),
+            MarketDataRouter(gateway_config(), runtimes),
+            InstrumentDirectory(runtimes),
+            runtimes,
+        )
+        queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+        hub.add_client("c1", asyncio.get_running_loop(), queue, asyncio.Queue())
+        client = hub._clients["c1"]
+        for n in range(4):  # n0, n1 fit; n2 evicts n0; n3 evicts n1
+            hub._send(client, {"op": "quote", "n": n})
+            await asyncio.sleep(0)
+        frames = [queue.get_nowait(), queue.get_nowait()]
+        assert [(f["n"], f.get("dropped")) for f in frames] == [(2, 1), (3, 1)]
+        hub._send(client, {"op": "quote", "n": 4})
+        await asyncio.sleep(0)
+        assert "dropped" not in queue.get_nowait()
+        assert client.dropped == 0
+
+    asyncio.run(scenario())

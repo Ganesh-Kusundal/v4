@@ -144,4 +144,7 @@ async def stream(ws: WebSocket) -> None:
             task.cancel()
         # deliberately unbounded and un-awaited: a timed-out or cancelled wait would drop
         # the queued removal and leak the client and its slot
-        ws.app.state.executor.submit(hub.remove_client, client_id)
+        try:
+            ws.app.state.executor.submit(hub.remove_client, client_id)
+        except RuntimeError:  # executor already shut down; the hub is going away too
+            pass

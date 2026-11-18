@@ -47,6 +47,7 @@ class _Client:
     subscriptions: dict[str, _Subscription] = field(default_factory=dict)
     subscription_map: dict[str, list[str]] = field(default_factory=dict)
     close_requested: bool = False
+    dropped: int = 0
 
 
 @dataclass
@@ -430,10 +431,13 @@ class LiveHub:
                     return
                 try:
                     peer.get_nowait()
+                    client.dropped += 1
                 except asyncio.QueueEmpty:
                     pass
                 try:
-                    peer.put_nowait(frame)
+                    # the evicted frame is reported on the frame that replaced it
+                    peer.put_nowait({**frame, "dropped": client.dropped})
+                    client.dropped = 0
                 except asyncio.QueueFull:
                     pass
 
