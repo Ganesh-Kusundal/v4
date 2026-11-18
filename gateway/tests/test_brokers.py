@@ -25,3 +25,10 @@ def test_failed_session_boot_leaves_broker_unavailable():
     runtimes = build_runtimes(gateway_config(brokers=("dhan",)), session_factory=boom)
     assert runtimes["dhan"].available is False
     assert runtimes["dhan"].error is not None
+
+
+def test_session_config_forces_order_operations_off(monkeypatch):
+    from tradex_gateway.brokers import _session_config
+
+    monkeypatch.setenv("TRADEX_LIVE_ORDERS_ENABLED", "true")
+    assert _session_config("dhan").live_orders_enabled is False

@@ -89,7 +89,15 @@ def create_app(
                 batch_executor.shutdown(wait=False, cancel_futures=True)
             app.state.executor.shutdown(wait=False, cancel_futures=True)
 
-    app = FastAPI(title="TradeX Broker Gateway", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="TradeX Broker Gateway",
+        version="0.1.0",
+        lifespan=lifespan,
+        # Data-only API, not a browser client: don't serve unauthenticated docs.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.config = cfg
     app.state.runtimes = runtimes
     app.state.batch_executor = None
@@ -133,7 +141,11 @@ def create_app(
             {
                 "error": {
                     "code": "invalid_request",
-                    "message": str(exc),
+                    # loc + msg only: str(exc) embeds the caller's raw input values.
+                    "message": "; ".join(
+                        f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+                        for e in exc.errors(include_input=False)
+                    ),
                     "broker": None,
                     "retryable": False,
                     "retry_after": None,

@@ -131,13 +131,13 @@ class MarketDataRouter:
                 f"all {capability} brokers are cooling down", retry_after=retry_after
             )
         if isinstance(last, ValueError):
-            raise UnsupportedTimeframe(str(last))
+            raise UnsupportedTimeframe("unsupported timeframe")
         if isinstance(last, InstrumentNotFoundError):
             # Canonical wire message: the broker's text names internal
             # resolution mechanics (provider keys) and must not reach the wire.
             raise InstrumentNotFound("unknown instrument")
         if isinstance(last, CapabilityNotSupportedError):
-            raise CapabilityUnsupported(str(last))
+            raise CapabilityUnsupported("capability not supported by broker")
         if isinstance(
             last,
             (

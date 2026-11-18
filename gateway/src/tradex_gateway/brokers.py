@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from tradex_brokers.common.instruments import instrument_from_id
@@ -187,14 +187,22 @@ class BrokerRuntime:
             pass
 
 
-def _boot_session(name: str):
-    """Boot one live trading session; the session owns broker mapping/token."""
+def _session_config(name: str):
+    """Serve config with order operations forced off: the gateway is data-only,
+    whatever TRADEX_LIVE_ORDERS_ENABLED says."""
     from tradex_config.env import from_env, serve_config
-    from tradex_config.schema import parse_feed_instruments
     from tradex_domain import BrokerId
-    from tradex_runtime.startup import boot
 
     config = serve_config(from_env(), broker_id=BrokerId(name.upper()), mode="live")
+    return replace(config, live_orders_enabled=False)
+
+
+def _boot_session(name: str):
+    """Boot one live trading session; the session owns broker mapping/token."""
+    from tradex_config.schema import parse_feed_instruments
+    from tradex_runtime.startup import boot
+
+    config = _session_config(name)
     # Live boot refuses an empty tape (AC-20). The session feed is unused by
     # the gateway (LiveHub owns subscriptions), so a minimal default tape
     # satisfies the gate when the operator named none.
