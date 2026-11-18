@@ -33,8 +33,12 @@ async def stream(ws: WebSocket) -> None:
     except Unauthorized:
         await ws.close(code=1008)
         return
-    await ws.accept()
     hub: LiveHub = ws.app.state.hub
+    # shortcut: soft cap, tolerates a few over under a connect burst; make add_client enforce it if that matters
+    if hub.client_count() >= ws.app.state.config.max_ws_connections:
+        await ws.close(code=1013)
+        return
+    await ws.accept()
     client_id = uuid.uuid4().hex
     queue: asyncio.Queue = asyncio.Queue(maxsize=4096)
     control: asyncio.Queue = asyncio.Queue(maxsize=256)

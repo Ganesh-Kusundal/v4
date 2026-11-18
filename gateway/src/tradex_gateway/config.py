@@ -53,6 +53,7 @@ class GatewayConfig:
     broker_workers: int = 8
     request_timeout: float = 30.0
     quote_fallback_cap: int = 25
+    max_ws_connections: int = 100
     master_cache_dir: str | None = None
 
     @classmethod
@@ -84,6 +85,7 @@ class GatewayConfig:
             broker_workers=_as_int(source.get("GATEWAY_BROKER_WORKERS"), 8),
             request_timeout=_as_float(source.get("GATEWAY_REQUEST_TIMEOUT"), 30.0),
             quote_fallback_cap=_as_int(source.get("GATEWAY_QUOTE_FALLBACK_CAP"), 25),
+            max_ws_connections=_as_int(source.get("GATEWAY_MAX_WS_CONNECTIONS"), 100),
             master_cache_dir=(source.get("GATEWAY_MASTER_CACHE_DIR") or None),
         )
 
@@ -109,6 +111,8 @@ class GatewayConfig:
             raise ValueError("GATEWAY_REQUEST_TIMEOUT must be > 0")
         if self.quote_fallback_cap <= 0:
             raise ValueError("GATEWAY_QUOTE_FALLBACK_CAP must be > 0")
+        if self.max_ws_connections <= 0:
+            raise ValueError("GATEWAY_MAX_WS_CONNECTIONS must be > 0")
         loopback = self.host in _LOOPBACK_HOSTS
         if not loopback and not self.api_key:
             raise ValueError("a non-loopback bind requires GATEWAY_API_KEY")

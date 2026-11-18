@@ -23,7 +23,8 @@ feeds. It never places orders — brokers are built with
 
 All endpoints live under the `/v1` base path (e.g. `/v1/health`,
 `/v1/history/{instrument_id}`). Auth is an API key: `X-API-Key` header for REST,
-`?api_key=` query parameter for WebSocket. The interfaces app stays unversioned
+`?api_key=` query parameter for WebSocket (prefer the `X-API-Key` header on
+WebSocket too: a query string lands in access logs). The interfaces app stays unversioned
 at its root mounts; the gateway owns the versioned `/v1` contract.
 
 ## Launch
@@ -50,6 +51,7 @@ tradex-gateway check               # build brokers and print status
 | `GATEWAY_REST_RATE_PER_SECOND` | `20` | consumer REST rate |
 | `GATEWAY_REST_BURST` | `40` | consumer REST burst |
 | `GATEWAY_MAX_SUBSCRIPTIONS` | `1000` | WS instrument cap per client |
+| `GATEWAY_MAX_WS_CONNECTIONS` | `100` | concurrent WS connection cap (soft; refused with close 1013) |
 | `GATEWAY_STALE_AFTER_SECONDS` | `15` | live feed staleness threshold |
 | `GATEWAY_MASTER_CACHE_DIR` | runtime default | master cache directory |
 

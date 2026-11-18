@@ -236,6 +236,10 @@ class LiveHub:
         with self._lock:
             self._clients[client_id] = _Client(client_id, loop, queue, control)
 
+    def client_count(self) -> int:
+        with self._lock:
+            return len(self._clients)
+
     def remove_client(self, client_id: str) -> None:
         with self._lock:
             self._clients.pop(client_id, None)
