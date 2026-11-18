@@ -198,7 +198,7 @@ class BracketBreakoutStrategy:
         """Enter on a close beyond the previous *lookback* bars' extreme."""
         if len(self._closes) < self._lookback + 1:
             return None
-        atr = self._atr()
+        atr = self._simple_atr()
         if atr is None or atr <= 0:
             return None
         # The breakout level excludes the current bar: including it would let a
@@ -225,12 +225,13 @@ class BracketBreakoutStrategy:
         self._position = {"side": side, "entry": reference, "stop": stop, "target": target}
         return self._signal(side, reason, timestamp, stop=stop, target=target)
 
-    def _atr(self) -> float | None:
+    def _simple_atr(self) -> float | None:
         """Average true range over the trailing *atr_period* bars.
 
         True range is ``max(high-low, |high-prev_close|, |low-prev_close|)``;
         the average is plain, not Wilder-smoothed — reference-grade, matching the
-        RSI in ``mean_reversion.py``.
+        RSI in ``mean_reversion.py``. It is not ``tradex_analytics`` ``atr`` (the
+        chart's Wilder ATR), so stops differ from the chart's ATR. Deliberate.
         """
         if len(self._closes) < self._atr_period + 1:
             return None
