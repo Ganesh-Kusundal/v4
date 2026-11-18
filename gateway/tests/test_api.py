@@ -437,3 +437,36 @@ def test_slow_boot_is_not_bounded_by_request_timeout(monkeypatch):
     app = create_app(gateway_config(request_timeout=0.1, brokers=("dhan",)))
     with TestClient(app) as client:
         assert client.get("/v1/health").status_code == 200
+
+
+def test_slow_batch_item_gets_timeout_envelope_while_fast_item_returns():
+    app, dhan, upstox = _app(request_timeout=1.0)
+
+    def history(instrument, tf, start, end):
+        if str(tf.value) != "1m":
+            time.sleep(2)
+        return HistoricalSeries(
+            instrument=instrument,
+            timeframe=tf,
+            candles=[make_candle(instrument, end)],
+            start=start,
+            end=end,
+        )
+
+    dhan.history_impl = upstox.history_impl = history
+    window = {"from": "2026-11-06T09:15:00Z", "to": "2026-11-06T09:16:00Z"}
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/history/batch",
+            json={
+                "requests": [
+                    {"instrument_id": "IDX:NIFTY", "timeframe": "1m", **window},
+                    {"instrument_id": "IDX:NIFTY", "timeframe": "5m", **window},
+                ]
+            },
+        )
+    assert response.status_code == 200, response.text
+    fast, slow = response.json()
+    assert fast["bars"]
+    assert slow["error"]["message"] == "request timed out"
+    assert slow["error"]["retryable"] is True
