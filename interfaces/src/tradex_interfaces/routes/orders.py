@@ -1,14 +1,13 @@
 """``/orders`` — submit, list, modify, cancel orders against the bound session.
 
 Route layer responsibility: parse HTTP input → call application handler → map to HTTP.
-Business rules (broker capability, engine dispatch) live in tradex_trading.application.
+Business rules (broker capability, engine dispatch) live in tradex_application.orders.
 Auth dependencies are preserved unchanged.
 """
 
 from __future__ import annotations
 
 import logging
-from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -17,6 +16,12 @@ from tradex_application.orders import (
 )
 from tradex_application.orders import (
     build_bracket_request as app_build_bracket_request,
+)
+from tradex_application.orders import (
+    build_modify_request,
+    build_order_request,
+    lookup_order,
+    parse_product,
 )
 from tradex_application.orders import (
     cancel_order as app_cancel_order,
@@ -38,8 +43,6 @@ from tradex_domain.constants import (
     IDEMPOTENCY_KEY_HEADER,
     IDEMPOTENCY_KEY_REQUIRED_MESSAGE,
     IDEMPOTENCY_KEY_TOO_LONG_MESSAGE,
-    INSTRUMENT_ID_FORMAT_MESSAGE,
-    INSTRUMENT_ID_OR_EXCHANGE_SYMBOL_MESSAGE,
     MISSING_REQUIRED_FIELD_MESSAGE,
     MODIFIED_STATUS,
     NO_SESSION_BOUND,
@@ -57,8 +60,6 @@ from tradex_execution.engine import (
 
 from tradex_interfaces.auth import (
     audit_identity,
-
-    require_csrf_if_session,
 )
 from tradex_interfaces.contracts import (
     BracketOrderRequestDto,
@@ -87,18 +88,11 @@ _PRODUCT_BY_WIRE: dict[str, ProductType] = {
 
 
 def _parse_product(body: Any) -> ProductType:
-    """Resolve ``body["product"]`` to a domain ``ProductType``.
-
-    Uses the canonical ``ProductType.from_wire`` single source of truth.
-    """
-    raw = body.get("product")
+    """HTTP wrapper over the application parser: unknown product -> 422."""
     try:
-        return ProductType.from_wire(raw)
-    except ValueError:
-        raise HTTPException(
-            status_code=422,
-            detail=f"unknown product {raw!r}; expected one of MIS, CNC, NRML, MTF",
-        ) from None
+        return parse_product(body.get("product"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
 
 def _map_receipt(receipt: OrderReceipt) -> OrderResponse:
@@ -168,138 +162,6 @@ def _live_orders_enabled(request: Request | None, session: Any) -> bool:
     )
 
 
-def _price(value: Any, name: str) -> Any:
-    """Parse a decimal ``Price`` from an HTTP body value."""
-    from tradex_domain.value_objects import Price
-
-    try:
-        return Price(Decimal(str(value)))
-    except (ValueError, InvalidOperation) as exc:
-        raise ValueError(f"invalid {name}: {value!r}") from exc
-
-
-def _build_order_request(
-    body: Any, session: Any, correlation_id: CorrelationId | None = None,
-) -> Any:
-    """Parse an HTTP order body into a domain OrderRequest.
-
-    Accepts either ``"instrument_id": "EXCHANGE:SYMBOL"`` or the pair
-    ``"exchange"`` + ``"symbol"``. Raises ``HTTPException(422)`` on
-    missing or malformed fields.
-    """
-    from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-    from tradex_domain.execution import OrderRequest
-    from tradex_domain.instruments import Equity
-    from tradex_domain.value_objects import Price, Quantity
-
-    instrument_id = body.get("instrument_id")
-    if instrument_id:
-        parts = instrument_id.split(":", 1)
-        if len(parts) != 2:
-            raise HTTPException(
-                status_code=422,
-                detail=INSTRUMENT_ID_FORMAT_MESSAGE,
-            )
-        instrument = Equity.of(parts[0], parts[1])
-    else:
-        exchange = body.get("exchange")
-        symbol = body.get("symbol")
-        if not exchange or not symbol:
-            raise HTTPException(
-                status_code=422,
-                detail=INSTRUMENT_ID_OR_EXCHANGE_SYMBOL_MESSAGE,
-            )
-        instrument = Equity.of(exchange, symbol)
-
-    side = OrderSide(body["side"])
-    order_type = OrderType(body.get("order_type", "MARKET"))
-    quantity = Quantity(Decimal(str(body["quantity"])))
-    price = Price(Decimal(str(body["price"]))) if body.get("price") is not None else None
-    trigger_price = (
-        Price(Decimal(str(body["trigger_price"])))
-        if body.get("trigger_price") is not None
-        else None
-    )
-    time_in_force = (
-        TimeInForce(body["time_in_force"])
-        if body.get("time_in_force")
-        else TimeInForce.DAY
-    )
-    return OrderRequest(
-        instrument=instrument,
-        side=side,
-        order_type=order_type,
-        quantity=quantity,
-        price=price,
-        trigger_price=trigger_price,
-        time_in_force=time_in_force,
-        product_type=_parse_product(body),
-        correlation_id=correlation_id,
-    )
-
-
-def _build_bracket_modify_request(
-    existing: Any,
-    body: Any,
-    instrument: Any,
-    correlation_id: CorrelationId,
-) -> Any:
-    """Build a ``BracketOrderRequest`` for PUT on an existing bracket order.
-
-    Every mutable field defaults to the current order value so a partial
-    update (e.g. only ``target_price``) is valid; protective legs stay
-    mandatory — a bracket cannot be modified into a bare entry. The domain
-    request validates side-aware protective ordering (422 on violation).
-    """
-    from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-    from tradex_domain.execution import BracketOrderRequest
-    from tradex_domain.value_objects import Quantity
-
-    entry = body.get("price")
-    stop = body.get("stop_loss_price")
-    target = body.get("target_price")
-    trailing = body.get("trailing_jump")
-    quantity_raw = body.get("quantity")
-    side_raw = body.get("side")
-    order_type_raw = body.get("order_type")
-    tif_raw = body.get("time_in_force")
-
-    return BracketOrderRequest(
-        instrument=instrument,
-        side=OrderSide(side_raw) if side_raw is not None else existing.side,
-        order_type=(
-            OrderType(order_type_raw)
-            if order_type_raw is not None
-            else existing.order_type
-        ),
-        quantity=(
-            Quantity(Decimal(str(quantity_raw)))
-            if quantity_raw is not None
-            else existing.quantity
-        ),
-        price=(_price(entry, "price") if entry is not None else existing.price),
-        stop_loss_price=(
-            _price(stop, "stop_loss_price")
-            if stop is not None
-            else existing.stop_loss_price
-        ),
-        target_price=(
-            _price(target, "target_price")
-            if target is not None
-            else existing.target_price
-        ),
-        trailing_jump=(
-            _price(trailing, "trailing_jump")
-            if trailing is not None
-            else existing.trailing_jump
-        ),
-        time_in_force=(
-            TimeInForce(tif_raw) if tif_raw else existing.time_in_force
-        ),
-        correlation_id=correlation_id,
-    )
-
-
 @_base_router.get(
     "/orders", response_model=list[OrderResponse]
 )
@@ -332,11 +194,7 @@ async def get_order(
         raise HTTPException(status_code=404, detail=NO_SESSION_BOUND)
     try:
         oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
-        order = session.engine.get_order(oid)
-        if order is None:
-            # Engine has no record — fall back to the broker (orders placed
-            # outside the session may live there).
-            order = session.broker.get_order(oid)
+        order = lookup_order(session.engine, session.broker, oid)
         return OrderResponse(order_id=str(order.order_id), status=str(order.status))
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -356,7 +214,7 @@ async def place_order(
     if str(getattr(session, "mode", "")).strip().lower() == "live" and not _live_orders_enabled(request, session):
         raise HTTPException(status_code=503, detail="live_orders_disabled")
     try:
-        order_request = _build_order_request(body, session, correlation_id)
+        order_request = build_order_request(body, correlation_id)
         receipt = app_submit_order(session.engine, order_request)
         return _map_receipt(receipt)
     except HTTPException:
@@ -431,10 +289,6 @@ async def modify_order(
     if session is None:
         raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
-        from tradex_domain.enums import OrderSide, OrderType, TimeInForce
-        from tradex_domain.execution import OrderRequest
-        from tradex_domain.value_objects import Price, Quantity
-
         oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
         correlation_id = _require_idempotency_key(idempotency_key)
         existing = session.engine.get_order(oid)
@@ -447,37 +301,10 @@ async def modify_order(
         else:
             instrument = existing.instrument
 
-        if existing.stop_loss_price is not None or existing.target_price is not None:
-            # Modifying a bracket: the request must stay a full composite so
-            # the engine dispatches to the venue's modify_super_order and the
-            # protective legs project onto the OMS record. Domain-side
-            # validation errors (malformed prices, broken protective
-            # ordering) are client errors -> 422, matching POST /orders/bracket.
-            try:
-                order_request = _build_bracket_modify_request(
-                    existing, body, instrument, correlation_id,
-                )
-            except ValueError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-        else:
-            side = OrderSide(body["side"]) if "side" in body else existing.side
-            order_type = OrderType(body.get("order_type", "LIMIT"))
-            quantity = Quantity(Decimal(str(body["quantity"])))
-            price = Price(Decimal(str(body["price"]))) if body.get("price") is not None else None
-            time_in_force = (
-                TimeInForce(body["time_in_force"])
-                if body.get("time_in_force")
-                else TimeInForce.DAY
-            )
-            order_request = OrderRequest(
-                instrument=instrument,
-                side=side,
-                order_type=order_type,
-                quantity=quantity,
-                price=price,
-                time_in_force=time_in_force,
-                correlation_id=correlation_id,
-            )
+        try:
+            order_request = build_modify_request(existing, body, instrument, correlation_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         order = app_modify_order(session.engine, oid, order_request)
         return OrderResponse(order_id=str(order.order_id), status=MODIFIED_STATUS)
     except HTTPException:
