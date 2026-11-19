@@ -1,7 +1,17 @@
 """Tests for strategy registry."""
 
-from tradex_strategy.base import BaseStrategy
 from tradex_strategy.registry import register, get, create, list_strategies, clear
+
+
+class BaseStrategy:
+    """Minimal class the simple registry can instantiate with ``params``."""
+
+    def __init__(self, params=None):
+        self.params = params or {}
+
+    @property
+    def name(self):
+        return type(self).__name__
 
 
 def setup_function():

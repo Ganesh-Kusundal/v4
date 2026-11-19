@@ -32,15 +32,14 @@ def test_live_env_clock_is_live():
 
 
 def test_create_with_strategy():
-    from tradex_strategy.base import BaseStrategy
     from tradex_strategy.registry import clear, register
 
     clear()
 
     @register("test_strat")
-    class TS(BaseStrategy):
-        def on_bar(self, bar, ctx):
-            return []
+    class TS:
+        def __init__(self, params=None):
+            self.params = params or {}
 
     factory = EnvironmentFactory(config=None, event_bus=object())
     env, strategy = factory.create_with_strategy(EnvironmentType.BACKTEST, "test_strat", {"x": 1})
