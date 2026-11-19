@@ -18,7 +18,7 @@ class FeedState(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class RecoveryResult:
+class FeedRecoveryResult:
     ok: bool
     last_event_at: datetime | None = None
     recovered_through: datetime | None = None
@@ -78,22 +78,22 @@ class FeedSupervisor:
         *,
         last_event_at: datetime | None,
         recovered_through: datetime | None,
-    ) -> RecoveryResult:
+    ) -> FeedRecoveryResult:
         with self._lock:
             self._last_event_at = last_event_at
             self._recovered_through = recovered_through
             self._state = FeedState.READY
-            return RecoveryResult(
+            return FeedRecoveryResult(
                 ok=True,
                 last_event_at=last_event_at,
                 recovered_through=recovered_through,
             )
 
-    def recovery_failed(self, error: str) -> RecoveryResult:
+    def recovery_failed(self, error: str) -> FeedRecoveryResult:
         message = str(error).strip() or "feed recovery failed"
         with self._lock:
             self._state = FeedState.HALTED
-            return RecoveryResult(ok=False, error=message)
+            return FeedRecoveryResult(ok=False, error=message)
 
     def mark_stale(self) -> None:
         """Mark the current feed generation as not safe for new exposure."""
@@ -111,4 +111,4 @@ class FeedSupervisor:
             self._last_event_at = timestamp
 
 
-__all__ = ["FeedState", "FeedSupervisor", "RecoveryResult"]
+__all__ = ["FeedState", "FeedSupervisor", "FeedRecoveryResult"]

@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from tradex_runtime.feed_supervisor import (
+    FeedRecoveryResult,
     FeedState,
     FeedSupervisor,
-    RecoveryResult,
 )
 
 
@@ -38,7 +38,7 @@ def test_failed_recovery_halts_feed() -> None:
     supervisor.recovery_started()
     result = supervisor.recovery_failed("history gap")
 
-    assert isinstance(result, RecoveryResult)
+    assert isinstance(result, FeedRecoveryResult)
     assert result.ok is False
     assert result.error == "history gap"
     assert supervisor.state is FeedState.HALTED

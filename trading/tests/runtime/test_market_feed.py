@@ -734,14 +734,14 @@ class TestNotifyReconnect:
 
     def test_notify_reconnect_does_not_auto_recover(self) -> None:
         """notify_reconnect must never call the recovery coordinator automatically."""
-        from tradex_runtime.feed_recovery import RecoveryOutcome
+        from tradex_runtime.feed_recovery import FeedRecoveryOutcome
 
         calls: list[int] = []
 
         class _FakeRecovery:
             def recover(self) -> object:
                 calls.append(1)
-                return RecoveryOutcome(ok=True, generation=1)
+                return FeedRecoveryOutcome(ok=True, generation=1)
 
         fake = _FakeBroker()
         feed = MarketFeed(broker=fake, bus=ReactiveBus())
