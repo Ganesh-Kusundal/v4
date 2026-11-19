@@ -452,6 +452,7 @@ market_data/     → `tradex_market_data` (parquet storage, parallel fetcher)
 analytics/       → `tradex_analytics` (indicators)
 execution/       → `tradex_execution` (engine, sqlite event store)
 interfaces/      → `tradex_interfaces` (FastAPI routes, WS, the `tradex` CLI)
+httputil/        → `tradex_http` (leaf: `keys_match`, the one constant-time API-key check for gateway + interfaces)
 ```
 
 **Dependency direction:** `domain` ← `brokers` ← the extracted packages (`config`,

@@ -11,7 +11,7 @@ feeds. It never places orders — brokers are built with
 - Workspace member `gateway/` (package `tradex-gateway`), installed as
   `tradex_gateway`.
 - Allowed imports: `tradex_domain`, `tradex_brokers`, `tradex_config`,
-  `tradex_market_data`, `tradex_runtime`, `tradex_observability`. It
+  `tradex_market_data`, `tradex_runtime`, `tradex_observability`, `tradex_http`. It
   deliberately does **not** depend on `tradex_interfaces`, `tradex_execution`,
   `tradex_strategy`, `tradex_replay`, `tradex_application` or `duck_analytics`.
 - Single process only: startup refuses `workers > 1` because two processes
