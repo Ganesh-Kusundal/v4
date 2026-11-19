@@ -501,3 +501,15 @@ def test_quotes_fallback_is_capped():
     assert [e["message"] for e in body["errors"].values()] == [
         "quote_batch unsupported; fallback capped"
     ] * 35
+
+
+def test_health_detail_requires_api_key_but_liveness_does_not():
+    app, _, _ = _app(api_key="secret", allow_anon=False)
+    with TestClient(app) as client:
+        anon = client.get("/v1/health")
+        assert anon.status_code == 200
+        assert anon.json() == {"status": "ok", "ready": True}
+        keyed = client.get("/v1/health", headers={"X-API-Key": "secret"}).json()
+        assert keyed["ready"] is True
+        assert [row["name"] for row in keyed["brokers"]] == ["dhan", "upstox"]
+        assert "feed" in keyed

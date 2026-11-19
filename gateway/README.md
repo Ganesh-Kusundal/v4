@@ -55,6 +55,8 @@ tradex-gateway check               # build brokers and print status
 | `GATEWAY_STALE_AFTER_SECONDS` | `15` | live feed staleness threshold |
 | `GATEWAY_MASTER_CACHE_DIR` | runtime default | master cache directory |
 
+`GET /v1/health` is open and returns only `status` and `ready`; broker errors, health snapshots and feed status are included only when a valid `X-API-Key` is sent.
+
 WS `unsubscribe` with `instruments: []` is a no-op (it no longer unsubscribes everything).
 
 If a slow client's queue overflows, the oldest frames are dropped and the frame that replaces them carries `"dropped": N` (the number lost just before it). Absent means nothing was lost.
