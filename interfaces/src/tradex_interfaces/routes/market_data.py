@@ -5,18 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from tradex_domain.constants import NO_SESSION_BOUND
 
 from tradex_interfaces.contracts import (
-    FutureChainRequest,
     FutureChainResponse,
     HistoryBar,
-    HistoryRequest,
-    OptionChainRequest,
     OptionChainResponse,
-    QuoteRequest,
     QuoteResponse,
-    SearchRequest,
     SearchResultItem,
 )
 from tradex_interfaces.routes._market_helpers import (
@@ -24,7 +18,7 @@ from tradex_interfaces.routes._market_helpers import (
     resolve_underlying_instrument,
     serialize_option_chain,
 )
-from tradex_interfaces.routes.deps import get_session
+from tradex_interfaces.routes.deps import get_session, require_session
 
 router = APIRouter()
 
@@ -36,11 +30,9 @@ router = APIRouter()
 async def get_quote(
     exchange: str,
     symbol: str,
-    session: Any | None = Depends(get_session),
+    session: Any = Depends(require_session(404)),
 ) -> QuoteResponse:
     """Get real-time quote for an instrument."""
-    if session is None:
-        raise HTTPException(status_code=404, detail=NO_SESSION_BOUND)
     try:
         from tradex_brokers.common.provider_common import instrument_from_id
         from tradex_domain.value_objects import InstrumentId
@@ -126,11 +118,9 @@ async def get_history(
     instrument_id: str,
     timeframe: str = "1d",
     limit: int = 100,
-    session: Any | None = Depends(get_session),
+    session: Any = Depends(require_session(400)),
 ) -> list[HistoryBar]:
     """Get historical bars for an instrument."""
-    if session is None:
-        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         from tradex_brokers.common.provider_common import instrument_from_id
         from tradex_domain.enums import Timeframe
@@ -163,7 +153,7 @@ async def get_option_chain(
     underlying: str,
     expiry: str | None = None,
     live: bool = False,
-    session: Any | None = Depends(get_session),
+    session: Any = Depends(require_session(400)),
 ) -> OptionChainResponse:
     """Option chain for an underlying.
 
@@ -175,8 +165,6 @@ async def get_option_chain(
     ``live=true`` enriches the nearest expiry's strikes with real-time
     LTP / OI / volume (best-effort batch quotes for the ATM region).
     """
-    if session is None:
-        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         inst = resolve_underlying_instrument(session, underlying)
         chain = session.broker.get_option_chain(inst, expiry)
@@ -199,11 +187,9 @@ async def get_option_chain(
 )
 async def get_future_chain(
     underlying: str,
-    session: Any | None = Depends(get_session),
+    session: Any = Depends(require_session(400)),
 ) -> FutureChainResponse:
     """Future contracts on an underlying, derived from the loaded master."""
-    if session is None:
-        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         inst = resolve_underlying_instrument(session, underlying)
         futures = session.broker.future_chain(inst)

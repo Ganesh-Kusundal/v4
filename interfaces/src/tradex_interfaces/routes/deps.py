@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
-from fastapi import Request
+from fastapi import HTTPException, Request
+from tradex_domain.constants import NO_SESSION_BOUND
 from tradex_domain.execution import Account, PortfolioSnapshot, Position
 
 
@@ -16,6 +18,24 @@ def get_session(request: Request) -> Any | None:
     ``None`` as "no data" rather than raising.
     """
     return request.app.state.session
+
+
+def require_session(status_code: int) -> Callable[[Request], Any]:
+    """Dependency factory: the session, or ``HTTPException(status_code)``.
+
+    The status differs per route family (404 reads, 400 actions) and tests pin
+    it, so it is a parameter. Not for handlers that check other preconditions
+    first (idempotency key, trading mode): a dependency runs before the body and
+    would change which error wins.
+    """
+
+    def _dep(request: Request) -> Any:
+        session = get_session(request)
+        if session is None:
+            raise HTTPException(status_code=status_code, detail=NO_SESSION_BOUND)
+        return session
+
+    return _dep
 
 
 def _empty_portfolio() -> PortfolioSnapshot:
@@ -102,4 +122,4 @@ def get_session_portfolio(session: Any | None) -> PortfolioSnapshot:
     return _portfolio_from_cache(positions, account)
 
 
-__all__ = ["get_session", "get_session_portfolio"]
+__all__ = ["get_session", "get_session_portfolio", "require_session"]

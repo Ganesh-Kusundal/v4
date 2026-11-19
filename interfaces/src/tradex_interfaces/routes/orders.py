@@ -13,15 +13,13 @@ from typing import Any, cast
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from tradex_application.orders import (
     BrokerCapabilityError,
-)
-from tradex_application.orders import (
-    build_bracket_request as app_build_bracket_request,
-)
-from tradex_application.orders import (
     build_modify_request,
     build_order_request,
     lookup_order,
     parse_product,
+)
+from tradex_application.orders import (
+    build_bracket_request as app_build_bracket_request,
 )
 from tradex_application.orders import (
     cancel_order as app_cancel_order,
@@ -68,7 +66,7 @@ from tradex_interfaces.contracts import (
 )
 from tradex_interfaces.models import OrderResponse
 from tradex_interfaces.replay_guard import ReplayGuard
-from tradex_interfaces.routes.deps import get_session
+from tradex_interfaces.routes.deps import get_session, require_session
 
 log = logging.getLogger(__name__)
 
@@ -188,10 +186,8 @@ async def list_orders(
 )
 async def get_order(
     order_id: str,
-    session: Any | None = Depends(get_session),
+    session: Any = Depends(require_session(404)),
 ) -> OrderResponse:
-    if session is None:
-        raise HTTPException(status_code=404, detail=NO_SESSION_BOUND)
     try:
         oid = order_id if isinstance(order_id, OrderId) else OrderId(value=str(order_id))
         order = lookup_order(session.engine, session.broker, oid)

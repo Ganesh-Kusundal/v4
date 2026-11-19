@@ -4,19 +4,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from tradex_domain.constants import NO_SESSION_BOUND
+from fastapi import APIRouter, Depends
 
 from tradex_interfaces.models import AccountResponse
-from tradex_interfaces.routes.deps import get_session
+from tradex_interfaces.routes.deps import require_session
 
 router = APIRouter()
 
 
 @router.get("/account", response_model=AccountResponse)
-async def get_account(session: Any | None = Depends(get_session)) -> AccountResponse:
-    if session is None:
-        raise HTTPException(status_code=404, detail=NO_SESSION_BOUND)
+async def get_account(session: Any = Depends(require_session(404))) -> AccountResponse:
     acct = session.broker.get_account()
     return AccountResponse(
         balance=str(acct.balance),

@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from fastapi import APIRouter, Depends, HTTPException
-from tradex_domain.constants import NO_SESSION_BOUND
+from fastapi import APIRouter, Depends
 from tradex_execution.projection import execution_projection
 
 from tradex_interfaces._helpers import serialize_position
 from tradex_interfaces.models import PositionResponse
-from tradex_interfaces.routes.deps import get_session, get_session_portfolio
+from tradex_interfaces.routes.deps import (
+    get_session,
+    get_session_portfolio,
+    require_session,
+)
 
 router = APIRouter()
 
@@ -55,10 +58,8 @@ async def get_positions(
 
 
 @router.get("/holdings", response_model=list)
-async def get_holdings(session: Any | None = Depends(get_session)) -> Any:
+async def get_holdings(session: Any = Depends(require_session(400))) -> Any:
     """Get holdings (long-term positions)."""
-    if session is None:
-        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     # The same live book as ``/positions``. The broker's own holdings read is
     # deliberately NOT the source here: for paper the session's fill path
     # never writes the broker's position dict (``PaperFillSource`` owns no
