@@ -18,7 +18,6 @@ import asyncio
 import json
 import logging
 import math
-import secrets
 import threading
 from datetime import UTC
 from typing import Any
@@ -38,6 +37,7 @@ from tradex_domain.constants import (
 from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.timeframe import to_timeframe
 from tradex_domain.timezones import IST_ZONE
+from tradex_http import keys_match
 from tradex_runtime.replay_controller import (
     ReplayController,
     ReplayStartParams,
@@ -144,7 +144,7 @@ async def ws_stream(
     _expected = getattr(app.state, "api_key", None)
     if _expected is not None:
         _provided = parse_qs(ws.url.query).get("api_key", [None])[0]
-        if not secrets.compare_digest(str(_provided), str(_expected)):
+        if not keys_match(_provided, str(_expected)):
             await ws.close(code=1008, reason="invalid api key")
             return
 

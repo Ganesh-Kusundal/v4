@@ -15,13 +15,12 @@ from __future__ import annotations
 
 import logging
 import os
-import secrets
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from tradex_http import keys_match
 
 from .deps import require_csrf_if_session
-
 from .session_store import SESSION_ABSOLUTE_TTL, InMemorySessionStore
 
 log = logging.getLogger(__name__)
@@ -144,7 +143,7 @@ async def login(request: Request, response: Response) -> dict[str, Any]:
             status_code=503, detail="No login credentials configured"
         )
 
-    if not password or not secrets.compare_digest(str(password), str(expected_key)):
+    if not keys_match(str(password) if password else None, expected_key):
         log.warning("auth.login: failed attempt from %s", request.client)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 

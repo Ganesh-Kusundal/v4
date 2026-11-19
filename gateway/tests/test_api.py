@@ -513,3 +513,10 @@ def test_health_detail_requires_api_key_but_liveness_does_not():
         assert keyed["ready"] is True
         assert [row["name"] for row in keyed["brokers"]] == ["dhan", "upstox"]
         assert "feed" in keyed
+
+
+def test_non_ascii_api_key_is_401_not_500():
+    app, _, _ = _app(api_key="secret", allow_anon=False)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        r = client.get("/v1/metrics", headers={"X-API-Key": "é".encode("latin-1")})
+    assert r.status_code == 401

@@ -19,7 +19,6 @@ the same ``check(key) → int | None`` interface.
 """
 from __future__ import annotations
 
-import secrets
 import threading
 import time
 from collections import deque
@@ -34,6 +33,7 @@ from tradex_domain.constants import (
 from tradex_domain.constants import (
     RATE_LIMIT_WINDOW as _DEFAULT_WINDOW,
 )
+from tradex_http import keys_match
 
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
 
@@ -116,7 +116,7 @@ def _identity_key(request: Request) -> str:
     expected = getattr(request.app.state, "api_key", None)
     if expected is not None:
         provided = request.headers.get("X-API-Key", "")
-        if provided and secrets.compare_digest(str(provided), str(expected)):
+        if provided and keys_match(provided, str(expected)):
             return "api_key"
 
     client = request.client

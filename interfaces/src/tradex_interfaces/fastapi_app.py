@@ -12,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
+from tradex_http import keys_match
 
 #: One origin policy for the whole app: the CORS allow-list below and the CSRF
 #: guard in ``auth.deps`` both read this, so they cannot drift apart.
@@ -352,7 +353,6 @@ def create_app(
 
     @app.websocket("/ws/stream")
     async def _ws_stream_endpoint(ws: WebSocket) -> None:
-        import secrets as _secrets
         from urllib.parse import parse_qs
 
         # WS Origin check before accept. Cross-origin browser handshakes are
@@ -386,7 +386,7 @@ def create_app(
         # Path 2: legacy API key in query string (loopback-dev / programmatic)
         if not _authenticated and _expected_key is not None:
             _provided = parse_qs(ws.url.query).get("api_key", [None])[0]
-            if _provided and _secrets.compare_digest(str(_provided), str(_expected_key)):
+            if keys_match(_provided, str(_expected_key)):
                 _authenticated = True
 
         # Reject when auth is configured but neither credential was valid

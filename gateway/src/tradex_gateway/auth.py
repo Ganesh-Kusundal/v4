@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import hmac
 import threading
 import time
 from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+
+from tradex_http import keys_match
 
 from tradex_gateway.config import GatewayConfig
 from tradex_gateway.errors import Unauthorized
@@ -18,7 +19,7 @@ def check_api_key(provided: str | None, config: GatewayConfig) -> None:
         if config.allow_anon:
             return
         raise Unauthorized("gateway API key is not configured")
-    if provided is None or not hmac.compare_digest(str(provided), config.api_key):
+    if provided is None or not keys_match(provided, config.api_key):
         raise Unauthorized("invalid API key")
 
 
