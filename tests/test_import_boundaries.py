@@ -26,6 +26,7 @@ _SRC = {
     "interfaces": _ROOT / "interfaces/src",
     "runtime": _ROOT / "runtime/src",
     "gateway": _ROOT / "gateway/src",
+    "httputil": _ROOT / "httputil/src",
 }
 
 _INTERNAL = {

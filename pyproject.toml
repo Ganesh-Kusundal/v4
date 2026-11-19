@@ -43,6 +43,7 @@ pythonpath = [
     "runtime/src",
     "services/duckdb-analytics/src",
     "gateway/src",
+    "httputil/src",
     "brokers/tests",
 ]
 filterwarnings = [
@@ -162,6 +163,7 @@ root_packages = [
     "duck_analytics",
     "tradex_application",
     "tradex_gateway",
+    "tradex_http",
 ]
 
 [[tool.importlinter.contracts]]
@@ -341,6 +343,29 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
+name = "http layer"
+type = "forbidden"
+# Leaf: shared gateway/interfaces primitives; imports no other tradex package.
+source_modules = ["tradex_http"]
+forbidden_modules = [
+    "tradex_brokers",
+    "tradex_config",
+    "tradex_market_data",
+    "tradex_execution",
+    "tradex_replay",
+    "tradex_strategy",
+    "tradex_runtime",
+    "tradex_interfaces",
+    "tradex_analytics",
+    "duck_analytics",
+    "tradex_observability",
+    "tradex_reactive",
+    "tradex_application",
+    "tradex_domain",
+    "tradex_gateway",
+]
+
+[[tool.importlinter.contracts]]
 name = "observability layer"
 type = "forbidden"
 source_modules = ["tradex_observability"]
@@ -417,6 +442,7 @@ members = [
     # declared deps resolve from the root lock instead of a second one.
     "services/duckdb-analytics",
     "gateway",
+    "httputil",
 ]
 
 [tool.uv.sources]
@@ -436,6 +462,7 @@ tradex-interfaces = { workspace = true }
 tradex-runtime = { workspace = true }
 tradex-duckdb = { workspace = true }
 tradex-gateway = { workspace = true }
+tradex-http = { workspace = true }
 
 [dependency-groups]
 dev = [

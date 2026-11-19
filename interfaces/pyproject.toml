@@ -10,6 +10,7 @@ requires-python = ">=3.12"
 
 dependencies = [
     "tradex-domain>=0.1.0,<0.2",
+    "tradex-http>=0.1.0,<0.2",
     "tradex-config>=0.1.0,<0.2",
     "tradex-execution>=0.1.0,<0.2",
     "tradex-application>=0.1.0,<0.2",
