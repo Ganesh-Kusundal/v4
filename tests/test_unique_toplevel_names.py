@@ -32,7 +32,8 @@ def _collisions() -> dict[str, list[str]]:
     seen: dict[str, set[str]] = collections.defaultdict(set)
     for f in files:
         for n in ast.parse((_ROOT / f).read_text()).body:
-            if isinstance(n, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) and not n.name.startswith("_"):
+            defn = ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+            if isinstance(n, defn) and not n.name.startswith("_"):
                 seen[n.name].add(f)
     return {k: sorted(v) for k, v in seen.items() if len(v) > 1}
 
