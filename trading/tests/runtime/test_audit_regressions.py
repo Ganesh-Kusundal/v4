@@ -54,9 +54,9 @@ class TestBootSafety:
     """boot() rejects invalid configurations."""
 
     def test_invalid_mode_rejected(self) -> None:
-        config = AppConfig(risk=permissive_risk(), mode="invalid")
+        # Fail-closed at construction: an unknown mode never reaches boot().
         with pytest.raises(ValueError, match="unknown mode"):
-            boot(config)
+            AppConfig(risk=permissive_risk(), mode="invalid")
 
     def test_live_mode_with_paper_broker_rejected(self) -> None:
         config = AppConfig(risk=permissive_risk(),

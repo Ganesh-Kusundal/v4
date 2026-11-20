@@ -28,14 +28,12 @@ class TestBootModeValidation:
         session.stop()
 
     def test_unknown_mode_raises(self) -> None:
-        cfg = AppConfig(risk=permissive_risk(), mode="unknown_mode")
         with pytest.raises(ValueError, match="unknown mode"):
-            boot(cfg)
+            AppConfig(risk=permissive_risk(), mode="unknown_mode")
 
     def test_empty_mode_raises(self) -> None:
-        cfg = AppConfig(risk=permissive_risk(), mode="")
         with pytest.raises(ValueError, match="unknown mode"):
-            boot(cfg)
+            AppConfig(risk=permissive_risk(), mode="")
 
 
 class TestAppConfigBrokerIdValidation:
