@@ -31,6 +31,8 @@ dependencies = [
 # duplicate claim was removed because two wheels owning `bin/tradex` made
 # installs order-dependent.
 tradex = "tradex_interfaces.cli:main"
+# MCP stdio server exposing the research tools to any MCP client / agent.
+tradex-agent = "tradex_interfaces.agent.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tradex_interfaces"]
