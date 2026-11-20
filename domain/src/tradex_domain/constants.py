@@ -6,6 +6,8 @@ Eliminates 300+ scattered constant definitions.
 
 from decimal import Decimal
 
+from tradex_domain.enums import Mode
+
 DEFAULT_INITIAL_CAPITAL = Decimal("100000")
 DEFAULT_BPS_DIVISOR = Decimal("10000")
 DEFAULT_FILL_DEDUP_LRU = 50_000
@@ -150,7 +152,7 @@ SEGMENT_CANONICAL_UPSTOX = {
     "BSE_INDEX": "IDX",
 }
 PAPER_DEFAULT = "PAPER"
-MODES = {"paper", "backtest", "replay", "live"}
+MODES = {m.value for m in Mode}
 READY_STATE = "READY"
 DEPTH_MODES = {"off", "20", "30"}
 RECOVERY_TRIGGERS = {"large_jump", "missing_bar"}

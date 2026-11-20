@@ -94,6 +94,22 @@ class BrokerId(StrEnum):
     REPLAY = "REPLAY"
 
 
+class Mode(StrEnum):
+    """Execution mode for a run.
+
+    A ``StrEnum`` so a ``Mode`` compares and serialises as its wire value
+    (``Mode.LIVE == "live"``), which keeps every existing string comparison and
+    JSON payload working while giving the composition root one closed set to
+    match on. Unknown values are rejected at ``AppConfig`` construction, not
+    discovered at boot (see ``AppConfig.__post_init__``).
+    """
+
+    PAPER = "paper"
+    BACKTEST = "backtest"
+    REPLAY = "replay"
+    LIVE = "live"
+
+
 class Timeframe(StrEnum):
     """Single canonical timeframe type."""
 
@@ -168,6 +184,7 @@ __all__ = [
     "AssetClass",
     "BrokerId",
     "ExchangeId",
+    "Mode",
     "OrderSide",
     "OrderStatus",
     "OrderType",

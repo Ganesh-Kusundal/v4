@@ -14,10 +14,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from tradex_domain import BrokerId
+from tradex_domain import BrokerId, Mode
 from tradex_domain.constants import (
     BOOK_MATCHING,
     DEFAULT_BACKTEST_RISK_FRACTION,
+    MODES,
     PAPER_DEFAULT,
     SLIPPAGE_MODEL,
 )
@@ -44,6 +45,22 @@ ENV_FILE_ENV_VAR = "TRADEX_ENV_FILE"
 #: cash equity and a BSE one — and this repository has already paid for
 #: collapsing two securities onto one symbol.
 _INSTRUMENT_ENTRY_FORM = "EXCHANGE:SYMBOL (e.g. NSE:RELIANCE)"
+
+
+def _coerce_mode(value: object) -> Mode:
+    """Coerce a wire value to :class:`Mode`, rejecting anything unknown.
+
+    Fail-closed: an unknown mode (e.g. a ``"lvie"`` typo) raises here at config
+    construction rather than falling through the composition root's branches.
+    """
+    if isinstance(value, Mode):
+        return value
+    try:
+        return Mode(str(value))
+    except ValueError:
+        raise ValueError(
+            f"unknown mode {value!r}; valid modes: {sorted(MODES)}"
+        ) from None
 
 
 def parse_feed_instruments(raw: str | Iterable[object]) -> tuple[Instrument, ...]:
@@ -485,8 +502,9 @@ class AppConfig:
     ----------
     broker_id : BrokerId
         The broker to use (default: PAPER).
-    mode : str
-        Execution mode: "paper", "backtest", "replay", "live".
+    mode : Mode
+        Execution mode (``Mode.PAPER``/``BACKTEST``/``REPLAY``/``LIVE``); a
+        string wire value is coerced and validated at construction.
     risk : RiskConfig
         Risk management configuration.
     runtime_dir : str
@@ -518,7 +536,7 @@ class AppConfig:
     """
 
     broker_id: BrokerId = BrokerId.PAPER
-    mode: str = "paper"
+    mode: Mode = Mode.PAPER
     risk: RiskConfig = field(default_factory=RiskConfig)
     runtime_dir: str = field(default_factory=default_runtime_dir_str)
     kill_switch_default: bool = False
@@ -557,6 +575,10 @@ class AppConfig:
         return tuple(candidates)
 
     def __post_init__(self) -> None:
+        # Mode is one closed set, validated here so an unknown value fails at
+        # construction, not at boot. A StrEnum keeps ``mode == "live"`` and JSON
+        # serialisation working unchanged.
+        object.__setattr__(self, "mode", _coerce_mode(self.mode))
         # The tape is a set, not a list: one instrument is proven once however
         # many times it was named. Held here rather than only in the parser so
         # the invariant survives every way in — the env var, ``from_dict``, or a
@@ -625,7 +647,7 @@ class AppConfig:
 
         return cls(
             broker_id=broker_id,
-            mode=str(data.get("mode", "paper")),
+            mode=_coerce_mode(data.get("mode", "paper")),
             risk=risk,
             runtime_dir=str(data.get("runtime_dir") or default_runtime_dir_str()),
             kill_switch_default=bool(data.get("kill_switch_default", False)),

@@ -9,10 +9,12 @@ from tradex_domain.capabilities import (
     BrokerCapabilities,
     require_capability,
 )
+from tradex_domain.clocks import LiveClock, ReplayClock, SimClock
 from tradex_domain.enums import (
     AssetClass,
     BrokerId,
     ExchangeId,
+    Mode,
     OrderSide,
     OrderStatus,
     OrderType,
@@ -67,7 +69,6 @@ from tradex_domain.market import OHLC, Candle, Depth, HistoricalSeries, Quote
 from tradex_domain.market_builder import build_depth, candles_from_dataframe, make_candle
 from tradex_domain.options import Expiry, OptionChain, OptionPair
 from tradex_domain.order_factory import create_order
-from tradex_domain.clocks import LiveClock, ReplayClock, SimClock
 from tradex_domain.protocols import (
     BrokerAdapter,
     Clock,
@@ -124,6 +125,7 @@ __all__ = [
     "AssetClass",
     "BrokerId",
     "ExchangeId",
+    "Mode",
     "OrderSide",
     "OrderStatus",
     "OrderType",

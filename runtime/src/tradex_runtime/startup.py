@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from tradex_brokers import DhanBroker, PaperBroker, UpstoxBroker
-from tradex_domain import BrokerId, Money, OrderRejectedError
+from tradex_domain import BrokerId, Mode, Money, OrderRejectedError
 from tradex_domain.constants import (
     BOOK_MATCHING,
     DEFAULT_BPS_DIVISOR,
@@ -235,7 +235,7 @@ def _compose_fill_source(
     paper_clock: Callable[[], datetime] | None,
 ) -> Any:
     """Mode composer: pick the FillSource for the configured run mode."""
-    if cfg.mode == "paper":
+    if cfg.mode == Mode.PAPER:
         from tradex_runtime.paper_book_fill_source import PaperBookFillSource
 
         if cfg.execution.fill_path == BOOK_MATCHING:
@@ -244,11 +244,11 @@ def _compose_fill_source(
                 clock=paper_clock,
             )
         return PaperFillSource(slippage_model=slippage_model)
-    if cfg.mode == "backtest":
+    if cfg.mode == Mode.BACKTEST:
         return SimulatedFillSource(slippage_model=slippage_model)
-    if cfg.mode == "live":
+    if cfg.mode == Mode.LIVE:
         return BrokerFillSource(broker)
-    if cfg.mode == "replay":
+    if cfg.mode == Mode.REPLAY:
         return SimulatedFillSource(slippage_model=slippage_model)
     raise ValueError(f"unknown mode: {cfg.mode}")
 
@@ -264,7 +264,7 @@ def _select_strategies(
     named, and refuses the example auto-register switch outright. Paper and
     backtest keep the historical switch.
     """
-    if cfg.mode == "live":
+    if cfg.mode == Mode.LIVE:
         if cfg.execution.auto_register_examples:
             raise ValueError(
                 "auto_register_examples is not allowed in live mode; name the "
@@ -427,11 +427,11 @@ def boot(
     # limit is named as the missing risk limit rather than surfacing as some
     # later, more incidental gate while the operator is still filling in the
     # rest of a fresh config.
-    if cfg.mode in ("paper", "live"):
+    if cfg.mode in (Mode.PAPER, Mode.LIVE):
         cfg.risk.require_limits()
-    if cfg.mode == "live" and cfg.broker_id == BrokerId.PAPER:
+    if cfg.mode == Mode.LIVE and cfg.broker_id == BrokerId.PAPER:
         raise ValueError("live mode requires a non-paper broker")
-    if cfg.mode == "live" and not cfg.live_enabled:
+    if cfg.mode == Mode.LIVE and not cfg.live_enabled:
         raise ValueError("live mode requires live_enabled=true in config")
     # AC-17 / lane 5d: a credential file readable beyond its owner is a
     # defect, and the token layer only guarantees the mode of files IT created.
@@ -446,7 +446,7 @@ def boot(
     # files the operator may have dropped in (token_state, idempotency DBs,
     # workspace sqlite, .env.local) and refuse to boot if any are permissive.
     assert_runtime_secret_permissions(cfg.runtime_dir)
-    if cfg.mode == "live" and not cfg.persistence.path:
+    if cfg.mode == Mode.LIVE and not cfg.persistence.path:
         raise ValueError("live mode requires persistence path")
 
     # 1. Create broker. Live brokers bind a real transport via the standard
@@ -454,7 +454,7 @@ def boot(
     # transport-less adapter directly (paper is transport-less by design).
     # An injected broker (seam for tests and the SDK factories) wins.
     if broker is None:
-        if cfg.mode == "live":
+        if cfg.mode == Mode.LIVE:
             from tradex_runtime.live import build_broker_from_env
             broker = build_broker_from_env(
                 cfg.broker_id.value,
@@ -477,7 +477,7 @@ def boot(
     # reentrant on the same thread, so the lock never delays it.
     if bus is None:
         bus = ReactiveBus(metrics=metrics)
-        if cfg.mode == "live":
+        if cfg.mode == Mode.LIVE:
             # bus is still the plain ReactiveBus just created above.
             bus = ThreadSafeReactiveBus(cast(ReactiveBus, bus))
 
@@ -512,7 +512,7 @@ def boot(
 
         guard = SQLiteIdempotencyGuard(cfg.persistence.path)
         event_store = SQLiteEventStore(cfg.persistence.path)
-    elif cfg.mode in ("paper", "live"):
+    elif cfg.mode in (Mode.PAPER, Mode.LIVE):
         # No explicit path: paper still gets a durable guard under the runtime
         # dir. Live boot has already refused to reach here without a path
         # (`live mode requires persistence path`).
@@ -528,7 +528,7 @@ def boot(
     # Capture the session built inside _boot_tail so a failed boot can pass it
     # to the rollback instead of None (full teardown even in NEW state).
     session_sink: list[Any] = []
-    if cfg.mode == "live":
+    if cfg.mode == Mode.LIVE:
         from tradex_runtime.writer_lock import SingleWriterLock
 
         writer_lock = SingleWriterLock(
@@ -642,7 +642,7 @@ def _boot_tail(
     from tradex_runtime.feed_supervisor import FeedSupervisor
     from tradex_runtime.session_impl import TradingSession
 
-    feed_supervisor = FeedSupervisor() if cfg.mode == "live" else None
+    feed_supervisor = FeedSupervisor() if cfg.mode == Mode.LIVE else None
 
     # 5. Create risk manager
     # AC-9: the per-strategy budgets are resolved by the strategy identifier,
@@ -690,9 +690,9 @@ def _boot_tail(
         # and would be a different control wearing this one name. The live
         # default is False, so a live session comes up refusing every submit
         # until the operator deliberately opens it.
-        live_orders_enabled=(cfg.live_orders_enabled or cfg.mode != "live"),
+        live_orders_enabled=(cfg.live_orders_enabled or cfg.mode != Mode.LIVE),
         # Live risk is never allowed to silently operate on an unmarked book.
-        require_fresh_marks=(cfg.mode == "live" or cfg.risk.require_fresh_marks),
+        require_fresh_marks=(cfg.mode == Mode.LIVE or cfg.risk.require_fresh_marks),
         max_mark_age_seconds=cfg.risk.max_mark_age_seconds,
         # AC-9: per-strategy risk budgets, resolved by strategy id.
         budgets=cfg.risk.budgets,
@@ -703,8 +703,8 @@ def _boot_tail(
     )
 
     # 6. Create execution engine
-    live_fail_closed = cfg.mode == "live"
-    durable_mode = cfg.mode in ("paper", "live") and event_store is not None
+    live_fail_closed = cfg.mode == Mode.LIVE
+    durable_mode = cfg.mode in (Mode.PAPER, Mode.LIVE) and event_store is not None
     # MP-1: pass the durable fill dedup explicitly when a store is present
     # (plan Task 5 Step 5b). Mirror the engine's own construction branch so
     # LRU eviction still ticks `bus.applied_fills.evicted` — without the
@@ -739,14 +739,14 @@ def _boot_tail(
     # Keep the service on the session so shutdown can detach its subscription.
     # Paper MARKET fills reference the same cache quotes that drive MTM, so
     # paper fills and marks share one market reference.
-    if cfg.mode == "paper":
+    if cfg.mode == Mode.PAPER:
         fill_source.bind_cache(engine.cache)
     # Cash gate: live and paper must know the real balance. A BUY whose
     # notional cannot be covered is denied, and an unavailable balance denies
     # too (fail closed) rather than skipping the gate. Backtest/replay own
     # their own CashLedger and bypass this gate.
     opening_cash: Decimal | None = None
-    if cfg.mode in ("paper", "live"):
+    if cfg.mode in (Mode.PAPER, Mode.LIVE):
         provider = cfg.risk.cash_provider or (
             lambda: _broker_available_cash(broker)
         )
@@ -830,7 +830,7 @@ def _boot_tail(
         risk_fraction=cfg.risk.risk_fraction,
         equity_source=(
             (lambda: _broker_available_cash(broker))
-            if cfg.mode in ("paper", "live")
+            if cfg.mode in (Mode.PAPER, Mode.LIVE)
             else None
         ),
     )
@@ -1014,7 +1014,7 @@ def _boot_tail(
         # Fail-closed: a live session with no strategies is a no-op that wastes
         # a broker connection. Raise before connecting so the operator learns
         # the real problem, not a downstream feed/auth error.
-        if cfg.mode == "live" and strategy_engine is not None:
+        if cfg.mode == Mode.LIVE and strategy_engine is not None:
             count = len(strategy_engine.strategies)
             if count == 0:
                 raise ValueError(
@@ -1026,7 +1026,7 @@ def _boot_tail(
     broker.connect()
     # Live must prove wire auth before the session is READY. connect() only
     # loads instruments; a locally-unexpired JWT can still 401 at the venue.
-    if cfg.mode == "live":
+    if cfg.mode == Mode.LIVE:
         verify = getattr(broker, "verify_connection", None)
         if not callable(verify) or not verify():
             raise RuntimeError(
@@ -1045,7 +1045,7 @@ def _boot_tail(
     # watches the quote tape. Built here (before the bridge) so the bridge can
     # stamp it, and reused in the market-feed block below to join the poll.
     order_watchdog: Any = None
-    if cfg.mode == "live":
+    if cfg.mode == Mode.LIVE:
         try:
             sb = getattr(broker, "stream_backend", None)
             if callable(sb):
@@ -1112,7 +1112,7 @@ def _boot_tail(
     # the broker; paper/live keep live data.
     scanner_engine: Any = None
     if wire_strategies:
-        if cfg.mode in ("backtest", "replay"):
+        if cfg.mode in (Mode.BACKTEST, Mode.REPLAY):
             from tradex_market_data.market_provider import ParquetMarketProvider
             from tradex_market_data.window_loader import MarketWindowLoader
             # AC-15: the scanner's parquet store gets the session registry, so a
@@ -1155,7 +1155,7 @@ def _boot_tail(
     feed_monitor: FeedStaleMonitor | None = None
     feed_recovery: FeedRecoveryCoordinator | None = None
     tape_recorder: Any = None
-    if cfg.mode == "live":
+    if cfg.mode == Mode.LIVE:
         live = _compose_live_feed(
             cfg=cfg,
             broker=broker,
@@ -1221,7 +1221,7 @@ def _boot_tail(
     # session and its RiskManager master gate, flipping it refuses every
     # submit. As with the RiskManager gate, this closes order flow that
     # leaves the machine, so it is bound in live only; paper keeps it open.
-    live_orders_enabled=(cfg.live_orders_enabled or cfg.mode != "live"),
+    live_orders_enabled=(cfg.live_orders_enabled or cfg.mode != Mode.LIVE),
     )
 
     if _session_sink is not None:
@@ -1267,7 +1267,7 @@ def _boot_tail(
     # only exercises it. Flipping the flag false is a legitimate "stop trading
     # but keep the process" state, so the boot is not refused — the gate is
     # simply already closed, which is exactly what the operator asked for.
-    gate_open = cfg.live_orders_enabled or cfg.mode != "live"
+    gate_open = cfg.live_orders_enabled or cfg.mode != Mode.LIVE
     if gate_open:
         session.assert_order_gate_open()  # open gate: must not raise
     else:
@@ -1287,7 +1287,7 @@ def _boot_tail(
     # A pre-configured ``kill_switch_default=True`` is NOT a "new" trip;
     # the session still goes READY so the user can observe rejection.
     reconcile_tripped = False
-    if cfg.mode == "live":
+    if cfg.mode == Mode.LIVE:
         if event_store is None:
             log.critical(
                 "Refusing to start session: live mode requires a durable "
