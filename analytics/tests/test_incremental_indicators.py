@@ -22,7 +22,8 @@ from tradex_analytics.incremental import (
     StreamingRSI,
     StreamingSMA,
 )
-from tradex_analytics.indicators import ema, rsi
+from tradex_analytics.indicators import compute_indicator, ema, rsi
+from tradex_analytics.registry import REGISTRY
 from tradex_analytics.runtime import AnalyticsRuntime
 from tradex_domain import OHLC, Candle, Equity, Price, Quantity, Timeframe
 
@@ -107,24 +108,33 @@ def _candles(n: int):
 
 
 def test_analytics_view_matches_batch_at_every_bar() -> None:
-    """The shared view extends incrementally and must equal the batch at each step.
-
-    This is the A2 guarantee: the view a strategy reads is O(1) per bar and
-    never diverges from ``sma``/``ema``/``rsi`` over the whole series.
+    """The shared view extends incrementally and must equal the real batch
+    (``compute_indicator`` — the registry dispatch, not a private helper) at each
+    step. This is the A2 guarantee across single- and multi-plot indicators.
     """
-    inst, candles = _candles(50)
+    inst, candles = _candles(60)
     runtime = AnalyticsRuntime()
-    closes: list[float] = []
-    for candle in candles:
+    cases = [
+        ("sma", {"period": 14}),
+        ("ema", {"period": 14}),
+        ("rsi", {"period": 14}),
+        ("bollinger", {"period": 14, "num_std": 2.0}),
+        ("macd", {"fast": 12, "slow": 26, "signal": 9}),
+    ]
+    for i, candle in enumerate(candles):
         runtime.ingest(candle)
-        closes.append(float(candle.ohlc.close.value))
         view = runtime.view(inst.instrument_id, Timeframe.M1)
-        for name, batch in (("sma", sma), ("ema", ema), ("rsi", rsi)):
-            got = view.indicator(name, period=14)["value"]
-            expected = batch(closes, 14)
-            assert len(got) == len(expected) == len(closes)
-            for g, e in zip(got, expected):
-                if e is None or g is None:
-                    assert e is None and g is None
-                else:
-                    assert math.isclose(g, e, rel_tol=1e-12, abs_tol=1e-12)
+        so_far = candles[: i + 1]
+        for name, params in cases:
+            got = view.indicator(name, **params)
+            exp = compute_indicator(name, so_far, params, REGISTRY)
+            assert set(got) == set(exp), (name, got.keys(), exp.keys())
+            for plot in exp:
+                assert len(got[plot]) == len(exp[plot]) == i + 1, (name, plot)
+                for g, e in zip(got[plot], exp[plot]):
+                    if e is None or g is None:
+                        assert e is None and g is None, (name, plot, g, e)
+                    else:
+                        assert math.isclose(g, e, rel_tol=1e-9, abs_tol=1e-9), (
+                            name, plot, g, e,
+                        )

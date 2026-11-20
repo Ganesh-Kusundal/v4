@@ -28,6 +28,9 @@ __all__ = [
     "StreamingEMA",
     "StreamingRSI",
     "StreamingSMA",
+    "StreamingBollinger",
+    "StreamingMacd",
+    "StreamingSmaSeededEma",
 ]
 
 
@@ -181,4 +184,115 @@ class StreamingRSI:
 
     @property
     def value(self) -> float | None:
+        return self._value
+
+
+class StreamingSmaSeededEma:
+    """SMA-seeded EMA — the registry's ``ema`` (openalgo-charts ``smaSeededEma``).
+
+    Seeds with the SMA of the first ``period`` values (emitted at index
+    ``period-1``), then ``prev = v*k + prev*(1-k)``. ``None`` input is skipped
+    (used for the MACD signal, which smooths a warmup-gapped line).
+    """
+
+    def __init__(self, period: int) -> None:
+        if period <= 0:
+            raise ValueError("period must be positive")
+        self._period = period
+        self._k = 2.0 / (period + 1)
+        self._seed: list[float] = []
+        self._prev: float | None = None
+        self._value: float | None = None
+
+    def update(self, value: float | None) -> float | None:
+        if value is None:
+            return None
+        v = float(value)
+        if self._prev is None:
+            self._seed.append(v)
+            if len(self._seed) < self._period:
+                return None
+            self._prev = sum(self._seed) / self._period
+            self._value = self._prev
+            return self._value
+        self._prev = v * self._k + self._prev * (1.0 - self._k)
+        self._value = self._prev
+        return self._value
+
+    @property
+    def value(self) -> float | None:
+        return self._value
+
+
+class StreamingBollinger:
+    """Bollinger bands: SMA middle with ±num_std population deviations.
+
+    Matches :func:`tradex_analytics.indicators.bollinger` (middle = the two-step
+    running-sum SMA; variance = ``sum((x-mid)^2)/period`` over the window).
+    """
+
+    def __init__(self, period: int, num_std: float) -> None:
+        if period <= 0:
+            raise ValueError("period must be positive")
+        self._period = period
+        self._num_std = float(num_std)
+        self.reset()
+
+    def reset(self) -> None:
+        self._window: deque[float] = deque(maxlen=self._period)
+        self._sum = 0.0
+        self._value: dict[str, float | None] = {
+            "upper": None, "middle": None, "lower": None,
+        }
+
+    def update(self, value: float) -> dict[str, float | None]:
+        v = float(value)
+        if len(self._window) < self._period:
+            self._window.append(v)
+            self._sum += v
+            if len(self._window) < self._period:
+                return {"upper": None, "middle": None, "lower": None}
+        else:
+            oldest = self._window[0]
+            self._sum += v
+            self._window.append(v)
+            self._sum -= oldest
+        mid = self._sum / self._period
+        variance = sum((x - mid) ** 2 for x in self._window) / self._period
+        sd = variance ** 0.5
+        offset = self._num_std * sd
+        self._value = {"upper": mid + offset, "middle": mid, "lower": mid - offset}
+        return self._value
+
+    @property
+    def value(self) -> dict[str, float | None]:
+        return self._value
+
+
+class StreamingMacd:
+    """MACD line / signal / histogram (openalgo-charts parity).
+
+    Fast and slow legs are SMA-seeded EMAs; the signal is an SMA-seeded EMA over
+    the (warmup-gapped) MACD line, seeded from its first ``signal`` real values.
+    """
+
+    def __init__(self, fast: int, slow: int, signal: int) -> None:
+        self._fast = StreamingSmaSeededEma(fast)
+        self._slow = StreamingSmaSeededEma(slow)
+        self._signal = StreamingSmaSeededEma(signal)
+        self._value: dict[str, float | None] = {
+            "macd": None, "signal": None, "histogram": None,
+        }
+
+    def update(self, value: float) -> dict[str, float | None]:
+        f = self._fast.update(value)
+        s = self._slow.update(value)
+        line = None if f is None or s is None else f - s
+        sig = self._signal.update(line)
+        hist = None if line is None or sig is None else line - sig
+        self._value = {"macd": line, "signal": sig, "histogram": hist}
+        return self._value
+
+    @property
+    def value(self) -> dict[str, float | None]:
         return self._value
