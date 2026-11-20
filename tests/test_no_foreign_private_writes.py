@@ -85,6 +85,7 @@ def test_the_scan_covers_every_workspace_source_root() -> None:
         _ROOT / "brokers/src",
         _ROOT / "config/src",
         _ROOT / "observability/src",
+        _ROOT / "httputil/src",
         _ROOT / "analytics/src",
         _ROOT / "reactive/src",
         _ROOT / "execution/src",
