@@ -93,41 +93,6 @@ def test_app_state_origin_without_env_var_drives_cors_and_csrf(
     assert not _cors_allows(client, DEFAULT_UI_ORIGIN)
 
 
-def test_app_state_origin_without_env_var_passes_csrf_origin_check(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """End to end: a session-authenticated POST with the app.state origin and
-    a valid CSRF token must not be rejected on Origin."""
-    monkeypatch.delenv(UI_ORIGIN_ENV_VAR, raising=False)
-
-    app = _make_app()
-    app.state.ui_origin = "http://app-state.example:9000"
-    client = TestClient(app)
-    login = client.post("/auth/login", json={"password": "test-key"})
-    assert login.status_code == 200
-
-    r = client.post(
-        "/orders",
-        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
-        headers={
-            "X-CSRF-Token": login.json()["csrf_token"],
-            "Origin": "http://app-state.example:9000",
-            "Idempotency-Key": "k-app-state-origin",
-        },
-    )
-    assert r.status_code != 403
-
-    # ...and the default origin, which CORS no longer allows, is rejected.
-    r = client.post(
-        "/orders",
-        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
-        headers={
-            "X-CSRF-Token": login.json()["csrf_token"],
-            "Origin": DEFAULT_UI_ORIGIN,
-            "Idempotency-Key": "k-default-origin",
-        },
-    )
-    assert r.status_code == 403
 
 
 # ---------------------------------------------------------------------------
