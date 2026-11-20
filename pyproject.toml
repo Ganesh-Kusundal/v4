@@ -68,6 +68,7 @@ extend-exclude = [
     "benchmarks",   # benchmark harness
     "graphify-out", # generated knowledge graph
     ".kilo",        # agent worktrees — a full second copy of the tree
+    "vibe-trading", # third-party reference clone (HKUDS/Vibe-Trading), not our code
 ]
 
 [tool.ruff.lint]
