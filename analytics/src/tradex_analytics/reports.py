@@ -201,6 +201,94 @@ def max_drawdown(equity_curve: list) -> float:
     return max_dd
 
 
+def drawdown_episodes(equity_curve: Sequence[float]) -> dict[str, Any]:
+    """Decompose an equity curve into discrete drawdown episodes + aggregates.
+
+    An *episode* is one peak-to-recovery decline. Ported from Vibe-Trading's
+    ``drawdown_distribution_analysis`` (MIT) into a pure-Python, dependency-free
+    form so a live/backtest loop can build the same risk-x-ray without pandas.
+
+    Args:
+        equity_curve: Equity/wealth values (Decimal or float), strictly positive.
+
+    Returns:
+        dict with ``max_drawdown`` (positive fraction), ``max_drawdown_duration``
+        (bars), ``avg_drawdown_depth``, ``avg_drawdown_duration``, ``ulcer_index``
+        (RMS drawdown), ``pain_index`` (mean drawdown), ``episode_count``, and
+        ``episodes`` — each ``{peak_index, trough_index, recovery_index,
+        max_depth, duration, recovered}``.
+
+    Raises:
+        ValueError: if the curve is empty or any value is not strictly positive.
+    """
+    values = [_to_float(e) for e in equity_curve]
+    if not values:
+        raise ValueError("equity_curve is empty")
+    if any(v <= 0 for v in values):
+        raise ValueError("equity_curve must be strictly positive")
+
+    n = len(values)
+    # Per-bar drawdown fraction (positive): 1 - value / running_peak.
+    dd = [0.0] * n
+    running_peak = values[0]
+    for i, value in enumerate(values):
+        if value > running_peak:
+            running_peak = value
+        dd[i] = 1.0 - value / running_peak if running_peak > 0 else 0.0
+
+    episodes: list[dict] = []
+    in_drawdown = False
+    peak_idx = 0
+    trough_idx = 0
+    max_depth = 0.0
+    for i in range(n):
+        if values[i] >= values[peak_idx]:
+            if in_drawdown:
+                episodes.append(
+                    {
+                        "peak_index": peak_idx,
+                        "trough_index": trough_idx,
+                        "recovery_index": i,
+                        "max_depth": max_depth,
+                        "duration": i - peak_idx,
+                        "recovered": True,
+                    }
+                )
+                in_drawdown = False
+            peak_idx = i
+            trough_idx = i
+            max_depth = 0.0
+        else:
+            in_drawdown = True
+            if dd[i] > max_depth:
+                max_depth = dd[i]
+                trough_idx = i
+    if in_drawdown:
+        episodes.append(
+            {
+                "peak_index": peak_idx,
+                "trough_index": trough_idx,
+                "recovery_index": None,
+                "max_depth": max_depth,
+                "duration": (n - 1) - peak_idx,
+                "recovered": False,
+            }
+        )
+
+    depths = [e["max_depth"] for e in episodes]
+    durations = [e["duration"] for e in episodes]
+    return {
+        "max_drawdown": max(depths) if depths else 0.0,
+        "max_drawdown_duration": max(durations) if durations else 0,
+        "avg_drawdown_depth": sum(depths) / len(depths) if depths else 0.0,
+        "avg_drawdown_duration": sum(durations) / len(durations) if durations else 0.0,
+        "ulcer_index": (sum(d * d for d in dd) / n) ** 0.5,
+        "pain_index": sum(dd) / n,
+        "episode_count": len(episodes),
+        "episodes": episodes,
+    }
+
+
 def total_return(equity_curve: list) -> float:
     """Calculate total return from equity curve.
 

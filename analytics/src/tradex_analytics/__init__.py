@@ -20,7 +20,13 @@ from tradex_analytics.indicators import (
 )
 from tradex_analytics.orderflow import classify_aggressor, cvd_from_quotes, imbalance
 from tradex_analytics.probability import win_rate
-from tradex_analytics.reports import max_drawdown, sharpe_ratio, sortino_ratio, total_return
+from tradex_analytics.reports import (
+    drawdown_episodes,
+    max_drawdown,
+    sharpe_ratio,
+    sortino_ratio,
+    total_return,
+)
 from tradex_analytics.research_validity import (
     EULER_MASCHERONI,
     MIN_OOS_BARS_PER_FOLD,
@@ -92,6 +98,7 @@ __all__ = [
     "count_round_trips",
     "cvd_from_quotes",
     "deflated_sharpe",
+    "drawdown_episodes",
     "ema",
     "expected_max_sharpe",
     "imbalance",
