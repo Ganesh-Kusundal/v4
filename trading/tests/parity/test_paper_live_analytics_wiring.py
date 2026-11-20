@@ -1,10 +1,10 @@
 """Parity: paper/live boot wires the analytics view (A3).
 
-Today ``TradingSession.paper`` / ``boot`` do not construct an
-``AnalyticsRuntime`` nor pass it to the ``ReactiveStrategyEngine``, so
-``context.analytics`` is ``None`` on every bar and strategies fall back to
-their hand-rolled indicator code. This pins that gap as xfail until A3 is
-closed.
+A strategy that declares ``required_indicators`` must receive a non-None
+``context.analytics`` in every mode. ``ReactiveStrategyEngine`` now creates an
+``AnalyticsRuntime`` lazily when a registered strategy needs indicators, so the
+paper path matches the backtest path (which always wires one) instead of
+silently falling back to hand-rolled indicator code.
 """
 
 from __future__ import annotations
@@ -12,15 +12,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-import pytest
-from tradex_config.schema import AppConfig
 from tradex_domain import OHLC, Candle, Equity, Price, Quantity, Timeframe
 from tradex_reactive.bus import ReactiveBus
 from tradex_replay.backtest import BacktestEngine
 from tradex_runtime.session_impl import TradingSession
 from tradex_strategy import ReactiveStrategyEngine
 from tradex_strategy.extensions.strategies.sma_cross import SmaCrossStrategy
-from trading.tests.risk_support import app_config, permissive_risk
+from trading.tests.risk_support import app_config
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 
@@ -44,7 +42,6 @@ def _bars(n: int = 100) -> list[Candle]:
     return bars
 
 
-@pytest.mark.xfail(strict=True, reason="A3: paper/live boot does not wire analytics")
 def test_paper_live_analytics_wiring() -> None:
     bars = _bars(100)
 

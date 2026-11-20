@@ -117,7 +117,10 @@ class ReactiveStrategyEngine:
                 into before the strategy is evaluated; the resulting
                 ``AnalyticsView`` for the candle's (instrument, timeframe) is
                 passed to the strategy via ``StrategyContext.analytics``.
-                ``None`` (default) leaves the context field ``None``.
+                When ``None`` (default), one is created lazily the first time a
+                registered strategy declares ``required_indicators`` — so
+                paper/live give strategies the same view as backtest, while an
+                analytics-free engine pays nothing (A3).
             positions_provider: optional zero-arg callable returning the open
                 positions (e.g. ``cache.all_positions``). When wired, the
                 context carries the read-only ``position``/``portfolio`` views
@@ -692,6 +695,20 @@ class ReactiveStrategyEngine:
             strategy: Strategy instance implementing the Strategy protocol
         """
         self._strategies[strategy.strategy_id] = strategy
+
+        # A3 parity: a strategy that declares ``required_indicators`` must get a
+        # shared analytics view in every mode, not only when the caller wired one
+        # (backtest does; paper/live boot historically did not, so
+        # ``context.analytics`` was None and the strategy fell back to hand-rolled
+        # indicator code — a silent backtest↔live divergence). Created lazily so
+        # an analytics-free engine pays nothing, and before any bar flows so no
+        # history is missed.
+        if self._analytics is None:
+            spec = getattr(strategy, "spec", None)
+            if getattr(spec, "required_indicators", None):
+                from tradex_analytics.runtime import AnalyticsRuntime
+
+                self._analytics = AnalyticsRuntime()
 
         from tradex_domain import Candle, Quote
         from tradex_domain.market import Depth
