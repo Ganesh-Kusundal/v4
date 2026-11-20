@@ -83,7 +83,7 @@ async def ws_checks() -> None:
                     saw_closed = saw_closed or bool(msg.get("closed"))
                     if saw_bar and saw_closed:
                         break
-                if t == "replay_done":
+                if t == "replay-done":
                     break
         except TimeoutError:
             pass

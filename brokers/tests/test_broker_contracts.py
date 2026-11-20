@@ -72,6 +72,14 @@ DHAN_ONLY: dict[str, str] = {
 #: Public methods that exist only on ``UpstoxBroker`` — each entry documents
 #: why the asymmetry is deliberate (REF-8 kept-per-broker decisions).
 UPSTOX_ONLY: dict[str, str] = {
+    "expired_candles": (
+        "Upstox expired-instruments historical candles; Dhan has no "
+        "expired-contract history endpoint."
+    ),
+    "expired_contracts": (
+        "Upstox expired-instruments contract listing; Dhan has no "
+        "equivalent endpoint."
+    ),
     "margin": (
         "Upstox POST /margin/requirement; Dhan exposes the analogous surface "
         "as margin_calculator()."

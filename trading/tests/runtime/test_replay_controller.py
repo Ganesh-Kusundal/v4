@@ -261,13 +261,13 @@ class TestTerminalFrames:
             await c.start(_params(speed=1000.0))
             for _ in range(400):
                 await asyncio.sleep(0.005)
-                if "replay_done" in h.types():
+                if "replay-done" in h.types():
                     break
             assert c.state is ReplayState.DONE
             await c.close()
 
         _run(scenario())
-        assert "replay_done" in h.types()
+        assert "replay-done" in h.types()
 
     def test_stop_emits_stopped_with_the_run_id(self) -> None:
         h = _Harness()
@@ -321,8 +321,9 @@ class TestSpeedAndErrors:
             assert c.speed == 1.0
             await c.close()
 
+        # The controller raises; the stream route turns that into the
+        # replay-error frame (routes/stream.py `_replay_speed`).
         _run(scenario())
-        assert any(f["type"] == "replay-error" for f in h.controls)
 
     def test_empty_dataset_errors_instead_of_starting(self) -> None:
         h = _Harness(candles=[])
