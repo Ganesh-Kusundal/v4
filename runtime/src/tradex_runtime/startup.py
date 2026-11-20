@@ -63,6 +63,7 @@ from tradex_strategy.core.scanner import DEFAULT_SCANNER_CALL_INTERVAL, ScannerE
 from tradex_strategy.core.signal_builder import get_strategy
 from tradex_strategy.extensions import all_definitions, all_scanners, all_strategies
 
+from tradex_runtime.context import RuntimeContext
 from tradex_runtime.logging_config import setup_structured_logging
 from tradex_runtime.metrics import MetricsRegistry
 
@@ -418,6 +419,9 @@ def boot(
         raise ValueError(
             f"unknown mode: {cfg.mode!r}, must be one of {sorted(MODES)}"
         )
+    # Resolve the mode once into named predicates; the rest of boot reads intent
+    # (ctx.is_live, ctx.is_online, …) instead of re-comparing the enum.
+    ctx = RuntimeContext.from_config(cfg)
     # AC-10 / lane 2f: in paper as well as live, no risk limit is optional. A
     # limit left at None refuses the boot; an operator who genuinely wants one
     # unlimited says so with the explicit UNBOUNDED sentinel. Backtest and
@@ -427,11 +431,11 @@ def boot(
     # limit is named as the missing risk limit rather than surfacing as some
     # later, more incidental gate while the operator is still filling in the
     # rest of a fresh config.
-    if cfg.mode in (Mode.PAPER, Mode.LIVE):
+    if ctx.is_online:
         cfg.risk.require_limits()
-    if cfg.mode == Mode.LIVE and cfg.broker_id == BrokerId.PAPER:
+    if ctx.is_live and cfg.broker_id == BrokerId.PAPER:
         raise ValueError("live mode requires a non-paper broker")
-    if cfg.mode == Mode.LIVE and not cfg.live_enabled:
+    if ctx.is_live and not cfg.live_enabled:
         raise ValueError("live mode requires live_enabled=true in config")
     # AC-17 / lane 5d: a credential file readable beyond its owner is a
     # defect, and the token layer only guarantees the mode of files IT created.
@@ -446,7 +450,7 @@ def boot(
     # files the operator may have dropped in (token_state, idempotency DBs,
     # workspace sqlite, .env.local) and refuse to boot if any are permissive.
     assert_runtime_secret_permissions(cfg.runtime_dir)
-    if cfg.mode == Mode.LIVE and not cfg.persistence.path:
+    if ctx.is_live and not cfg.persistence.path:
         raise ValueError("live mode requires persistence path")
 
     # 1. Create broker. Live brokers bind a real transport via the standard
@@ -454,7 +458,7 @@ def boot(
     # transport-less adapter directly (paper is transport-less by design).
     # An injected broker (seam for tests and the SDK factories) wins.
     if broker is None:
-        if cfg.mode == Mode.LIVE:
+        if ctx.is_live:
             from tradex_runtime.live import build_broker_from_env
             broker = build_broker_from_env(
                 cfg.broker_id.value,
@@ -477,7 +481,7 @@ def boot(
     # reentrant on the same thread, so the lock never delays it.
     if bus is None:
         bus = ReactiveBus(metrics=metrics)
-        if cfg.mode == Mode.LIVE:
+        if ctx.threadsafe_bus:
             # bus is still the plain ReactiveBus just created above.
             bus = ThreadSafeReactiveBus(cast(ReactiveBus, bus))
 
@@ -498,6 +502,7 @@ def boot(
     fill_source: Any = _compose_fill_source(
         cfg, broker, slippage_model, paper_clock
     )
+    ctx.fill_source = fill_source
 
     # 4b. Durability (R1/R2) — the event log is the single persistence
     # authority. When a persistence path is configured, the idempotency guard
@@ -512,7 +517,7 @@ def boot(
 
         guard = SQLiteIdempotencyGuard(cfg.persistence.path)
         event_store = SQLiteEventStore(cfg.persistence.path)
-    elif cfg.mode in (Mode.PAPER, Mode.LIVE):
+    elif ctx.needs_durable_guard:
         # No explicit path: paper still gets a durable guard under the runtime
         # dir. Live boot has already refused to reach here without a path
         # (`live mode requires persistence path`).
@@ -528,7 +533,7 @@ def boot(
     # Capture the session built inside _boot_tail so a failed boot can pass it
     # to the rollback instead of None (full teardown even in NEW state).
     session_sink: list[Any] = []
-    if cfg.mode == Mode.LIVE:
+    if ctx.is_live:
         from tradex_runtime.writer_lock import SingleWriterLock
 
         writer_lock = SingleWriterLock(
