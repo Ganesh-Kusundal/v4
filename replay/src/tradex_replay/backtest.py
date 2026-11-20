@@ -374,6 +374,7 @@ class BacktestEngine:
         engine: ExecutionEngine | None = None,
         partial_fills: bool = False,
         max_fill_fraction: Decimal | float | str = Decimal("0.2"),
+        latency_bars: int = 0,
     ) -> None:
         """Initialize backtest engine.
 
@@ -475,6 +476,13 @@ class BacktestEngine:
                 "max_fill_fraction must be in (0, 1] (got "
                 f"{max_fill_fraction!r})"
             )
+        # P1.5: extra bars a next_open order waits before filling (order
+        # latency). 0 keeps the next-bar fill; N re-prices at the N-th later
+        # bar's open. Re-pricing is the engine's flush bar, so no separate
+        # handling is needed here.
+        if latency_bars < 0:
+            raise ValueError(f"latency_bars must be >= 0, got {latency_bars!r}")
+        self._latency_bars = latency_bars
 
     def _resolve_sizer(self) -> PositionSizer:
         """The sizer this run sizes every signal with (AC-5).
@@ -904,6 +912,7 @@ class BacktestEngine:
             fill_reference="next_open",
             sizer=sizer,
             analytics=analytics,
+            fill_delay_bars=self._latency_bars,
             # Read-only context views (Phase 6-7): the same cache and ledger
             # the risk manager reads, so a strategy's view of its position
             # and balance is the run's own book — no second source.

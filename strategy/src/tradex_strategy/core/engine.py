@@ -84,6 +84,7 @@ class ReactiveStrategyEngine:
         *,
         fill_reference: str = "next_open",
         pending_max_age_bars: int = 0,
+        fill_delay_bars: int = 0,
         sizer: PositionSizer | None = None,
         analytics: AnalyticsRuntime | None = None,
         positions_provider: Callable[[], Iterable[Position]] | None = None,
@@ -111,6 +112,11 @@ class ReactiveStrategyEngine:
                 number of bars processed since the order was deferred, so a
                 value of ``N`` cancels the order on the ``N+1``-th bar that
                 does not match its instrument.
+            fill_delay_bars: extra bars a ``next_open`` order waits before it is
+                released, modelling order latency (P1.5). ``0`` (default) keeps
+                the next-bar fill; ``N`` releases the order at the ``N``-th bar
+                after the one it would normally fill at, re-priced at that later
+                bar's open. Only affects ``next_open`` (deferred) orders.
             sizer: the ``PositionSizer`` for this engine. ``None`` means
                 :func:`~tradex_strategy.core.sizing.unconfigured_sizer`.
             analytics: optional ``AnalyticsRuntime`` each candle is ingested
@@ -139,6 +145,10 @@ class ReactiveStrategyEngine:
         if pending_max_age_bars < 0:
             raise ValueError(
                 f"pending_max_age_bars must be >= 0, got {pending_max_age_bars!r}"
+            )
+        if fill_delay_bars < 0:
+            raise ValueError(
+                f"fill_delay_bars must be >= 0, got {fill_delay_bars!r}"
             )
         if submit is None:
             log.error(
@@ -184,6 +194,7 @@ class ReactiveStrategyEngine:
         self._pending: dict[InstrumentId, list[dict]] = {}
         # 0 == no expiry (backward-compat). > 0 == cancel after N bars.
         self._pending_max_age_bars = pending_max_age_bars
+        self._fill_delay_bars = fill_delay_bars
         # F-47: per-strategy order outcomes. Live publishes ErrorOccurred and
         # bumps a session-global counter, so a strategy whose orders are
         # refused reads the same as one that is fine; the backtest re-raises
@@ -394,8 +405,14 @@ class ReactiveStrategyEngine:
         # O(k) lookup: only this instrument's deferred orders.
         pending_for_inst = self._pending.pop(inst_id, None)
         if pending_for_inst:
+            # Split by release bar: orders not yet due (latency) stay queued for
+            # a later bar; due orders fill at THIS candle's open.
+            due = [p for p in pending_for_inst if p.get("release_at_bar", 0) <= self._bar_count]
+            waiting = [p for p in pending_for_inst if p.get("release_at_bar", 0) > self._bar_count]
+            if waiting:
+                self._pending[inst_id] = waiting
             open_price = Price(value=Decimal(str(candle.ohlc.open.value)))
-            for pending in pending_for_inst:
+            for pending in due:
                 version = pending.get("strategy_version", "1.0.0")
                 # Re-size against the open this order actually fills at. The
                 # provisional quantity on the pending entry was taken against
@@ -608,6 +625,9 @@ class ReactiveStrategyEngine:
                 "quantity": provisional,
                 "correlation_id": correlation_id,
                 "deferred_at_bar": self._bar_count,
+                # The bar this order becomes eligible to fill at: the next bar
+                # (normal next_open) plus any configured latency.
+                "release_at_bar": self._bar_count + 1 + self._fill_delay_bars,
             })
             # The deferred leg mints its CorrelationId here too, so the chain
             # point is emitted on this path as well — ``next_open`` is the
