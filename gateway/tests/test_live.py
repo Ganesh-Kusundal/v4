@@ -210,6 +210,17 @@ def test_monitor_reports_partial_staleness_without_switching(monkeypatch):
 
         hub._monitor_cycle()
         assert await _drain(control) == []
+
+        hub._publish_quote(make_quote(equity()), "dhan")
+        hub._publish_quote(make_quote(index()), "dhan")
+        hub._monitor_cycle()
+        assert await _drain(control) == [
+            {
+                "op": "status",
+                "state": "ready",
+                "broker": "dhan",
+            }
+        ]
         hub.stop()
 
     asyncio.run(scenario())
@@ -247,7 +258,7 @@ def test_monitor_switches_only_when_every_instrument_is_stale(monkeypatch):
         assert upstox.quote_sub_calls == 1
         health = hub._runtimes["dhan"].health.state("live")
         assert health.consecutive_failures == 1
-        assert health.last_error == "stale feed"
+        assert health.last_error == "StaleFeed"
         assert hub._next_switch_at == clock.now + 10.0
         frames = await _drain(control)
         assert {
@@ -393,5 +404,66 @@ def test_depth_30_is_selected_by_capability_not_broker_name():
         assert broker.depth30_sub_calls == 1
         assert broker.depth_sub_calls == 0
         hub.stop()
+
+    asyncio.run(scenario())
+
+
+def test_unsubscribe_empty_list_is_noop_and_stop_flags_clients():
+    async def scenario() -> None:
+        runtimes = {"dhan": BrokerRuntime("dhan", FakeBroker("dhan"))}
+        directory = InstrumentDirectory(runtimes)
+        hub = LiveHub(
+            gateway_config(), MarketDataRouter(gateway_config(), runtimes), directory, runtimes
+        )
+        loop = asyncio.get_running_loop()
+        hub.add_client("c1", loop, asyncio.Queue(), asyncio.Queue())
+        hub.subscribe("c1", ["NSE:RELIANCE", "NSE:TCS"], "quote", 5)
+        hub.unsubscribe("c1", [])
+        assert len(hub._clients["c1"].subscriptions) == 2
+        client = hub._clients["c1"]
+        hub.stop()
+        assert client.close_requested is True
+
+    asyncio.run(scenario())
+
+
+def test_close_requested_is_true_for_writer_after_stop():
+    async def scenario() -> None:
+        runtimes = {"dhan": BrokerRuntime("dhan", FakeBroker("dhan"))}
+        hub = LiveHub(
+            gateway_config(),
+            MarketDataRouter(gateway_config(), runtimes),
+            InstrumentDirectory(runtimes),
+            runtimes,
+        )
+        hub.add_client("c1", asyncio.get_running_loop(), asyncio.Queue(), asyncio.Queue())
+        assert hub.close_requested("c1") is False
+        hub.stop()
+        assert hub.close_requested("c1") is True
+
+    asyncio.run(scenario())
+
+
+def test_dropped_frames_are_reported_on_the_frame_that_replaced_them():
+    async def scenario() -> None:
+        runtimes = {"dhan": BrokerRuntime("dhan", FakeBroker("dhan"))}
+        hub = LiveHub(
+            gateway_config(),
+            MarketDataRouter(gateway_config(), runtimes),
+            InstrumentDirectory(runtimes),
+            runtimes,
+        )
+        queue: asyncio.Queue = asyncio.Queue(maxsize=2)
+        hub.add_client("c1", asyncio.get_running_loop(), queue, asyncio.Queue())
+        client = hub._clients["c1"]
+        for n in range(4):  # n0, n1 fit; n2 evicts n0; n3 evicts n1
+            hub._send(client, {"op": "quote", "n": n})
+            await asyncio.sleep(0)
+        frames = [queue.get_nowait(), queue.get_nowait()]
+        assert [(f["n"], f.get("dropped")) for f in frames] == [(2, 1), (3, 1)]
+        hub._send(client, {"op": "quote", "n": 4})
+        await asyncio.sleep(0)
+        assert "dropped" not in queue.get_nowait()
+        assert client.dropped == 0
 
     asyncio.run(scenario())

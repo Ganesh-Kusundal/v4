@@ -6,6 +6,7 @@ Provides AppConfig schema and environment loading.
 from tradex_config.env import _parse_bool, from_env
 from tradex_config.permissions import (
     InsecureSecretFileError,
+    assert_runtime_secret_permissions,
     assert_secret_file_mode,
     check_secret_files,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "PersistenceConfig",
     "RiskConfig",
     "_parse_bool",
+    "assert_runtime_secret_permissions",
     "assert_secret_file_mode",
     "check_secret_files",
     "from_env",

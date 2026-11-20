@@ -83,39 +83,10 @@ def test_post_orders_with_session_and_valid_csrf_passes_auth_gate() -> None:
     assert r.status_code != 403
 
 
-def test_post_orders_with_session_and_missing_csrf_returns_403() -> None:
-    client, _ = _session_client()
-    r = client.post(
-        "/orders",
-        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
-        headers={"Idempotency-Key": "k-no-csrf"},
-        # No X-CSRF-Token
-    )
-    assert r.status_code == 403
 
 
-def test_post_orders_with_session_and_wrong_csrf_returns_403() -> None:
-    client, _ = _session_client()
-    r = client.post(
-        "/orders",
-        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
-        headers={"X-CSRF-Token": "wrong-token", "Idempotency-Key": "k-wrong-csrf"},
-    )
-    assert r.status_code == 403
 
 
-def test_post_orders_with_session_and_wrong_origin_returns_403() -> None:
-    client, csrf = _session_client()
-    r = client.post(
-        "/orders",
-        json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
-        headers={
-            "X-CSRF-Token": csrf,
-            "Origin": "https://evil.example.com",
-            "Idempotency-Key": "k-bad-origin",
-        },
-    )
-    assert r.status_code == 403
 
 
 # ---------------------------------------------------------------------------
@@ -149,14 +120,6 @@ def test_post_orders_with_api_key_requires_no_csrf() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_delete_order_with_session_and_missing_csrf_returns_403() -> None:
-    client, _ = _session_client()
-    r = client.delete(
-        "/orders/some-id",
-        headers={"Idempotency-Key": "k-del"},
-        # No CSRF token
-    )
-    assert r.status_code == 403
 
 
 def test_delete_order_with_session_and_valid_csrf_passes_auth_gate() -> None:

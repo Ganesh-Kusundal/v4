@@ -12,8 +12,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, cast
 
+from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth, Quote
+from tradex_domain.market_calendar import to_ist_naive
+from tradex_runtime.bar_aggregator import BarAggregator, BarFrame
 
 from tradex_gateway.brokers import BrokerRuntime
 from tradex_gateway.config import GatewayConfig
@@ -27,6 +30,13 @@ _TICK_QUEUE_MAX = 4096
 _CONTROL_QUEUE_MAX = 256
 
 
+@dataclass(frozen=True)
+class _Subscription:
+    mode: str
+    levels: int
+    timeframe: str
+
+
 @dataclass
 class _Client:
     client_id: str
@@ -34,9 +44,21 @@ class _Client:
     queue: asyncio.Queue
     control: asyncio.Queue
     instruments: dict[str, Instrument] = field(default_factory=dict)
-    subscriptions: dict[str, tuple[str, int]] = field(default_factory=dict)
+    subscriptions: dict[str, _Subscription] = field(default_factory=dict)
     subscription_map: dict[str, list[str]] = field(default_factory=dict)
     close_requested: bool = False
+    dropped: int = 0
+
+
+@dataclass
+class _Wanted:
+    """The union of every client's subscriptions, grouped by feed kind."""
+
+    quotes: dict[str, Instrument] = field(default_factory=dict)
+    depths: dict[str, Instrument] = field(default_factory=dict)
+    greeks: dict[str, Instrument] = field(default_factory=dict)
+    bars: set[tuple[str, str]] = field(default_factory=set)
+    levels: int = 5
 
 
 class _BrokerFeed:
@@ -53,13 +75,40 @@ class _BrokerFeed:
         self._lock = threading.RLock()
         self._quotes: dict[str, Instrument] = {}
         self._depths: dict[str, Instrument] = {}
+        self._greeks: dict[str, Instrument] = {}
         self._levels = 0
         self._quote_sub: Any | None = None
         self._depth_sub: Any | None = None
+        self._greeks_sub: Any | None = None
         # Bind once: broker backends key handlers by id(handler), and a fresh
         # bound method per subscribe would register a distinct handler.
         self._quote_cb = self._on_quote
         self._depth_cb = self._on_depth
+
+    def supports_option_greeks(self) -> bool:
+        return callable(getattr(self.broker, "subscribe_option_greeks", None))
+
+    def sync_option_greeks(self, instruments: Mapping[str, Instrument]) -> None:
+        sub_fn = getattr(self.broker, "subscribe_option_greeks", None)
+        if not callable(sub_fn):
+            return
+        with self._lock:
+            if dict(instruments) == self._greeks:
+                return
+            # No per-instrument greeks unsubscribe exists, and the shared
+            # unsubscribe_instruments path would decrement quote refs — so a
+            # changed set means dropping the whole greeks subscription and
+            # re-subscribing the new one.
+            if self._greeks_sub is not None:
+                try:
+                    self.broker.unsubscribe(self._greeks_sub)
+                except Exception:  # noqa: BLE001 - teardown is best effort
+                    pass
+                self._greeks_sub = None
+            self._greeks = {}
+            if instruments:
+                self._greeks_sub = sub_fn(list(instruments.values()), self._quote_cb)
+                self._greeks = dict(instruments)
 
     def sync_quotes(self, instruments: Mapping[str, Instrument]) -> None:
         with self._lock:
@@ -73,6 +122,10 @@ class _BrokerFeed:
             if remove:
                 self.broker.unsubscribe_instruments(remove)
             self._quotes = dict(instruments)
+
+    def has_depths(self) -> bool:
+        with self._lock:
+            return bool(self._depths)
 
     def sync_depth(self, instruments: Mapping[str, Instrument], levels: int) -> None:
         with self._lock:
@@ -115,13 +168,17 @@ class _BrokerFeed:
 
     def stop(self) -> None:
         with self._lock:
-            instruments = list(self._quotes.values()) + list(self._depths.values())
+            instruments = (
+                list(self._quotes.values())
+                + list(self._depths.values())
+                + list(self._greeks.values())
+            )
             if instruments:
                 try:
                     self.broker.unsubscribe_instruments(instruments)
                 except Exception:  # noqa: BLE001 - teardown is best effort
                     pass
-            for subscription in (self._quote_sub, self._depth_sub):
+            for subscription in (self._quote_sub, self._depth_sub, self._greeks_sub):
                 if subscription is not None:
                     try:
                         self.broker.unsubscribe(subscription)
@@ -129,8 +186,10 @@ class _BrokerFeed:
                         pass
             self._quote_sub = None
             self._depth_sub = None
+            self._greeks_sub = None
             self._quotes = {}
             self._depths = {}
+            self._greeks = {}
             self._levels = 0
 
 
@@ -156,6 +215,8 @@ class LiveHub:
         self._feed: _BrokerFeed | None = None
         self._last_tick: dict[str, float] = {}
         self._last_depth: dict[str, CachedDepth] = {}
+        self._aggregators: dict[tuple[str, str], BarAggregator] = {}
+        self._bar_lock = threading.RLock()
         # Serializes switches and teardown across threads; it may span broker
         # calls. The state lock `_lock` is the one never held across broker I/O.
         self._switch_lock = threading.RLock()
@@ -176,6 +237,10 @@ class LiveHub:
         with self._lock:
             self._clients[client_id] = _Client(client_id, loop, queue, control)
 
+    def client_count(self) -> int:
+        with self._lock:
+            return len(self._clients)
+
     def remove_client(self, client_id: str) -> None:
         with self._lock:
             self._clients.pop(client_id, None)
@@ -187,11 +252,17 @@ class LiveHub:
         instrument_ids: list[str],
         mode: str,
         levels: int,
+        timeframe: str = "1m",
     ) -> dict[str, Any]:
         if len(instrument_ids) > self._config.max_subscriptions:
             return _error("too_many_subscriptions", "subscription limit exceeded")
-        if mode not in {"quote", "depth"}:
+        if mode not in {"quote", "depth", "option_greeks", "bars"}:
             return _error("invalid_request", f"invalid mode: {mode!r}")
+        if mode == "bars":
+            try:
+                Timeframe(timeframe)
+            except ValueError:
+                return _error("invalid_request", f"invalid timeframe: {timeframe!r}")
         accepted: list[str] = []
         errors: dict[str, str] = {}
         resolved: dict[str, Instrument] = {}
@@ -212,8 +283,9 @@ class LiveHub:
             if len(client.subscriptions) + len(added) > self._config.max_subscriptions:
                 return _error("too_many_subscriptions", "subscription limit exceeded")
             client.instruments.update(resolved)
+            clamped_levels = max(1, min(30, levels))
             for key in accepted:
-                client.subscriptions[key] = (mode, max(1, min(30, levels)))
+                client.subscriptions[key] = _Subscription(mode, clamped_levels, timeframe)
             subscription_id = uuid.uuid4().hex
             client.subscription_map[subscription_id] = list(accepted)
         broker = self._rebalance()
@@ -223,6 +295,7 @@ class LiveHub:
             "instruments": accepted,
             "mode": mode,
             "levels": max(1, min(30, levels)),
+            "timeframe": timeframe,
             "broker": broker,
             "errors": errors,
         }
@@ -240,7 +313,7 @@ class LiveHub:
                 return _error("unknown_client", "client is not registered")
             if subscription_id:
                 targets = client.subscription_map.pop(subscription_id, [])
-            elif instrument_ids:
+            elif instrument_ids is not None:
                 requested = set(instrument_ids)
                 targets = [key for key in client.subscriptions if key in requested]
                 for sid, keys in list(client.subscription_map.items()):
@@ -262,6 +335,8 @@ class LiveHub:
         return {"op": "ack", "unsubscribed": removed}
 
     def close_requested(self, client_id: str) -> bool:
+        if self._stop.is_set():  # stop() clears the registry; the writer must still see it
+            return True
         with self._lock:
             client = self._clients.get(client_id)
             return bool(client is not None and client.close_requested)
@@ -280,16 +355,47 @@ class LiveHub:
                     received_at=datetime.now(UTC),
                 )
             clients = list(self._clients.values())
+        bar_timeframes: set[str] = set()
         for client in clients:
             subscription = client.subscriptions.get(instrument_id)
             if subscription is None:
                 continue
-            mode, _ = subscription
-            if mode == "quote":
+            if subscription.mode in {"quote", "option_greeks"}:
                 self._send(
                     client,
                     {"op": "quote", **quote_payload(quote, broker_name)},
                 )
+            elif subscription.mode == "bars":
+                bar_timeframes.add(subscription.timeframe)
+        if bar_timeframes and quote.ltp is not None:
+            ts_ist = to_ist_naive(quote.timestamp)
+            price = quote.ltp.value
+            volume = quote.volume.value if quote.volume is not None else None
+            with self._bar_lock:
+                for tf in sorted(bar_timeframes):
+                    agg = self._aggregators.get((instrument_id, tf))
+                    if agg is None:
+                        agg = BarAggregator(
+                            instrument_id,
+                            Timeframe(tf),
+                            on_frame=self._on_bar_frame,
+                            now=self._clock,
+                        )
+                        self._aggregators[(instrument_id, tf)] = agg
+                    agg.on_quote(ts_ist, price, volume)
+
+    def _on_bar_frame(self, frame: BarFrame) -> None:
+        payload = _bar_payload(frame)
+        with self._lock:
+            clients = list(self._clients.values())
+        for client in clients:
+            subscription = client.subscriptions.get(frame.instrument)
+            if (
+                subscription is not None
+                and subscription.mode == "bars"
+                and subscription.timeframe == frame.timeframe
+            ):
+                self._send(client, payload)
 
     def _publish_depth(self, depth: Depth, broker_name: str) -> None:
         instrument_id = str(depth.instrument.instrument_id)
@@ -305,9 +411,9 @@ class LiveHub:
             clients = list(self._clients.values())
         for client in clients:
             subscription = client.subscriptions.get(instrument_id)
-            if subscription is None or subscription[0] != "depth":
+            if subscription is None or subscription.mode != "depth":
                 continue
-            levels = subscription[1]
+            levels = subscription.levels
             payload = depth_payload(depth, broker_name, levels, source="stream", degraded=False)
             payload["op"] = "depth"
             payload["levels"] = payload["delivered_levels"]
@@ -325,10 +431,13 @@ class LiveHub:
                     return
                 try:
                     peer.get_nowait()
+                    client.dropped += 1
                 except asyncio.QueueEmpty:
                     pass
                 try:
-                    peer.put_nowait(frame)
+                    # the evicted frame is reported on the frame that replaced it
+                    peer.put_nowait({**frame, "dropped": client.dropped})
+                    client.dropped = 0
                 except asyncio.QueueFull:
                     pass
 
@@ -360,31 +469,56 @@ class LiveHub:
             }
 
     # -- feed selection ---------------------------------------------------
-    def _wanted(self) -> tuple[dict[str, Instrument], dict[str, Instrument], int]:
-        quotes: dict[str, Instrument] = {}
-        depths: dict[str, Instrument] = {}
-        levels = 5
+    def _wanted(self) -> _Wanted:
+        wanted = _Wanted()
         with self._lock:
             for client in self._clients.values():
-                for key, (mode, wanted_levels) in client.subscriptions.items():
+                for key, subscription in client.subscriptions.items():
                     instrument = client.instruments.get(key)
                     if instrument is None:
                         continue
-                    if mode == "depth":
-                        depths[key] = instrument
-                        levels = max(levels, wanted_levels)
+                    if subscription.mode == "depth":
+                        wanted.depths[key] = instrument
+                        wanted.levels = max(wanted.levels, subscription.levels)
+                    elif subscription.mode == "option_greeks":
+                        wanted.greeks[key] = instrument
                     else:
-                        quotes[key] = instrument
-        return quotes, depths, levels
+                        wanted.quotes[key] = instrument
+                        if subscription.mode == "bars":
+                            wanted.bars.add((key, subscription.timeframe))
+        return wanted
 
-    def _prune_state(self, wanted: set[str]) -> None:
+    def _prune_state(self, wanted: _Wanted) -> None:
+        keys = set(wanted.quotes) | set(wanted.depths) | set(wanted.greeks)
         with self._lock:
             for key in list(self._last_tick):
-                if key not in wanted:
+                if key not in keys:
                     self._last_tick.pop(key, None)
             for key in list(self._last_depth):
-                if key not in wanted:
+                if key not in keys:
                     self._last_depth.pop(key, None)
+        with self._bar_lock:
+            for bar_key in list(self._aggregators):
+                if bar_key not in wanted.bars:
+                    # Flush before dropping so the open bucket closes out.
+                    self._aggregators[bar_key].flush()
+                    self._aggregators.pop(bar_key, None)
+
+    def _sync_feed(
+        self,
+        feed: _BrokerFeed,
+        wanted: _Wanted,
+        levels: int,
+    ) -> None:
+        if feed.supports_option_greeks():
+            feed.sync_quotes(wanted.quotes)
+            feed.sync_option_greeks(wanted.greeks)
+        else:
+            feed.sync_quotes({**wanted.quotes, **wanted.greeks})
+        if wanted.depths:
+            feed.sync_depth(wanted.depths, levels)
+        elif feed.has_depths():
+            feed.sync_depth({}, 0)
 
     def _choose_broker(self, depth_levels: int) -> tuple[str, int] | None:
         for runtime in self._router.order("live"):
@@ -400,12 +534,13 @@ class LiveHub:
         return None
 
     def _rebalance(self) -> str | None:
-        quotes, depths, levels = self._wanted()
-        self._prune_state(set(quotes) | set(depths))
-        if not quotes and not depths:
+        wanted = self._wanted()
+        keys = set(wanted.quotes) | set(wanted.depths) | set(wanted.greeks)
+        self._prune_state(wanted)
+        if not keys:
             self._stop_feed()
             return None
-        choice = self._choose_broker(levels if depths else 5)
+        choice = self._choose_broker(wanted.levels if wanted.depths else 5)
         if choice is None:
             self._broadcast({"op": "status", "state": "halted", "broker": None})
             return None
@@ -417,14 +552,10 @@ class LiveHub:
         if feed is None:
             return None
         try:
-            feed.sync_quotes(quotes)
-            if depths:
-                feed.sync_depth(depths, effective_levels)
-            elif feed._depths:
-                feed.sync_depth({}, 0)
+            self._sync_feed(feed, wanted, effective_levels)
         except Exception as exc:  # noqa: BLE001 - a subscribe failure is a failover trigger
             log.warning("live subscribe failed on %s: %s", broker_name, exc)
-            self._runtimes[broker_name].health.record_failure("live", 15.0, str(exc))
+            self._runtimes[broker_name].health.record_failure("live", 15.0, type(exc).__name__)
             self._switch_to(self._other_broker(broker_name), reason="failover")
             return self._active
         self._ensure_monitor()
@@ -456,7 +587,7 @@ class LiveHub:
             with self._lock:
                 previous = self._active
                 old_feed = self._feed
-                quotes, depths, levels = self._wanted()
+                wanted = self._wanted()
                 self._feed = None
                 self._active = None
 
@@ -469,13 +600,13 @@ class LiveHub:
                 return
 
             feed = _BrokerFeed(runtime, self)
-            effective = min(levels, int(getattr(runtime.capabilities, "depth_levels", 0) or 5))
+            effective = min(
+                wanted.levels, int(getattr(runtime.capabilities, "depth_levels", 0) or 5)
+            )
             try:
-                feed.sync_quotes(quotes)
-                if depths:
-                    feed.sync_depth(depths, effective)
+                self._sync_feed(feed, wanted, effective)
             except Exception as exc:  # noqa: BLE001 - try the other broker
-                runtime.health.record_failure("live", 15.0, str(exc))
+                runtime.health.record_failure("live", 15.0, type(exc).__name__)
                 feed.stop()
                 target = self._other_broker(broker_name, exclude=attempted)
                 if target is not None:
@@ -490,7 +621,7 @@ class LiveHub:
 
             self._broadcast({"op": "status", "state": "ready", "broker": broker_name})
             if previous is not None and previous != broker_name:
-                for key in {*quotes, *depths}:
+                for key in {*wanted.quotes, *wanted.depths, *wanted.greeks}:
                     self._broadcast(
                         {
                             "op": "gap",
@@ -530,12 +661,12 @@ class LiveHub:
         )
 
     def _monitor_cycle(self) -> None:
-        quotes, depths, _ = self._wanted()
-        wanted = set(quotes) | set(depths)
-        if not wanted:
+        wanted = self._wanted()
+        keys = set(wanted.quotes) | set(wanted.depths) | set(wanted.greeks)
+        if not keys:
             return
         now = self._clock()
-        stale = self._stale_instruments(now, wanted)
+        stale = self._stale_instruments(now, keys)
         if set(stale) != self._stale_snapshot:
             self._stale_snapshot = set(stale)
             if stale:
@@ -547,14 +678,22 @@ class LiveHub:
                         "broker": self._active,
                     }
                 )
-        if len(stale) != len(wanted) or now < self._next_switch_at:
+            else:
+                self._broadcast(
+                    {
+                        "op": "status",
+                        "state": "ready",
+                        "broker": self._active,
+                    }
+                )
+        if len(stale) != len(keys) or now < self._next_switch_at:
             return
         stale_broker = self._active
         if stale_broker is None:
             self._next_switch_at = now + 10.0
             self._rebalance()
             return
-        self._runtimes[stale_broker].health.record_failure("live", 15.0, "stale feed")
+        self._runtimes[stale_broker].health.record_failure("live", 15.0, "StaleFeed")
         self._next_switch_at = now + 10.0
         target = self._other_broker(stale_broker)
         if target is not None:
@@ -571,8 +710,29 @@ class LiveHub:
     def stop(self) -> None:
         self._stop.set()
         self._stop_feed()
+        with self._bar_lock:
+            for aggregator in self._aggregators.values():
+                aggregator.flush()
+            self._aggregators.clear()
         with self._lock:
+            for client in self._clients.values():
+                client.close_requested = True
             self._clients.clear()
+
+
+def _bar_payload(frame: BarFrame) -> dict[str, Any]:
+    return {
+        "op": "bar",
+        "instrument": frame.instrument,
+        "timeframe": frame.timeframe,
+        "t": frame.time,
+        "o": frame.open,
+        "h": frame.high,
+        "l": frame.low,
+        "c": frame.close,
+        "v": frame.volume,
+        "closed": frame.closed,
+    }
 
 
 def _error(code: str, message: str) -> dict[str, Any]:

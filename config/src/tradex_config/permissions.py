@@ -1,7 +1,7 @@
 """Secret file permission checks (AC-17, lane 5d).
 
-The token layer already creates its own secret files with a private mode
-(``tradex_brokers.token_lifecycle.SECRET_FILE_MODE``) and re-asserts it on
+The token layer creates its own secret files with a private mode
+(``tradex_config.permissions.EXPECTED_SECRET_MODE``) and re-asserts it on
 overwrite, so anything IT writes is covered.
 
 This module covers the other half: files an OPERATOR created. ``.env.local``
@@ -88,4 +88,43 @@ def check_secret_files(paths: list[str | Path]) -> None:
     when several files are wrong.
     """
     for path in paths:
+        assert_secret_file_mode(path)
+
+
+def assert_runtime_secret_permissions(base: str | Path) -> None:
+    """Refuse to boot if any runtime secret file is group/world-readable.
+
+    Scans the broker runtime state tree under *base*:
+
+    - ``<base>/<broker>/token_state.json*`` for every broker subdirectory
+      (not just today's ``dhan``/``upstox`` — a future broker dir is swept too)
+    - ``<base>/dhan.idempotency.db``
+    - ``<base>/paper.idempotency.db``
+    - ``<base>/workspace.sqlite``
+    - the repo-root ``.env.local`` (``<base>/../.env.local``, only when
+      *base* is the conventional ``<repo>/runtime`` directory — a caller
+      passing an unrelated runtime dir must not get its parent's file
+      refused) and ``<base>/.env.local`` when present
+
+    A missing file is never a violation (paper/backtest legitimately run with
+    no credentials on disk); only a file that exists with too-permissive
+    mode is refused. Missing ``.env.local`` is tolerated.
+    """
+    base = Path(base)
+    candidates: list[Path] = []
+    if base.is_dir():
+        for directory in sorted(p for p in base.iterdir() if p.is_dir()):
+            candidates.extend(sorted(directory.glob("token_state.json*")))
+    for name in ("dhan.idempotency.db", "paper.idempotency.db", "workspace.sqlite"):
+        candidates.append(base / name)
+    # Repo-root .env.local (base is <repo>/runtime by convention — only then
+    # is the parent the repo root) plus a base-local one for callers that
+    # pass a repo root as base.
+    env_candidates = [base / ".env.local"]
+    if base.name == "runtime":
+        env_candidates.insert(0, base.parent / ".env.local")
+    for env_candidate in env_candidates:
+        if env_candidate not in candidates:
+            candidates.append(env_candidate)
+    for path in candidates:
         assert_secret_file_mode(path)

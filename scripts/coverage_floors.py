@@ -103,8 +103,15 @@ def _pct(covered: int, total: int) -> float:
     return 100.0 * covered / total if total else 100.0
 
 
+#: `gateway/` is a separate workspace member like duckdb — not one of the five
+#: spec-0002 targets, but measured anyway so its branch coverage cannot regress
+#: to zero while only the aggregate 85% line floor notices. Floor measured at
+#: 77.5% branch on 2026-11-07 (87 gateway tests), two points under.
+_GATEWAY_FLOOR = 75
+
+
 def evaluate(report: dict) -> list[tuple[str, float, int]]:
-    """Return [(target, branch_pct, floor)] for every target, plus duckdb."""
+    """Return [(target, branch_pct, floor)] for every target, plus duckdb/gateway."""
     per_pkg = _measure(report)
     rows: list[tuple[str, float, int]] = []
     for target, members in _MEMBERS.items():
@@ -119,6 +126,9 @@ def evaluate(report: dict) -> list[tuple[str, float, int]]:
     duck = per_pkg.get("duckdb_analytics")
     if duck is not None:
         rows.append(("duckdb_analytics", _pct(duck[3], duck[2] + duck[3]), 55))
+    gw = per_pkg.get("tradex_gateway")
+    if gw is not None:
+        rows.append(("tradex_gateway", _pct(gw[3], gw[2] + gw[3]), _GATEWAY_FLOOR))
     return rows
 
 

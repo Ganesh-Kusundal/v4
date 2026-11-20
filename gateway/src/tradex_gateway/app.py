@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -21,9 +22,11 @@ from tradex_gateway.history import HistoryService
 from tradex_gateway.live import LiveHub
 from tradex_gateway.market import ChainService, DepthService, QuoteService
 from tradex_gateway.router import MarketDataRouter
+from tradex_gateway.expired import ExpiredService
 from tradex_gateway.routes import (
     chains,
     depth,
+    expired,
     health,
     history,
     instruments,
@@ -74,7 +77,9 @@ def create_app(
         )
         if app.state.runtimes is None:
             load_local_env()
-            app.state.runtimes = await _run(app.state, build_runtimes, cfg)
+            app.state.runtimes = await asyncio.get_running_loop().run_in_executor(
+                app.state.executor, partial(build_runtimes, cfg)
+            )  # boot is deliberately not bounded by request_timeout
         _wire(app)
         try:
             yield
@@ -87,7 +92,15 @@ def create_app(
                 batch_executor.shutdown(wait=False, cancel_futures=True)
             app.state.executor.shutdown(wait=False, cancel_futures=True)
 
-    app = FastAPI(title="TradeX Broker Gateway", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="TradeX Broker Gateway",
+        version="0.1.0",
+        lifespan=lifespan,
+        # Data-only API, not a browser client: don't serve unauthenticated docs.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.config = cfg
     app.state.runtimes = runtimes
     app.state.batch_executor = None
@@ -131,7 +144,11 @@ def create_app(
             {
                 "error": {
                     "code": "invalid_request",
-                    "message": str(exc),
+                    # loc + msg only: str(exc) embeds the caller's raw input values.
+                    "message": "; ".join(
+                        f"{'.'.join(map(str, e['loc']))}: {e['msg']}"
+                        for e in exc.errors(include_input=False)
+                    ),
                     "broker": None,
                     "retryable": False,
                     "retry_after": None,
@@ -164,6 +181,7 @@ def create_app(
     app.include_router(chains.router)
     app.include_router(metrics.router)
     app.include_router(stream.router)
+    app.include_router(expired.router)
 
     return app
 
@@ -173,16 +191,20 @@ def _wire(app: FastAPI) -> None:
     cfg: GatewayConfig = app.state.config
     directory = InstrumentDirectory(runtimes)
     router = MarketDataRouter(cfg, runtimes, on_event=app.state.metrics.inc)
-    quotes = QuoteService(directory, router)
+    quotes = QuoteService(directory, router, cfg.quote_fallback_cap)
     hub = LiveHub(cfg, router, directory, runtimes, on_event=app.state.metrics.inc)
     app.state.directory = directory
     app.state.router = router
     # The batch path gets the dedicated pool, not app.state.executor: batch()
     # is itself executed on the request pool by the route and blocks there.
-    app.state.history = HistoryService(directory, router, executor=app.state.batch_executor)
+    # inner budget must fire before the outer _run deadline, or a slow batch is all-or-nothing
+    app.state.history = HistoryService(
+        directory, router, executor=app.state.batch_executor, timeout=cfg.request_timeout * 0.9
+    )
     app.state.quotes = quotes
     app.state.depth = DepthService(directory, router, live_depth=hub.latest_depth)
     app.state.chains = ChainService(directory, router, quotes)
+    app.state.expired = ExpiredService(directory, router)
     app.state.hub = hub
 
 

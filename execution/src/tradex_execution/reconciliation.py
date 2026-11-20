@@ -591,15 +591,6 @@ def _flat_position(reference: Any) -> Any:
     )
 
 
-def _cleared_position(local: Any, venue: Any) -> Any:
-    """The flat position written when the venue reports an instrument the book held."""
-    cleared = _flat_position(local)
-    if cleared is not None:
-        return cleared
-    # The local position carried no instrument; fall back to the venue's.
-    return _flat_position(venue)
-
-
 def _adopted_position(local: Any, venue: Any) -> Any:
     """The position the adoption writes: the venue's *figures of record*, on a
     real :class:`Position` built for this book.

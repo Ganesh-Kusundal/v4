@@ -198,7 +198,7 @@ class TestAnUnaffordableRunIsA422:
 
         assert resp.status_code == 422, resp.text
         body = resp.json()
-        assert body["error"]["code"] == "validation"
+        assert body["error"]["code"] == "validation_error"
         assert "insufficient buying power" in body["error"]["message"]
         assert "detail" not in body
 

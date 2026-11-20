@@ -13,7 +13,7 @@ Authoritative sources (always current):
   traced data flows, per-subsystem reuse verdicts, indicator placement audit,
   and the ten real gaps (G1–G10). Read this before proposing new engine work.
 - `design/2026-09-13-frontend-integration-map.md` — the three-layer map
-  (library 2.1.8 / host `frontend/` / backend routes) with the wired flows and
+  (library v2.3.2 / host `frontend/` / backend routes) with the wired flows and
   the exact unwired backend capabilities. Read this before building UI.
 - `design/2026-09-13-workspace-view-restore.md` — the saved-viewport restore
   defect: why a view is only valid against the series it was captured on, the
@@ -47,7 +47,7 @@ Authoritative sources (always current):
   version nobody runs, a browser suite that could test a previous bundle, a mount
   check asserting a marker that never existed, a smoke script whose order checks
   had been failing unseen. What each now verifies, the controls that prove it
-  fires, and the drift (2.1.7 → 2.1.8 defaults, footprint shape) that surfaced
+  fires, and the drift (v2.3.2 → v2.3.2 defaults, footprint shape) that surfaced
   once the fixtures were regenerated from the pin.
 
 ## Specs & plans (design history, newest last)

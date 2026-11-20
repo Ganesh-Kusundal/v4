@@ -250,4 +250,29 @@ def parse_tick_frame(raw: bytes | bytearray) -> dict[str, Any] | None:
     return None
 
 
-__all__ = ["SEGMENT_EXCHANGE", "parse_tick_frame"]
+def parse_tick_frames(raw: bytes | bytearray) -> list[dict[str, Any]] | None:
+    """Parse every complete packet in a (possibly coalesced) binary buffer.
+
+    Returns ``None`` when the buffer does not start with a known binary
+    message type — callers then fall back to the JSON path. Otherwise returns
+    the parsed rows in wire order, stopping at the first truncated tail.
+    """
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) < 2:
+        return None
+    data = bytes(raw)
+    if _MSG_TYPES.get(data[0]) is None:
+        return None
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while offset + 2 <= len(data):
+        fmt = _MSG_TYPES.get(data[offset])
+        if fmt is None or offset + fmt.size > len(data):
+            break
+        row = parse_tick_frame(data[offset : offset + fmt.size])
+        offset += fmt.size
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
+__all__ = ["SEGMENT_EXCHANGE", "parse_tick_frame", "parse_tick_frames"]

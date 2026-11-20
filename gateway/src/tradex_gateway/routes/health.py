@@ -7,7 +7,9 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
+from tradex_gateway.auth import check_api_key
 from tradex_gateway.brokers import BrokerRuntime
+from tradex_gateway.errors import GatewayError
 
 router = APIRouter()
 
@@ -16,9 +18,14 @@ router = APIRouter()
 async def health(request: Request) -> dict[str, Any]:
     runtimes_now: dict[str, BrokerRuntime] = request.app.state.runtimes or {}
     ready = any(runtime.available for runtime in runtimes_now.values())
+    summary = {"status": "ok" if ready else "degraded", "ready": ready}
+    # Liveness stays open for monitors; broker errors and feed detail need the key.
+    try:
+        check_api_key(request.headers.get("x-api-key"), request.app.state.config)
+    except GatewayError:
+        return summary
     return {
-        "status": "ok" if ready else "degraded",
-        "ready": ready,
+        **summary,
         "brokers": [
             {
                 "name": name,

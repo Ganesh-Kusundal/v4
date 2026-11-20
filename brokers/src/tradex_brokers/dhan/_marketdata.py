@@ -19,6 +19,7 @@ from tradex_domain.options import Expiry, OptionChain, OptionPair
 from tradex_domain.value_objects import InstrumentId, Price
 
 from tradex_brokers.common.client_shared import parse_timestamp_fallback
+from tradex_brokers.common.option_legs import greeks_block, opt_float, option_leg
 from tradex_brokers.common.provider_common import (
     as_price,
     parse_date,
@@ -28,6 +29,28 @@ from tradex_brokers.common.provider_common import (
 
 if TYPE_CHECKING:
     from tradex_brokers.dhan._facade import DhanClientFacade
+
+
+def _dhan_leg(leg: object) -> dict[str, object] | None:
+    """Normalized option-chain leg dict (spec: greeks/IV exposure design)."""
+    if not isinstance(leg, dict):
+        return None
+    return option_leg(
+        "dhan",
+        {
+            "ltp": opt_float(leg.get("last_price", leg.get("ltp"))),
+            "oi": opt_float(leg.get("oi")),
+            "volume": opt_float(leg.get("volume")),
+            "previous_oi": opt_float(leg.get("previous_oi")),
+            "previous_volume": opt_float(leg.get("previous_volume")),
+            "bid": opt_float(leg.get("top_bid_price")),
+            "ask": opt_float(leg.get("top_ask_price")),
+            "bid_qty": opt_float(leg.get("top_bid_quantity")),
+            "ask_qty": opt_float(leg.get("top_ask_quantity")),
+            "iv": opt_float(leg.get("implied_volatility", leg.get("iv"))),
+            "greeks": greeks_block(leg.get("greeks")),
+        },
+    )
 
 
 class MarketDataMixin(Protocol):
@@ -353,7 +376,13 @@ class MarketDataMixin(Protocol):
                         self._registry.register(call.instrument_id, {"key": str(call_key)})
                         self._registry.register(put.instrument_id, {"key": str(put_key)})
                         pairs.append(
-                            OptionPair(call=call, put=put, strike=Price(value=strike))
+                            OptionPair(
+                                call=call,
+                                put=put,
+                                strike=Price(value=strike),
+                                call_leg=_dhan_leg(call_leg),
+                                put_leg=_dhan_leg(put_leg),
+                            )
                         )
             expiries.append(
                 Expiry(

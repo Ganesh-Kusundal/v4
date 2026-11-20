@@ -11,7 +11,7 @@ from tradex_domain.errors import (
     SDKError,
 )
 from tradex_gateway.brokers import BrokerRuntime
-from tradex_gateway.errors import BrokerUnavailable, NoHealthyBroker
+from tradex_gateway.errors import BrokerUnavailable, InstrumentNotFound, NoHealthyBroker
 from tradex_gateway.router import MarketDataRouter
 
 
@@ -118,3 +118,41 @@ def test_failure_policy_cools_the_failed_broker_for_the_tabled_window(
     snapshot = runtimes["dhan"].health.snapshot()["history"]
     assert snapshot["available"] is False
     assert snapshot["cooldown_seconds"] == cooldown
+
+
+def test_unknown_instrument_message_is_canonical():
+    clock = FakeClock()
+    dhan = FakeBroker("dhan")
+    upstox = FakeBroker("upstox")
+    runtimes = {
+        "dhan": BrokerRuntime("dhan", dhan, clock=clock),
+        "upstox": BrokerRuntime("upstox", upstox, clock=clock),
+    }
+    router = MarketDataRouter(gateway_config(), runtimes, clock=clock)
+
+    def call(broker):
+        raise InstrumentNotFoundError("no provider key for NSE:NONEXISTENT123")
+
+    with pytest.raises(InstrumentNotFound) as excinfo:
+        router.call("quotes", call)
+    assert "provider key" not in excinfo.value.message
+    assert excinfo.value.message == "unknown instrument"
+
+
+def test_broker_failure_message_hides_exception_text():
+    clock = FakeClock()
+    dhan = FakeBroker("dhan")
+    upstox = FakeBroker("upstox")
+    runtimes = {
+        "dhan": BrokerRuntime("dhan", dhan, clock=clock),
+        "upstox": BrokerRuntime("upstox", upstox, clock=clock),
+    }
+    router = MarketDataRouter(gateway_config(), runtimes, clock=clock)
+
+    def call(broker):
+        raise RateLimitError("https://api.example.com/secret?key=abc rate limited")
+
+    with pytest.raises(NoHealthyBroker) as excinfo:
+        router.call("quotes", call)
+    assert "api.example.com" not in excinfo.value.message
+    assert "secret" not in excinfo.value.message

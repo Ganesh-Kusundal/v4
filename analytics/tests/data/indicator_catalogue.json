@@ -1,0 +1,3785 @@
+[
+ {
+  "category": "Trend",
+  "id": "sma",
+  "levels": [],
+  "name": "SMA",
+  "params": [
+   {
+    "default": 20,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": "close",
+    "name": "source",
+    "type": "source"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "SMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "ema",
+  "levels": [],
+  "name": "EMA",
+  "params": [
+   {
+    "default": 20,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": "close",
+    "name": "source",
+    "type": "source"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "EMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "wma",
+  "levels": [],
+  "name": "WMA",
+  "params": [
+   {
+    "default": 20,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "WMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "hma",
+  "levels": [],
+  "name": "HMA",
+  "params": [
+   {
+    "default": 9,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": "close",
+    "name": "source",
+    "type": "source"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "HMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "dema",
+  "levels": [],
+  "name": "DEMA",
+  "params": [
+   {
+    "default": 9,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "DEMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "tema",
+  "levels": [],
+  "name": "TEMA",
+  "params": [
+   {
+    "default": 9,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "TEMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "alma",
+  "levels": [],
+  "name": "ALMA",
+  "params": [
+   {
+    "default": 9,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 0.85,
+    "name": "offset",
+    "type": "float"
+   },
+   {
+    "default": 6.0,
+    "name": "sigma",
+    "type": "float"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "ALMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "smma",
+  "levels": [],
+  "name": "SMMA",
+  "params": [
+   {
+    "default": 7,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": "close",
+    "name": "source",
+    "type": "source"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "smma",
+    "kind": "line",
+    "title": "SMMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "t3",
+  "levels": [],
+  "name": "T3",
+  "params": [
+   {
+    "default": 5,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 0.7,
+    "name": "factor",
+    "type": "float"
+   },
+   {
+    "default": "close",
+    "name": "source",
+    "type": "source"
+   },
+   {
+    "default": true,
+    "name": "highlightMovements",
+    "type": "bool"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "t3",
+    "kind": "line",
+    "title": "T3"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "linreg-slope",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Linear Regression Slope",
+  "params": [
+   {
+    "default": 14,
+    "name": "periods",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "slope",
+    "kind": "line",
+    "title": "Slope"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "hull-suite",
+  "levels": [],
+  "name": "Hull Suite",
+  "params": [
+   {
+    "default": "close",
+    "name": "source",
+    "type": "source"
+   },
+   {
+    "default": "Hma",
+    "name": "mode",
+    "type": "select"
+   },
+   {
+    "default": 55,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 1.0,
+    "name": "lengthMult",
+    "type": "float"
+   },
+   {
+    "default": true,
+    "name": "visualSwitch",
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "name": "switchColor",
+    "type": "bool"
+   },
+   {
+    "default": false,
+    "name": "candleCol",
+    "type": "bool"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "mhull",
+    "kind": "line",
+    "title": "Hull"
+   },
+   {
+    "key": "shull",
+    "kind": "line",
+    "title": "Hull Displaced"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "rsi",
+  "levels": [
+   {
+    "value": 70
+   },
+   {
+    "value": 30
+   }
+  ],
+  "name": "RSI",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": "close",
+    "name": "source",
+    "type": "source"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "RSI"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "roc",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "ROC",
+  "params": [
+   {
+    "default": 10,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "ROC"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "macd",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "MACD",
+  "params": [
+   {
+    "default": 12,
+    "name": "fastPeriod",
+    "type": "int"
+   },
+   {
+    "default": 26,
+    "name": "slowPeriod",
+    "type": "int"
+   },
+   {
+    "default": 9,
+    "name": "signalPeriod",
+    "type": "int"
+   },
+   {
+    "default": "close",
+    "name": "source",
+    "type": "source"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "macd",
+    "kind": "line",
+    "title": "MACD"
+   },
+   {
+    "key": "signal",
+    "kind": "line",
+    "title": "Signal"
+   },
+   {
+    "key": "histogram",
+    "kind": "histogram",
+    "title": "Histogram"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "bollinger",
+  "levels": [],
+  "name": "Bollinger Bands",
+  "params": [
+   {
+    "default": 20,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "stdDev",
+    "type": "float"
+   },
+   {
+    "default": "close",
+    "name": "source",
+    "type": "source"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "upper",
+    "kind": "line",
+    "title": "Upper"
+   },
+   {
+    "key": "middle",
+    "kind": "line",
+    "title": "Middle"
+   },
+   {
+    "key": "lower",
+    "kind": "line",
+    "title": "Lower"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "atr",
+  "levels": [],
+  "name": "ATR",
+  "params": [
+   {
+    "default": 14,
+    "name": "period",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "ATR"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "vwap",
+  "levels": [],
+  "name": "VWAP (session)",
+  "params": [
+   {
+    "default": "session",
+    "name": "anchor",
+    "type": "select"
+   },
+   {
+    "default": "hlc3",
+    "name": "source",
+    "type": "source"
+   },
+   {
+    "default": 0,
+    "name": "offset",
+    "type": "int"
+   },
+   {
+    "default": "stdev",
+    "name": "calcMode",
+    "type": "select"
+   },
+   {
+    "default": true,
+    "name": "showBand1",
+    "type": "bool"
+   },
+   {
+    "default": 1.0,
+    "name": "bandMult1",
+    "type": "float"
+   },
+   {
+    "default": false,
+    "name": "showBand2",
+    "type": "bool"
+   },
+   {
+    "default": 2.0,
+    "name": "bandMult2",
+    "type": "float"
+   },
+   {
+    "default": false,
+    "name": "showBand3",
+    "type": "bool"
+   },
+   {
+    "default": 3.0,
+    "name": "bandMult3",
+    "type": "float"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "VWAP"
+   },
+   {
+    "key": "vwap",
+    "kind": "line",
+    "title": "VWAP"
+   },
+   {
+    "key": "upper1",
+    "kind": "line",
+    "title": "Upper Band #1"
+   },
+   {
+    "key": "lower1",
+    "kind": "line",
+    "title": "Lower Band #1"
+   },
+   {
+    "key": "upper2",
+    "kind": "line",
+    "title": "Upper Band #2"
+   },
+   {
+    "key": "lower2",
+    "kind": "line",
+    "title": "Lower Band #2"
+   },
+   {
+    "key": "upper3",
+    "kind": "line",
+    "title": "Upper Band #3"
+   },
+   {
+    "key": "lower3",
+    "kind": "line",
+    "title": "Lower Band #3"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "obv",
+  "levels": [],
+  "name": "OBV",
+  "params": [
+   {
+    "default": "None",
+    "name": "maType",
+    "type": "select"
+   },
+   {
+    "default": 9,
+    "name": "maLength",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "bbMult",
+    "type": "float"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "OBV"
+   },
+   {
+    "key": "obv",
+    "kind": "line",
+    "title": "OBV"
+   },
+   {
+    "key": "ma",
+    "kind": "line",
+    "title": "OBV-based MA"
+   },
+   {
+    "key": "bbUpper",
+    "kind": "line",
+    "title": "Upper Bollinger Band"
+   },
+   {
+    "key": "bbLower",
+    "kind": "line",
+    "title": "Lower Bollinger Band"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "stochastic",
+  "levels": [
+   {
+    "value": 80
+   },
+   {
+    "value": 20
+   }
+  ],
+  "name": "Stochastic",
+  "params": [
+   {
+    "default": 14,
+    "name": "kPeriod",
+    "type": "int"
+   },
+   {
+    "default": 3,
+    "name": "kSmoothing",
+    "type": "int"
+   },
+   {
+    "default": 3,
+    "name": "dPeriod",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "k",
+    "kind": "line",
+    "title": "%K"
+   },
+   {
+    "key": "d",
+    "kind": "line",
+    "title": "%D"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "supertrend",
+  "levels": [],
+  "name": "Supertrend",
+  "params": [
+   {
+    "default": 10,
+    "name": "period",
+    "type": "int"
+   },
+   {
+    "default": 3.0,
+    "name": "multiplier",
+    "type": "float"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "line",
+    "kind": "line",
+    "title": "Supertrend"
+   },
+   {
+    "key": "up",
+    "kind": "line",
+    "title": "Supertrend Up"
+   },
+   {
+    "key": "down",
+    "kind": "line",
+    "title": "Supertrend Down"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "vwma",
+  "levels": [],
+  "name": "VWMA",
+  "params": [
+   {
+    "default": 20,
+    "name": "period",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "VWMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "twap",
+  "levels": [],
+  "name": "TWAP",
+  "params": [],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "TWAP"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "mcginley-dynamic",
+  "levels": [],
+  "name": "McGinley Dynamic",
+  "params": [
+   {
+    "default": 14,
+    "name": "period",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "McGinley"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "lsma",
+  "levels": [],
+  "name": "LSMA",
+  "params": [
+   {
+    "default": 25,
+    "name": "period",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "LSMA"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "envelope",
+  "levels": [],
+  "name": "Envelope",
+  "params": [
+   {
+    "default": 20,
+    "name": "period",
+    "type": "int"
+   },
+   {
+    "default": 10.0,
+    "name": "percent",
+    "type": "float"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "upper",
+    "kind": "line",
+    "title": "Upper"
+   },
+   {
+    "key": "middle",
+    "kind": "line",
+    "title": "Middle"
+   },
+   {
+    "key": "lower",
+    "kind": "line",
+    "title": "Lower"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "donchian",
+  "levels": [],
+  "name": "Donchian Channels",
+  "params": [
+   {
+    "default": 20,
+    "name": "period",
+    "type": "int"
+   },
+   {
+    "default": 0,
+    "name": "offset",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "upper",
+    "kind": "line",
+    "title": "Upper"
+   },
+   {
+    "key": "middle",
+    "kind": "line",
+    "title": "Middle"
+   },
+   {
+    "key": "lower",
+    "kind": "line",
+    "title": "Lower"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "keltner-channel",
+  "levels": [],
+  "name": "Keltner Channels",
+  "params": [
+   {
+    "default": 20,
+    "name": "period",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "mult",
+    "type": "float"
+   },
+   {
+    "default": 10,
+    "name": "atrlength",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "upper",
+    "kind": "line",
+    "title": "Upper"
+   },
+   {
+    "key": "middle",
+    "kind": "line",
+    "title": "Middle"
+   },
+   {
+    "key": "lower",
+    "kind": "line",
+    "title": "Lower"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "median",
+  "levels": [],
+  "name": "Median",
+  "params": [
+   {
+    "default": 3,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 14,
+    "name": "atr_length",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "atr_mult",
+    "type": "float"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "median",
+    "kind": "line",
+    "title": "Median"
+   },
+   {
+    "key": "upper",
+    "kind": "line",
+    "title": "Upper Band"
+   },
+   {
+    "key": "lower",
+    "kind": "line",
+    "title": "Lower Band"
+   },
+   {
+    "key": "median_ema",
+    "kind": "line",
+    "title": "Median EMA"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "adx",
+  "levels": [
+   {
+    "value": 25
+   }
+  ],
+  "name": "ADX / DMI",
+  "params": [
+   {
+    "default": 14,
+    "name": "period",
+    "type": "int"
+   },
+   {
+    "default": 14,
+    "name": "adxPeriod",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "plusDi",
+    "kind": "line",
+    "title": "+DI"
+   },
+   {
+    "key": "minusDi",
+    "kind": "line",
+    "title": "-DI"
+   },
+   {
+    "key": "adx",
+    "kind": "line",
+    "title": "ADX"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "aroon",
+  "levels": [],
+  "name": "Aroon",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "up",
+    "kind": "line",
+    "title": "Aroon Up"
+   },
+   {
+    "key": "down",
+    "kind": "line",
+    "title": "Aroon Down"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "aroon-oscillator",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Aroon Oscillator",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "osc",
+    "kind": "line",
+    "title": "Oscillator"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "awesome-oscillator",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Awesome Oscillator",
+  "params": [],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "ao",
+    "kind": "column",
+    "title": "AO"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "cci",
+  "levels": [
+   {
+    "value": 100
+   },
+   {
+    "value": 0
+   },
+   {
+    "value": -100
+   }
+  ],
+  "name": "CCI",
+  "params": [
+   {
+    "default": 20,
+    "name": "period",
+    "type": "int"
+   },
+   {
+    "default": 0.015,
+    "name": "constant",
+    "type": "float"
+   },
+   {
+    "default": "SMA",
+    "name": "maType",
+    "type": "select"
+   },
+   {
+    "default": 20,
+    "name": "maLength",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "bbMult",
+    "type": "float"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "cci",
+    "kind": "line",
+    "title": "CCI"
+   },
+   {
+    "key": "ma",
+    "kind": "line",
+    "title": "CCI-based MA"
+   },
+   {
+    "key": "bbUpper",
+    "kind": "line",
+    "title": "Upper Bollinger Band"
+   },
+   {
+    "key": "bbLower",
+    "kind": "line",
+    "title": "Lower Bollinger Band"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "mfi",
+  "levels": [
+   {
+    "value": 80
+   },
+   {
+    "value": 20
+   }
+  ],
+  "name": "Money Flow Index",
+  "params": [
+   {
+    "default": 14,
+    "name": "period",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "MFI"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "ppo",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Percentage Price Oscillator",
+  "params": [
+   {
+    "default": 12,
+    "name": "fastLength",
+    "type": "int"
+   },
+   {
+    "default": 26,
+    "name": "slowLength",
+    "type": "int"
+   },
+   {
+    "default": 9,
+    "name": "signalLength",
+    "type": "int"
+   },
+   {
+    "default": "EMA",
+    "name": "oscType",
+    "type": "string"
+   },
+   {
+    "default": "EMA",
+    "name": "sigType",
+    "type": "string"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "ppo",
+    "kind": "line",
+    "title": "PPO"
+   },
+   {
+    "key": "signal",
+    "kind": "line",
+    "title": "Signal"
+   },
+   {
+    "key": "hist",
+    "kind": "histogram",
+    "title": "Histogram"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "trix",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "TRIX",
+  "params": [
+   {
+    "default": 18,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "TRIX"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "tsi",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "True Strength Index",
+  "params": [
+   {
+    "default": 25,
+    "name": "long",
+    "type": "int"
+   },
+   {
+    "default": 13,
+    "name": "short",
+    "type": "int"
+   },
+   {
+    "default": 13,
+    "name": "signal",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "tsi",
+    "kind": "line",
+    "title": "TSI"
+   },
+   {
+    "key": "signal",
+    "kind": "line",
+    "title": "Signal"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "smi",
+  "levels": [
+   {
+    "value": 40
+   },
+   {
+    "value": 0
+   },
+   {
+    "value": -40
+   }
+  ],
+  "name": "Stochastic Momentum Index",
+  "params": [
+   {
+    "default": 10,
+    "name": "lengthK",
+    "type": "int"
+   },
+   {
+    "default": 3,
+    "name": "lengthD",
+    "type": "int"
+   },
+   {
+    "default": 3,
+    "name": "lengthEMA",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "smi",
+    "kind": "line",
+    "title": "SMI"
+   },
+   {
+    "key": "ema",
+    "kind": "line",
+    "title": "EMA"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "smi-ergodic-indicator",
+  "levels": [],
+  "name": "SMI Ergodic Indicator",
+  "params": [
+   {
+    "default": 20,
+    "name": "longlen",
+    "type": "int"
+   },
+   {
+    "default": 5,
+    "name": "shortlen",
+    "type": "int"
+   },
+   {
+    "default": 5,
+    "name": "siglen",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "erg",
+    "kind": "line",
+    "title": "SMI"
+   },
+   {
+    "key": "sig",
+    "kind": "line",
+    "title": "Signal"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "smi-ergodic-oscillator",
+  "levels": [],
+  "name": "SMI Ergodic Oscillator",
+  "params": [
+   {
+    "default": 20,
+    "name": "longlen",
+    "type": "int"
+   },
+   {
+    "default": 5,
+    "name": "shortlen",
+    "type": "int"
+   },
+   {
+    "default": 5,
+    "name": "siglen",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "osc",
+    "kind": "histogram",
+    "title": "Oscillator"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "stochastic-rsi",
+  "levels": [
+   {
+    "value": 80
+   },
+   {
+    "value": 50
+   },
+   {
+    "value": 20
+   }
+  ],
+  "name": "Stochastic RSI",
+  "params": [
+   {
+    "default": 14,
+    "name": "lengthRSI",
+    "type": "int"
+   },
+   {
+    "default": 14,
+    "name": "lengthStoch",
+    "type": "int"
+   },
+   {
+    "default": 3,
+    "name": "smoothK",
+    "type": "int"
+   },
+   {
+    "default": 3,
+    "name": "smoothD",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "k",
+    "kind": "line",
+    "title": "K"
+   },
+   {
+    "key": "d",
+    "kind": "line",
+    "title": "D"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "williams-percent-r",
+  "levels": [
+   {
+    "value": -20
+   },
+   {
+    "value": -50
+   },
+   {
+    "value": -80
+   }
+  ],
+  "name": "Williams Percent Range",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "percentR",
+    "kind": "line",
+    "title": "%R"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "ultimate-oscillator",
+  "levels": [],
+  "name": "Ultimate Oscillator",
+  "params": [
+   {
+    "default": 7,
+    "name": "length1",
+    "type": "int"
+   },
+   {
+    "default": 14,
+    "name": "length2",
+    "type": "int"
+   },
+   {
+    "default": 28,
+    "name": "length3",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "uo",
+    "kind": "line",
+    "title": "UO"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "coppock-curve",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Coppock Curve",
+  "params": [
+   {
+    "default": 10,
+    "name": "wmaLength",
+    "type": "int"
+   },
+   {
+    "default": 14,
+    "name": "longRoCLength",
+    "type": "int"
+   },
+   {
+    "default": 11,
+    "name": "shortRoCLength",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "curve",
+    "kind": "line",
+    "title": "Coppock"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "dpo",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Detrended Price Oscillator",
+  "params": [
+   {
+    "default": 21,
+    "name": "period",
+    "type": "int"
+   },
+   {
+    "default": false,
+    "name": "isCentered",
+    "type": "bool"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "dpo",
+    "kind": "line",
+    "title": "DPO"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "fisher-transform",
+  "levels": [
+   {
+    "value": 1.5
+   },
+   {
+    "value": 0.75
+   },
+   {
+    "value": 0
+   },
+   {
+    "value": -0.75
+   },
+   {
+    "value": -1.5
+   }
+  ],
+  "name": "Fisher Transform",
+  "params": [
+   {
+    "default": 9,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "fisher",
+    "kind": "line",
+    "title": "Fisher"
+   },
+   {
+    "key": "trigger",
+    "kind": "line",
+    "title": "Trigger"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "chande-momentum",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Chande Momentum Oscillator",
+  "params": [
+   {
+    "default": 9,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "cmo",
+    "kind": "line",
+    "title": "Chande MO"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "connors-rsi",
+  "levels": [
+   {
+    "value": 70
+   },
+   {
+    "value": 50
+   },
+   {
+    "value": 30
+   }
+  ],
+  "name": "Connors RSI",
+  "params": [
+   {
+    "default": 3,
+    "name": "lenrsi",
+    "type": "int"
+   },
+   {
+    "default": 2,
+    "name": "lenupdown",
+    "type": "int"
+   },
+   {
+    "default": 100,
+    "name": "lenroc",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "crsi",
+    "kind": "line",
+    "title": "CRSI"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "balance-of-power",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Balance of Power",
+  "params": [],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "bop",
+    "kind": "line",
+    "title": "BOP"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "bollinger-percent-b",
+  "levels": [
+   {
+    "value": 1
+   },
+   {
+    "value": 0.5
+   },
+   {
+    "value": 0
+   }
+  ],
+  "name": "Bollinger Bands %b",
+  "params": [
+   {
+    "default": 20,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "mult",
+    "type": "float"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "Bollinger Bands %b"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "bollinger-bandwidth",
+  "levels": [],
+  "name": "Bollinger BandWidth",
+  "params": [
+   {
+    "default": 20,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "mult",
+    "type": "float"
+   },
+   {
+    "default": 125,
+    "name": "expansionLength",
+    "type": "int"
+   },
+   {
+    "default": 125,
+    "name": "contractionLength",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "bandwidth",
+    "kind": "line",
+    "title": "Bollinger BandWidth"
+   },
+   {
+    "key": "expansion",
+    "kind": "line",
+    "title": "Highest Expansion"
+   },
+   {
+    "key": "contraction",
+    "kind": "line",
+    "title": "Lowest Contraction"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "bb-trend",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "BBTrend",
+  "params": [
+   {
+    "default": 20,
+    "name": "shortLength",
+    "type": "int"
+   },
+   {
+    "default": 50,
+    "name": "longLength",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "stdDevMult",
+    "type": "float"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "BBTrend"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "kama",
+  "levels": [],
+  "name": "Kaufman's Adaptive Moving Average",
+  "params": [
+   {
+    "default": 10,
+    "name": "erLength",
+    "type": "int"
+   },
+   {
+    "default": 2,
+    "name": "fastLength",
+    "type": "int"
+   },
+   {
+    "default": 30,
+    "name": "slowLength",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "KAMA"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "ma-channel",
+  "levels": [],
+  "name": "MA Channel",
+  "params": [
+   {
+    "default": 20,
+    "name": "upperLength",
+    "type": "int"
+   },
+   {
+    "default": 20,
+    "name": "lowerLength",
+    "type": "int"
+   },
+   {
+    "default": 0,
+    "name": "upperOffset",
+    "type": "int"
+   },
+   {
+    "default": 0,
+    "name": "lowerOffset",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "upper",
+    "kind": "line",
+    "title": "MAC Upper"
+   },
+   {
+    "key": "lower",
+    "kind": "line",
+    "title": "MAC Lower"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "standard-error-bands",
+  "levels": [],
+  "name": "Standard Error Bands",
+  "params": [
+   {
+    "default": 21,
+    "name": "periods",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "errors",
+    "type": "float"
+   },
+   {
+    "default": "Simple",
+    "name": "method",
+    "type": "select"
+   },
+   {
+    "default": 3,
+    "name": "averagePeriods",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "upper",
+    "kind": "line",
+    "title": "SEB Upper"
+   },
+   {
+    "key": "basis",
+    "kind": "line",
+    "title": "SEB Basis"
+   },
+   {
+    "key": "lower",
+    "kind": "line",
+    "title": "SEB Lower"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "chaikin-volatility",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Chaikin Volatility",
+  "params": [
+   {
+    "default": 10,
+    "name": "periods",
+    "type": "int"
+   },
+   {
+    "default": 10,
+    "name": "rocLookback",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "chaikinVolatility",
+    "kind": "line",
+    "title": "Chaikin Volatility"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "standard-deviation",
+  "levels": [],
+  "name": "Standard Deviation",
+  "params": [
+   {
+    "default": 5,
+    "name": "periods",
+    "type": "int"
+   },
+   {
+    "default": 1.0,
+    "name": "deviations",
+    "type": "float"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "stdDev",
+    "kind": "line",
+    "title": "StdDev"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "standard-error",
+  "levels": [],
+  "name": "Standard Error",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "stdErr",
+    "kind": "line",
+    "title": "StdErr"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "choppiness-index",
+  "levels": [
+   {
+    "value": 61.8
+   },
+   {
+    "value": 50
+   },
+   {
+    "value": 38.2
+   }
+  ],
+  "name": "Choppiness Index",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 0,
+    "name": "offset",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "value",
+    "kind": "line",
+    "title": "CHOP"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "historical-volatility",
+  "levels": [],
+  "name": "Historical Volatility",
+  "params": [
+   {
+    "default": 10,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 1,
+    "name": "per",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "hv",
+    "kind": "line",
+    "title": "HV"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "average-daily-range",
+  "levels": [],
+  "name": "Average Daily Range",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "adr",
+    "kind": "line",
+    "title": "ADR"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "chop-zone",
+  "levels": [],
+  "name": "Chop Zone",
+  "params": [],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "chopZone",
+    "kind": "column",
+    "title": "Chop Zone"
+   },
+   {
+    "key": "angle",
+    "kind": "line",
+    "title": "Angle"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "volatility-stop",
+  "levels": [],
+  "name": "Volatility Stop",
+  "params": [
+   {
+    "default": 20,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "factor",
+    "type": "float"
+   },
+   {
+    "default": "close",
+    "name": "source",
+    "type": "string"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "up",
+    "kind": "line",
+    "title": "Up Trend"
+   },
+   {
+    "key": "down",
+    "kind": "line",
+    "title": "Down Trend"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "chandelier-exit",
+  "levels": [],
+  "name": "Chandelier Exit",
+  "params": [
+   {
+    "default": 22,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 22,
+    "name": "atrLength",
+    "type": "int"
+   },
+   {
+    "default": 3.0,
+    "name": "atrMultiplier",
+    "type": "float"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "long",
+    "kind": "line",
+    "title": "Long"
+   },
+   {
+    "key": "short",
+    "kind": "line",
+    "title": "Short"
+   },
+   {
+    "key": "longExit",
+    "kind": "line",
+    "title": "Long Exit"
+   },
+   {
+    "key": "shortExit",
+    "kind": "line",
+    "title": "Short Exit"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "chande-kroll-stop",
+  "levels": [],
+  "name": "Chande Kroll Stop",
+  "params": [
+   {
+    "default": 10,
+    "name": "p",
+    "type": "int"
+   },
+   {
+    "default": 1,
+    "name": "x",
+    "type": "int"
+   },
+   {
+    "default": 9,
+    "name": "q",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "stopLong",
+    "kind": "line",
+    "title": "Stop Long"
+   },
+   {
+    "key": "stopShort",
+    "kind": "line",
+    "title": "Stop Short"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "adl",
+  "levels": [],
+  "name": "Accumulation/Distribution",
+  "params": [],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "adl",
+    "kind": "line",
+    "title": "A/D Line"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "net-volume",
+  "levels": [],
+  "name": "Net Volume",
+  "params": [],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "net",
+    "kind": "histogram",
+    "title": "Net Volume"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "volume",
+  "levels": [],
+  "name": "Volume",
+  "params": [],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "volume",
+    "kind": "histogram",
+    "title": "Volume"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "pvt",
+  "levels": [],
+  "name": "Price Volume Trend",
+  "params": [],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "pvt",
+    "kind": "line",
+    "title": "PVT"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "chaikin-money-flow",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Chaikin Money Flow",
+  "params": [
+   {
+    "default": 20,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "cmf",
+    "kind": "line",
+    "title": "CMF"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "chaikin-oscillator",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Chaikin Oscillator",
+  "params": [
+   {
+    "default": 3,
+    "name": "short",
+    "type": "int"
+   },
+   {
+    "default": 10,
+    "name": "long",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "osc",
+    "kind": "line",
+    "title": "Chaikin Oscillator"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "ease-of-movement",
+  "levels": [],
+  "name": "Ease of Movement",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 10000,
+    "name": "divisor",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "eom",
+    "kind": "line",
+    "title": "EOM"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "elder-force-index",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Elder Force Index",
+  "params": [
+   {
+    "default": 13,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "efi",
+    "kind": "line",
+    "title": "Elder Force Index"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "ulcer-index",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Ulcer Index",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "ui",
+    "kind": "line",
+    "title": "Ulcer Index"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "nvi",
+  "levels": [
+   {
+    "value": 1000
+   }
+  ],
+  "name": "Negative Volume Index",
+  "params": [
+   {
+    "default": 255,
+    "name": "maLength",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "nvi",
+    "kind": "line",
+    "title": "NVI"
+   },
+   {
+    "key": "ema",
+    "kind": "line",
+    "title": "NVI EMA"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "pvi",
+  "levels": [
+   {
+    "value": 1000
+   }
+  ],
+  "name": "Positive Volume Index",
+  "params": [
+   {
+    "default": 255,
+    "name": "maLength",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "pvi",
+    "kind": "line",
+    "title": "PVI"
+   },
+   {
+    "key": "ema",
+    "kind": "line",
+    "title": "PVI EMA"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "pvo",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Percentage Volume Oscillator",
+  "params": [
+   {
+    "default": 12,
+    "name": "fastLength",
+    "type": "int"
+   },
+   {
+    "default": 26,
+    "name": "slowLength",
+    "type": "int"
+   },
+   {
+    "default": 9,
+    "name": "signalLength",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "hist",
+    "kind": "histogram",
+    "title": "Histogram"
+   },
+   {
+    "key": "pvo",
+    "kind": "line",
+    "title": "PVO"
+   },
+   {
+    "key": "signal",
+    "kind": "line",
+    "title": "Signal"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "mass-index",
+  "levels": [],
+  "name": "Mass Index",
+  "params": [
+   {
+    "default": 10,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "mi",
+    "kind": "line",
+    "title": "Mass Index"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "know-sure-thing",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Know Sure Thing",
+  "params": [
+   {
+    "default": 10,
+    "name": "roclen1",
+    "type": "int"
+   },
+   {
+    "default": 15,
+    "name": "roclen2",
+    "type": "int"
+   },
+   {
+    "default": 20,
+    "name": "roclen3",
+    "type": "int"
+   },
+   {
+    "default": 30,
+    "name": "roclen4",
+    "type": "int"
+   },
+   {
+    "default": 10,
+    "name": "smalen1",
+    "type": "int"
+   },
+   {
+    "default": 10,
+    "name": "smalen2",
+    "type": "int"
+   },
+   {
+    "default": 10,
+    "name": "smalen3",
+    "type": "int"
+   },
+   {
+    "default": 15,
+    "name": "smalen4",
+    "type": "int"
+   },
+   {
+    "default": 9,
+    "name": "siglen",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "kst",
+    "kind": "line",
+    "title": "KST"
+   },
+   {
+    "key": "signal",
+    "kind": "line",
+    "title": "Signal"
+   }
+  ]
+ },
+ {
+  "category": "Volume",
+  "id": "klinger-oscillator",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Klinger Oscillator",
+  "params": [],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "kvo",
+    "kind": "line",
+    "title": "KVO"
+   },
+   {
+    "key": "signal",
+    "kind": "line",
+    "title": "Signal"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "momentum",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Momentum",
+  "params": [
+   {
+    "default": 10,
+    "name": "len",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "mom",
+    "kind": "line",
+    "title": "MOM"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "ma-cross",
+  "levels": [],
+  "name": "MA Cross",
+  "params": [
+   {
+    "default": 9,
+    "name": "shortLength",
+    "type": "int"
+   },
+   {
+    "default": 21,
+    "name": "longLength",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "short",
+    "kind": "line",
+    "title": "Short MA"
+   },
+   {
+    "key": "long",
+    "kind": "line",
+    "title": "Long MA"
+   },
+   {
+    "key": "cross",
+    "kind": "line",
+    "title": "Cross"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "ma-ribbon",
+  "levels": [],
+  "name": "Moving Average Ribbon",
+  "params": [
+   {
+    "default": "sma",
+    "name": "ma1Type",
+    "type": "select"
+   },
+   {
+    "default": "close",
+    "name": "ma1Source",
+    "type": "source"
+   },
+   {
+    "default": 20,
+    "name": "ma1Length",
+    "type": "int"
+   },
+   {
+    "default": "sma",
+    "name": "ma2Type",
+    "type": "select"
+   },
+   {
+    "default": "close",
+    "name": "ma2Source",
+    "type": "source"
+   },
+   {
+    "default": 50,
+    "name": "ma2Length",
+    "type": "int"
+   },
+   {
+    "default": "sma",
+    "name": "ma3Type",
+    "type": "select"
+   },
+   {
+    "default": "close",
+    "name": "ma3Source",
+    "type": "source"
+   },
+   {
+    "default": 100,
+    "name": "ma3Length",
+    "type": "int"
+   },
+   {
+    "default": "sma",
+    "name": "ma4Type",
+    "type": "select"
+   },
+   {
+    "default": "close",
+    "name": "ma4Source",
+    "type": "source"
+   },
+   {
+    "default": 200,
+    "name": "ma4Length",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "ma1",
+    "kind": "line",
+    "title": "MA #1"
+   },
+   {
+    "key": "ma2",
+    "kind": "line",
+    "title": "MA #2"
+   },
+   {
+    "key": "ma3",
+    "kind": "line",
+    "title": "MA #3"
+   },
+   {
+    "key": "ma4",
+    "kind": "line",
+    "title": "MA #4"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "woodies-cci",
+  "levels": [
+   {
+    "value": 100
+   },
+   {
+    "value": 0
+   },
+   {
+    "value": -100
+   }
+  ],
+  "name": "Woodies CCI",
+  "params": [
+   {
+    "default": 6,
+    "name": "cciTurboLength",
+    "type": "int"
+   },
+   {
+    "default": 14,
+    "name": "cci14Length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "hist",
+    "kind": "histogram",
+    "title": "CCI Turbo Histogram"
+   },
+   {
+    "key": "turbo",
+    "kind": "line",
+    "title": "CCI Turbo"
+   },
+   {
+    "key": "cci14",
+    "kind": "line",
+    "title": "CCI 14"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "special-k",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Pring's Special K",
+  "params": [
+   {
+    "default": 100,
+    "name": "length1",
+    "type": "int"
+   },
+   {
+    "default": 100,
+    "name": "length2",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "specialK",
+    "kind": "line",
+    "title": "Special K"
+   },
+   {
+    "key": "signal",
+    "kind": "line",
+    "title": "Signal"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "alligator",
+  "levels": [],
+  "name": "Williams Alligator",
+  "params": [
+   {
+    "default": 13,
+    "name": "jawLength",
+    "type": "int"
+   },
+   {
+    "default": 8,
+    "name": "jawOffset",
+    "type": "int"
+   },
+   {
+    "default": 8,
+    "name": "teethLength",
+    "type": "int"
+   },
+   {
+    "default": 5,
+    "name": "teethOffset",
+    "type": "int"
+   },
+   {
+    "default": 5,
+    "name": "lipsLength",
+    "type": "int"
+   },
+   {
+    "default": 3,
+    "name": "lipsOffset",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "jaw",
+    "kind": "line",
+    "title": "Jaw"
+   },
+   {
+    "key": "teeth",
+    "kind": "line",
+    "title": "Teeth"
+   },
+   {
+    "key": "lips",
+    "kind": "line",
+    "title": "Lips"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "parabolic-sar",
+  "levels": [],
+  "name": "Parabolic SAR",
+  "params": [
+   {
+    "default": 0.02,
+    "name": "start",
+    "type": "float"
+   },
+   {
+    "default": 0.02,
+    "name": "increment",
+    "type": "float"
+   },
+   {
+    "default": 0.2,
+    "name": "maximum",
+    "type": "float"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "sar",
+    "kind": "line",
+    "title": "SAR"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "ichimoku",
+  "levels": [],
+  "name": "Ichimoku Cloud",
+  "params": [
+   {
+    "default": 9,
+    "name": "conversionPeriod",
+    "type": "int"
+   },
+   {
+    "default": 26,
+    "name": "basePeriod",
+    "type": "int"
+   },
+   {
+    "default": 52,
+    "name": "laggingSpanPeriod",
+    "type": "int"
+   },
+   {
+    "default": 26,
+    "name": "displacement",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "conversion",
+    "kind": "line",
+    "title": "Conversion"
+   },
+   {
+    "key": "base",
+    "kind": "line",
+    "title": "Base"
+   },
+   {
+    "key": "spanA",
+    "kind": "line",
+    "title": "Span A"
+   },
+   {
+    "key": "spanB",
+    "kind": "line",
+    "title": "Span B"
+   },
+   {
+    "key": "lagging",
+    "kind": "line",
+    "title": "Lagging"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "halftrend",
+  "levels": [],
+  "name": "HalfTrend",
+  "params": [
+   {
+    "default": 2,
+    "name": "amplitude",
+    "type": "int"
+   },
+   {
+    "default": 2,
+    "name": "channelDeviation",
+    "type": "float"
+   },
+   {
+    "default": 100,
+    "name": "atrPeriod",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "up",
+    "kind": "line",
+    "title": "HalfTrend Up"
+   },
+   {
+    "key": "down",
+    "kind": "line",
+    "title": "HalfTrend Down"
+   },
+   {
+    "key": "atr_high",
+    "kind": "line",
+    "title": "Channel High"
+   },
+   {
+    "key": "atr_low",
+    "kind": "line",
+    "title": "Channel Low"
+   },
+   {
+    "key": "buy_signal",
+    "kind": "line",
+    "title": "Buy"
+   },
+   {
+    "key": "sell_signal",
+    "kind": "line",
+    "title": "Sell"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "alphatrend",
+  "levels": [],
+  "name": "AlphaTrend",
+  "params": [
+   {
+    "default": 1,
+    "name": "coeff",
+    "type": "float"
+   },
+   {
+    "default": 14,
+    "name": "AP",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "alphatrend",
+    "kind": "line",
+    "title": "AlphaTrend"
+   },
+   {
+    "key": "lagged",
+    "kind": "line",
+    "title": "AlphaTrend Lag"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "cpr",
+  "levels": [],
+  "name": "CPR with Floor Pivot",
+  "params": [
+   {
+    "default": "auto",
+    "name": "pivotMode",
+    "type": "select"
+   },
+   {
+    "default": true,
+    "name": "showDaily",
+    "type": "bool"
+   },
+   {
+    "default": false,
+    "name": "showWeekly",
+    "type": "bool"
+   },
+   {
+    "default": false,
+    "name": "showMonthly",
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "name": "displaypivots",
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "name": "displaysupport",
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "name": "displayresistance",
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "name": "displaycpr",
+    "type": "bool"
+   },
+   {
+    "default": false,
+    "name": "displayS1R1",
+    "type": "bool"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "dPivot",
+    "kind": "line",
+    "title": "Daily Pivot"
+   },
+   {
+    "key": "dS1",
+    "kind": "line",
+    "title": "Daily S1"
+   },
+   {
+    "key": "dS2",
+    "kind": "line",
+    "title": "Daily S2"
+   },
+   {
+    "key": "dS3",
+    "kind": "line",
+    "title": "Daily S3"
+   },
+   {
+    "key": "dR1",
+    "kind": "line",
+    "title": "Daily R1"
+   },
+   {
+    "key": "dR2",
+    "kind": "line",
+    "title": "Daily R2"
+   },
+   {
+    "key": "dR3",
+    "kind": "line",
+    "title": "Daily R3"
+   },
+   {
+    "key": "dBc",
+    "kind": "line",
+    "title": "Daily Bc"
+   },
+   {
+    "key": "dTc",
+    "kind": "line",
+    "title": "Daily Tc"
+   },
+   {
+    "key": "wPivot",
+    "kind": "line",
+    "title": "Weekly Pivot"
+   },
+   {
+    "key": "wS1",
+    "kind": "line",
+    "title": "Weekly S1"
+   },
+   {
+    "key": "wS2",
+    "kind": "line",
+    "title": "Weekly S2"
+   },
+   {
+    "key": "wS3",
+    "kind": "line",
+    "title": "Weekly S3"
+   },
+   {
+    "key": "wR1",
+    "kind": "line",
+    "title": "Weekly R1"
+   },
+   {
+    "key": "wR2",
+    "kind": "line",
+    "title": "Weekly R2"
+   },
+   {
+    "key": "wR3",
+    "kind": "line",
+    "title": "Weekly R3"
+   },
+   {
+    "key": "wBc",
+    "kind": "line",
+    "title": "Weekly Bc"
+   },
+   {
+    "key": "wTc",
+    "kind": "line",
+    "title": "Weekly Tc"
+   },
+   {
+    "key": "mPivot",
+    "kind": "line",
+    "title": "Monthly Pivot"
+   },
+   {
+    "key": "mS1",
+    "kind": "line",
+    "title": "Monthly S1"
+   },
+   {
+    "key": "mS2",
+    "kind": "line",
+    "title": "Monthly S2"
+   },
+   {
+    "key": "mS3",
+    "kind": "line",
+    "title": "Monthly S3"
+   },
+   {
+    "key": "mR1",
+    "kind": "line",
+    "title": "Monthly R1"
+   },
+   {
+    "key": "mR2",
+    "kind": "line",
+    "title": "Monthly R2"
+   },
+   {
+    "key": "mR3",
+    "kind": "line",
+    "title": "Monthly R3"
+   },
+   {
+    "key": "mBc",
+    "kind": "line",
+    "title": "Monthly Bc"
+   },
+   {
+    "key": "mTc",
+    "kind": "line",
+    "title": "Monthly Tc"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "range-analysis",
+  "levels": [],
+  "name": "Range Analysis",
+  "params": [
+   {
+    "default": false,
+    "name": "showAverage",
+    "type": "bool"
+   },
+   {
+    "default": 3,
+    "name": "avgLength",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "range",
+    "kind": "histogram",
+    "title": "Range"
+   },
+   {
+    "key": "avg_range",
+    "kind": "line",
+    "title": "Average Range"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "vortex",
+  "levels": [
+   {
+    "value": 1
+   }
+  ],
+  "name": "Vortex Indicator",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "vip",
+    "kind": "line",
+    "title": "VI +"
+   },
+   {
+    "key": "vim",
+    "kind": "line",
+    "title": "VI -"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "relative-vigor-index",
+  "levels": [
+   {
+    "value": 0
+   }
+  ],
+  "name": "Relative Vigor Index",
+  "params": [
+   {
+    "default": 10,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 0,
+    "name": "offset",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "rvgi",
+    "kind": "line",
+    "title": "RVGI"
+   },
+   {
+    "key": "signal",
+    "kind": "line",
+    "title": "Signal"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "relative-volatility-index",
+  "levels": [
+   {
+    "value": 80
+   },
+   {
+    "value": 50
+   },
+   {
+    "value": 20
+   }
+  ],
+  "name": "Relative Volatility Index",
+  "params": [
+   {
+    "default": 10,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 0,
+    "name": "offset",
+    "type": "int"
+   },
+   {
+    "default": "SMA",
+    "name": "maType",
+    "type": "select"
+   },
+   {
+    "default": 14,
+    "name": "maLength",
+    "type": "int"
+   },
+   {
+    "default": 2,
+    "name": "bbMult",
+    "type": "float"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "rvi",
+    "kind": "line",
+    "title": "RVI"
+   },
+   {
+    "key": "ma",
+    "kind": "line",
+    "title": "RVI-based MA"
+   },
+   {
+    "key": "bb_upper",
+    "kind": "line",
+    "title": "Upper Bollinger Band"
+   },
+   {
+    "key": "bb_lower",
+    "kind": "line",
+    "title": "Lower Bollinger Band"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "rsi-divergence",
+  "levels": [
+   {
+    "value": 70
+   },
+   {
+    "value": 50
+   },
+   {
+    "value": 30
+   }
+  ],
+  "name": "RSI Divergence Indicator",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   },
+   {
+    "default": 5,
+    "name": "lbR",
+    "type": "int"
+   },
+   {
+    "default": 5,
+    "name": "lbL",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "rsi",
+    "kind": "line",
+    "title": "RSI"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "consolidation-breakout",
+  "levels": [],
+  "name": "Consolidation Breakout",
+  "params": [
+   {
+    "default": true,
+    "name": "markbreakout",
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "name": "colorinside",
+    "type": "bool"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "rangeHigh",
+    "kind": "line",
+    "title": "Range High"
+   },
+   {
+    "key": "rangeLow",
+    "kind": "line",
+    "title": "Range Low"
+   },
+   {
+    "key": "breakUp",
+    "kind": "line",
+    "title": "Break Up"
+   },
+   {
+    "key": "breakDown",
+    "kind": "line",
+    "title": "Break Down"
+   },
+   {
+    "key": "insideAge",
+    "kind": "line",
+    "title": "Inside Age"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "trend-strength-index",
+  "levels": [
+   {
+    "value": 1
+   },
+   {
+    "value": 0
+   },
+   {
+    "value": -1
+   }
+  ],
+  "name": "Trend Strength Index",
+  "params": [
+   {
+    "default": 14,
+    "name": "length",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "tsi",
+    "kind": "line",
+    "title": "Trend Strength Index"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "williams-fractals",
+  "levels": [],
+  "name": "Williams Fractals",
+  "params": [
+   {
+    "default": 2,
+    "name": "periods",
+    "type": "int"
+   }
+  ],
+  "placement": "overlay",
+  "plots": [
+   {
+    "key": "fractals",
+    "kind": "line",
+    "title": "Fractals"
+   }
+  ]
+ },
+ {
+  "category": "Volatility",
+  "id": "williams-vix-fix",
+  "levels": [],
+  "name": "William VIX FIX",
+  "params": [
+   {
+    "default": 22,
+    "name": "pd",
+    "type": "int"
+   },
+   {
+    "default": 20,
+    "name": "bbl",
+    "type": "int"
+   },
+   {
+    "default": 2.0,
+    "name": "mult",
+    "type": "float"
+   },
+   {
+    "default": 50,
+    "name": "lb",
+    "type": "int"
+   },
+   {
+    "default": 0.85,
+    "name": "ph",
+    "type": "float"
+   },
+   {
+    "default": 1.01,
+    "name": "pl",
+    "type": "float"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "wvf",
+    "kind": "histogram",
+    "title": "Williams Vix Fix"
+   },
+   {
+    "key": "range_high",
+    "kind": "line",
+    "title": "Range High Percentile"
+   },
+   {
+    "key": "range_low",
+    "kind": "line",
+    "title": "Range Low Percentile"
+   },
+   {
+    "key": "upper_band",
+    "kind": "line",
+    "title": "Upper Band"
+   }
+  ]
+ },
+ {
+  "category": "Momentum",
+  "id": "wavetrend",
+  "levels": [
+   {
+    "value": 60
+   },
+   {
+    "value": 53
+   },
+   {
+    "value": 0
+   },
+   {
+    "value": -53
+   },
+   {
+    "value": -60
+   }
+  ],
+  "name": "WaveTrend Pro",
+  "params": [
+   {
+    "default": 10,
+    "name": "n1",
+    "type": "int"
+   },
+   {
+    "default": 21,
+    "name": "n2",
+    "type": "int"
+   },
+   {
+    "default": 4,
+    "name": "sigLen",
+    "type": "int"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "mom",
+    "kind": "histogram",
+    "title": "Momentum"
+   },
+   {
+    "key": "wt1",
+    "kind": "line",
+    "title": "WT1"
+   },
+   {
+    "key": "wt2",
+    "kind": "line",
+    "title": "WT2"
+   }
+  ]
+ },
+ {
+  "category": "Trend",
+  "id": "seasonality",
+  "levels": [],
+  "name": "Seasonality",
+  "params": [
+   {
+    "default": 2015,
+    "name": "startYear",
+    "type": "int"
+   },
+   {
+    "default": "#089981",
+    "name": "posColor",
+    "type": "text"
+   },
+   {
+    "default": "#F23745",
+    "name": "negColor",
+    "type": "text"
+   },
+   {
+    "default": 10.0,
+    "name": "cutoffPercent",
+    "type": "float"
+   },
+   {
+    "default": "Center",
+    "name": "tablePosition",
+    "type": "select"
+   },
+   {
+    "default": 100,
+    "name": "tableWidth",
+    "type": "int"
+   },
+   {
+    "default": 95,
+    "name": "tableHeight",
+    "type": "int"
+   },
+   {
+    "default": true,
+    "name": "showAvg",
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "name": "showStDev",
+    "type": "bool"
+   },
+   {
+    "default": true,
+    "name": "showPos",
+    "type": "bool"
+   },
+   {
+    "default": "",
+    "name": "ignoredMonths",
+    "type": "text"
+   }
+  ],
+  "placement": "pane",
+  "plots": [
+   {
+    "key": "seasonality",
+    "kind": "line",
+    "title": "Seasonality"
+   }
+  ]
+ }
+]

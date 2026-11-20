@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from tradex_config.permissions import EXPECTED_SECRET_MODE
 from tradex_domain import AuthenticationError, RateLimitError
 
 log = logging.getLogger(__name__)
@@ -56,144 +57,15 @@ def _process_lock(path: Path) -> threading.RLock:
         return _PROCESS_LOCKS.setdefault(key, threading.RLock())
 
 
-#: Mode for files that hold broker credentials (access/refresh tokens, TOTP
-#: cooldown state).  Owner read/write only: these files are secret material and
-#: must never be readable by other local users.
-SECRET_FILE_MODE = 0o600
-
 #: Mode for directories we create that hold such files.  The file mode is the
 #: primary control (the directory only needs to be traversable by its owner,
 #: since everything secret inside it is already 0600).
 SECRET_DIR_MODE = 0o700
 
 
-class InsecureCredentialPermissions(PermissionError):
-    """A credential file on disk is readable by group or other.
-
-    Raised only when ``strict=True``; the default is to tighten the file and
-    continue, because refusing to boot is a worse outcome than a repaired
-    mode.  The type exists so a caller that *does* want to fail closed can
-    catch exactly this and nothing else.
-    """
-
-
-def assert_secret_file_mode(
-    path: Path | str,
-    *,
-    strict: bool = False,
-) -> bool:
-    """Tighten ``path`` to ``SECRET_FILE_MODE`` if it is too permissive.
-
-    The writer is already correct — :func:`_atomic_write_text` creates every
-    secret file at ``SECRET_FILE_MODE`` via ``os.open`` and re-chmods the
-    temp before ``os.replace``, so nothing it *writes* can be world-readable.
-    That leaves the other direction unguarded: a credential file that already
-    existed, or that some earlier writer created under a permissive umask, is
-    never re-examined.  This is a real, observed artefact — a
-    ``token_state.json`` holding a live access *and* refresh token sat at
-    0644 while the sibling file written by the same helper was 0600.
-
-    This function is the boot-time backstop for exactly that case.
-
-    Parameters
-    ----------
-    path:
-        File to check.  A missing file is not a failure: nothing has been
-        persisted yet, and the writer will create it at 0600 when it does.
-    strict:
-        ``True`` raises :class:`InsecureCredentialPermissions` instead of
-        chmodding, for a caller that must fail closed.
-
-    Returns
-    -------
-    bool
-        ``True`` if the file was found and is (now) owner-only, ``False`` if
-        it does not exist or its mode cannot be read.
-
-    Notes
-    -----
-    A permissive mode is *repaired* and logged, never merely reported: a
-    world-readable credential is a present, ongoing exposure, and warning
-    about it while leaving the bits set is not a fix.  The chmod narrows the
-    file to its owner, which is a no-op for any legitimate reader — only the
-    process owner can read a file it owns.
-    """
-    target = Path(path)
-    try:
-        mode = stat.S_IMODE(os.stat(target).st_mode)
-    except OSError:
-        # Missing (nothing persisted yet) or unreadable (not our problem to
-        # solve here) — the writer handles the first, and the OS error will
-        # surface again at the point of use for the second.
-        return False
-
-    if not (mode & (stat.S_IRWXG | stat.S_IRWXO)):
-        return True
-
-    if strict:
-        raise InsecureCredentialPermissions(
-            f"{target} is mode {mode:04o} but must be {SECRET_FILE_MODE:04o}: "
-            f"it holds a live broker credential and must not be readable by "
-            f"group or other"
-        )
-    os.chmod(target, SECRET_FILE_MODE)
-    log.warning(
-        "tightened %s from %04o to %04o: it held broker credential material "
-        "readable by group or other",
-        target,
-        mode,
-        SECRET_FILE_MODE,
-    )
-    return True
-
-
-def assert_runtime_secret_permissions(
-    runtime_dir: Path | str | None = None,
-    *,
-    strict: bool = False,
-) -> list[Path]:
-    """Check every credential file under the broker runtime state directory.
-
-    Boot-time sweep for the C6 finding.  Scans ``<runtime_dir>/*/*.json`` —
-    the layout :func:`tradex_domain.paths.default_token_state_path`
-    produces (``<runtime>/<broker>/token_state.json``) — and tightens
-    anything that is world-readable.
-
-    Parameters
-    ----------
-    runtime_dir:
-        Root of the local broker state tree.  Defaults to the configured
-        runtime root (``TRADEX_RUNTIME_DIR``).
-    strict:
-        Propagate :class:`InsecureCredentialPermissions` on the first
-        offending file instead of repairing it.
-
-    Returns
-    -------
-    list[Path]
-        The files that were found and are now owner-only.  Empty when the
-        runtime directory does not exist yet (a fresh checkout has never
-        authenticated, so there is nothing to check).
-    """
-    from tradex_domain.paths import default_runtime_dir
-
-    root = Path(runtime_dir) if runtime_dir is not None else default_runtime_dir()
-    checked: list[Path] = []
-    if not root.is_dir():
-        return checked
-    for broker_dir in sorted(p for p in root.iterdir() if p.is_dir()):
-        # The layout ``default_token_state_path`` produces is
-        # ``<runtime>/<broker>/token_state.json``.  The path is built here
-        # rather than by calling that helper, which mkdirs as a side effect —
-        # a read-only permission sweep must not create state directories.
-        candidate = broker_dir / "token_state.json"
-        if assert_secret_file_mode(candidate, strict=strict):
-            checked.append(candidate)
-    return checked
-
 
 def _create_secret_file(temp: Path) -> int:
-    """Create ``temp`` empty with ``SECRET_FILE_MODE`` and return its fd.
+    """Create ``temp`` empty with ``EXPECTED_SECRET_MODE`` and return its fd.
 
     The mode is passed to :func:`os.open` at *creation* rather than applied
     afterwards with ``chmod``, so the file is never briefly readable by the
@@ -209,20 +81,20 @@ def _create_secret_file(temp: Path) -> int:
     """
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     try:
-        return os.open(temp, flags, SECRET_FILE_MODE)
+        return os.open(temp, flags, EXPECTED_SECRET_MODE)
     except FileExistsError:
         # Same-pid/tid leftover from a crashed writer, or a concurrent writer
         # that has not finished yet.  The file is still empty in the first
         # case; a concurrent writer's file is never ours to reuse.
         with suppress(OSError):
             temp.unlink()
-        return os.open(temp, flags, SECRET_FILE_MODE)
+        return os.open(temp, flags, EXPECTED_SECRET_MODE)
 
 
 def _atomic_write_text(path: Path, content: str) -> None:
     """Replace a same-directory file atomically, without exposing partial JSON.
 
-    The file is created ``SECRET_FILE_MODE`` (0600) at the moment of creation,
+    The file is created ``EXPECTED_SECRET_MODE`` (0600) at the moment of creation,
     before a single byte of ``content`` is written, and ``os.replace`` carries
     that mode onto the destination — so a credential file is never observed
     world-readable, not even for an instant.  A pre-existing destination with
@@ -247,7 +119,7 @@ def _atomic_write_text(path: Path, content: str) -> None:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())
-        os.chmod(temp, SECRET_FILE_MODE)  # defeat a permissive pre-existing mode
+        os.chmod(temp, EXPECTED_SECRET_MODE)  # defeat a permissive pre-existing mode
         os.replace(temp, path)
         if fcntl is not None:
             directory_fd = os.open(path.parent, os.O_RDONLY)
@@ -545,7 +417,7 @@ class PortTokenManager:
         if token is None:
             return
         # Same hardened writer as the mint-mode path: a live access token is
-        # credential material, so the file must land at SECRET_FILE_MODE.
+        # credential material, so the file must land at EXPECTED_SECRET_MODE.
         _atomic_write_text(self._path, json.dumps({"access_token": token}, indent=2))
         log.debug("Token state saved to %s", self._path)
 
@@ -873,7 +745,4 @@ __all__ = [
     "TokenLifecyclePort",
     "TokenMintResult",
     "TokenRefreshScheduler",
-    "InsecureCredentialPermissions",
-    "assert_secret_file_mode",
-    "assert_runtime_secret_permissions",
 ]

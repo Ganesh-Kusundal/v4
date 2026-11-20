@@ -196,6 +196,58 @@ def test_lifespan_teardown_error_does_not_propagate(tmp_path) -> None:
         pass
 
 
+def test_lifespan_teardown_base_exception_propagates(tmp_path) -> None:
+    """BaseException (KeyboardInterrupt/SystemExit) propagates during teardown.
+
+    ``_stop_bound_session`` catches ``Exception`` but NOT ``BaseException``, so
+    critical system signals are never masked by a failing teardown. This is the
+    difference between catching ``Exception`` (regular errors) and
+    ``BaseException`` (which would swallow KeyboardInterrupt/SystemExit).
+
+    A test that raised RuntimeError in stop() (above) proves regular exceptions
+    are swallowed; this test proves BaseException escapes, which is what we
+    want: if the operator hits Ctrl-C or the process receives SIGTERM, that
+    signal must not be hidden by a teardown error.
+
+    We test the _stop_bound_session helper directly because the TestClient's
+    async portal wraps exceptions in ways that obscure the propagation behavior.
+    """
+    from tradex_interfaces.fastapi_app import _stop_bound_session
+
+    session, _broker, _lock = _session(tmp_path)
+
+    def _raise_keyboard_interrupt() -> None:
+        raise KeyboardInterrupt("simulated Ctrl-C during teardown")
+
+    session.stop = _raise_keyboard_interrupt  # type: ignore[method-assign]
+
+    # The KeyboardInterrupt must propagate out of _stop_bound_session.
+    with pytest.raises(KeyboardInterrupt, match="simulated Ctrl-C"):
+        _stop_bound_session(session)
+
+
+def test_lifespan_teardown_system_exit_propagates(tmp_path) -> None:
+    """SystemExit also propagates during teardown, like KeyboardInterrupt.
+
+    Both KeyboardInterrupt and SystemExit inherit from BaseException, not
+    Exception, so they bypass the ``except Exception`` guard in
+    ``_stop_bound_session``. This ensures the process exits with the correct
+    code rather than masking it with a teardown failure.
+    """
+    from tradex_interfaces.fastapi_app import _stop_bound_session
+
+    session, _broker, _lock = _session(tmp_path)
+
+    def _raise_system_exit() -> None:
+        raise SystemExit(42)
+
+    session.stop = _raise_system_exit  # type: ignore[method-assign]
+
+    # The SystemExit must propagate out of _stop_bound_session.
+    with pytest.raises(SystemExit, match="42"):
+        _stop_bound_session(session)
+
+
 def test_lifespan_teardown_tolerates_a_session_without_stop() -> None:
     """A session-like object with no ``stop`` is skipped, not crashed on.
 

@@ -765,6 +765,64 @@ class TestOptionChain:
         assert registry.resolve("0") is None
         assert registry.resolve("None") is None
 
+    def test_chain_legs_carry_normalized_greeks_dict(self):
+        """OC leg payloads surface as normalized call_leg/put_leg dicts."""
+        leg = {
+            "instrument_key": "NFO_OPT|55001",
+            "market_data": {
+                "ltp": 110.5,
+                "oi": 980000,
+                "volume": 320000,
+                "prev_oi": 950000,
+                "bid_price": 110.4,
+                "ask_price": 110.6,
+                "bid_qty": 120,
+                "ask_qty": 90,
+            },
+            "option_greeks": {
+                "delta": -0.46,
+                "gamma": 0.00128,
+                "theta": -14.22,
+                "vega": 11.94,
+                "iv": 11.2,
+                "pop": 0.62,
+            },
+        }
+        put_leg = {**leg, "instrument_key": "NFO_OPT|55002"}
+        responses = [
+            {
+                "data": {
+                    "expiry": "2026-12-29",
+                    "chain": [
+                        {
+                            "expiry": "2026-12-29",
+                            "strike_price": 14000,
+                            "call_options": leg,
+                            "put_options": put_leg,
+                        },
+                    ],
+                }
+            }
+        ]
+        client, _, _ = _make_client(responses)
+        chain = client.get_option_chain(_index(), expiry="2026-12-29")
+        pair = list(chain.expiries()[0].pairs)[0]
+        assert pair.call_leg == {
+            "ltp": 110.5,
+            "oi": 980000.0,
+            "volume": 320000.0,
+            "previous_oi": 950000.0,
+            "bid": 110.4,
+            "ask": 110.6,
+            "bid_qty": 120.0,
+            "ask_qty": 90.0,
+            "iv": 11.2,
+            "greeks": {"delta": -0.46, "gamma": 0.00128, "theta": -14.22, "vega": 11.94},
+            "pop": 0.62,
+            "provider": "upstox",
+        }
+        assert "previous_volume" not in pair.call_leg
+
 
 # ---------------------------------------------------------------------------
 # Kill switch / static IP tests

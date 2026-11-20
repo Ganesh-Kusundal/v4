@@ -26,13 +26,13 @@ Parity notes
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Any, cast
 
 from tradex_analytics._math import (
     _rma,
     _to_float,
     _vol,
+    _vwma,
     sma,
 )
 from tradex_analytics.indicators import (
@@ -132,22 +132,6 @@ def _roc_ts(values: list[float], n: int) -> list[float | None]:
     for i in range(n, m):
         base = values[i - n]
         out[i] = None if base == 0 else (100.0 * (values[i] - base)) / base
-    return out
-
-
-def _vwma(
-    values: Sequence[float | None], vols: Sequence[float | None], period: int
-) -> list[float | None]:
-    """calc.ts ``vwma``: ``sma(src*vol, len) / sma(vol, len)``."""
-    n = len(values)
-    pv = [cast(float, values[i]) * cast(float, vols[i]) for i in range(n)]
-    num = sma(list(pv), period)
-    den = sma(list(vols), period)
-    out: list[float | None] = [None] * n
-    for i in range(n):
-        d = den[i]
-        if d is not None and d != 0 and num[i] is not None:
-            out[i] = num[i] / d
     return out
 
 

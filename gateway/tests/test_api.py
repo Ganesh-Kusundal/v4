@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import threading
+import time
 from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 from gateway_support import FakeBroker, gateway_config, make_candle
+from tradex_domain.errors import CapabilityNotSupportedError
 from tradex_domain.instruments import Future, Option
 from tradex_domain.market import HistoricalSeries
 from tradex_gateway.app import create_app
@@ -352,3 +354,169 @@ def test_search_resolve_chain_and_futures_include_lot_size():
 
         futures = client.get("/v1/futures/IDX:NIFTY")
         assert futures.json()["futures"][0]["lot_size"] == 50
+
+
+INTERNAL_ID_PATTERNS = [r"NSE_EQ\|", r"NSE_OPT\|", r"\bINE\d{5}[A-Z]{2}\d{4}\b", r"provider key"]
+
+
+def test_no_response_contains_internal_ids():
+    import re
+
+    app, _, _ = _app()
+    urls = [
+        "/v1/quote/NSE:RELIANCE",
+        "/v1/depth/NSE:RELIANCE",
+        "/v1/history/NSE:RELIANCE?timeframe=1m&from=2026-11-09T09:15:00%2B05:30&to=2026-11-09T09:20:00%2B05:30",
+        "/v1/option-chain/NSE:NIFTY",
+        "/v1/futures/NSE:NIFTY",
+        "/v1/instruments/search?q=REL",
+        "/v1/instruments/resolve?q=NSE:RELIANCE",
+        "/v1/health",
+        "/v1/brokers",
+    ]
+    with TestClient(app) as client:
+        for url in urls:
+            response = client.get(url)
+            body = response.text
+            for pattern in INTERNAL_ID_PATTERNS:
+                assert not re.search(pattern, body), f"{pattern} leaked in {url}"
+
+
+def test_market_data_surface_parity():
+    """Every market-data broker method has a gateway route."""
+    from tradex_brokers.common.base import BaseBroker
+    from tradex_brokers.dhan.adapter import DhanBroker
+    from tradex_brokers.upstox.adapter import UpstoxBroker
+
+    app, _, _ = _app()
+    paths = set()
+    for route in app.routes:
+        if getattr(route, "path", None):
+            paths.add(route.path)
+        original = getattr(route, "original_router", None)
+        if original is not None:
+            paths.update(getattr(r, "path", None) for r in original.routes)
+    paths.discard(None)
+    # get_option_chain is declared on the concrete adapters (not BaseBroker).
+    expected = {
+        (BaseBroker, "get_quote"): "/v1/quote/{instrument_id}",
+        (BaseBroker, "quote_batch"): "/v1/quotes",
+        (BaseBroker, "depth"): "/v1/depth/{instrument_id}",
+        (BaseBroker, "history"): "/v1/history/{instrument_id}",
+        (BaseBroker, "search"): "/v1/instruments/search",
+        (DhanBroker, "get_option_chain"): "/v1/option-chain/{underlying}",
+        (UpstoxBroker, "get_option_chain"): "/v1/option-chain/{underlying}",
+        (BaseBroker, "future_chain"): "/v1/futures/{underlying}",
+    }
+    for (cls, method), route in expected.items():
+        assert hasattr(cls, method), f"{cls.__name__}.{method}"
+        assert route in paths, route
+
+
+def test_slow_broker_call_returns_timeout_envelope():
+    app, _, upstox = _app(request_timeout=0.2)
+    upstox.get_quote = lambda instrument: time.sleep(2)
+    with TestClient(app) as client:
+        started = time.monotonic()
+        response = client.get("/v1/quote/IDX:NIFTY")
+        assert time.monotonic() - started < 1.5
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["retryable"] is True
+    assert error["message"] == "request timed out"
+
+
+def test_slow_boot_is_not_bounded_by_request_timeout(monkeypatch):
+    import tradex_gateway.app as app_module
+
+    def slow_build(cfg):
+        time.sleep(0.5)
+        return {"dhan": BrokerRuntime("dhan", FakeBroker("dhan"))}
+
+    monkeypatch.setattr(app_module, "build_runtimes", slow_build)
+    monkeypatch.setattr(app_module, "load_local_env", lambda: ())
+    app = create_app(gateway_config(request_timeout=0.1, brokers=("dhan",)))
+    with TestClient(app) as client:
+        assert client.get("/v1/health").status_code == 200
+
+
+def test_slow_batch_item_gets_timeout_envelope_while_fast_item_returns():
+    app, dhan, upstox = _app(request_timeout=1.0)
+
+    def history(instrument, tf, start, end):
+        if str(tf.value) != "1m":
+            time.sleep(2)
+        return HistoricalSeries(
+            instrument=instrument,
+            timeframe=tf,
+            candles=[make_candle(instrument, end)],
+            start=start,
+            end=end,
+        )
+
+    dhan.history_impl = upstox.history_impl = history
+    window = {"from": "2026-11-06T09:15:00Z", "to": "2026-11-06T09:16:00Z"}
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/history/batch",
+            json={
+                "requests": [
+                    {"instrument_id": "IDX:NIFTY", "timeframe": "1m", **window},
+                    {"instrument_id": "IDX:NIFTY", "timeframe": "5m", **window},
+                ]
+            },
+        )
+    assert response.status_code == 200, response.text
+    fast, slow = response.json()
+    assert fast["bars"]
+    assert slow["error"]["message"] == "request timed out"
+    assert slow["error"]["retryable"] is True
+
+
+def test_quotes_bad_id_is_per_item_error():
+    app, _, _ = _app()
+    with TestClient(app) as client:
+        response = client.post("/v1/quotes", json={"instruments": ["IDX:NIFTY", "bogus"]})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "IDX:NIFTY" in body["quotes"]
+    assert body["errors"]["bogus"]["code"] == "invalid_request"
+
+
+def test_quotes_fallback_is_capped():
+    app, dhan, upstox = _app(quote_fallback_cap=25)
+
+    def unsupported(instruments):
+        raise CapabilityNotSupportedError("quote_batch")
+
+    dhan.quote_batch = upstox.quote_batch = unsupported
+    ids = [f"NSE:SYM{i}" for i in range(60)]
+    with TestClient(app) as client:
+        response = client.post("/v1/quotes", json={"instruments": ids})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    calls = [c for b in (dhan, upstox) for c in b.calls if c[0] == "get_quote"]
+    assert len(calls) == 25
+    assert len(body["quotes"]) == 25
+    assert [e["message"] for e in body["errors"].values()] == [
+        "quote_batch unsupported; fallback capped"
+    ] * 35
+
+
+def test_health_detail_requires_api_key_but_liveness_does_not():
+    app, _, _ = _app(api_key="secret", allow_anon=False)
+    with TestClient(app) as client:
+        anon = client.get("/v1/health")
+        assert anon.status_code == 200
+        assert anon.json() == {"status": "ok", "ready": True}
+        keyed = client.get("/v1/health", headers={"X-API-Key": "secret"}).json()
+        assert keyed["ready"] is True
+        assert [row["name"] for row in keyed["brokers"]] == ["dhan", "upstox"]
+        assert "feed" in keyed
+
+
+def test_non_ascii_api_key_is_401_not_500():
+    app, _, _ = _app(api_key="secret", allow_anon=False)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        r = client.get("/v1/metrics", headers={"X-API-Key": "é".encode("latin-1")})
+    assert r.status_code == 401

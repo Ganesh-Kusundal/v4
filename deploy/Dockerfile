@@ -58,6 +58,7 @@ COPY application/pyproject.toml ./application/
 COPY market_data/pyproject.toml ./market_data/
 COPY interfaces/pyproject.toml ./interfaces/
 COPY runtime/pyproject.toml ./runtime/
+COPY gateway/pyproject.toml ./gateway/
 COPY services/duckdb-analytics/pyproject.toml ./services/duckdb-analytics/
 
 # The manifests alone are not a resolvable lock, so the sources come in too.

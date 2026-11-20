@@ -99,7 +99,7 @@ class MeanReversionStrategy:
     def on_bar(self, context: StrategyContext, candle) -> Signal | None:
         """Emit a signal when RSI crosses an extreme zone boundary."""
         self._closes.append(float(candle.ohlc.close.value))
-        rsi = self._rsi(self._closes, self._period)
+        rsi = self._simple_rsi(self._closes, self._period)
         if rsi is None:
             return None
         if rsi > self._overbought and self._state != "overbought":
@@ -138,11 +138,13 @@ class MeanReversionStrategy:
     # -- internals ---------------------------------------------------------------
 
     @staticmethod
-    def _rsi(closes: list[float], period: int) -> float | None:
+    def _simple_rsi(closes: list[float], period: int) -> float | None:
         """Simple RSI over the trailing *period* price deltas.
 
         Uses plain (un-smoothed) average gain/loss — reference-grade, not
-        Wilder's smoothing. Returns ``None`` until enough bars are seen.
+        Wilder's smoothing, so it differs from ``tradex_analytics`` ``rsi`` (the
+        chart's RSI): 51.50 vs 53.87 on one seeded series. Deliberate.
+        Returns ``None`` until enough bars are seen.
         """
         if len(closes) < period + 1:
             return None

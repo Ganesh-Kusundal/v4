@@ -13,7 +13,7 @@ against this checkout, not from reading docs.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ L1  LIBRARY   openalgo-charts  2.1.8   (upgraded this session)       │
+│ L1  LIBRARY   openalgo-charts  v2.3.2   (upgraded this session)       │
 │     widget tier 15 modules + 7 dialogs · draw 14 · trade 12 · replay 1│
 └──────────────────────────────────────────────────────────────────────┘
                               ▲ imported by
@@ -30,12 +30,12 @@ against this checkout, not from reading docs.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### L1 — Library: `openalgo-charts` **2.1.8**
+### L1 — Library: `openalgo-charts` **v2.3.2**
 
 | | |
 |---|---|
 | Repo | nested clone, `origin` = `marketcalls/openalgo-charts`, branch `master` |
-| HEAD | `a0d4d66` *feat: release 2.1.8 with smooth navigation and mobile controls* (2026-09-13) |
+| HEAD | `a0d4d66` *feat: release v2.3.2 with smooth navigation and mobile controls* (2026-09-13) |
 | Parent tracking | **gitignored** (`.gitignore:64`) → consumed as an unmodified artifact |
 | Working tree | clean |
 | `dist/` | **rebuilt this session** (was stale, stamped `2.1.0`) |
@@ -48,7 +48,7 @@ Widget tier (`src/widget/`, 15 modules): `widget` `mobile` `objects-panel`
 Dialogs (7): `indicator-picker` `indicator-settings` `settings`
 `drawing-properties` `level-editor` `text-editor` `context-menu`
 
-New in 2.1.1 → 2.1.8 (all **auto-mounted by the widget**):
+New in 2.1.1 → v2.3.2 (all **auto-mounted by the widget**):
 - **mobile tier** (`mobile: 'auto'` default — ≤640 CSS px or coarse pointer)
 - **objects panel + `ChartObjects` inventory**
 - **data-status** (`DataLoadingController`)
@@ -172,11 +172,11 @@ Backend side of this is **done**: `analytics/trade_metrics.py` (this session) su
 ## 6. What we HAVE and what we HAVE TO
 
 ### HAVE (done this session)
-1. Library upgraded **2.1.0 → 2.1.8**, `dist/` rebuilt, local patches preserved.
-2. Host compiles + builds against 2.1.8 (typecheck clean).
+1. Library upgraded **2.1.0 → v2.3.2**, `dist/` rebuilt, local patches preserved.
+2. Host compiles + builds against v2.3.2 (typecheck clean).
 3. Adopted upstream's **`dataContext` flow**; deleted the ~45-line host workaround
    (`syncTier2Instrument` + `addIndicator` monkey-patch).
-4. Backend indicator golden parity still passes against 2.1.8 (**175 tests**).
+4. Backend indicator golden parity still passes against v2.3.2 (**175 tests**).
 5. `Trade` + statistics engine (`trade_metrics.py`) + `sortino_ratio`; **2257 tests** pass.
 6. Discovery + gap-analysis doc (`2026-09-13-backtest-engine-discovery.md`).
 

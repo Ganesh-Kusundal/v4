@@ -200,7 +200,7 @@ class TestBacktestEndpoint:
             f"unaffordable run completes and serves a flattering curve."
         )
         for capital, body in refusals:
-            assert body["error"]["code"] == "validation", body
+            assert body["error"]["code"] == "validation_error", body
             # The floor's own message, so a 422 from any other cause (an unknown
             # strategy, a bad param) cannot pass for the cash refusal.
             assert "insufficient buying power" in body["error"]["message"], body

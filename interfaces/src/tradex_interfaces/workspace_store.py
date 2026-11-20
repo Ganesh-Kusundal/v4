@@ -48,6 +48,12 @@ class WorkspaceStore:
         # check_same_thread=False: the FastAPI workspace route is served from a
         # worker thread while the boot-time store is constructed on the main one.
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
+        if self._db_path != ":memory:":
+            try:
+                import os
+                os.chmod(self._db_path, 0o600)
+            except OSError:
+                pass
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
         self._lock = threading.Lock()

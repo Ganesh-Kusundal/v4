@@ -9,7 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 
 from tradex_gateway.auth import check_api_key
-from tradex_gateway.errors import Unauthorized
+from tradex_gateway.errors import GatewayError, Unauthorized
 from tradex_gateway.live import LiveHub
 from tradex_gateway.models import (
     ClientMessage,
@@ -33,8 +33,12 @@ async def stream(ws: WebSocket) -> None:
     except Unauthorized:
         await ws.close(code=1008)
         return
-    await ws.accept()
     hub: LiveHub = ws.app.state.hub
+    # shortcut: soft cap, tolerates a few over under a connect burst; make add_client enforce it if that matters
+    if hub.client_count() >= ws.app.state.config.max_ws_connections:
+        await ws.close(code=1013)
+        return
+    await ws.accept()
     client_id = uuid.uuid4().hex
     queue: asyncio.Queue = asyncio.Queue(maxsize=4096)
     control: asyncio.Queue = asyncio.Queue(maxsize=256)
@@ -94,21 +98,29 @@ async def stream(ws: WebSocket) -> None:
 
             match message:
                 case SubscribeMessage():
-                    ack = await ws.app.state.run(
-                        hub.subscribe,
-                        client_id,
-                        message.instruments,
-                        message.mode,
-                        message.levels,
-                    )
+                    try:
+                        ack = await ws.app.state.run(
+                            hub.subscribe,
+                            client_id,
+                            message.instruments,
+                            message.mode,
+                            message.levels,
+                            message.timeframe,
+                        )
+                    except GatewayError as exc:
+                        # a timed-out subscribe may still have applied, unacked
+                        ack = {"op": "error", **exc.to_envelope()["error"]}
                     await control.put(ack)
                 case UnsubscribeMessage():
-                    ack = await ws.app.state.run(
-                        hub.unsubscribe,
-                        client_id,
-                        message.instruments,
-                        message.subscription_id,
-                    )
+                    try:
+                        ack = await ws.app.state.run(
+                            hub.unsubscribe,
+                            client_id,
+                            message.instruments,
+                            message.subscription_id,
+                        )
+                    except GatewayError as exc:
+                        ack = {"op": "error", **exc.to_envelope()["error"]}
                     await control.put(ack)
                 case PingMessage():
                     await control.put({"op": "pong", "ts": _now_ms()})
@@ -130,4 +142,9 @@ async def stream(ws: WebSocket) -> None:
     finally:
         for task in (writer_task, reader_task):
             task.cancel()
-        await ws.app.state.run(hub.remove_client, client_id)
+        # deliberately unbounded and un-awaited: a timed-out or cancelled wait would drop
+        # the queued removal and leak the client and its slot
+        try:
+            ws.app.state.executor.submit(hub.remove_client, client_id)
+        except RuntimeError:  # executor already shut down; the hub is going away too
+            pass

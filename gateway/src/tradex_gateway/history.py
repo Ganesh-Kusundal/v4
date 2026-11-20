@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from concurrent.futures import Executor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -18,7 +19,7 @@ from tradex_market_data.window_loader import MarketSource, MarketWindowLoader
 
 from tradex_gateway.cache import SingleFlight, TTLCache
 from tradex_gateway.directory import InstrumentDirectory
-from tradex_gateway.errors import BadRequest, GatewayError, UnsupportedTimeframe
+from tradex_gateway.errors import BadRequest, BrokerUnavailable, GatewayError, UnsupportedTimeframe
 from tradex_gateway.router import MarketDataRouter
 
 _RESAMPLE_FROM: dict[Timeframe, Timeframe] = {
@@ -41,6 +42,13 @@ def _to_utc(moment: datetime) -> datetime:
     return moment.astimezone(UTC)
 
 
+# Clipped as UTC when naive, but serialized as IST by to_epoch_ms/_bar_dict.
+def _candle_utc(candle: Candle) -> datetime:
+    # Broker timestamps are UTC; a naive one is taken as UTC, not IST.
+    ts = candle.timestamp
+    return ts.replace(tzinfo=UTC) if ts.tzinfo is None else ts
+
+
 class HistoryService:
     def __init__(
         self,
@@ -50,12 +58,14 @@ class HistoryService:
         window_loader: MarketWindowLoader | None = None,
         clock: Callable[[], float] = time.monotonic,
         executor: Executor | None = None,
+        timeout: float = 30.0,
     ) -> None:
         self._directory = directory
         self._router = router
         self._loader = window_loader
         self._clock = clock
         self._executor = executor
+        self._timeout = timeout
         self._cache = TTLCache()
         self._flight = SingleFlight()
 
@@ -139,12 +149,14 @@ class HistoryService:
                     "instrument_id": payload.get("instrument_id"),
                     **exc.to_envelope(),
                 }
-            except Exception as exc:  # noqa: BLE001 - one request must not sink the batch
+            except Exception:  # noqa: BLE001 - one request must not sink the batch
+                # Canonical wire message: unexpected exception text can carry
+                # internal details; the full text stays in logs only.
                 results[index] = {
                     "instrument_id": payload.get("instrument_id"),
                     "error": {
                         "code": "internal_error",
-                        "message": str(exc),
+                        "message": "internal error",
                         "broker": None,
                         "retryable": False,
                         "retry_after": None,
@@ -167,8 +179,19 @@ class HistoryService:
         futures = [
             self._executor.submit(run, index, payload) for index, payload in enumerate(requests)
         ]
-        for future in futures:
-            future.result()  # run() converts every exception into an envelope
+        deadline = time.monotonic() + self._timeout
+        for index, future in enumerate(futures):
+            try:
+                future.result(timeout=max(0.0, deadline - time.monotonic()))
+            except FuturesTimeout:
+                # shortcut: the worker thread keeps running after the wait times
+                # out; only the wait is bounded. Upgrade when adapters expose
+                # cancellable calls.
+                future.cancel()
+                results[index] = {
+                    "instrument_id": requests[index].get("instrument_id"),
+                    **BrokerUnavailable("request timed out").to_envelope(),
+                }
         return results
 
     def _load(
@@ -309,10 +332,11 @@ def _fetch_chunks(
         # Brokers widen an intraday request to the whole day; keep only bars
         # that overlap the requested window. A bar is included when its span
         # (timestamp .. timestamp + timeframe) intersects it.
+        lo, hi = _to_utc(window_start), _to_utc(window_end)
         candles.extend(
             candle
             for candle in series.candles
-            if candle.timestamp + step > window_start and candle.timestamp <= window_end
+            if _candle_utc(candle) + step > lo and _candle_utc(candle) <= hi
         )
     unique: dict[datetime, Candle] = {}
     for candle in candles:

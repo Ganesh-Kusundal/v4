@@ -164,7 +164,7 @@ class ChaosBroker:
         self._maybe_fail("depth")
         return make_depth(instrument)
 
-    def get_option_chain(self, underlying, expiry=None):
+    def get_option_chain(self, underlying, expiry=None, **_kw):
         self._maybe_fail("chain")
         return make_chain(underlying, expiry)
 

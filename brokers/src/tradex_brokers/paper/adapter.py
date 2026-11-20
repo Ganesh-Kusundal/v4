@@ -675,6 +675,8 @@ class PaperBroker(BaseBroker):
         self,
         underlying: Instrument,
         expiry: date | str | None = None,
+        *,
+        allow_master_fallback: bool = True,
     ) -> OptionChain:
         require_capability(self.capabilities, "supports_option_chain")
         raise CapabilityNotSupportedError("paper broker does not support option chains")

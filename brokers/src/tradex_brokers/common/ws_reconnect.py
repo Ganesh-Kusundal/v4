@@ -214,6 +214,34 @@ class AutoReconnectMixin:
         """Socket receive loop; implemented by the concrete backend."""
         raise NotImplementedError
 
+    # Market-data and depth streams share this; the order/portfolio streams keep
+    # their own because their _resubscribe is an auth handshake, not a replay.
+
+    def _ensure_ws(self) -> None:
+        with self._connect_lock:
+            with self._state_lock:
+                if self._closing or self._ws is not None or self._ws_factory is None:
+                    return
+                if self._reconnect_thread is not None:  # reconnect pending
+                    return
+            ws = self._open_socket()
+            with self._state_lock:
+                if self._closing:
+                    if hasattr(ws, "close"):
+                        ws.close()
+                    return
+                self._ws = ws
+            self._last_success_at = time.monotonic()
+            self._reconnect.reset()
+            # Replay the full live subscription set (a fresh open must heal the
+            # pre-outage set after backoff exhaustion) before the loop starts.
+            try:
+                self._resubscribe(ws)
+            except Exception:  # noqa: BLE001 — best-effort replay
+                log.warning("stream reopen resubscribe failed", exc_info=True)
+            if hasattr(ws, "recv"):
+                threading.Thread(target=self._receive_loop, daemon=True).start()
+
     def _init_reconnect(
         self,
         *,

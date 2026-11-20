@@ -37,6 +37,7 @@ async def resolve(
         **InstrumentDirectory.instrument_meta(
             resolved.instrument, resolved.brokers, resolved.lot_sizes
         ),
+        "tick_size": request.app.state.directory.tick_size(resolved.instrument_id),
         "per_broker": {
             name: str(instrument.instrument_id) if instrument is not None else None
             for name, instrument in resolved.per_broker.items()

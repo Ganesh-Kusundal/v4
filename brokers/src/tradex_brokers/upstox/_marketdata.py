@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 
 from tradex_brokers.common.client_shared import parse_timestamp_fallback
+from tradex_brokers.common.option_legs import greeks_block, opt_float, option_leg
 from tradex_brokers.common.provider_common import (
     as_price,
     parse_date,
@@ -72,6 +73,34 @@ def _candles_from_rows(
             )
         )
     return candles
+
+
+def _upstox_leg(leg: object) -> dict[str, object] | None:
+    """Normalized option-chain leg dict (spec: greeks/IV exposure design)."""
+    if not isinstance(leg, dict):
+        return None
+    market = leg.get("market_data") if isinstance(leg.get("market_data"), dict) else leg
+    greeks = (
+        leg.get("option_greeks")
+        if isinstance(leg.get("option_greeks"), dict)
+        else (leg.get("greeks") if isinstance(leg.get("greeks"), dict) else {})
+    )
+    return option_leg(
+        "upstox",
+        {
+            "ltp": opt_float(market.get("ltp", market.get("last_price"))),
+            "oi": opt_float(market.get("oi")),
+            "volume": opt_float(market.get("volume")),
+            "previous_oi": opt_float(market.get("prev_oi")),
+            "bid": opt_float(market.get("bid_price")),
+            "ask": opt_float(market.get("ask_price")),
+            "bid_qty": opt_float(market.get("bid_qty")),
+            "ask_qty": opt_float(market.get("ask_qty")),
+            "iv": opt_float(greeks.get("iv", market.get("iv", leg.get("iv")))),
+            "greeks": greeks_block(greeks),
+            "pop": opt_float(greeks.get("pop")),
+        },
+    )
 
 
 class MarketDataMixin(Protocol):
@@ -347,7 +376,13 @@ class MarketDataMixin(Protocol):
                 self._registry.register(call.instrument_id, {"key": str(call_key)})
                 self._registry.register(put.instrument_id, {"key": str(put_key)})
                 grouped.setdefault(expiry_date, []).append(
-                    OptionPair(call=call, put=put, strike=Price(value=strike))
+                    OptionPair(
+                        call=call,
+                        put=put,
+                        strike=Price(value=strike),
+                        call_leg=_upstox_leg(call_data),
+                        put_leg=_upstox_leg(put_data),
+                    )
                 )
             spot = row.get("underlying_spot_price", row.get("underlying_value", envelope_spot))
             references[expiry_date] = (
@@ -416,3 +451,70 @@ class MarketDataMixin(Protocol):
         if isinstance(rows, list):
             return [r for r in rows if isinstance(r, dict)]
         return []
+
+    # ------------------------------------------------------------------
+    # expired instruments (Upstox Plus tier)
+    # ------------------------------------------------------------------
+
+    def expired_option_contracts(
+        self: UptoxFacade, underlying_key: str, expiry_date: str
+    ) -> list[dict]:
+        """Expired option contracts via GET /expired-instruments/option/contract."""
+        body = self._request(
+            "GET",
+            "/expired-instruments/option/contract",
+            cache_read=True,
+            params={"instrument_key": underlying_key, "expiry_date": expiry_date},
+        )
+        rows = unwrap_data(body)
+        if isinstance(rows, dict):
+            rows = rows.get("data", rows)
+        return (
+            [row for row in rows if isinstance(row, dict)]
+            if isinstance(rows, list)
+            else []
+        )
+
+    def expired_future_contracts(
+        self: UptoxFacade, underlying_key: str, expiry_date: str
+    ) -> list[dict]:
+        """Expired future contracts via GET /expired-instruments/future/contract."""
+        body = self._request(
+            "GET",
+            "/expired-instruments/future/contract",
+            cache_read=True,
+            params={"instrument_key": underlying_key, "expiry_date": expiry_date},
+        )
+        rows = unwrap_data(body)
+        if isinstance(rows, dict):
+            rows = rows.get("data", rows)
+        return (
+            [row for row in rows if isinstance(row, dict)]
+            if isinstance(rows, list)
+            else []
+        )
+
+    def expired_candles(
+        self: UptoxFacade,
+        expired_instrument_key: str,
+        interval: str,
+        to_date: str,
+        from_date: str,
+    ) -> list:
+        """Expired-contract OHLC via GET /expired-instruments/historical-candle/...
+
+        ``expired_instrument_key`` is the opaque key returned by the
+        expired-contracts endpoints (``NSE_FO|<token>|<dd-mm-yyyy>``); it is
+        URL-quoted because it contains ``|``.
+        """
+        from urllib.parse import quote
+
+        key = quote(str(expired_instrument_key), safe="")
+        path = (
+            f"/expired-instruments/historical-candle/{key}/{interval}"
+            f"/{to_date}/{from_date}"
+        )
+        body = self._request("GET", path, cache_read=True)
+        data = unwrap_data(body)
+        candles = data.get("candles", []) if isinstance(data, dict) else []
+        return candles if isinstance(candles, list) else []

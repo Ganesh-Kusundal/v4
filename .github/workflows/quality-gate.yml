@@ -84,7 +84,7 @@ jobs:
           --cov=tradex_reactive --cov=tradex_execution --cov=tradex_strategy
           --cov=tradex_replay --cov=tradex_application
           --cov=tradex_market_data --cov=tradex_interfaces
-          --cov=tradex_runtime
+          --cov=tradex_runtime --cov=tradex_gateway --cov=duck_analytics
           --cov-fail-under=85
           --cov-report=term-missing --cov-report=json:coverage.json -q
 
@@ -130,6 +130,7 @@ jobs:
               "tradex_interfaces",
               "tradex_runtime",
               "duck_analytics",
+              "tradex_gateway",
           ]
           for name in packages:
               importlib.import_module(name)

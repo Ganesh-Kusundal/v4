@@ -114,6 +114,7 @@ class MarkToMarketService:
                 mark_price=mark,
                 marked_at=quote.timestamp,
                 mark_source=source,
+                strategy_id=position.strategy_id,
             )
             self._cache.update_position(updated)
         if self._bus is not None:

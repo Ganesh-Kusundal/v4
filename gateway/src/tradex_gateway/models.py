@@ -29,8 +29,9 @@ class QuotesRequest(BaseModel):
 class SubscribeMessage(BaseModel):
     op: Literal["subscribe"]
     instruments: list[str] = Field(min_length=1)
-    mode: Literal["quote", "depth"] = "quote"
+    mode: Literal["quote", "depth", "option_greeks", "bars"] = "quote"
     levels: int = Field(default=5, ge=1, le=30)
+    timeframe: str = "1m"
 
 
 class UnsubscribeMessage(BaseModel):

@@ -37,7 +37,7 @@ class TestErrorEnvelope:
     def test_503_no_session_place(self):
         r = _client().post(
             "/orders",
-            json={"symbol": "RELIANCE"},
+            json={"instrument_id": "NSE:RELIANCE", "side": "BUY", "quantity": 1},
             headers={"Idempotency-Key": "no-session-place"},
         )
         assert r.status_code == 503
@@ -53,7 +53,7 @@ class TestErrorEnvelope:
         )
         assert r.status_code == 400
         body = r.json()
-        assert body["error"]["code"] == "bad_request"
+        assert body["error"]["code"] == "validation_error"
         assert isinstance(body["error"]["message"], str)
 
     def test_422_missing_idempotency_key_place(self):
@@ -61,7 +61,7 @@ class TestErrorEnvelope:
         r = _client().post("/orders", json={"symbol": "RELIANCE"})
         assert r.status_code == 422
         body = r.json()
-        assert body["error"]["code"] == "validation"
+        assert body["error"]["code"] == "validation_error"
 
     def test_422_validation(self):
         """POST /orders with missing required fields triggers validation error."""
@@ -73,7 +73,7 @@ class TestErrorEnvelope:
         )
         assert r.status_code == 422
         body = r.json()
-        assert body["error"]["code"] == "validation"
+        assert body["error"]["code"] == "validation_error"
         assert isinstance(body["error"]["message"], str)
 
     def test_502_upstream_unavailable(self):

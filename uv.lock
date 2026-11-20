@@ -23,6 +23,7 @@ members = [
     "tradex-duckdb",
     "tradex-execution",
     "tradex-gateway",
+    "tradex-http",
     "tradex-interfaces",
     "tradex-market-data",
     "tradex-observability",
@@ -1772,6 +1773,7 @@ source = { editable = "brokers" }
 dependencies = [
     { name = "protobuf" },
     { name = "rx" },
+    { name = "tradex-config" },
     { name = "tradex-domain" },
 ]
 
@@ -1799,6 +1801,7 @@ requires-dist = [
     { name = "dhan-tradehull", marker = "extra == 'full'", specifier = ">=3.3.1,<4" },
     { name = "protobuf", specifier = ">=6.33,<7" },
     { name = "rx", specifier = ">=3.2,<4" },
+    { name = "tradex-config", editable = "config" },
     { name = "tradex-domain", editable = "domain" },
     { name = "upstox-totp", marker = "extra == 'full'", specifier = ">=1.0.8,<2" },
     { name = "upstox-totp", marker = "extra == 'upstox'", specifier = ">=1.0.8,<2" },
@@ -1885,6 +1888,7 @@ dependencies = [
     { name = "tradex-brokers" },
     { name = "tradex-config" },
     { name = "tradex-domain" },
+    { name = "tradex-http" },
     { name = "tradex-market-data" },
     { name = "tradex-runtime" },
     { name = "uvicorn" },
@@ -1902,11 +1906,17 @@ requires-dist = [
     { name = "tradex-brokers", editable = "brokers" },
     { name = "tradex-config", editable = "config" },
     { name = "tradex-domain", editable = "domain" },
+    { name = "tradex-http", editable = "httputil" },
     { name = "tradex-market-data", editable = "market_data" },
     { name = "tradex-runtime", editable = "runtime" },
     { name = "uvicorn", specifier = ">=0.29,<1" },
 ]
 provides-extras = ["test"]
+
+[[package]]
+name = "tradex-http"
+version = "0.1.0"
+source = { editable = "httputil" }
 
 [[package]]
 name = "tradex-interfaces"
@@ -1920,6 +1930,7 @@ dependencies = [
     { name = "tradex-config" },
     { name = "tradex-domain" },
     { name = "tradex-execution" },
+    { name = "tradex-http" },
     { name = "tradex-market-data" },
     { name = "tradex-reactive" },
     { name = "tradex-replay" },
@@ -1938,6 +1949,7 @@ requires-dist = [
     { name = "tradex-config", editable = "config" },
     { name = "tradex-domain", editable = "domain" },
     { name = "tradex-execution", editable = "execution" },
+    { name = "tradex-http", editable = "httputil" },
     { name = "tradex-market-data", editable = "market_data" },
     { name = "tradex-reactive", editable = "reactive" },
     { name = "tradex-replay", editable = "replay" },

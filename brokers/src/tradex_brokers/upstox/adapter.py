@@ -35,7 +35,7 @@ from tradex_brokers.common.endpoints import (
 )
 from tradex_brokers.common.instruments import canonical_size_str
 from tradex_brokers.common.mixins import SharedAdminMixin, SharedPortfolioMixin
-from tradex_brokers.common.provider_common import option_chain_from_master
+from tradex_brokers.common.provider_common import option_chain_from_master, provider_key
 from tradex_brokers.common.token_lifecycle import TokenLifecyclePort
 from tradex_brokers.upstox.client import UpstoxApiClient
 
@@ -148,6 +148,8 @@ class UpstoxBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
         self,
         underlying: Instrument,
         expiry: date | str | None = None,
+        *,
+        allow_master_fallback: bool = True,
     ) -> OptionChain:
         require_capability(self.capabilities, "supports_option_chain")
         from_master = option_chain_from_master(self._loaded_instruments, underlying, expiry)
@@ -159,11 +161,11 @@ class UpstoxBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
         if exchange not in ("NFO", "BFO", "IDX") and from_master.expiries():
             return from_master
         if self._transport is None or not self._connected:
-            if from_master.expiries():
+            if allow_master_fallback and from_master.expiries():
                 return from_master
             raise BrokerUnavailableError("upstox broker not connected")
         if expiry is None:
-            if from_master.expiries():
+            if allow_master_fallback and from_master.expiries():
                 return from_master
             raise CapabilityNotSupportedError(
                 "Upstox option-chain requests require an explicit expiry"
@@ -171,12 +173,44 @@ class UpstoxBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
         try:
             return self._require().get_option_chain(underlying, expiry)
         except Exception as exc:  # noqa: BLE001 — fall back, never mask silently
-            if from_master.expiries():
+            if allow_master_fallback and from_master.expiries():
                 log.warning(
                     "upstox REST option chain failed (%s); serving master chain", exc
                 )
                 return from_master
             raise
+
+    # ------------------------------------------------------------------
+    # expired instruments (Upstox Plus tier)
+    # ------------------------------------------------------------------
+
+    def expired_contracts(
+        self,
+        underlying: Instrument,
+        expiry: date,
+        kind: str = "option",
+    ) -> list[dict]:
+        """Expired option/future contracts for an underlying + expiry."""
+        key = provider_key(self._registry, underlying.instrument_id)
+        expiry_text = expiry.isoformat() if isinstance(expiry, date) else str(expiry)
+        if kind == "future":
+            return self._require().expired_future_contracts(key, expiry_text)
+        return self._require().expired_option_contracts(key, expiry_text)
+
+    def expired_candles(
+        self,
+        expired_instrument_key: str,
+        interval: str,
+        from_date: date,
+        to_date: date,
+    ) -> list:
+        """OHLC candles for an expired contract key."""
+        return self._require().expired_candles(
+            expired_instrument_key,
+            interval,
+            to_date.isoformat(),
+            from_date.isoformat(),
+        )
 
     # ------------------------------------------------------------------
     # instruments

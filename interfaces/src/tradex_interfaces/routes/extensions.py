@@ -8,20 +8,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from tradex_domain.constants import (
     CAPABILITIES_KEY,
     CAPABILITY_NAMES,
-    NO_SESSION_BOUND,
 )
 
-from tradex_interfaces.auth.deps import require_auth
-from tradex_interfaces.routes.deps import get_session
+from tradex_interfaces.routes.deps import require_session
 
-router = APIRouter(dependencies=[Depends(require_auth)])
+router = APIRouter()
 
 
 @router.get("/extensions")
-async def list_extensions(session: Any | None = Depends(get_session)) -> dict:
+async def list_extensions(session: Any = Depends(require_session(400))) -> Any:
     """List broker capability flags."""
-    if session is None:
-        raise HTTPException(status_code=400, detail=NO_SESSION_BOUND)
     try:
         caps = getattr(session.broker, "capabilities", None)
         cap_map = {}

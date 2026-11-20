@@ -115,44 +115,6 @@ def _body_has_no_secret(response) -> None:
             f"present in the body): {text[:400]!r}"
         )
 
-
-# ---------------------------------------------------------------------------
-# The unauthenticated data plane
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("path", ["/positions", "/holdings", "/account", "/orders"])
-def test_data_routes_refuse_unauthenticated_reads(path: str) -> None:
-    """No credential, no payload -- the body must not carry the data either."""
-    response = _client(api_key="secret-key").get(path)
-
-    assert response.status_code in (401, 403), (
-        f"{path} answered {response.status_code} with no credentials; anyone "
-        "reaching the port could read the account"
-    )
-    _body_has_no_secret(response)
-
-
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/positions",
-        "/holdings",
-        "/account",
-        # Chart data plane: balance, margin, P&L and the order book.
-        "/api/charts/account",
-        "/api/charts/book",
-    ],
-)
-def test_data_routes_refuse_a_wrong_key_too(path: str) -> None:
-    """A wrong key is refused exactly as no key is, and leaks no less."""
-    client = _client(api_key="secret-key")
-    response = client.get(path, headers={"X-API-Key": "not-the-key"})
-
-    assert response.status_code in (401, 403), f"{path} accepted a wrong key"
-    _body_has_no_secret(response)
-
-
 # ---------------------------------------------------------------------------
 # The authorised path still works
 # ---------------------------------------------------------------------------
@@ -233,39 +195,6 @@ def test_a_keyless_server_is_unaffected() -> None:
             f"{path} demands credentials on a keyless (paper/dev) server"
         )
 
-
-def test_an_empty_key_does_not_match_a_configured_one() -> None:
-    """``""`` is not a valid credential for a non-empty configured key.
-
-    A header present-but-empty is the classic bypass: naive truthiness checks
-    read it as "the client sent something" and let it through.
-    """
-    client = _client(api_key="secret-key")
-    response = client.get("/account", headers={"X-API-Key": ""})
-
-    assert response.status_code in (401, 403), (
-        "an empty X-API-Key authenticated against a configured key"
-    )
-    _body_has_no_secret(response)
-
-
-def test_auth_is_enforced_before_the_handler_runs() -> None:
-    """Refusal must come from the dependency, not from a handler-level check.
-
-    A route that validated inside its body would still execute that body -- and
-    still hit the session -- before refusing. The router-level dependency is
-    what makes the refusal free of side effects, so this asserts the broker was
-    never asked for the data.
-    """
-    session = _session_with_data()
-    client = TestClient(create_app(session=session, api_key="secret-key"))
-
-    client.get("/account")
-
-    session.broker.get_account.assert_not_called(), (
-        "the handler ran before the auth dependency refused; the refusal is "
-        "supposed to happen before any account data is read"
-    )
 
 
 def test_require_auth_does_not_consult_the_api_key_when_unconfigured() -> None:

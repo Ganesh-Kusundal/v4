@@ -166,14 +166,17 @@ class DhanBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
         self,
         underlying: Instrument,
         expiry: date | str | None = None,
+        *,
+        allow_master_fallback: bool = True,
     ) -> OptionChain:
         require_capability(self.capabilities, "supports_option_chain")
         if self._transport is None or not self._connected:
-            from_master = option_chain_from_master(
-                self._loaded_instruments, underlying, expiry
-            )
-            if from_master.expiries():
-                return from_master
+            if allow_master_fallback:
+                from_master = option_chain_from_master(
+                    self._loaded_instruments, underlying, expiry
+                )
+                if from_master.expiries():
+                    return from_master
             raise BrokerUnavailableError("dhan broker not connected")
         # Dhan serves option chains over REST for NFO/BFO/IDX and for the
         # commodity/currency segments (MCX, NSE_COMM, CDS, BCD) — the API takes
@@ -190,7 +193,7 @@ class DhanBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
             if futures:
                 rest_underlying = futures[0]
         try:
-            return self._require().get_option_chain(rest_underlying, expiry)
+            chain = self._require().get_option_chain(rest_underlying, expiry)
         except (
             BrokerUnavailableError,
             ConnectionTimeoutError,
@@ -198,15 +201,35 @@ class DhanBroker(BaseBroker, SharedPortfolioMixin, SharedAdminMixin):
         ) as exc:  # transport-level only — never mask auth/validation failures
             # REST chain unavailable (e.g. unsupported expiry) — serve the
             # master-derived chain when the master carries the strikes.
+            if allow_master_fallback:
+                from_master = option_chain_from_master(
+                    self._loaded_instruments, underlying, expiry
+                )
+                if from_master.expiries():
+                    log.warning(
+                        "dhan REST option chain failed (%s); serving master chain", exc
+                    )
+                    return from_master
+            raise
+        # expiries() lists Expiry rows even when every strike failed to pair —
+        # "empty" means no OptionPairs, not no Expiry objects.
+        if not any(e.pairs for e in chain.expiries()) and allow_master_fallback:
+            master_expiry = (
+                None
+                if isinstance(underlying, Future)
+                and expiry == underlying.instrument_id.expiry
+                else expiry
+            )
             from_master = option_chain_from_master(
-                self._loaded_instruments, underlying, expiry
+                self._loaded_instruments, underlying, master_expiry
             )
             if from_master.expiries():
                 log.warning(
-                    "dhan REST option chain failed (%s); serving master chain", exc
+                    "dhan REST option chain empty for %s; serving master chain",
+                    underlying.instrument_id,
                 )
                 return from_master
-            raise
+        return chain
 
     # ------------------------------------------------------------------
     # instruments

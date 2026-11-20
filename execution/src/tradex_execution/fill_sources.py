@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import logging
 import uuid
+from decimal import Decimal
 from typing import Any, Protocol, runtime_checkable
 
 from tradex_domain.enums import OrderStatus
 from tradex_domain.errors import OrderSubmissionUnknownError
 from tradex_domain.execution import Fill, Order, OrderRequest
 from tradex_domain.protocols import BrokerAdapter, TradingCacheProtocol
-from tradex_domain.value_objects import OrderId, Price
+from tradex_domain.value_objects import OrderId, Price, Quantity
 from tradex_observability.tracing import trace_id_of
 
 from tradex_execution.fill_model import FillModel
@@ -144,6 +145,8 @@ class SimulatedFillSource(FillModel):
         *,
         clock: object | None = None,
         require_reference_timestamp: bool = False,
+        max_fill_fraction: Decimal | float | str = Decimal("1"),
+        volume_provider: Any | None = None,
     ) -> None:
         super().__init__(
             slippage_model=slippage_model,
@@ -151,15 +154,46 @@ class SimulatedFillSource(FillModel):
             require_reference_timestamp=require_reference_timestamp,
         )
         self._portfolio_state = portfolio_state
+        #: Fraction of the reference bar's volume one submit may fill (P0.2).
+        #: ``1`` (default) fills the whole order, the historical behaviour.
+        self._max_fill_fraction = Decimal(str(max_fill_fraction))
+        #: ``(instrument, timestamp) -> Decimal`` available volume. When set,
+        #: the fill is capped at ``volume * max_fill_fraction`` and the OMS
+        #: books a ``PARTIALLY_FILLED`` order for the remainder.
+        self._volume_provider = volume_provider
         #: Number of times the venue was asked to fill. Tests assert the engine
         #: did NOT cross the broker boundary, which a mock return value cannot show.
         self.submit_calls = 0
+
+    def _fillable_quantity(self, request: OrderRequest) -> Quantity:
+        """Quantity this submit may fill: the order size, capped by liquidity."""
+        full = request.quantity.value
+        if self._volume_provider is None and self._max_fill_fraction >= 1:
+            return request.quantity
+        available = full
+        if self._volume_provider is not None:
+            available = Decimal(
+                str(self._volume_provider(
+                    request.instrument, request.reference_timestamp
+                ))
+            )
+        cap = available * self._max_fill_fraction
+        capped = min(full, cap)
+        if capped <= 0:
+            return Quantity(value=Decimal("0"))
+        return Quantity(value=capped)
 
     def submit(self, request: OrderRequest) -> tuple[Order, Fill | None]:
         self.submit_calls += 1
         # ACK + fill: the OMS owns ACK → FILLED via on_order_filled.
         # Pre-marking FILLED made transition_to() raise FILLED → FILLED.
         order = _make_order(request, status=OrderStatus.ACK)
+
+        fillable = self._fillable_quantity(request)
+        if fillable.value <= 0:
+            # No liquidity this bar: the order rests (ACK, no fill). The
+            # backtest's remainder chase re-submits it on the next bar.
+            return order, None
 
         # Shared FillModel: request/trigger price -> positive-price guard ->
         # slippage. A zero-priced fill silently corrupts every downstream P&L
@@ -175,7 +209,9 @@ class SimulatedFillSource(FillModel):
             self._portfolio_state.get_position(request.instrument)
             # Could add position limit checks here
 
-        fill = self.make_fill(order, fill_price, self.fill_timestamp(request))
+        fill = self.make_fill(
+            order, fill_price, self.fill_timestamp(request), quantity=fillable
+        )
 
         return order, fill
 

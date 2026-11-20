@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -18,6 +19,8 @@ from tradex_domain.protocols import EventStore
 from tradex_domain.value_objects import Money, Price, Quantity
 
 from tradex_execution.trading_cache import TradingCache
+
+log = logging.getLogger(__name__)
 
 
 class CashStateUnknownError(RuntimeError):
@@ -91,6 +94,15 @@ _TERMINAL_AFTER_FILL = frozenset({
 
 def _stub_order(fill) -> Order:
     """A minimal FILLED order for a fill whose OrderPlaced event was lost."""
+    # The strategy is unknowable from a missing OrderPlaced event: the stub
+    # position carries no attribution. Count/log these strategy-orphaned
+    # stubs so they are visible during folds (MP-6). No metrics plumbing
+    # exists in this module, so a distinct warning is the signal.
+    log.warning(
+        "cash_recovery_stub_fills_total: strategy-orphaned recovery stub "
+        "created for order %s",
+        getattr(getattr(fill, "order_id", None), "value", fill.order_id),
+    )
     return Order(
         order_id=fill.order_id,
         instrument=fill.instrument,

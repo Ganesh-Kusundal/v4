@@ -199,6 +199,38 @@ def test_option_chain_defaults_to_nearest_expiry_and_caches():
     assert sum(1 for call in dhan.calls if call[0] == "option_chain") == 1
 
 
+def test_option_chain_retries_with_none_expiry_when_nearest_expiry_empty():
+    from decimal import Decimal
+    from tradex_domain.market import Price
+    from tradex_domain.options import Expiry, OptionChain, OptionPair
+
+    dhan = FakeBroker("dhan")
+    stale_expiry = date.today()
+    live_expiry = date.today() + timedelta(days=28)
+    dhan.universe = [
+        Option.of("MCX", "CRUDEOIL", stale_expiry, 7900, "CE"),
+        Option.of("MCX", "CRUDEOIL", stale_expiry, 7900, "PE"),
+    ]
+    directory, router = _setup(dhan, FakeBroker("upstox"))
+
+    def fake_chain(underlying, exp=None, **_kw):
+        dhan.calls.append(("option_chain", str(underlying.instrument_id), exp))
+        if exp is not None:
+            return OptionChain(underlying=underlying)
+        ce = Option.of("MCX", "CRUDEOIL", live_expiry, 7900, "CE")
+        pe = Option.of("MCX", "CRUDEOIL", live_expiry, 7900, "PE")
+        return OptionChain(
+            underlying=underlying,
+            _expiries=(Expiry(underlying=underlying, expiry_date=live_expiry, pairs=(OptionPair(call=ce, put=pe, strike=Price(value=Decimal("7900"))),)),),
+        )
+
+    dhan.get_option_chain = fake_chain
+    chain_service = ChainService(directory, router, QuoteService(directory, router))
+    res = chain_service.option_chain("MCX:CRUDEOIL")
+    assert res["expiry"] == live_expiry.isoformat()
+    assert len(res["strikes"]) == 1
+
+
 def test_chain_enrichment_prefers_the_chain_broker():
     dhan, upstox = FakeBroker("dhan"), FakeBroker("upstox")
     expiry = date.today() + timedelta(days=7)
@@ -222,6 +254,33 @@ def test_futures_are_master_derived():
     chain_service = ChainService(directory, router, QuoteService(directory, router))
     result = chain_service.futures("IDX:NIFTY")
     assert result["futures"][0]["expiry"] == expiry.isoformat()
+
+
+def test_chain_and_futures_expose_tick_size_spread_and_front_first():
+    expiry = date.today() + timedelta(days=7)
+    near = Future.of("NFO", "NIFTY", date.today() + timedelta(days=17))
+    far = Future.of("NFO", "NIFTY", date.today() + timedelta(days=47))
+    ce = Option.of("NFO", "NIFTY", expiry, 25000, "CE")
+    dhan = FakeBroker("dhan")
+    dhan.universe = [ce, Option.of("NFO", "NIFTY", expiry, 25000, "PE")]
+    dhan.futures = [far, near]
+    dhan.registry.tick_sizes = {str(ce.instrument_id): "0.05", str(near.instrument_id): "0.1"}
+    directory, router = _setup(dhan, FakeBroker("upstox"))
+    chain_service = ChainService(directory, router, QuoteService(directory, router))
+
+    leg = chain_service.option_chain("IDX:NIFTY", live=True)["strikes"][0]
+    assert leg["ce"]["tick_size"] == 0.05
+    assert leg["pe"]["tick_size"] is None  # unknown stays unknown, never a guess
+    # Live quotes overlay ltp/oi/volume only — no bid/ask, no greeks.
+    assert leg["ce"]["ltp"] == 100.0
+    assert leg["ce"]["oi"] == 500.0
+    assert leg["ce"]["volume"] == 1000.0
+    assert "bid" not in leg["ce"] and "ask" not in leg["ce"]
+
+    futures = chain_service.futures("IDX:NIFTY")["futures"]
+    assert [item["expiry"] for item in futures] == [near.expiry.isoformat(), far.expiry.isoformat()]
+    assert futures[0]["tick_size"] == 0.1
+    assert directory.search("NIFTY", asset_class="option")[0]["tick_size"] == 0.05
 
 
 def test_option_chain_and_futures_include_lot_size():

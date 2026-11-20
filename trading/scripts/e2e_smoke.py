@@ -83,7 +83,7 @@ async def ws_checks() -> None:
                     saw_closed = saw_closed or bool(msg.get("closed"))
                     if saw_bar and saw_closed:
                         break
-                if t == "replay_done":
+                if t == "replay-done":
                     break
         except TimeoutError:
             pass
@@ -99,7 +99,7 @@ async def ws_checks() -> None:
             for _ in range(300):
                 msg = json.loads(await asyncio.wait_for(ws.recv(), 6))
                 t = msg.get("type")
-                if t == "replay_stopped":
+                if t == "replay-stopped":
                     stopped = True
                     break
                 if t == "bar":

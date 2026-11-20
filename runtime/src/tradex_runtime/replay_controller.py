@@ -385,7 +385,7 @@ class ReplayController:
             ) from None
 
     def _error(self, message: str, run_id: str | None = None) -> None:
-        frame: dict[str, Any] = {"type": "replay_error", "message": str(message)}
+        frame: dict[str, Any] = {"type": "replay-error", "message": str(message)}
         if run_id is not None:
             frame["run_id"] = run_id
         self._emit_control(frame)
@@ -480,7 +480,7 @@ class ReplayController:
 
         self._emit_control(
             {
-                "type": "replay_started",
+                "type": "replay-started",
                 "run_id": run.run_id,
                 "instrument": run.params.instrument,
                 "interval": run.params.interval,
@@ -497,14 +497,14 @@ class ReplayController:
         self._state = self._next("pause")
         if self._run is not None:
             self._run.paused = True
-        self._emit_control({"type": "replay_paused", "run_id": self.run_id})
+        self._emit_control({"type": "replay-paused", "run_id": self.run_id})
 
     async def resume(self) -> None:
         """Resume a paused replay. Refuses from any other state."""
         self._state = self._next("resume")
         if self._run is not None:
             self._run.paused = False
-        self._emit_control({"type": "replay_resumed", "run_id": self.run_id})
+        self._emit_control({"type": "replay-resumed", "run_id": self.run_id})
 
     async def step(self) -> None:
         """Advance exactly one target bar, then re-pause.
@@ -524,13 +524,9 @@ class ReplayController:
         """Change replay speed. Valid from any live state."""
         if self._run is None or not self.active:
             raise ReplayTransitionError("cannot set speed on an inactive replay")
-        try:
-            speed = _bounded(raw, "speed", 1.0, 0.01, 1000.0, as_int=False)
-        except ValueError as exc:
-            self._error(str(exc), self.run_id)
-            raise
+        speed = _bounded(raw, "speed", 1.0, 0.01, 1000.0, as_int=False)
         self._run.speed = speed
-        self._emit_control({"type": "replay_speed", "speed": speed, "run_id": self.run_id})
+        self._emit_control({"type": "replay-speed", "speed": speed, "run_id": self.run_id})
         return speed
 
     async def seek(self, msg: dict[str, Any]) -> None:
@@ -579,7 +575,7 @@ class ReplayController:
         """Stop any run. From IDLE this is a no-op ack, not a transition."""
         if self._state is ReplayState.IDLE:
             if not self._stop_ack_sent:
-                self._emit_control({"type": "replay_stopped"})
+                self._emit_control({"type": "replay-stopped"})
                 self._stop_ack_sent = True
             return
         self._next("stop")
@@ -691,7 +687,7 @@ class ReplayController:
         run = self._run
         if run is None:
             if not silent and not self._stop_ack_sent:
-                self._emit_control({"type": "replay_stopped"})
+                self._emit_control({"type": "replay-stopped"})
                 self._stop_ack_sent = True
             return
         error: str | None = None
@@ -712,7 +708,7 @@ class ReplayController:
                     log.exception("replay frame purge failed for %s", run.run_id)
             self._state = ReplayState.STOPPED
             if not silent:
-                frame: dict[str, Any] = {"type": "replay_stopped", "run_id": run.run_id}
+                frame: dict[str, Any] = {"type": "replay-stopped", "run_id": run.run_id}
                 if error:
                     frame["message"] = error
                 self._emit_control(frame)
@@ -732,7 +728,7 @@ class ReplayController:
                 self._guard.release(run.run_id)
             except Exception:
                 log.exception("replay guard release failed for %s", run.run_id)
-        if self._purge is not None and terminal_type != "replay_done":
+        if self._purge is not None and terminal_type != "replay-done":
             # Purge only on stop/error: a clean ``replay_done`` must leave the
             # bars it just produced on the wire. Purging here was observed to
             # discard the closed bar of a last-candle step before the writer
@@ -755,9 +751,9 @@ class ReplayController:
 
     #: terminal frame type → lifecycle state
     _TERMINAL = {
-        "replay_done": ReplayState.DONE,
-        "replay_stopped": ReplayState.STOPPED,
-        "replay_error": ReplayState.ERROR,
+        "replay-done": ReplayState.DONE,
+        "replay-stopped": ReplayState.STOPPED,
+        "replay-error": ReplayState.ERROR,
     }
 
     def _dispose_aggregator(self, run: _RunState) -> None:
@@ -781,7 +777,7 @@ class ReplayController:
             return
         if error is not None and self._run is run and not run.terminal:
             log.exception("replay task failed for %s", run.run_id, exc_info=error)
-            asyncio.create_task(self._finish(run, "replay_error", str(error)))
+            asyncio.create_task(self._finish(run, "replay-error", str(error)))
 
     async def _feed_loop(self, run: _RunState) -> None:
         from tradex_reactive.bus import ReactiveBus
@@ -796,7 +792,7 @@ class ReplayController:
                 method=params.method,
             )
         except Exception as exc:
-            await self._finish(run, "replay_error", str(exc))
+            await self._finish(run, "replay-error", str(exc))
             return
 
         async def _feed(candle: Candle, *, wait: bool) -> None:
@@ -813,7 +809,7 @@ class ReplayController:
                     return
                 ts = quote.timestamp
                 if ts is None:
-                    await self._finish(run, "replay_error", "replay quote has no timestamp")
+                    await self._finish(run, "replay-error", "replay quote has no timestamp")
                     return
                 if ts.tzinfo is not None:
                     ts = ts.astimezone(IST_ZONE).replace(tzinfo=None)
@@ -886,21 +882,21 @@ class ReplayController:
                         # land first.
                         self._emit_control(
                             {
-                                "type": "replay_stepped",
+                                "type": "replay-stepped",
                                 "run_id": run.run_id,
                                 "bar_index": run.last_closed_bar_index,
                             }
                         )
-                        self._emit_control({"type": "replay_paused", "run_id": run.run_id})
+                        self._emit_control({"type": "replay-paused", "run_id": run.run_id})
             if not run.terminal:
                 if run.aggregator is not None:
                     run.aggregator.flush()
-                await self._finish(run, "replay_done")
+                await self._finish(run, "replay-done")
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.exception("replay task failed for %s", run.run_id)
-            await self._finish(run, "replay_error", str(exc))
+            await self._finish(run, "replay-error", str(exc))
 
 
 async def _cancel_and_drain(run: _RunState) -> str | None:

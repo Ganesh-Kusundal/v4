@@ -6,11 +6,12 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 from tradex_brokers.common.instruments import instrument_from_id
 from tradex_domain.instruments import Instrument, Option
+from tradex_domain.market_calendar import to_ist_naive
 from tradex_domain.value_objects import InstrumentId
 
 from tradex_gateway.brokers import BrokerRuntime
@@ -33,9 +34,15 @@ def parse_canonical(text: str, asset_class: str | None = None) -> InstrumentId:
             raise BadRequest(f"invalid index id: {text!r}")
         return InstrumentId.index("IDX", parts[1])
     try:
-        return InstrumentId.parse(raw)
+        parsed = InstrumentId.parse(raw)
     except ValueError as exc:
         raise BadRequest(str(exc)) from exc
+    # A purely numeric underlying is a broker security ID, not a trading
+    # symbol — security IDs are internal to the broker and never accepted
+    # as canonical input.
+    if parsed.underlying.isdigit():
+        raise BadRequest(f"invalid instrument id: {text!r}")
+    return parsed
 
 
 @dataclass(frozen=True)
@@ -81,7 +88,9 @@ class InstrumentDirectory:
         try:
             canonical = instrument_from_id(instrument_id)
         except Exception as exc:  # noqa: BLE001 - malformed derivative IDs
-            raise InstrumentNotFound(str(exc)) from exc
+            # Canonical wire message: the domain text names internal
+            # construction details and must not reach the wire.
+            raise InstrumentNotFound("unknown instrument") from exc
         if not brokers and not any(runtime.available for runtime in self._runtimes.values()):
             raise InstrumentNotFound("no broker is available")
         return ResolvedInstrument(
@@ -96,6 +105,17 @@ class InstrumentDirectory:
         return self.resolve(text, asset_class).instrument
 
     def lot_size(self, instrument_id: InstrumentId | str, broker: str | None = None) -> int | None:
+        return self._contract_meta("lot_size", instrument_id, broker)
+
+    def tick_size(
+        self, instrument_id: InstrumentId | str, broker: str | None = None
+    ) -> float | None:
+        """Minimum price step in rupees, or None when no broker master has it."""
+        return self._contract_meta("tick_size", instrument_id, broker)
+
+    def _contract_meta(
+        self, field_name: str, instrument_id: InstrumentId | str, broker: str | None
+    ) -> Any:
         if isinstance(instrument_id, InstrumentId):
             iid = instrument_id
         else:
@@ -108,7 +128,7 @@ class InstrumentDirectory:
             names.append(broker)
         names.extend(name for name in self._runtimes if name not in names)
         for name in names:
-            value = self._runtimes[name].lot_size(iid)
+            value = getattr(self._runtimes[name], field_name)(iid)
             if value is not None:
                 return value
         return None
@@ -136,7 +156,12 @@ class InstrumentDirectory:
                 if lot_size is not None:
                     entry["lot_sizes"][name] = lot_size
         rows = [
-            self.instrument_meta(entry["instrument"], sorted(entry["brokers"]), entry["lot_sizes"])
+            {
+                **self.instrument_meta(
+                    entry["instrument"], sorted(entry["brokers"]), entry["lot_sizes"]
+                ),
+                "tick_size": self.tick_size(entry["instrument"].instrument_id),
+            }
             for entry in merged.values()
         ]
         rows.sort(key=lambda row: (row["asset_class"], row["instrument_id"]))
@@ -149,7 +174,7 @@ class InstrumentDirectory:
             cached = self._expiry_cache.get(key)
             if cached is not None and cached.expires_at > now:
                 return cached.value
-        today = date.today()
+        today = to_ist_naive(datetime.now(UTC)).date()
         best: date | None = None
         for runtime in self._runtimes.values():
             if not runtime.available:

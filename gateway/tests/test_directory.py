@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
+import pytest
 from gateway_support import FakeBroker, equity, index, option
 from tradex_domain.instruments import Index
 from tradex_gateway.brokers import BrokerRuntime
-from tradex_gateway.directory import InstrumentDirectory
+from tradex_gateway.directory import InstrumentDirectory, parse_canonical
+from tradex_gateway.errors import BadRequest, InstrumentNotFound
 
 
 def _directory(*brokers: FakeBroker) -> InstrumentDirectory:
@@ -79,3 +81,36 @@ def test_search_and_resolve_include_lot_size():
         resolved.instrument, resolved.brokers, resolved.lot_sizes
     )
     assert meta["lot_size"] == 250
+
+
+def test_numeric_underlying_is_rejected_as_non_canonical():
+    with pytest.raises(BadRequest):
+        parse_canonical("NSE:14219")
+
+
+def test_provider_key_and_isin_inputs_are_rejected():
+    with pytest.raises(BadRequest):
+        parse_canonical("NSE_EQ|INE121A01024")
+    with pytest.raises(BadRequest):
+        parse_canonical("INE121A01024")
+
+
+def test_malformed_derivative_id_message_is_canonical():
+    directory = InstrumentDirectory({})
+    with pytest.raises(InstrumentNotFound) as excinfo:
+        directory.resolve("NFO:NIFTY:20261109:CE")
+    assert "no strike" not in excinfo.value.message
+
+
+def test_nearest_expiry_uses_ist_date(monkeypatch):
+    # 2026-11-17 20:00 UTC is 2026-11-18 01:30 IST: an expiry on the 17th is past.
+    class _Now(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 17, 20, 0, tzinfo=UTC).astimezone(tz)
+
+    monkeypatch.setattr("tradex_gateway.directory.datetime", _Now)
+    directory = _directory(
+        FakeBroker("dhan", universe=[index(), option(expiry=date(2026, 11, 17))])
+    )
+    assert directory.nearest_expiry(index()) is None

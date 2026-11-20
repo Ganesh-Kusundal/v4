@@ -34,6 +34,7 @@ class FakeRegistry:
     ) -> None:
         self.mapping = mapping or {}
         self.lot_sizes = lot_sizes or {}
+        self.tick_sizes: dict[str, object] = {}
         self.known: set[str] = set()
 
     def resolve(self, name: str) -> InstrumentId | None:
@@ -46,6 +47,8 @@ class FakeRegistry:
 
     def meta(self, instrument_id: InstrumentId) -> dict[str, object]:
         key = str(instrument_id)
+        if key in self.tick_sizes:
+            return {"known": True, "tick_size": self.tick_sizes[key]}
         if key not in self.known and key not in self.lot_sizes:
             return {}
         meta: dict[str, object] = {"known": True}
@@ -204,7 +207,7 @@ class FakeBroker:
         self.calls.append(("depth", str(instrument.instrument_id)))
         return make_depth(instrument)
 
-    def get_option_chain(self, underlying, expiry=None):
+    def get_option_chain(self, underlying, expiry=None, **_kw):
         self.calls.append(("option_chain", str(underlying.instrument_id), expiry))
         return self.chain_value or make_chain(underlying, expiry)
 
@@ -237,6 +240,17 @@ class FakeBroker:
 
     def close(self):
         self.calls.append(("close",))
+
+
+class FakeSession:
+    """TradingSession double: exposes the standard broker interface."""
+
+    def __init__(self, broker):
+        self.broker = broker
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
 
 
 class FakeWindowLoader:

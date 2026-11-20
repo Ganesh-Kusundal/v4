@@ -19,9 +19,9 @@ constraint (``_require_api_key_for_live``) rather than a per-request gate.
 from __future__ import annotations
 
 import logging
-import secrets
 
 from fastapi import HTTPException, Request
+from tradex_http import keys_match
 
 from .origin import resolve_ui_origin
 from .session_store import InMemorySessionStore, SessionRecord
@@ -85,7 +85,7 @@ def audit_identity(request: Request) -> str:
     expected = getattr(request.app.state, "api_key", None)
     if expected is not None:
         provided = request.headers.get(_API_KEY_HEADER)
-        if provided and secrets.compare_digest(str(provided), str(expected)):
+        if provided and keys_match(provided, str(expected)):
             return "api_key"
     return "anonymous"
 
@@ -118,10 +118,12 @@ def require_auth(request: Request) -> SessionRecord | None:
     # --- legacy API key path ---
     if expected_key is not None:
         provided = request.headers.get(_API_KEY_HEADER)
-        if provided and secrets.compare_digest(str(provided), str(expected_key)):
+        if provided and keys_match(provided, str(expected_key)):
             return None  # authenticated; no session record
         # Key is configured but didn't match → fail closed
-        raise HTTPException(status_code=403, detail="Invalid API key")
+        if not provided:
+            raise HTTPException(status_code=401, detail="auth_missing")
+        raise HTTPException(status_code=401, detail="auth_invalid")
 
     # --- dev/paper: no auth configured ---
     return None
@@ -197,17 +199,13 @@ def verify_api_key(request: Request) -> None:
 
     Reads ``request.app.state.api_key`` at request time.
     ``None`` ⟹ no auth configured, allow through.
-    Wrong key ⟹ ``403``.  Constant-time via ``secrets.compare_digest``.
+    Wrong key ⟹ ``403``.  Constant-time via ``tradex_http.keys_match``.
     """
     expected = getattr(request.app.state, "api_key", None)
     if expected is None:
         return  # dev / paper mode
     provided = request.headers.get(_API_KEY_HEADER)
-    if (
-        not isinstance(provided, str)
-        or not isinstance(expected, str)
-        or not secrets.compare_digest(provided, expected)
-    ):
+    if not keys_match(provided, expected):
         raise HTTPException(status_code=403, detail="Invalid API key")
 
 

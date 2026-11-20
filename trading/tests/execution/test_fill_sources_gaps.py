@@ -106,7 +106,7 @@ def test_broker_cancel_without_cancel_order_fails_loudly() -> None:
 
 def test_simulated_with_slippage_model_adjusts_price() -> None:
     # H7: LIMIT BUY slippage beyond limit is clamped, so use MARKET to verify slippage applies
-    slippage = MagicMock()
+    slippage = MagicMock(spec=["apply"])  # no apply_for_request: protocol path
     slippage.apply.return_value = Price(value=Decimal("2501.50"))
     source = SimulatedFillSource(slippage_model=slippage)
     req = OrderRequest(
@@ -132,7 +132,7 @@ def test_simulated_with_portfolio_state_calls_get_position() -> None:
 
 def test_simulated_with_both_params() -> None:
     # H7: LIMIT clamp would hide slippage, use MARKET to verify portfolio + slippage
-    slippage = MagicMock()
+    slippage = MagicMock(spec=["apply"])  # no apply_for_request: protocol path
     slippage.apply.return_value = Price(value=Decimal("2502"))
     portfolio = MagicMock()
     source = SimulatedFillSource(

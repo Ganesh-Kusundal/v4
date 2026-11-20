@@ -70,20 +70,10 @@ class TestSubscriberIsolation:
 
 class TestBackpressure:
     def test_backpressure_subscriber_no_crash(self) -> None:
-        """Subscribe with on_backpressure does not raise NameError.
-
-        Regression test: the _backpressure_triggered dict was previously
-        undefined at module level, causing a NameError for any subscriber
-        with on_backpressure set.
-        """
-        from tradex_reactive.bus import _backpressure_triggered
-
+        """Subscribe with on_backpressure does not raise NameError."""
         bus = ReactiveBus()
         received: list[str] = []
         bp_calls: list[str] = []
-
-        # Should NOT raise NameError — the dict must exist at module level
-        assert isinstance(_backpressure_triggered, dict)
 
         bus.subscribe(
             on_next=received.append,

@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from gateway_support import FakeBroker, FakeWindowLoader, equity, gateway_config, make_candle
+from tradex_domain import Timeframe
 from tradex_domain.market import HistoricalSeries
 from tradex_gateway.brokers import BrokerRuntime
 from tradex_gateway.directory import InstrumentDirectory
@@ -375,3 +376,51 @@ def test_batch_never_waits_on_the_pool_that_runs_it():
     assert len(results) == 4
     assert all(item["bars"] for item in results), results
     assert not any("error" in item for item in results), results
+
+
+def test_batch_unexpected_error_message_is_canonical():
+    """A non-GatewayError in one batch item must not leak its text."""
+    service = _service(FakeWindowLoader(()), FakeBroker("dhan"), FakeBroker("upstox"))
+    # Missing instrument_id raises KeyError inside history() — a
+    # non-GatewayError that reaches the batch handler's fallback branch.
+    results = service.batch([{"timeframe": "1m"}])
+    assert results[0]["error"]["code"] == "internal_error"
+    assert results[0]["error"]["message"] == "internal error"
+
+
+def test_batch_wait_is_bounded_by_timeout():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    release = threading.Event()
+    pool = ThreadPoolExecutor(max_workers=1)
+    service = HistoryService.__new__(HistoryService)
+    service._executor, service._timeout = pool, 0.2
+    service.history = lambda *a, **k: release.wait(5)
+    try:
+        started = time.monotonic()
+        out = service.batch([{"instrument_id": "NSE:X"}])
+        assert time.monotonic() - started < 1.5
+        assert out[0]["error"]["message"] == "request timed out"
+        assert out[0]["error"]["retryable"] is True
+    finally:
+        release.set()
+        pool.shutdown(wait=False)
+
+
+def test_fetch_chunks_tolerates_naive_candle_timestamp():
+    from tradex_gateway.history import _fetch_chunks
+
+    start = datetime(2026, 11, 3, 3, 30, tzinfo=UTC)
+    end = datetime(2026, 11, 3, 4, 0, tzinfo=UTC)
+    broker = FakeBroker("dhan")
+    # naive candle timestamps follow the broker rule: UTC
+    broker.history_impl = lambda instrument, tf, ws, we: HistoricalSeries(
+        instrument=instrument,
+        timeframe=tf,
+        candles=[make_candle(instrument, datetime(2026, 11, 3, 3, 45))],
+        start=ws,
+        end=we,
+    )
+    series = _fetch_chunks(broker, equity(), Timeframe.M1, start, end)
+    assert len(series.candles) == 1

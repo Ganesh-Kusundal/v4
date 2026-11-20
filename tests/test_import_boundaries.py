@@ -26,6 +26,7 @@ _SRC = {
     "interfaces": _ROOT / "interfaces/src",
     "runtime": _ROOT / "runtime/src",
     "gateway": _ROOT / "gateway/src",
+    "httputil": _ROOT / "httputil/src",
 }
 
 _INTERNAL = {
@@ -65,7 +66,7 @@ _INTERNAL = {
 # package key → allowed internal imports (self always allowed separately)
 _ALLOWED: dict[str, set[str]] = {
     "domain": set(),
-    "brokers": {"tradex_domain"},
+    "brokers": {"tradex_domain", "tradex_config"},
     "config": {"tradex_domain"},
     "observability": set(),
     "analytics": {"tradex_domain"},

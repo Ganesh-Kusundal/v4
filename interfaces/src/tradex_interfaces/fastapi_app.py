@@ -12,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
+from tradex_http import keys_match
 
 #: One origin policy for the whole app: the CORS allow-list below and the CSRF
 #: guard in ``auth.deps`` both read this, so they cannot drift apart.
@@ -131,17 +132,23 @@ def create_app(
     app.state.replay_guard = (
         replay_guard if replay_guard is not None else ReplayGuard()
     )
+    app.state.live_orders_enabled = (
+        getattr(session, "_live_orders_enabled", getattr(session, "live_orders_enabled", True))
+        if session is not None
+        else True
+    )
 
     # -- G13 typed-error contract -----------------------------------------------
     _STATUS_CODE_MAP: dict[int, str] = {
-        400: "bad_request",
-        403: "unauthorized",
+        400: "validation_error",
+        401: "auth_invalid",
+        403: "csrf_missing",
         404: "not_found",
         409: "conflict",
-        422: "validation",
+        422: "validation_error",
         429: "rate_limited",
-        500: "internal_error",
-        502: "upstream_unavailable",
+        500: "internal",
+        502: "internal",
         503: "no_session",
     }
 
@@ -149,7 +156,29 @@ def create_app(
     async def _http_exception_handler(
         request: Request, exc: HTTPException
     ) -> JSONResponse:
-        code = _STATUS_CODE_MAP.get(exc.status_code, "error")
+        detail = exc.detail
+        if exc.status_code == 401:
+            code = (
+                str(detail)
+                if str(detail) in {"auth_missing", "auth_invalid"}
+                else "auth_invalid"
+            )
+        elif exc.status_code == 403:
+            code = "csrf_missing"
+        elif exc.status_code == 409 and isinstance(detail, dict):
+            if detail.get("message") == "stale revision":
+                code = "stale_revision"
+            else:
+                code = "conflict"
+        elif exc.status_code == 503 and str(detail) == "live_orders_disabled":
+            code = "live_orders_disabled"
+        else:
+            code = _STATUS_CODE_MAP.get(exc.status_code, "error")
+
+        if code == "stale_revision":
+            message = "stale workspace revision"
+        else:
+            message = str(detail)
         # Forward exception-level headers (e.g. Retry-After from 429) so
         # they reach the client. ``exc.headers`` is a read-only
         # ``Mapping[str, str]``, but JSONResponse's headers parameter is
@@ -161,7 +190,7 @@ def create_app(
         )
         return JSONResponse(
             status_code=exc.status_code,
-            content={"error": {"code": code, "message": str(exc.detail)}},
+            content={"error": {"code": code, "message": message}},
             headers=extra_headers,
         )
 
@@ -171,7 +200,7 @@ def create_app(
     ) -> JSONResponse:
         return JSONResponse(
             status_code=422,
-            content={"error": {"code": "validation", "message": str(exc)}},
+            content={"error": {"code": "validation_error", "message": str(exc)}},
         )
 
     # CORS: lock to the served UI origin. When dist/ is mounted the UI and API
@@ -324,8 +353,19 @@ def create_app(
 
     @app.websocket("/ws/stream")
     async def _ws_stream_endpoint(ws: WebSocket) -> None:
-        import secrets as _secrets
         from urllib.parse import parse_qs
+
+        # WS Origin check before accept. Cross-origin browser handshakes are
+        # rejected; non-browser clients without an Origin header are allowed
+        # only when TRADEX_UI_ORIGIN is unset (dev/paper default).
+        _origin = ws.headers.get("origin")
+        _ui_origin = resolve_ui_origin(app.state)
+        if _origin is not None and _origin != _ui_origin:
+            await ws.close(code=1008, reason="origin not allowed")
+            return
+        if _origin is None and os.environ.get("TRADEX_UI_ORIGIN"):
+            await ws.close(code=1008, reason="origin required")
+            return
 
         from tradex_interfaces.routes.stream import ws_stream
 
@@ -346,7 +386,7 @@ def create_app(
         # Path 2: legacy API key in query string (loopback-dev / programmatic)
         if not _authenticated and _expected_key is not None:
             _provided = parse_qs(ws.url.query).get("api_key", [None])[0]
-            if _provided and _secrets.compare_digest(str(_provided), str(_expected_key)):
+            if keys_match(_provided, str(_expected_key)):
                 _authenticated = True
 
         # Reject when auth is configured but neither credential was valid

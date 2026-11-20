@@ -125,11 +125,12 @@ def test_login_creates_distinct_sessions_per_call() -> None:
 
 def test_logout_clears_session() -> None:
     client = _client()
-    client.post("/auth/login", json={"password": "test-key"})
+    login = client.post("/auth/login", json={"password": "test-key"})
+    csrf = login.json()["csrf_token"]
     # Confirm authenticated
     assert client.get("/auth/session").json()["authenticated"] is True
     # Logout
-    r = client.post("/auth/logout")
+    r = client.post("/auth/logout", headers={"X-CSRF-Token": csrf, "Origin": "http://localhost:5173"})
     assert r.status_code == 200
     assert r.json()["logged_out"] is True
     # Session should now be gone
@@ -148,7 +149,8 @@ def test_logout_revokes_session_in_store() -> None:
     """The session store must mark the record revoked after logout."""
     app = create_app(api_key="test-key")
     client = TestClient(app)
-    client.post("/auth/login", json={"password": "test-key"})
+    login = client.post("/auth/login", json={"password": "test-key"})
+    csrf = login.json()["csrf_token"]
     assert app.state.session_store.active_count() == 1
-    client.post("/auth/logout")
+    client.post("/auth/logout", headers={"X-CSRF-Token": csrf, "Origin": "http://localhost:5173"})
     assert app.state.session_store.active_count() == 0

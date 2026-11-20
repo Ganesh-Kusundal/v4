@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 import json
+from decimal import Decimal
 
 import pytest
 from tradex_domain.errors import SDKError
@@ -68,18 +69,19 @@ class TestDhanMasterParser:
             "SEM_EXM_EXCH_ID,SEM_SEGMENT,SEM_TRADING_SYMBOL,SEM_SMST_SECURITY_ID,"
             "SEM_INSTRUMENT_NAME,SEM_OPTION_TYPE,SEM_EXPIRY_DATE,SEM_STRIKE_PRICE,"
             "SM_SYMBOL_NAME,SEM_LOT_UNITS,SEM_TICK_SIZE\n"
-            "MCX,M,SILVER-04Sep2026-FUT,510000,FUTCOM,,2026-09-04 23:30:00,,SILVER,30,0.5\n"
+            "MCX,M,SILVER-04Sep2026-FUT,510000,FUTCOM,,2026-09-04 23:30:00,,SILVER,30,100.0\n"
             "MCX,M,SILVERM-24Aug2026-279000-CE,509665,OPTFUT,CE,2026-08-24 23:30:00,"
-            "279000.00000,SILVERM,250,0.1\n"
+            "279000.00000,SILVERM,250,50.0\n"
         )
         rows = parse_dhan_master(csv_text.encode(), strict=False)
         fut = next(r for r in rows if r["instrument_type"] == "FUTCOM")
         assert fut["asset_class"] == "FUTURE"
         assert fut["lot_size"] == "30"
-        assert fut["tick_size"] == "0.5"
+        assert Decimal(fut["tick_size"]) == 1  # the master is in paise
         opt = next(r for r in rows if r["instrument_type"] == "OPTFUT")
         assert opt["asset_class"] == "OPTION"
         assert opt["lot_size"] == "250"
+        assert Decimal(opt["tick_size"]) == Decimal("0.5")
 
     def test_underlying_root_prefers_trading_symbol_over_display_name(self) -> None:
         """Currency rows whose SM_SYMBOL_NAME is empty use the trading-symbol

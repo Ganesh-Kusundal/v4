@@ -11,6 +11,7 @@ Each module owns one slice of the gateway surface. The contract is uniform:
 from tradex_gateway.routes import (
     chains,
     depth,
+    expired,
     health,
     history,
     instruments,
@@ -22,6 +23,7 @@ from tradex_gateway.routes import (
 __all__ = [
     "chains",
     "depth",
+    "expired",
     "health",
     "history",
     "instruments",

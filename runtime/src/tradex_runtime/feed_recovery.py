@@ -76,7 +76,7 @@ class HistoryProvider(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class RecoveryOutcome:
+class FeedRecoveryOutcome:
     """Result of one recovery attempt."""
 
     ok: bool
@@ -197,7 +197,7 @@ class FeedRecoveryCoordinator:
 
     # -- recovery -----------------------------------------------------------
 
-    def recover(self) -> RecoveryOutcome:
+    def recover(self) -> FeedRecoveryOutcome:
         """Run the fail-closed recovery sequence; return the outcome."""
         supervisor: FeedSupervisor | None = self._supervisor or getattr(
             self._feed, "supervisor", None
@@ -282,7 +282,7 @@ class FeedRecoveryCoordinator:
             len(recovered),
             missing,
         )
-        return RecoveryOutcome(
+        return FeedRecoveryOutcome(
             ok=True,
             generation=generation,
             instruments=names,
@@ -358,7 +358,7 @@ class FeedRecoveryCoordinator:
 
     def _fail(
         self, supervisor: FeedSupervisor | None, message: str, started: float
-    ) -> RecoveryOutcome:
+    ) -> FeedRecoveryOutcome:
         if supervisor is not None:
             supervisor.recovery_failed(message)
         duration = max(0.0, time.monotonic() - started)
@@ -366,7 +366,7 @@ class FeedRecoveryCoordinator:
             self._metrics.counter("feed_recovery_failures_total").inc()
             self._metrics.histogram("feed_resync_duration_seconds").observe(duration)
         log.warning("feed recovery failed: %s", message)
-        return RecoveryOutcome(
+        return FeedRecoveryOutcome(
             ok=False,
             generation=int(getattr(supervisor, "generation", 0) or 0),
             error=message,
@@ -418,6 +418,6 @@ __all__ = [
     "FeedRecoveryCoordinator",
     "HistoryProvider",
     "ParquetHistoryProvider",
-    "RecoveryOutcome",
+    "FeedRecoveryOutcome",
 ]
 

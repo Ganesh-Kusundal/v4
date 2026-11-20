@@ -46,24 +46,26 @@ log = logging.getLogger(__name__)
 #: Metadata keys, identical to the ``OrderRequest`` fields they feed.
 STOP_KEY: Final = "stop_loss_price"
 TARGET_KEY: Final = "target_price"
+TRAILING_KEY: Final = "trailing_jump"
 
 
 class _ProtectiveLegs(TypedDict, total=False):
-    """The two protective keyword arguments carried into an order constructor.
+    """The protective keyword arguments carried into an order constructor.
 
     ``protective_request`` builds this dict and splats it as ``**legs`` into
     either ``OrderRequest`` or ``BracketOrderRequest``. Typing it as a
-    ``TypedDict`` over the two known ``Price``-typed fields — rather than a
+    ``TypedDict`` over the three known ``Price``-typed fields — rather than a
     bare ``dict[str, Price]`` — tells mypy the only keys it can carry are
-    ``stop_loss_price`` and ``target_price``. As a bare dict, mypy has to assume
-    ``**legs`` might supply *any* keyword (so a ``Price`` against
-    ``time_in_force``/``product_type``/``quantity`` is a type error). The two
-    request classes declare both of these fields as ``Price | None``, so the
-    splat is genuinely type-correct; the TypedDict just makes that visible.
+    ``stop_loss_price``, ``target_price`` and ``trailing_jump``. As a bare dict,
+    mypy has to assume ``**legs`` might supply *any* keyword (so a ``Price``
+    against ``time_in_force``/``product_type``/``quantity`` is a type error).
+    The two request classes declare all of these fields as ``Price | None``, so
+    the splat is genuinely type-correct; the TypedDict just makes that visible.
     """
 
     stop_loss_price: Price
     target_price: Price
+    trailing_jump: Price
 
 
 def _as_price(value: Any, key: str) -> Price | None:
@@ -134,10 +136,18 @@ def protective_request(
     to carry.
     """
     stop, target = declared_levels(getattr(signal, "metadata", None))
+    metadata = getattr(signal, "metadata", None)
+    trailing = (
+        _as_price(metadata.get(TRAILING_KEY), TRAILING_KEY)
+        if isinstance(metadata, dict)
+        else None
+    )
     legs: _ProtectiveLegs = {}
     if stop is not None and target is not None:
         if is_valid_bracket(signal.direction, entry, stop, target):
             legs = {STOP_KEY: stop, TARGET_KEY: target}
+            if trailing is not None:
+                legs[TRAILING_KEY] = trailing
         else:
             # Documented contract (CLAUDE.md): an invalid pair degrades to an
             # unprotected order rather than raising mid-run — a strategy
@@ -159,7 +169,13 @@ def protective_request(
             STOP_KEY, stop, TARGET_KEY, target,
         )
 
-    cls = BracketOrderRequest if legs else OrderRequest
+    # A trailing stop rides on a plain OrderRequest too (no bracket required):
+    # the backtest trails it from the entry price when no initial stop exists.
+    use_bracket = STOP_KEY in legs and TARGET_KEY in legs
+    if trailing is not None and TRAILING_KEY not in legs:
+        legs[TRAILING_KEY] = trailing
+
+    cls = BracketOrderRequest if use_bracket else OrderRequest
     return cls(
         instrument=signal.instrument,
         side=signal.direction,
