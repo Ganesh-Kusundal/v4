@@ -17,6 +17,7 @@ import hashlib
 import hmac
 
 from tradex_domain.constants import CSRF_PURPOSE as _PURPOSE
+from tradex_http import keys_match
 
 
 def make_csrf_token(csrf_secret: str) -> str:
@@ -31,7 +32,7 @@ def make_csrf_token(csrf_secret: str) -> str:
 def verify_csrf_token(csrf_secret: str, provided: str) -> bool:
     """Constant-time comparison of the provided token against the expected value."""
     expected = make_csrf_token(csrf_secret)
-    return hmac.compare_digest(expected, provided)
+    return keys_match(provided, expected)
 
 
 __all__ = ["make_csrf_token", "verify_csrf_token"]

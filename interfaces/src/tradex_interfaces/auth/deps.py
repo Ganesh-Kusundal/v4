@@ -199,7 +199,7 @@ def verify_api_key(request: Request) -> None:
 
     Reads ``request.app.state.api_key`` at request time.
     ``None`` ⟹ no auth configured, allow through.
-    Wrong key ⟹ ``403``.  Constant-time via ``secrets.compare_digest``.
+    Wrong key ⟹ ``403``.  Constant-time via ``tradex_http.keys_match``.
     """
     expected = getattr(request.app.state, "api_key", None)
     if expected is None:

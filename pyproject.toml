@@ -404,14 +404,24 @@ forbidden_modules = [
 name = "gateway layer"
 type = "forbidden"
 source_modules = ["tradex_gateway"]
+# Direct imports only: the gateway boots a runtime session (brokers.py), and
+# tradex_runtime itself imports execution/strategy. That transitive reach is
+# the accepted cost of reusing boot(); the gateway's own code must not import
+# these. The interfaces ban below stays transitive.
+allow_indirect_imports = true
 forbidden_modules = [
-    "tradex_interfaces",
     "tradex_application",
     "tradex_execution",
     "tradex_strategy",
     "tradex_replay",
     "duck_analytics",
 ]
+
+[[tool.importlinter.contracts]]
+name = "gateway never reaches interfaces"
+type = "forbidden"
+source_modules = ["tradex_gateway"]
+forbidden_modules = ["tradex_interfaces"]
 
 [tool.uv.workspace]
 members = [
