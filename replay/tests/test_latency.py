@@ -115,3 +115,57 @@ def test_latency_delays_the_fill_and_reprices() -> None:
 def test_negative_latency_is_rejected() -> None:
     with pytest.raises(ValueError, match="latency_bars"):
         BacktestEngine(latency_bars=-1)
+
+
+class _RecordingBuy:
+    """Records one BUY on the first bar (the recording/bridge path)."""
+
+    strategy_id = "rec"
+    version = "1.0.0"
+
+    def __init__(self) -> None:
+        self.signals: list[Signal] = []
+        self._done = False
+
+    @property
+    def instruments(self):
+        return [_INST.instrument_id]
+
+    def on_start(self, context) -> None:
+        return None
+
+    def on_stop(self, context) -> None:
+        return None
+
+    def on_quote(self, context, quote):
+        return None
+
+    def on_depth(self, context, depth):
+        return None
+
+    def on_fill(self, context, fill) -> None:
+        return None
+
+    def on_event(self, event) -> None:
+        return None
+
+    def on_bar(self, context, candle):
+        if self._done:
+            return None
+        self._done = True
+        self.signals.append(
+            Signal(
+                instrument=_INST, direction=OrderSide.BUY, strength=1.0,
+                reason="entry", quantity=Quantity(Decimal("10")),
+                metadata={}, timestamp=candle.timestamp,
+            )
+        )
+        return None
+
+
+def test_bridge_latency_delays_a_recorded_signal() -> None:
+    candles = _candles([100, 101, 102, 103, 104])
+    r0 = BacktestEngine(latency_bars=0).run(_RecordingBuy(), candles)
+    r2 = BacktestEngine(latency_bars=2).run(_RecordingBuy(), candles)
+    assert _buy_fill(r0)["price"] == pytest.approx(101.0)
+    assert _buy_fill(r2)["price"] == pytest.approx(103.0)

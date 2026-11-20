@@ -976,7 +976,10 @@ class BacktestEngine:
         # processed, so the earliest bar it can fill against is N+1.
         bridged_signal_ids: set[int] = set()
         # Deferred bridge signals, keyed by instrument, in arrival order.
-        bridge_pending: dict[Any, list[Signal]] = {}
+        bridge_pending: dict[Any, list[tuple[int, Signal]]] = {}
+        #: Candle index, so a bridge signal can be released ``latency_bars``
+        #: after the bar it was recorded on (P1.5).
+        bar_index = 0
         bridge_seq = 0
 
         def _capture_claimed() -> None:
@@ -1003,7 +1006,7 @@ class BacktestEngine:
                 if signal.instrument.instrument_id != inst_id:
                     continue
                 bridged_signal_ids.add(id(signal))
-                bridge_pending.setdefault(inst_id, []).append(signal)
+                bridge_pending.setdefault(inst_id, []).append((bar_index, signal))
 
         def _maybe_protective_exit(candle: Candle) -> None:
             nonlocal protective_seq
@@ -1121,7 +1124,13 @@ class BacktestEngine:
             queued = bridge_pending.get(candle.instrument.instrument_id)
             if not queued:
                 return
-            _bridge_signal(queued.pop(0), candle)
+            queued_at, signal = queued[0]
+            # Not yet due: a recorded signal fills one bar after it was
+            # recorded, plus any configured latency (P1.5).
+            if bar_index < queued_at + 1 + self._latency_bars:
+                return
+            queued.pop(0)
+            _bridge_signal(signal, candle)
 
         def _flush_remainder(candle: Candle) -> None:
             """Re-submit one instrument's unfilled remainder at *candle*'s open.
@@ -1180,6 +1189,7 @@ class BacktestEngine:
             if isinstance(event, Candle):
                 # Apply due corporate actions BEFORE the bar's open fill.
                 self._clock.set(event.timestamp)
+                bar_index += 1
                 _apply_ca_for(event.timestamp)
                 _flush_bridge_pending(event)
                 _flush_remainder(event)
