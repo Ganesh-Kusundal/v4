@@ -27,6 +27,19 @@ from tradex_config.schema import AppConfig
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _root_conftest(config: pytest.Config):
+    # ``import conftest`` returns whichever conftest module is first on
+    # sys.path (not necessarily the root one). The root conftest is registered
+    # with pytest as a plugin; take that instance, because re-executing the
+    # file would reset the guard's snapshot and make the check vacuous.
+    target = _REPO_ROOT / "conftest.py"
+    for plugin in config.pluginmanager.get_plugins():
+        f = getattr(plugin, "__file__", None)
+        if f and Path(f).resolve() == target:
+            return plugin
+    raise AssertionError("root conftest.py is not registered as a plugin")
+
+
 def test_the_suite_runtime_dir_is_a_temp_directory() -> None:
     runtime_dir = Path(os.environ["TRADEX_RUNTIME_DIR"]).resolve()
     assert runtime_dir.is_dir(), "pytest_configure must create the directory"
@@ -42,22 +55,22 @@ def test_app_config_reads_the_pinned_runtime_dir() -> None:
     assert Path(AppConfig().runtime_dir).resolve() == pinned
 
 
-def test_the_guard_reports_a_clean_repository_runtime_dir() -> None:
+def test_the_guard_reports_a_clean_repository_runtime_dir(pytestconfig) -> None:
     """The session guard's own snapshot API sees no writes into the repository.
 
     ``pytest_sessionfinish`` fails the session on any path this reports, so an
     empty answer here is the same evidence, asked earlier.
     """
-    import conftest as root_conftest
+    root_conftest = _root_conftest(pytestconfig)
 
     assert root_conftest.runtime_dir_violations() == [], (
         "the suite wrote into <repo>/runtime during this session"
     )
 
 
-def test_the_guard_snapshot_detects_a_new_file(tmp_path: Path) -> None:
+def test_the_guard_snapshot_detects_a_new_file(tmp_path: Path, pytestconfig) -> None:
     """The guard is not vacuously empty: a new file under the root is reported."""
-    import conftest as root_conftest
+    root_conftest = _root_conftest(pytestconfig)
 
     root = tmp_path / "runtime"
     root.mkdir()
