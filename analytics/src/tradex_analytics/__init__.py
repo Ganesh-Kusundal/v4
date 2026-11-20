@@ -6,6 +6,12 @@ from tradex_analytics._math import (
 from tradex_analytics.breadth import advance_decline
 from tradex_analytics.engine import AnalyticsEngine
 from tradex_analytics.footprint import Footprint
+from tradex_analytics.incremental import (
+    StatefulIndicator,
+    StreamingEMA,
+    StreamingRSI,
+    StreamingSMA,
+)
 from tradex_analytics.indicators import (
     ema,
     macd,
@@ -108,6 +114,10 @@ __all__ = [
     "sharpe_ratio",
     "sma",
     "sortino_ratio",
+    "StatefulIndicator",
+    "StreamingEMA",
+    "StreamingRSI",
+    "StreamingSMA",
     "total_return",
     "vah",
     "val",
