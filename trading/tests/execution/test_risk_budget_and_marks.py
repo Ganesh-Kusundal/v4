@@ -9,14 +9,13 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from trading.tests.risk_support import FrozenClock
-
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
 from tradex_domain.execution import OrderRequest, Position
 from tradex_domain.instruments import Equity
 from tradex_domain.risk_budget import resolve_strategy_id
 from tradex_domain.value_objects import Money, Price, Quantity
 from tradex_execution.risk import RiskBudget, RiskManager
+from trading.tests.risk_support import FrozenClock
 
 _INST = Equity.of("NSE", "TEST")
 _CLOCK = FrozenClock()

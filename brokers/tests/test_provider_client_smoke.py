@@ -1,9 +1,10 @@
 """Smoke test for ProviderHttpClient.rate_limiter exposure."""
 from unittest.mock import MagicMock
 
+from tradex_domain import RateLimitConfig
+
 from tradex_brokers.common.provider_client import ProviderHttpClient
 from tradex_brokers.common.resilience import MultiBucketRateLimiter
-from tradex_domain import RateLimitConfig
 
 
 def test_provider_http_client_exposes_rate_limiter():

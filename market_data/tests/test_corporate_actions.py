@@ -6,10 +6,9 @@ from datetime import datetime
 from decimal import Decimal
 
 import pytest
-
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Equity
-from tradex_domain.market import Candle, OHLC
+from tradex_domain.market import OHLC, Candle
 from tradex_domain.value_objects import Price, Quantity
 from tradex_market_data.corporate_actions import CorporateAction, CorporateActionStore
 

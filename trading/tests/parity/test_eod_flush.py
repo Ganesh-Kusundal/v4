@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from decimal import Decimal
 
 import pytest
@@ -29,7 +29,7 @@ def test_eod_flush_reaches_strategy() -> None:
             instrument=INSTRUMENT,
             ltp=Price(value=Decimal("100")),
             volume=Quantity(value=Decimal("1")),
-            timestamp=datetime(2026, 9, 24, 10, 15, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 9, 24, 10, 15, tzinfo=UTC),
             exchange="NSE",
             provider="sim",
         )

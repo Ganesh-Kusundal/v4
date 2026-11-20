@@ -14,8 +14,7 @@ wire-compat choice, not a default.
 
 from __future__ import annotations
 
-from decimal import InvalidOperation
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field

@@ -6,7 +6,6 @@ import logging
 from decimal import Decimal
 
 import pytest
-
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
 from tradex_domain.events import CashAccountInitialized, OrderFilled
 from tradex_domain.execution import Fill, Order
@@ -14,7 +13,6 @@ from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import OrderId, Price, Quantity
 from tradex_execution.recovery import InMemoryEventStore, recover_trading_cache
 from tradex_execution.trading_cache import TradingCache
-
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")
 ORDER_ID = OrderId("o-stub")

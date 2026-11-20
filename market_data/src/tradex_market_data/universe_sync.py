@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
-
 from tradex_domain.instruments import Equity
 from tradex_domain.universe import load_universe
 
@@ -468,7 +467,7 @@ class UniverseSyncManager:
             return None
 
         # Run sync
-        from tradex_market_data.sync_service import SyncService, SyncConfig
+        from tradex_market_data.sync_service import SyncConfig, SyncService
 
         config = SyncConfig(
             timeframe="1m",
@@ -557,9 +556,9 @@ class UniverseSyncManager:
         if self._broker is None:
             return None
 
-        from tradex_domain.value_objects import InstrumentId
         from tradex_domain.enums import ExchangeId
         from tradex_domain.instruments import Equity
+        from tradex_domain.value_objects import InstrumentId
 
         iid = InstrumentId.equity("NSE", symbol)
         provider_key = self._broker.registry.provider_key(iid)

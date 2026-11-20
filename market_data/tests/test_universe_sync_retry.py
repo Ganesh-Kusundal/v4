@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import MagicMock
+
 from tradex_market_data.universe_sync import FailureRecord, UniverseSyncManager
 
 
@@ -15,7 +16,7 @@ def test_retry_classification_rate_limited():
 
 def test_retry_backoff_doubling():
     manager = UniverseSyncManager(broker=None, store=None)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     record = FailureRecord(
         symbol="TEST",

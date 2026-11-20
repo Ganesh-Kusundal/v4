@@ -13,6 +13,7 @@ from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import InstrumentId
 from tradex_runtime.live import build_broker_from_env
 
+
 def main():
     # Build broker
     broker = build_broker_from_env('dhan')
@@ -48,7 +49,7 @@ def main():
     try:
         universe = load_universe('nifty500', csv_dir=None)
         icici_instruments = [inst for inst in universe if 'ICICI' in inst.symbol]
-        print(f'\nICICI instruments in nifty500 universe:')
+        print('\nICICI instruments in nifty500 universe:')
         for inst in icici_instruments:
             print(f'  {inst.symbol} - ISIN: {getattr(inst.meta, "isin", "N/A") if hasattr(inst, "meta") else "N/A"}')
     except Exception as e:

@@ -2,10 +2,11 @@
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
-from tradex_market_data.universe_sync import UniverseSyncManager, RenameCandidate
+
+from tradex_domain.enums import ExchangeId
 from tradex_domain.universe import Equity
 from tradex_domain.value_objects import InstrumentId
-from tradex_domain.enums import ExchangeId
+from tradex_market_data.universe_sync import RenameCandidate, UniverseSyncManager
 
 
 def make_equity(symbol: str, isin: str | None = None) -> Equity:

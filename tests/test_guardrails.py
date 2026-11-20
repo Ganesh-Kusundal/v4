@@ -20,10 +20,11 @@ Every rule passes on the landed tree; this file is enforcement, not aspiration.
 from __future__ import annotations
 
 import ast
-import pytest
 import re
 import sys
 from pathlib import Path
+
+import pytest
 
 # The root pytest config runs with ``--import-mode=importlib``, which does not
 # put this directory on sys.path; the root conftest.py uses the same explicit

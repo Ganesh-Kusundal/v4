@@ -57,8 +57,9 @@ from tradex_domain.rate_limiting import (
     bucket_for_path,
     limiter_from_table,
 )
-from tradex_brokers.common.retry_config import HTTPRetryConfig as RetryConfig
+
 from tradex_brokers.common.retry_config import HTTP_RETRY_CONFIG
+from tradex_brokers.common.retry_config import HTTPRetryConfig as RetryConfig
 
 log = logging.getLogger(__name__)
 

@@ -52,8 +52,8 @@ def test_the_lake_converter_is_patchable_at_the_seam_production_reads(monkeypatc
     # Import a helper module FIRST, deliberately: importing before the patch
     # below proves the double is read off ``tradex_domain`` at call time
     # (a stale module-level binding elsewhere cannot mask a seam regression).
-    import tradex_market_data.market_provider as _seam_module
     import tradex_domain
+    import tradex_market_data.market_provider as _seam_module
     from tradex_market_data.market_provider import ParquetMarketProvider
 
     seen: list[Any] = []

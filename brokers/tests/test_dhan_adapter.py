@@ -7,6 +7,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
+from tradex_domain import RateLimitConfig
 from tradex_domain.capabilities import BrokerCapabilities
 from tradex_domain.enums import (
     OrderSide,
@@ -41,7 +42,6 @@ from tradex_domain.value_objects import (
 from tradex_domain.wire import InstrumentRegistry
 
 from tradex_brokers.common.resilience import MultiBucketRateLimiter
-from tradex_domain import RateLimitConfig
 from tradex_brokers.dhan.adapter import DhanBroker
 from tradex_brokers.dhan.client import DhanApiClient
 

@@ -1,15 +1,15 @@
 """Integration test: full universe sync pipeline on small test universe."""
 
 import tempfile
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
-import pandas as pd
 
-from tradex_market_data.universe_sync import UniverseSyncManager
+import pandas as pd
+from tradex_domain.enums import ExchangeId
 from tradex_domain.instruments import Equity, InstrumentMeta
 from tradex_domain.value_objects import InstrumentId
-from tradex_domain.enums import ExchangeId
+from tradex_market_data.universe_sync import UniverseSyncManager
 
 
 def test_sync_all_pipeline_integration():

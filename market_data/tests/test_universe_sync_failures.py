@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
+
 from tradex_market_data.universe_sync import FailureRecord, UniverseSyncManager
 
 
@@ -9,11 +10,11 @@ def test_failure_persistence_round_trip(tmp_path):
     records = {
         "ABLBL": FailureRecord(
             symbol="ABLBL",
-            failed_at=datetime.now(timezone.utc),
+            failed_at=datetime.now(UTC),
             reason="rate_limited",
             attempts=1,
             last_error="Rate limit exceeded",
-            retry_after=datetime.now(timezone.utc) + timedelta(hours=1),
+            retry_after=datetime.now(UTC) + timedelta(hours=1),
         ),
     }
     manager.save_failures(records)

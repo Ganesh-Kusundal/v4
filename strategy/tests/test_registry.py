@@ -1,6 +1,6 @@
 """Tests for strategy registry."""
 
-from tradex_strategy.registry import register, get, create, list_strategies, clear
+from tradex_strategy.registry import clear, create, get, list_strategies, register
 
 
 class BaseStrategy:

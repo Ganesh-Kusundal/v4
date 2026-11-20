@@ -10,6 +10,7 @@ from uuid import UUID
 
 import pytest
 from support.fake_fetch import FakeFetch
+from tradex_domain import RateLimitConfig
 from tradex_domain.enums import (
     OrderSide,
     OrderStatus,
@@ -34,7 +35,6 @@ from tradex_domain.wire import InstrumentRegistry
 from tradex_brokers.common.client_shared import correlation_id
 from tradex_brokers.common.provider_common import instrument_from_id, parse_date
 from tradex_brokers.common.resilience import MultiBucketRateLimiter
-from tradex_domain import RateLimitConfig
 from tradex_brokers.dhan.client import (
     DhanApiClient,
     _as_price,

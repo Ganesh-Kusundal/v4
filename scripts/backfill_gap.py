@@ -2,8 +2,8 @@
 """Backfill missing data from Oct 23 to Nov 9, 2026."""
 
 import sys
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 # Add project roots to path
 project_root = Path(__file__).resolve().parents[1]
@@ -11,10 +11,11 @@ sys.path.insert(0, str(project_root / "market_data" / "src"))
 sys.path.insert(0, str(project_root / "brokers" / "src"))
 sys.path.insert(0, str(project_root / "domain" / "src"))
 
-from tradex_runtime.live import build_broker_from_env
-from tradex_market_data.parquet_storage import ParquetStorage
-from tradex_market_data.sync_service import SyncService, SyncConfig
 from tradex_domain.universe import load_universe
+from tradex_market_data.parquet_storage import ParquetStorage
+from tradex_market_data.sync_service import SyncConfig, SyncService
+from tradex_runtime.live import build_broker_from_env
+
 
 def main():
     # Build broker and storage
@@ -43,14 +44,14 @@ def main():
     start = datetime(2026, 10, 23)
     end = datetime(2026, 11, 9)
 
-    print(f'\n=== Starting sync ===')
+    print('\n=== Starting sync ===')
     print(f'Period: {start.date()} to {end.date()}')
     print(f'Symbols: {len(instruments)}')
     print('=' * 80)
 
     report = sync_service.sync(instruments, start, end)
 
-    print(f'\n=== Sync Complete ===')
+    print('\n=== Sync Complete ===')
     print(f'Requested: {report.requested}')
     print(f'Fetched: {report.fetched}')
     print(f'Written: {report.written}')

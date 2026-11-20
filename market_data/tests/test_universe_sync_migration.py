@@ -1,7 +1,8 @@
 """Tests for atomic lake migration in universe sync."""
 
-import pandas as pd
 from datetime import datetime
+
+import pandas as pd
 from tradex_market_data.universe_sync import UniverseSyncManager
 
 

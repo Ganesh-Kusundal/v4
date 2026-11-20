@@ -12,10 +12,9 @@ from typing import Any
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import OHLC, Candle, Depth
+from tradex_domain.rate_limiting import as_price
 from tradex_domain.utils import as_decimal
 from tradex_domain.value_objects import Price, Quantity
-
-from tradex_domain.rate_limiting import as_price
 
 
 def make_candle(

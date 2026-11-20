@@ -1,12 +1,12 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from unittest.mock import MagicMock, patch
 
 
 def test_sync_all_pipeline(tmp_path):
     from tradex_market_data.universe_sync import (
-        UniverseSyncManager,
-        UniverseDelta,
         MigrationResult,
+        UniverseDelta,
+        UniverseSyncManager,
     )
 
     broker = MagicMock()
@@ -25,7 +25,7 @@ def test_sync_all_pipeline(tmp_path):
             added=[],
             removed=[],
             unchanged=[],
-            last_refreshed=datetime.now(timezone.utc),
+            last_refreshed=datetime.now(UTC),
         )
         mock_renames.return_value = []
         mock_migrate.return_value = MigrationResult(success=True)

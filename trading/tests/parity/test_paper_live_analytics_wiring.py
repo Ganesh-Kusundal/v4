@@ -16,10 +16,10 @@ import pytest
 from tradex_config.schema import AppConfig
 from tradex_domain import OHLC, Candle, Equity, Price, Quantity, Timeframe
 from tradex_reactive.bus import ReactiveBus
+from tradex_replay.backtest import BacktestEngine
 from tradex_runtime.session_impl import TradingSession
 from tradex_strategy import ReactiveStrategyEngine
 from tradex_strategy.extensions.strategies.sma_cross import SmaCrossStrategy
-from tradex_replay.backtest import BacktestEngine
 from trading.tests.risk_support import app_config, permissive_risk
 
 INSTRUMENT = Equity.of("NSE", "RELIANCE")

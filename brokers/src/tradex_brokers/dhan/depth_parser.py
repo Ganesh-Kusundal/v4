@@ -11,10 +11,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from tradex_domain import build_depth
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import Depth
 from tradex_domain.value_objects import Price, Quantity
-from tradex_domain import build_depth
 
 # Wire layout constants
 HEADER_SIZE = 12

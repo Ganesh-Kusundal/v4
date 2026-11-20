@@ -330,8 +330,8 @@ class TestReplayControl:
         from decimal import Decimal
         from zoneinfo import ZoneInfo
 
-        import tradex_market_data.parquet_storage as parquet_storage
         import tradex_domain
+        import tradex_market_data.parquet_storage as parquet_storage
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import OHLC, Candle
@@ -489,8 +489,8 @@ class TestReplayControl:
         from datetime import datetime
         from decimal import Decimal
 
-        import tradex_market_data.parquet_storage as parquet_storage
         import tradex_domain
+        import tradex_market_data.parquet_storage as parquet_storage
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import OHLC, Candle
@@ -603,8 +603,8 @@ class TestReplayControl:
         from decimal import Decimal
         from zoneinfo import ZoneInfo
 
-        import tradex_market_data.parquet_storage as parquet_storage
         import tradex_domain
+        import tradex_market_data.parquet_storage as parquet_storage
         from tradex_domain.enums import Timeframe
         from tradex_domain.instruments import Equity
         from tradex_domain.market import OHLC, Candle, Quote
@@ -745,8 +745,8 @@ class TestReplayCursorContract:
 
     @staticmethod
     def _patch_lake(monkeypatch, candles):
-        import tradex_market_data.parquet_storage as parquet_storage
         import tradex_domain
+        import tradex_market_data.parquet_storage as parquet_storage
 
         class _DataFrame:
             empty = False
@@ -963,8 +963,8 @@ class _ReplayFixture:
         self._patch_lake(monkeypatch)
 
     def _patch_lake(self, monkeypatch):
-        import tradex_market_data.parquet_storage as parquet_storage
         import tradex_domain
+        import tradex_market_data.parquet_storage as parquet_storage
         from tradex_market_data.market_provider import ParquetMarketProvider
 
         candles = self.candles
@@ -1215,8 +1215,8 @@ def _make_session(bus=None):
 
 
 def _patch_store(monkeypatch, candles):
-    import tradex_market_data.parquet_storage as parquet_storage
     import tradex_domain
+    import tradex_market_data.parquet_storage as parquet_storage
 
     class _Frame:
         empty = not candles
@@ -1602,8 +1602,8 @@ class TestReplayContractFixes:
         return candles
 
     def _patch_lake(self, monkeypatch, candles):
-        import tradex_market_data.parquet_storage as parquet_storage
         import tradex_domain
+        import tradex_market_data.parquet_storage as parquet_storage
 
         class _Frame:
             empty = not candles

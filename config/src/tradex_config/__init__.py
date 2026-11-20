@@ -3,6 +3,7 @@
 Provides AppConfig schema and environment loading.
 """
 
+from tradex_config.broker_limits import BROKER_LIMITS, BrokerIntradayLimits
 from tradex_config.env import _parse_bool, from_env
 from tradex_config.permissions import (
     InsecureSecretFileError,
@@ -10,7 +11,6 @@ from tradex_config.permissions import (
     assert_secret_file_mode,
     check_secret_files,
 )
-from tradex_config.broker_limits import BROKER_LIMITS, BrokerIntradayLimits
 from tradex_config.schema import (
     AppConfig,
     BrokerConfig,

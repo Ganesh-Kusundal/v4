@@ -14,8 +14,8 @@ sys.path.insert(0, str(project_root / "market_data" / "src"))
 sys.path.insert(0, str(project_root / "brokers" / "src"))
 sys.path.insert(0, str(project_root / "domain" / "src"))
 
-from tradex_market_data.universe_sync import UniverseSyncManager
 from tradex_market_data.parquet_storage import ParquetStorage
+from tradex_market_data.universe_sync import UniverseSyncManager
 
 
 def main():
@@ -86,7 +86,7 @@ def main():
         broker = None
 
     store = ParquetStorage("data")
-    print(f"✓ Storage initialized at data/")
+    print("✓ Storage initialized at data/")
 
     if args.dry_run:
         print("\nDry run mode — showing planned changes:")
@@ -121,7 +121,7 @@ def main():
         end=end_date,
     )
 
-    print(f"\n=== Sync Summary ===")
+    print("\n=== Sync Summary ===")
     print(f"Universe: +{len(report.universe.added)} added, -{len(report.universe.removed)} removed")
     print(f"Renames: {len(report.renames)} migrated")
     if report.retry:

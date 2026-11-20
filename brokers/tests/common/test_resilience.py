@@ -29,7 +29,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from tradex_domain import BrokerUnavailableError, RateLimitError
+from tradex_domain import BrokerUnavailableError, RateLimitConfig, RateLimitError
 
 from tradex_brokers.common.resilience import (
     CircuitBreaker,
@@ -44,7 +44,6 @@ from tradex_brokers.common.resilience import (
     limiter_for_provider,
     table_for_provider,
 )
-from tradex_domain import RateLimitConfig
 
 HISTORICAL_URL = "https://api.dhan.co/v2/charts/intraday/2885/1/2026-08-01/2026-08-05"
 

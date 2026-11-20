@@ -11,7 +11,6 @@ import stat
 from pathlib import Path
 
 import pytest
-
 from tradex_config.permissions import (
     InsecureSecretFileError,
     assert_runtime_secret_permissions,

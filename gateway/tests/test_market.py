@@ -201,6 +201,7 @@ def test_option_chain_defaults_to_nearest_expiry_and_caches():
 
 def test_option_chain_retries_with_none_expiry_when_nearest_expiry_empty():
     from decimal import Decimal
+
     from tradex_domain.market import Price
     from tradex_domain.options import Expiry, OptionChain, OptionPair
 

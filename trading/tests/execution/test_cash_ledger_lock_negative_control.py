@@ -93,12 +93,12 @@ from __future__ import annotations
 
 import threading
 import time
-import pytest
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from decimal import Decimal
 from typing import NamedTuple
 
+import pytest
 from tradex_domain.enums import OrderSide
 from tradex_domain.events import OrderFilled
 from tradex_domain.execution import Fill

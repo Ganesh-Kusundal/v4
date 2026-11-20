@@ -19,9 +19,9 @@ directory, not ``<repo>/runtime``**. This is why the pin happens in
 from __future__ import annotations
 
 import os
-import pytest
 from pathlib import Path
 
+import pytest
 from tradex_config.schema import AppConfig
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent

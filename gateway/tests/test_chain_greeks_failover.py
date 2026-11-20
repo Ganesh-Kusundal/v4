@@ -5,7 +5,8 @@ from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from gateway_support import FakeBroker, gateway_config, index as make_index
+from gateway_support import FakeBroker, gateway_config
+from gateway_support import index as make_index
 from tradex_brokers.dhan._marketdata import _dhan_leg
 from tradex_brokers.upstox._marketdata import _upstox_leg
 from tradex_domain.errors import (

@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
-
 from tradex_domain.enums import OrderSide, OrderType, TimeInForce
 from tradex_domain.execution import OrderRequest
 from tradex_domain.instruments import Equity

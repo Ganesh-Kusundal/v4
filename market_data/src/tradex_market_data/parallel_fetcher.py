@@ -15,11 +15,11 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from tradex_config.broker_limits import BROKER_LIMITS
+from tradex_domain import MultiBucketRateLimiter, RateLimitConfig
 from tradex_domain.enums import Timeframe
 from tradex_domain.instruments import Instrument
 from tradex_domain.market import HistoricalSeries
 from tradex_domain.timeframe import TIMEFRAMES
-from tradex_domain import MultiBucketRateLimiter, RateLimitConfig
 
 log = logging.getLogger(__name__)
 

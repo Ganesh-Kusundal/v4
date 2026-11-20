@@ -18,11 +18,11 @@ from tradex_gateway.brokers import BrokerRuntime, build_runtimes
 from tradex_gateway.config import GatewayConfig, load_local_env
 from tradex_gateway.directory import InstrumentDirectory
 from tradex_gateway.errors import ConsumerRateLimited, GatewayError
+from tradex_gateway.expired import ExpiredService
 from tradex_gateway.history import HistoryService
 from tradex_gateway.live import LiveHub
 from tradex_gateway.market import ChainService, DepthService, QuoteService
 from tradex_gateway.router import MarketDataRouter
-from tradex_gateway.expired import ExpiredService
 from tradex_gateway.routes import (
     chains,
     depth,

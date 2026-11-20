@@ -8,9 +8,9 @@ All events inherit from ``DomainEvent`` which provides ``timestamp`` and
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import ClassVar
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import ClassVar
 
 from tradex_domain.execution import Fill, Order, OrderRequest, Position
 from tradex_domain.instruments import Instrument

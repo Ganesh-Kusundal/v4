@@ -25,10 +25,10 @@ import threading
 from pathlib import Path
 
 import pytest
-
-from tradex_domain import paths as broker_paths
-from tradex_brokers.common import token_lifecycle as tl
 from tradex_config.permissions import EXPECTED_SECRET_MODE
+from tradex_domain import paths as broker_paths
+
+from tradex_brokers.common import token_lifecycle as tl
 from tradex_brokers.common.token_lifecycle import (
     MintTokenManager,
     PortTokenManager,

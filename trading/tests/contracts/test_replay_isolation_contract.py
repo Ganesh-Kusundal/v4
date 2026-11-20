@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 from tradex_config.schema import AppConfig
-from tradex_domain import Candle, OHLC, Equity, Price, Quantity, Timeframe, OrderPlaced
+from tradex_domain import OHLC, Candle, Equity, OrderPlaced, Price, Quantity, Timeframe
 from tradex_domain.events import OrderFilled
 from tradex_reactive.bus import ReactiveBus
 from tradex_runtime.startup import boot

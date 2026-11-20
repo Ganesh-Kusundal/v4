@@ -733,7 +733,7 @@ def create_chart_router(
     # ---------------------------------------------------------------- account
 
     @router.get(
-        "/account", response_model=ChartAccountResponse, 
+        "/account", response_model=ChartAccountResponse,
     )
     async def get_account() -> ChartAccountResponse:
         """Account snapshot for the chart host's account panel.
@@ -805,7 +805,7 @@ def create_chart_router(
     # ---------------------------------------------------------------- strategies
 
     @router.get(
-        "/strategies", response_model=StrategiesResponse, 
+        "/strategies", response_model=StrategiesResponse,
     )
     async def list_strategies() -> StrategiesResponse:
         """Auto-discovered strategies (extensions package) + scanners."""
@@ -863,7 +863,7 @@ def create_chart_router(
     # ----------------------------------------------------------------- safety
 
     @router.get(
-        "/safety", response_model=SafetyWireResponse, 
+        "/safety", response_model=SafetyWireResponse,
     )
     async def get_safety() -> SafetyWireResponse:
         """The whole safety picture in one call (AC-17).
@@ -1181,8 +1181,8 @@ def _candles_for_bars(instrument: Any, bars: list[dict[str, Any]]) -> list[Any]:
     off domain Candles; this rebuilds them from the exact dicts the response
     serves so compute and chart data are index-aligned by construction.
     """
-    from tradex_domain.enums import Timeframe
     from tradex_domain import make_candle
+    from tradex_domain.enums import Timeframe
 
     tf = Timeframe.M1  # timeframe label only; indicators never bucket on it
     return [

@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from tradex_domain import Candle, OHLC, OrderRequest, OrderSide, Signal
+from tradex_domain import OHLC, Candle, OrderRequest, OrderSide, Signal
 from tradex_domain.enums import ExchangeId, Timeframe
 from tradex_domain.instruments import Equity
 from tradex_domain.value_objects import Price, Quantity

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from tradex_execution.engine import RiskCheckResult
 
-
 # ---------------------------------------------------------------------------
 # RiskCheckResult
 # ---------------------------------------------------------------------------
