@@ -18,6 +18,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from tradex_domain.constants import API_SCHEMA_VERSION
 
 
 def _to_decimal(value: Any) -> Any:
@@ -49,6 +50,17 @@ _MoneyOpt = Annotated[Decimal | None, BeforeValidator(_to_decimal)]
 
 class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class VersionedResponse(BaseModel):
+    """Base for every top-level response: carries the wire-contract version.
+
+    A client reads ``schema_version`` to detect a breaking shape change rather
+    than discovering it as a missing key at runtime. Bump ``API_SCHEMA_VERSION``
+    (major) on a breaking change; additive fields stay on the same major.
+    """
+
+    schema_version: str = API_SCHEMA_VERSION
 
 
 class PlaceOrderRequest(_Strict):
@@ -86,7 +98,7 @@ class OrderUpdateRequest(_Strict):
     trailing_jump: _MoneyOpt = None
 
 
-class OrderMutationResponse(BaseModel):
+class OrderMutationResponse(VersionedResponse):
     order_id: str
     status: str
     message: str = ""
@@ -111,7 +123,7 @@ class ScannerRunRequest(_Strict):
     window_days: int = 30
 
 
-class BacktestResponse(BaseModel):
+class BacktestResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     metrics: Any = None
@@ -191,7 +203,7 @@ class SeasonalityRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class SymbolsResponse(BaseModel):
+class SymbolsResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     symbols: list[dict[str, Any]]
@@ -199,7 +211,7 @@ class SymbolsResponse(BaseModel):
     universe: str | None = None
 
 
-class HistoryResponse(BaseModel):
+class HistoryResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     symbol: str
@@ -211,13 +223,13 @@ class HistoryResponse(BaseModel):
     bars: list[dict[str, Any]]
 
 
-class IndicatorCatalogueResponse(BaseModel):
+class IndicatorCatalogueResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     indicators: list[dict[str, Any]]
 
 
-class IndicatorComputeResponse(BaseModel):
+class IndicatorComputeResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -225,35 +237,35 @@ class IndicatorComputeResponse(BaseModel):
     meta: dict[str, Any]
 
 
-class SeriesTransformResponse(BaseModel):
+class SeriesTransformResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     id: str
     bars: list[dict[str, Any]]
 
 
-class ProfileResponse(BaseModel):
+class ProfileResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     id: str
     result: Any
 
 
-class SeasonalityResponse(BaseModel):
+class SeasonalityResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     table: dict[str, Any]
     meta: dict[str, Any]
 
 
-class BookResponse(BaseModel):
+class BookResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     orders: list[dict[str, Any]]
     positions: list[dict[str, Any]]
 
 
-class ChartAccountResponse(BaseModel):
+class ChartAccountResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     account_id: str
@@ -263,7 +275,7 @@ class ChartAccountResponse(BaseModel):
     positions: list[dict[str, Any]]
 
 
-class StrategiesResponse(BaseModel):
+class StrategiesResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     strategies: list[dict[str, Any]]
@@ -271,7 +283,7 @@ class StrategiesResponse(BaseModel):
     backtestable: list[dict[str, Any]]
 
 
-class SafetyWireResponse(BaseModel):
+class SafetyWireResponse(VersionedResponse):
     """``/api/charts/safety`` — the six keys ``SafetyReport.to_wire`` emits."""
 
     model_config = ConfigDict(extra="forbid")
@@ -284,7 +296,7 @@ class SafetyWireResponse(BaseModel):
     reconciliation_checked: bool
 
 
-class ScannerRunResponse(BaseModel):
+class ScannerRunResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     scanner: str
@@ -292,7 +304,7 @@ class ScannerRunResponse(BaseModel):
     results: list[dict[str, Any]]
 
 
-class WorkspaceSummary(BaseModel):
+class WorkspaceSummary(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     layout_id: str
@@ -304,7 +316,7 @@ class WorkspaceDetail(WorkspaceSummary):
     data: Any = None
 
 
-class WorkspacePutResponse(BaseModel):
+class WorkspacePutResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     layout_id: str
@@ -319,7 +331,7 @@ class HoldingRow(BaseModel):
     quantity: float
 
 
-class ExtensionsResponse(BaseModel):
+class ExtensionsResponse(VersionedResponse):
     model_config = ConfigDict(extra="forbid")
 
     capabilities: dict[str, Any]
@@ -341,7 +353,7 @@ class QuoteRequest(_Strict):
     symbol: str
 
 
-class QuoteResponse(BaseModel):
+class QuoteResponse(VersionedResponse):
     """Real-time quote envelope."""
 
     model_config = ConfigDict(extra="ignore")
@@ -405,7 +417,7 @@ class OptionChainRequest(_Strict):
     live: bool = False
 
 
-class OptionChainResponse(BaseModel):
+class OptionChainResponse(VersionedResponse):
     """Option chain envelope — payload shape varies by broker/exchange."""
 
     model_config = ConfigDict(extra="ignore")
@@ -434,7 +446,7 @@ class FutureContract(BaseModel):
     expiry: str | None = None
 
 
-class FutureChainResponse(BaseModel):
+class FutureChainResponse(VersionedResponse):
     """Future chain envelope."""
 
     model_config = ConfigDict(extra="forbid")
@@ -499,7 +511,8 @@ class WSIndicatorUnsubRequest(_Strict):
 
 
 class WSReplayStartRequest(_Strict):
-    """``{type: "replay-start", instrument, interval?, minutes?, start_time?, speed?, ticks_per_bar?}``"""
+    """``{type: "replay-start", instrument, interval?, minutes?,
+    start_time?, speed?, ticks_per_bar?}``."""
 
     type: str = "replay-start"
     instrument: str

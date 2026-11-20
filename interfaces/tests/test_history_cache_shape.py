@@ -16,7 +16,10 @@ def test_history_cache_shape_parity():
     # Both responses should have the same top-level keys (HistoryResponse fields)
     data1 = r1.json()
     data2 = r2.json()
-    expected_keys = {"symbol", "exchange", "interval", "source", "timeframe_resampled", "last_closed_time", "bars"}
+    expected_keys = {
+        "schema_version", "symbol", "exchange", "interval", "source",
+        "timeframe_resampled", "last_closed_time", "bars",
+    }
     assert set(data1.keys()) == expected_keys
     assert set(data2.keys()) == expected_keys
     assert set(data1.keys()) == set(data2.keys())

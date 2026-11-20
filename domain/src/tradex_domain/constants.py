@@ -202,6 +202,10 @@ CLI_PROG_NAME = "tradex-v4"
 CLI_DESCRIPTION = "TradeX v4 Trading Platform"
 FASTAPI_TITLE = "TradeX v4 API"
 FASTAPI_VERSION = "0.1.0"
+#: Wire-contract version for the HTTP/WS API. Bump the major on a breaking
+#: change to a response/request shape; additive changes stay on the same major.
+#: Every versioned response carries it so a client can detect a mismatch.
+API_SCHEMA_VERSION = "1.0.0"
 SYNC_DHAN_ONLY_MESSAGE = "sync is Dhan-only"
 SYNC_OUTPUT_LABELS = {
     "renamed": "Renamed:",
@@ -812,6 +816,7 @@ __all__ = [
     "CLI_DESCRIPTION",
     "FASTAPI_TITLE",
     "FASTAPI_VERSION",
+    "API_SCHEMA_VERSION",
     "SYNC_DHAN_ONLY_MESSAGE",
     "SYNC_OUTPUT_LABELS",
     "CONNECTED_MESSAGES",
