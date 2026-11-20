@@ -22,7 +22,7 @@ class OptionPair(Serializable):
     put_leg: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
-        out = super().to_dict()
+        out = Serializable.to_dict(self)  # zero-arg super() breaks under slots=True
         for key in ("call_leg", "put_leg"):
             if out.get(key) is None:
                 out.pop(key, None)
