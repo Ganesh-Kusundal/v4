@@ -9,7 +9,14 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final, cast
 
-from tradex_analytics.reports import max_drawdown, sharpe_ratio, total_return
+from tradex_analytics.reports import (
+    max_drawdown,
+    periods_per_year,
+    sharpe_ratio,
+    total_return,
+)
+from tradex_analytics.trade_metrics import compute_statistics
+from tradex_analytics.validation_report import round_trips_from_fills
 from tradex_domain import Candle, Clock, Fill, Quote, Signal
 from tradex_domain.constants import DEFAULT_INITIAL_CAPITAL
 from tradex_domain.correlation_id import mint_correlation_id
@@ -68,15 +75,24 @@ _MIN_FILL_PRICE: Final = Decimal("0.01")
 DEFAULT_BACKTEST_RISK_FRACTION: Final = Decimal("0.01")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class _OpenBracket:
-    """Engine-managed protective exit for one open entry fill."""
+    """Engine-managed protective exit for one open entry fill.
+
+    ``stop``/``target`` are the *current* protective levels (a trailing stop
+    mutates ``stop`` as the market moves). ``trailing_jump`` is the trail
+    distance when the strategy declared one; ``high_water``/``low_water`` track
+    the favourable extreme reached since entry so the stop can ratchet.
+    """
 
     instrument: Any
     side: OrderSide
     quantity: Quantity
     stop: float
-    target: float
+    target: float | None
+    trailing_jump: float | None = None
+    high_water: float = 0.0
+    low_water: float = 0.0
 
 
 def _stop_gap_price(
@@ -133,11 +149,66 @@ def _stop_gap_price(
     return float(max(adverse, _MIN_FILL_PRICE))
 
 
+def adv_provider_from_candles(
+    candles_by_id: dict[Any, list], lookback: int = 20
+) -> Callable[[Any, datetime | None], Decimal]:
+    """Build an ADV provider for :class:`MarketImpactSlippageModel`.
+
+    Returns ``(instrument, timestamp) -> Decimal`` giving the mean per-bar
+    volume over the last *lookback* bars up to *timestamp* (the whole series
+    when *timestamp* is ``None``). The result is a liquidity proxy in the run's
+    own timeframe, so ``quantity / adv`` in the impact model reads as a fraction
+    of a typical bar's volume. Pass the returned callable as
+    ``MarketImpactSlippageModel(adv_provider=...)`` to ``BacktestEngine``.
+    """
+
+    def provider(instrument: Any, timestamp: datetime | None) -> Decimal:
+        iid = getattr(instrument, "instrument_id", instrument)
+        bars = candles_by_id.get(iid, [])
+        if timestamp is not None:
+            bars = [b for b in bars if b.timestamp <= timestamp]
+        window = bars[-lookback:] if lookback > 0 else bars
+        if not window:
+            return Decimal("0")
+        total = sum((Decimal(str(b.volume.value)) for b in window), Decimal("0"))
+        return total / Decimal(len(window))
+
+    return provider
+
+
+def _bar_volume_provider(
+    candles_by_id: dict[Any, list],
+) -> Callable[[Any, datetime | None], Decimal]:
+    """Build a ``(instrument, timestamp) -> Decimal`` traded-volume lookup.
+
+    Returns the volume of the bar at or before *timestamp* (the bar an order
+    fills against), or the last known bar when *timestamp* is ``None``. Used as
+    the liquidity cap for P0.2 volume-capped partial fills.
+    """
+
+    def provider(instrument: Any, timestamp: datetime | None) -> Decimal:
+        iid = getattr(instrument, "instrument_id", instrument)
+        bars = candles_by_id.get(iid, [])
+        if not bars:
+            return Decimal("0")
+        if timestamp is None:
+            return Decimal(str(bars[-1].volume.value))
+        chosen = None
+        for bar in bars:
+            if bar.timestamp <= timestamp:
+                chosen = bar
+            else:
+                break
+        return Decimal(str(chosen.volume.value)) if chosen is not None else Decimal("0")
+
+    return provider
+
+
 def _protective_trigger(
     candle: Candle,
     side: OrderSide,
     stop: float,
-    target: float,
+    target: float | None,
 ) -> tuple[str | None, float | None]:
     """Return ``(kind, level)`` when the candle pierces a declared leg.
 
@@ -147,8 +218,13 @@ def _protective_trigger(
 
     Stop is tested before target when both pierce on one bar — the same
     pessimistic convention as ``BracketBreakoutStrategy._exit_for_bar``.
+
+    *target* may be ``None`` (a trailing-only protection with no take-profit),
+    in which case only the stop is tested.
     """
     stop_hit_result = stop_hit(candle, Price(value=Decimal(str(stop))), side)
+    if target is None:
+        return ("stop", stop) if stop_hit_result else (None, None)
     target_hit_result = target_hit(candle, Price(value=Decimal(str(target))), side)
     if not stop_hit_result and not target_hit_result:
         return (None, None)
@@ -259,6 +335,23 @@ class BacktestResult:
     #: compares a rounded copy rather than what the book was debited. This is
     #: what ``round_trip_trades`` consumes.
     fill_records: list[Fill] = field(default_factory=list)
+    # --- P1.4: richer, canonical metrics (all derived from the equity curve and
+    # round trips; zero when the run has no trades). Additive with defaults, so
+    # existing callers and the parity/golden tests are unaffected.
+    #: Annualised downside-risk-adjusted return (Sortino).
+    sortino: float = 0.0
+    #: Annualised return divided by the worst peak-to-trough loss (Calmar).
+    calmar: float = 0.0
+    #: Annualised standard deviation of per-bar returns.
+    volatility: float = 0.0
+    #: Fraction of closed round trips that were profitable.
+    win_rate: float = 0.0
+    #: Gross profit over gross loss across closed round trips (0 when no loss).
+    profit_factor: float = 0.0
+    #: Average net P&L per closed round trip.
+    expectancy: float = 0.0
+    #: Fraction of the entry-to-exit span spent holding a position.
+    exposure: float = 0.0
 
 
 class BacktestEngine:
@@ -279,6 +372,8 @@ class BacktestEngine:
         max_order_value: Decimal | float | str = DEFAULT_MAX_ORDER_VALUE,
         risk_fraction: Decimal | float | str | None = DEFAULT_BACKTEST_RISK_FRACTION,
         engine: ExecutionEngine | None = None,
+        partial_fills: bool = False,
+        max_fill_fraction: Decimal | float | str = Decimal("0.2"),
     ) -> None:
         """Initialize backtest engine.
 
@@ -370,6 +465,16 @@ class BacktestEngine:
         self._sizer = sizer
         self._max_order_value = Decimal(str(max_order_value))
         self._risk_fraction = None if risk_fraction is None else Decimal(str(risk_fraction))
+        # P0.2: opt-in volume-capped partial fills. A MARKET order fills at most
+        # ``max_fill_fraction`` of the reference bar's traded volume per submit;
+        # the unfilled remainder is re-submitted at each following bar's open.
+        self._partial_fills = partial_fills
+        self._max_fill_fraction = Decimal(str(max_fill_fraction))
+        if not (Decimal("0") < self._max_fill_fraction <= Decimal("1")):
+            raise ValueError(
+                "max_fill_fraction must be in (0, 1] (got "
+                f"{max_fill_fraction!r})"
+            )
 
     def _resolve_sizer(self) -> PositionSizer:
         """The sizer this run sizes every signal with (AC-5).
@@ -507,6 +612,13 @@ class BacktestEngine:
         bus = ReactiveBus()
         cache = TradingCache()
         position_manager = PositionAccountant(cache)
+        # Collect candles per instrument_id up front: point-in-time MTM below and
+        # the P0.2 volume cap both read it, and the fill source is built before
+        # the stream is consumed.
+        candles_by_id: dict[Any, list] = {}
+        for event in data:
+            if isinstance(event, Candle):
+                candles_by_id.setdefault(event.instrument.instrument_id, []).append(event)
         # ``self._fill_source`` is deliberately ``Any`` (fill sources vary). The
         # original ``self._fill_source or SimulatedFillSource(...)`` was ``Any``
         # only because the left operand was; with a supplied source the value
@@ -516,10 +628,20 @@ class BacktestEngine:
         # the whole expression is narrowed once here. A bare annotation is not
         # enough (the ``Any`` member survives it). Runtime is unchanged — same
         # object, same construction, same pass-through.
-        fill_source = cast(
-            FillSource,
-            self._fill_source or SimulatedFillSource(slippage_model=self._slippage_model),
+        #
+        # P0.2: with partial_fills on, the default source caps each fill at a
+        # fraction of the reference bar's volume; the remainder chase below
+        # re-submits the rest at each following bar's open.
+        default_source = SimulatedFillSource(
+            slippage_model=self._slippage_model,
+            max_fill_fraction=(
+                self._max_fill_fraction if self._partial_fills else Decimal("1")
+            ),
+            volume_provider=(
+                _bar_volume_provider(candles_by_id) if self._partial_fills else None
+            ),
         )
+        fill_source = cast(FillSource, self._fill_source or default_source)
         engine = self._engine or ExecutionEngine(
             bus,
             fill_source,
@@ -559,19 +681,27 @@ class BacktestEngine:
         # its order_id — so the legs are indexed as orders are placed and read
         # back when their fills arrive. `OrderPlaced` is published before the
         # `OrderFilled` of the same submit, so the entry is always there first.
-        order_legs: dict[str, tuple[float | None, float | None]] = {}
+        order_legs: dict[str, tuple[float | None, float | None, float | None]] = {}
         active_brackets: dict[Any, _OpenBracket] = {}
         protective_seq = 0
+        remainder_seq = 0
         #: Bar each instrument's current lot was opened on, so a corporate
         #: action is applied only to the lots that existed at its ex-date.
         lot_opened_at: dict[Any, datetime] = {}
+        #: P0.2 remainder chase: unfilled quantity left by a volume-capped
+        #: fill, re-submitted at each following bar's open until filled.
+        pending_remainder: list[dict[str, Any]] = []
 
-        def _legs_of(order: Any) -> tuple[float | None, float | None]:
+        def _legs_of(
+            order: Any,
+        ) -> tuple[float | None, float | None, float | None]:
             stop = getattr(order, "stop_loss_price", None)
             target = getattr(order, "target_price", None)
+            trailing = getattr(order, "trailing_jump", None)
             return (
                 float(stop.value) if stop is not None else None,
                 float(target.value) if target is not None else None,
+                float(trailing.value) if trailing is not None else None,
             )
 
         def _on_placed(ev: OrderPlaced) -> None:
@@ -579,17 +709,37 @@ class BacktestEngine:
 
         bus.of_type(OrderPlaced).subscribe(_on_placed)
 
-        def _register_bracket(f: Any, stop: float, target: float) -> None:
-            stop_p = Price(value=Decimal(str(stop)))
-            target_p = Price(value=Decimal(str(target)))
-            if not is_valid_bracket(f.side, f.price, stop_p, target_p):
+        def _register_bracket(
+            f: Any,
+            stop: float | None,
+            target: float | None,
+            trailing: float | None,
+        ) -> None:
+            entry = float(f.price.value)
+            # A trailing-only protection carries no initial stop: seed one at
+            # entry ∓ jump so the ratchet has a level to move from.
+            if stop is None and trailing is not None:
+                stop = (
+                    entry - trailing
+                    if f.side is OrderSide.BUY
+                    else entry + trailing
+                )
+            if stop is None:
                 return
+            if target is not None:
+                stop_p = Price(value=Decimal(str(stop)))
+                target_p = Price(value=Decimal(str(target)))
+                if not is_valid_bracket(f.side, f.price, stop_p, target_p):
+                    return
             active_brackets[f.instrument.instrument_id] = _OpenBracket(
                 instrument=f.instrument,
                 side=f.side,
                 quantity=f.quantity,
                 stop=stop,
                 target=target,
+                trailing_jump=trailing,
+                high_water=entry,
+                low_water=entry,
             )
 
         def _rebase_bracket(inst_id: Any, ratio: Decimal) -> None:
@@ -602,18 +752,29 @@ class BacktestEngine:
             the bracket still says *stop 950.00, sell 10*, so the next bar — in
             a market trading at 500.00 — "pierces" the stop and the run sells at
             950.00, a fill 90% above the market, on half the position (AC-19).
+
+            The trailing distance and the high/low water marks are prices in the
+            same pre-split scale, so they re-base by the same ratio; leaving the
+            trail unscaled would make the stop jump on the next bar.
             """
             bracket = active_brackets.get(inst_id)
             if bracket is None or ratio <= 0:
                 return
+            r = float(ratio)
             active_brackets[inst_id] = _OpenBracket(
                 instrument=bracket.instrument,
                 side=bracket.side,
                 quantity=Quantity(
                     value=bracket.quantity.value * ratio
                 ),
-                stop=bracket.stop / float(ratio),
-                target=bracket.target / float(ratio),
+                stop=bracket.stop / r,
+                target=None if bracket.target is None else bracket.target / r,
+                trailing_jump=(
+                    None if bracket.trailing_jump is None
+                    else bracket.trailing_jump / r
+                ),
+                high_water=bracket.high_water / r,
+                low_water=bracket.low_water / r,
             )
 
         def _on_fill(ev: OrderFilled) -> None:
@@ -625,7 +786,9 @@ class BacktestEngine:
             # a subscriber debit is what let an overdraft raise AFTER the
             # booking and be swallowed by the bus (AC-2). This handler records
             # the fill and maintains the bracket bookkeeping.
-            stop, target = order_legs.get(f.order_id.value, (None, None))
+            stop, target, trailing = order_legs.get(
+                f.order_id.value, (None, None, None)
+            )
             recorded_fills.append({
                 "time": f.timestamp,
                 # Which instrument this record is about, stated by the record
@@ -647,10 +810,11 @@ class BacktestEngine:
                 # The levels the order carried, for a chart to draw.
                 "stop": stop,
                 "target": target,
+                "trailing_jump": trailing,
             })
             inst_id = f.instrument.instrument_id
-            if stop is not None and target is not None:
-                _register_bracket(f, stop, target)
+            if stop is not None or trailing is not None:
+                _register_bracket(f, stop, target, trailing)
             else:
                 bracket = active_brackets.get(inst_id)
                 if bracket is not None and f.side is not bracket.side:
@@ -666,12 +830,23 @@ class BacktestEngine:
                 # invented a gain (AC-19). Cleared above when the lot goes flat,
                 # so a later lot gets its own stamp.
                 lot_opened_at[inst_id] = f.timestamp
+            # P0.2: schedule the unfilled remainder of a volume-capped fill.
+            if self._partial_fills:
+                order = cache.get_order(f.order_id.value)
+                if order is not None:
+                    remaining = order.quantity.value - order.filled_quantity.value
+                    if remaining > 0:
+                        pending_remainder.append({
+                            "instrument": f.instrument,
+                            "side": f.side,
+                            "remaining": remaining,
+                        })
 
         bus.of_type(OrderFilled).subscribe(_on_fill)
 
         def _on_rejected(ev: OrderRejected) -> None:
             ts = getattr(ev.order, "reference_timestamp", None)
-            stop, target = _legs_of(ev.order)
+            stop, target, trailing = _legs_of(ev.order)
             recorded_fills.append({
                 "time": ts or self._clock.now(),
                 # The same key the filled record carries, and for the same
@@ -688,6 +863,7 @@ class BacktestEngine:
                 "reason": ev.reason,
                 "stop": stop,
                 "target": target,
+                "trailing_jump": trailing,
             })
 
         bus.of_type(OrderRejected).subscribe(_on_rejected)
@@ -764,12 +940,6 @@ class BacktestEngine:
                 )
 
 
-        # Collect candles per instrument_id for point-in-time MTM.
-        candles_by_id: dict[Any, list] = {}
-        for event in data:
-            if isinstance(event, Candle):
-                candles_by_id.setdefault(event.instrument.instrument_id, []).append(event)
-
         # Stamp the strategy version onto each signal's metadata (audit trail).
         # The strategy is fed events through the bus; signals are collected
         # from the strategy object after the stream (parity area #5).
@@ -838,10 +1008,29 @@ class BacktestEngine:
                 return
             high = float(candle.ohlc.high.value)
             low = float(candle.ohlc.low.value)
+            # Test the trigger against the stop as it stood at the bar's open
+            # (i.e. ratcheted by *prior* bars), THEN ratchet the trailing stop
+            # using this bar's extreme for subsequent bars. Ratcheting first
+            # would stop a long out on the very bar that made the new high,
+            # because the same bar's low is compared against a stop derived
+            # from that same bar's high — an intrabar impossibility.
             kind, level = _protective_trigger(
                 candle, bracket.side, bracket.stop, bracket.target,
             )
             if level is None or kind is None:
+                # Not triggered: advance the trailing stop for the next bar.
+                if bracket.trailing_jump is not None:
+                    jump = bracket.trailing_jump
+                    if bracket.side is OrderSide.BUY:
+                        bracket.high_water = max(bracket.high_water, high)
+                        bracket.stop = max(
+                            bracket.stop, bracket.high_water - jump
+                        )
+                    else:
+                        bracket.low_water = min(bracket.low_water, low)
+                        bracket.stop = min(
+                            bracket.stop, bracket.low_water + jump
+                        )
                 return
             # A triggered stop does not fill at its own level: it fills at the
             # worse of the modelled slippage past the trigger and the worst
@@ -925,6 +1114,52 @@ class BacktestEngine:
                 return
             _bridge_signal(queued.pop(0), candle)
 
+        def _flush_remainder(candle: Candle) -> None:
+            """Re-submit one instrument's unfilled remainder at *candle*'s open.
+
+            P0.2 only. A volume-capped fill leaves a remainder; this drives it
+            at each following bar's open until it fills or the data runs out. If
+            the bar has no liquidity (no fill at all), the remainder is kept for
+            the next bar rather than dropped.
+            """
+            nonlocal remainder_seq
+            if not pending_remainder:
+                return
+            inst_id = candle.instrument.instrument_id
+            idx = next(
+                (
+                    i for i, rec in enumerate(pending_remainder)
+                    if rec["instrument"].instrument_id == inst_id
+                ),
+                None,
+            )
+            if idx is None:
+                return
+            rec = pending_remainder.pop(idx)
+            qty = rec["remaining"]
+            if qty <= 0:
+                return
+            open_price = Price(value=Decimal(str(candle.ohlc.open.value)))
+            remainder_seq += 1
+            request = OrderRequest(
+                instrument=rec["instrument"],
+                side=rec["side"],
+                order_type=OrderType.MARKET,
+                quantity=Quantity(value=qty),
+                price=open_price,
+                correlation_id=CorrelationId(
+                    value=mint_correlation_id("backtest-remainder", remainder_seq)
+                ),
+                tag="backtest-remainder",
+                reference_timestamp=candle.timestamp,
+            )
+            receipt = engine.submit(request)
+            # No fill (zero liquidity this bar): keep chasing on the next bar.
+            # A partial fill re-queues itself through ``_on_fill`` instead.
+            new_order = cache.get_order(receipt.order_id.value)
+            if new_order is not None and new_order.filled_quantity.value <= 0:
+                pending_remainder.append(rec)
+
         # Stream historical events through the unified pipeline.
         equity_curve_dec: list[Decimal] = [initial_capital]
         for event in data:
@@ -938,6 +1173,7 @@ class BacktestEngine:
                 self._clock.set(event.timestamp)
                 _apply_ca_for(event.timestamp)
                 _flush_bridge_pending(event)
+                _flush_remainder(event)
                 bus.publish(event)
                 _capture_claimed()
                 _capture_recorded(event.instrument.instrument_id)
@@ -1061,10 +1297,36 @@ class BacktestEngine:
             except Exception:
                 pass
 
+        # --- P1.4: richer metrics from the same canonical definitions --------
+        # Per-trade stats come from round trips (one row per closed position),
+        # never from ``num_trades`` (which counts fills). Equity-curve metrics
+        # annualise with the same frequency the Sharpe already uses.
+        periods = periods_per_year(frequency)
+        if returns:
+            mean_r = sum(returns) / len(returns)
+            if len(returns) > 1:
+                var_r = sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
+                volatility = (var_r ** 0.5) * (periods ** 0.5)
+            else:
+                volatility = 0.0
+            annualised_return = mean_r * periods
+        else:
+            volatility = 0.0
+            annualised_return = 0.0
+        run_max_dd = max_drawdown(equity_curve)
+        calmar = (
+            annualised_return / abs(run_max_dd) if run_max_dd != 0.0 else 0.0
+        )
+        stats = compute_statistics(
+            round_trips_from_fills(recorded_fills),
+            equity_curve=equity_curve,
+            frequency=frequency,
+        )
+
         return BacktestResult(
             total_return=total_return(equity_curve),
             sharpe=sharpe_ratio(returns, frequency=frequency),
-            max_drawdown=max_drawdown(equity_curve),
+            max_drawdown=run_max_dd,
             num_trades=num_trades,
             trades=signals,
             total_fees=float(total_fees),
@@ -1075,6 +1337,13 @@ class BacktestEngine:
             # Same order as `fills`, same objects, no float round trip.
             fill_records=sorted(recorded_fill_objects, key=lambda f: f.timestamp),
             end_positions=end_positions,
+            sortino=float(stats.sortino),
+            calmar=calmar,
+            volatility=volatility,
+            win_rate=stats.win_rate,
+            profit_factor=stats.profit_factor,
+            expectancy=float(stats.expectancy),
+            exposure=stats.exposure,
         )
 
     def _apply_actions_due(

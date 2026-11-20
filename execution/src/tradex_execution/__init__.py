@@ -19,6 +19,7 @@ from tradex_execution.position_accountant import PositionAccountant
 from tradex_execution.projection import execution_projection
 from tradex_execution.slippage import (
     FixedSlippageModel,
+    MarketImpactSlippageModel,
     NoSlippageModel,
     PercentageSlippageModel,
     SlippageModel,
@@ -31,6 +32,7 @@ __all__ = [
     "FeeCalculator",
     "FillSource",
     "FixedSlippageModel",
+    "MarketImpactSlippageModel",
     "NoSlippageModel",
     "OrderManager",
     "PaperFillSource",

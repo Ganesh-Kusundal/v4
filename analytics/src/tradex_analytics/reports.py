@@ -70,6 +70,16 @@ def _periods_per_year(frequency: str) -> int:
     return mapping.get(f, TRADING_DAYS_PER_YEAR)
 
 
+def periods_per_year(frequency: str) -> int:
+    """Public annualisation factor for a bar frequency.
+
+    A thin public wrapper over the canonical frequency map, so a caller that
+    needs to annualise its own series (e.g. volatility, Calmar) reads the same
+    periods the Sharpe/Sortino ratios use rather than re-deriving the mapping.
+    """
+    return _periods_per_year(frequency)
+
+
 def sharpe_ratio(
     returns: list,
     risk_free_rate: float = 0.0,

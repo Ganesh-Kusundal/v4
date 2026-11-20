@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 
 from tradex_domain.enums import OrderSide, OrderType
 from tradex_domain.execution import Fill, Order, OrderRequest
-from tradex_domain.value_objects import Price
+from tradex_domain.value_objects import Price, Quantity
 
 
 class FillModel:
@@ -61,9 +61,19 @@ class FillModel:
         if self._slippage_model is not None and hasattr(
             self._slippage_model, "apply"
         ):
-            price = self._slippage_model.apply(
-                price, request.side, request.quantity
+            # Prefer the richer, instrument/timestamp-aware hook when the model
+            # provides one (e.g. MarketImpactSlippageModel, which needs the
+            # instrument to look up ADV). Fall back to the plain protocol so
+            # every existing fixed/percentage model keeps working unchanged.
+            apply_for_request = getattr(
+                self._slippage_model, "apply_for_request", None
             )
+            if callable(apply_for_request):
+                price = apply_for_request(price, request)
+            else:
+                price = self._slippage_model.apply(
+                    price, request.side, request.quantity
+                )
         if request.order_type == OrderType.LIMIT and request.price is not None:
             if request.side == OrderSide.BUY and price.value > request.price.value:
                 price = request.price  # ponytail: limit is hard, slippage cannot worsen beyond it
@@ -92,13 +102,19 @@ class FillModel:
         order: Order,
         price: Price,
         timestamp: datetime,
+        quantity: Quantity | None = None,
     ) -> Fill:
-        """Build a Fill from an order + resolved price."""
+        """Build a Fill from an order + resolved price.
+
+        *quantity* defaults to the order's full quantity. A fill source that
+        models a partial fill (volume-capped) passes the executed quantity so
+        the OMS books a ``PARTIALLY_FILLED`` order rather than a full one.
+        """
         return Fill(
             order_id=order.order_id,
             instrument=order.instrument,
             side=order.side,
-            quantity=order.quantity,
+            quantity=quantity if quantity is not None else order.quantity,
             price=price,
             timestamp=timestamp,
             # A fill is priced from its own product's schedule, and a null is
