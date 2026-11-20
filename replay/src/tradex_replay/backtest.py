@@ -10,6 +10,7 @@ from decimal import Decimal
 from typing import Any, Final, cast
 
 from tradex_analytics.reports import (
+    drawdown_episodes,
     max_drawdown,
     periods_per_year,
     sharpe_ratio,
@@ -352,6 +353,13 @@ class BacktestResult:
     expectancy: float = 0.0
     #: Fraction of the entry-to-exit span spent holding a position.
     exposure: float = 0.0
+    # --- Risk x-ray: drawdown episodes from the equity curve (not just the
+    # scalar max_drawdown). Each episode is {peak_index, trough_index,
+    # recovery_index, max_depth, duration, recovered}; ulcer_index is the RMS
+    # drawdown, pain_index the mean drawdown.
+    drawdown_episodes: list[dict] = field(default_factory=list)
+    ulcer_index: float = 0.0
+    pain_index: float = 0.0
 
 
 class BacktestEngine:
@@ -1342,6 +1350,19 @@ class BacktestEngine:
             frequency=frequency,
         )
 
+        # Risk x-ray: decompose the equity curve into drawdown episodes. The
+        # episode decomposition requires strictly positive equity; an
+        # (unexpected) non-positive point yields no episodes rather than a raise.
+        if equity_curve and all(value > 0 for value in equity_curve):
+            _dd = drawdown_episodes(equity_curve)
+            dd_episodes = _dd["episodes"]
+            ulcer_index = _dd["ulcer_index"]
+            pain_index = _dd["pain_index"]
+        else:
+            dd_episodes = []
+            ulcer_index = 0.0
+            pain_index = 0.0
+
         return BacktestResult(
             total_return=total_return(equity_curve),
             sharpe=sharpe_ratio(returns, frequency=frequency),
@@ -1363,6 +1384,9 @@ class BacktestEngine:
             profit_factor=stats.profit_factor,
             expectancy=float(stats.expectancy),
             exposure=stats.exposure,
+            drawdown_episodes=dd_episodes,
+            ulcer_index=ulcer_index,
+            pain_index=pain_index,
         )
 
     def _apply_actions_due(
