@@ -32,6 +32,10 @@ TOOL_SPECS: list[dict[str, Any]] = [
                 "start": {"type": "string", "description": "ISO date/datetime."},
                 "end": {"type": "string", "description": "ISO date/datetime."},
                 "initial_capital": {"type": "number", "default": 100000},
+                "params": {
+                    "type": "object",
+                    "description": "Strategy constructor params (e.g. fast/slow).",
+                },
             },
             "required": ["strategy", "symbol", "start", "end"],
         },
@@ -119,29 +123,35 @@ def backtest(
     interval: str = "1D",
     start: str,
     end: str,
+    params: dict[str, Any] | None = None,
     initial_capital: float = 100000,
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """MCP tool: backtest a registered strategy over a datalake window.
 
-    Resolves the instrument, timeframe, candles and strategy, then runs the same
-    deterministic core as ``run_backtest``. Raises ``ValueError`` for an unknown
-    strategy or interval, and ``FileNotFoundError`` when the lake has no data.
+    Resolves the instrument, timeframe, candles and a *per-instrument* strategy
+    instance (from the strategy definition, not a pre-bound instance), then runs
+    the same deterministic core as ``run_backtest``. Raises ``ValueError`` for an
+    unknown strategy or interval, and ``FileNotFoundError`` when the lake has no
+    data.
     """
     from datetime import datetime as _dt
 
     from tradex_domain.enums import Timeframe
     from tradex_domain.instruments import Equity
     from tradex_domain.timeframe import INTERVAL_TO_TIMEFRAME
-    from tradex_strategy.core.signal_builder import get_strategy
+    from tradex_strategy.extensions import all_definitions
 
     tf_raw = INTERVAL_TO_TIMEFRAME.get(interval, interval)
     timeframe = Timeframe(tf_raw)
     instrument = Equity.of(exchange, symbol)
 
-    strategy_obj = get_strategy(strategy)
-    if strategy_obj is None:
+    definition = next(
+        (d for d in all_definitions if d.spec.id == strategy), None
+    )
+    if definition is None:
         raise ValueError(f"unknown strategy: {strategy!r}")
+    strategy_obj = definition.instantiate(instrument, **(params or {}))
 
     start_dt = _dt.fromisoformat(str(start).replace("Z", "+00:00"))
     end_dt = _dt.fromisoformat(str(end).replace("Z", "+00:00"))
@@ -157,7 +167,7 @@ def backtest(
 
 
 def list_strategies() -> list[str]:
-    """MCP tool: list registered strategy ids."""
-    from tradex_strategy.core.signal_builder import _registry
+    """MCP tool: list registered strategy-definition ids."""
+    from tradex_strategy.extensions import all_definitions
 
-    return sorted(_registry.all().keys())
+    return sorted({d.spec.id for d in all_definitions})
