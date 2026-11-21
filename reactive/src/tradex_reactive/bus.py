@@ -144,11 +144,7 @@ class ReactiveBus:
         self,
         message_log: list[Any] | None = None,
         metrics: Any | None = None,
-        event_log: Any | None = None,
     ) -> None:
-        # event_log wins over message_log when both are provided: callers that
-        # want durability pass an SQLEventLog; the deque/list path is the
-        # legacy default and stays in place for backward compatibility.
         #: R2: all-lane Subject — ``stream()`` and ``subscribe()`` listen here.
         self._subject: Subject = Subject()
         #: R2: per-lane Subjects for isolated ``of_type()`` delivery.
@@ -158,7 +154,7 @@ class ReactiveBus:
             _LANE_DIAGNOSTICS: Subject(),
             _LANE_DEFAULT: Subject(),
         }
-        self._log: list[Any] | None = event_log if event_log is not None else message_log
+        self._log: list[Any] | None = message_log
         self._disposables: CompositeDisposable = CompositeDisposable()
         self._metrics = metrics
         self._pending: deque[Any] = deque()
@@ -480,17 +476,9 @@ class ReactiveBus:
         end: Any | None = None,
     ) -> rx.Observable:
         """Replay logged messages as an Observable sequence."""
-        if self._log is None:
+        if not self._log:
             return rx.empty()
-        log = self._log
-        # SQLEventLog (and any durable log) is not iterable directly; use
-        # its .replay() method when available, else iterate the container.
-        if hasattr(log, "replay") and callable(getattr(log, "replay")):
-            iterable = log.replay()
-        else:
-            if not log:
-                return rx.empty()
-            iterable = log
+        iterable = self._log
         return (
             rx.from_iterable(iterable)
             .pipe(
@@ -511,13 +499,8 @@ class ReactiveBus:
         asks "what did we think happened 5 minutes ago?" after a crash.
         """
         yield from list(self._pending)
-        log = self._log
-        # SQLEventLog exposes .replay(after_id); list/deque expose __iter__.
-        if hasattr(log, "replay"):
-            if log is not None:
-                yield from log.replay()
-        elif log is not None:
-            yield from log
+        if self._log is not None:
+            yield from self._log
 
     # ------------------------------------------------------------------
     # Lifecycle
