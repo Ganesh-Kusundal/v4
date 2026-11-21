@@ -49,8 +49,8 @@ Explicitly read this pass: `domain/{__init__,execution,market,enums,market_calen
 **F1 — P0, correctness: `is_market_open()` defaults to naive local wall clock.**
 `domain/src/tradex_domain/market_calendar.py:119` — `dt = datetime.now()` (no tz), then compares `dt.time()` against `MARKET_OPEN`/`MARKET_CLOSE`, which are **IST** wall-clock bounds. On any host not running IST (CI is UTC), the gate is wrong by 5h30m. The only production caller passes an explicit `now` today (`brokers/src/tradex_brokers/paper/adapter.py:1013`), so this is latent — but it is the exact shape of "works on the developer's laptop, wrong in the container". Fix: `dt = datetime.now(IST)`; delete the default entirely and make `dt` required, so no caller can silently inherit host time.
 
-**F2 — P1, SSOT: two IST timezone objects.**
-`market_calendar.py:26` (`IST = timezone(timedelta(5,30))`) vs `timezones.py` (`IST_ZONE`). `timezones.py:22–26` documents this as a deliberate deferral. The deferral is now older than the review that found it; collapse `market_calendar.IST` onto `IST_ZONE` and delete the fixed-offset copy.
+**F2 — RETRACTED: the two IST objects are not drift.**
+`market_calendar.py:26` (`IST = timezone(timedelta(5,30))`) vs `timezones.py` (`IST_ZONE`). An earlier pass of this audit called the pair a duplicate. Reading the module's own justification (`market_calendar.py:17–26`) shows the fixed offset is load-bearing: `ZoneInfo.utcoffset(None)` returns `None`, and the session-grid arithmetic asks the zone for its offset without a datetime, so the `ZoneInfo` form cannot serve that call site. Two representations of one zone, chosen per call site and documented. **Do not collapse them**; the open action is only to make `timezones.py:22–26` point at this rationale so the next reviewer does not re-file it.
 
 **F3 — P2: `datetime.now(UTC)` as a field default in domain DTOs.**
 `events.py:41`, `execution.py:286`, `market.py:135`, `market_builder.py:109`, `protocols.py:260`. Not a determinism bug *if* every producer supplies the timestamp — but a domain object that self-stamps wall-clock time is a determinism hole waiting for the one producer that forgets. Prefer required timestamps in the pipeline path; keep the default only for ergonomic construction in tests.
@@ -130,7 +130,7 @@ Fix: unwrap in the publisher — `if isinstance(frame, RevisedBar): frame = fram
 | Kind | Where | Status |
 |---|---|---|
 | Timeframe seconds | `domain/timeframe.bucket_seconds` | **Consolidated**; `_tf_seconds` only in the guard test that forbids it |
-| IST zone | `market_calendar.IST` vs `timezones.IST_ZONE` | **Open** (F2) |
+| IST zone | `market_calendar.IST` vs `timezones.IST_ZONE` | **Not drift** — deliberate, reason documented (F2 retracted) |
 | Fill fingerprint | `idempotency` vs `sqlite_event_store` | **Open**, unpinned (F5) |
 | Session bounds (09:15/15:30) | `market_calendar` owns | Good; literals elsewhere are prose only |
 | Bar-close trigger | `replay_controller` ×5, `bar_aggregator.flush` | **Open** (F14) |
@@ -169,7 +169,7 @@ Fix: unwrap in the publisher — `if isinstance(frame, RevisedBar): frame = fram
 3. F9: typed `SessionServices` instead of 14 `object` params.
 4. F11: move the indicator stream engine out of `routes/` into `tradex_analytics`.
 5. F5: guard test pinning both fill fingerprints.
-6. F2: collapse `market_calendar.IST` onto `IST_ZONE`.
+6. ~~F2: collapse `market_calendar.IST` onto `IST_ZONE`.~~ **Retracted** — the fixed offset is load-bearing; see F2.
 
 **P2 — hygiene**
 7. F16 wire-or-delete `SQLEventLog`; F17 grow-or-document `application`; F14 one `close_bar()` contract; F13 close the remaining batch-fallback indicators.
