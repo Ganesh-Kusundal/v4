@@ -14,13 +14,13 @@ The 2026-11-06 review's three headline defects are **materially remediated** sin
 | Paper/live `context.analytics=None` → hand-rolled `_closes` fallback | **Fixed.** `03d90a3b fix(strategy): wire analytics lazily so paper/live match backtest (A3)`; parity test `trading/tests/parity/test_paper_live_analytics_wiring.py` green-path exists. |
 | Live HTTP orders with only advisory gate | **Fixed server-side.** `interfaces/.../routes/orders.py:210` refuses `mode==live` unless `_live_orders_enabled()`; contracts carry `live_orders_enabled`. |
 | No frontend | **Still true.** `ls frontend` → absent. Any frontend work remains green-field, contract-first. |
-| `RevisedBar`/`mark_filled` dead, 15:30 flush | **Partly fixed.** `flush()` now called in `replay_controller.py` (5 sites) + `bar_aggregator.py:731`. `RevisedBar` still has no non-aggregator consumer — delete it or wire it (see §2). |
+| `RevisedBar`/`mark_filled` dead, 15:30 flush | **Flush and revisions fixed; the freeze is not.** `SessionCloseFlush` (`737c48f3`) is the 15:30 caller, and a revision now reaches consumers as `BarRevised` (`3e4959f1`), pinned by `trading/tests/parity/test_eod_flush.py` and `test_sba_late_tick_parity.py`. `mark_filled` still has no production caller: the fill path is drift/latency-based and carries no `BarFrame`, so freezing needs the engine→aggregator link, not a call site — still open, recorded in `docs/DIVERGENCE.md`. |
 | Incremental analytics (O(n²) recompute) | **Largely fixed.** `d2d89b1c` incremental EMA/SMA/RSI with batch parity, `5009f54f` incremental view, `d6bade8b` SMA-seeded EMA + Bollinger/MACD. |
 | Sizer/property tests absent | **Fixed.** `73924737` property-based sizer+bracket invariants. |
 | Versionless HTTP contract | **Fixed (A5).** `2ca252c6 feat(interfaces): version the HTTP response contract`. |
 | New since: MCP agent surface | `50cfd190` MCP stdio + pluggable LLM; `a3828c2c` per-instrument strategy from definition. Vibe-Trading is a reference clone only (`vibe-trading/`, gitignored, ruff-excluded) — see integration spec 2026-11-21. |
 
-**Real-money verdict (unchanged in kind, narrower in scope):** core is defensible for paper/research; live remains gated on (a) `RevisedBar` decision, (b) sizer/fees/pending-expiry parity documented in `docs/DIVERGENCE.md` with owners+expiry, (c) bracket-leg parity, (d) corporate-action adoption in live, (e) a typed frontend contract before any UI ships.
+**Real-money verdict (unchanged in kind, narrower in scope):** core is defensible for paper/research; live remains gated on (a) the traded-bar freeze (`mark_filled` unwired — a bar a fill was booked against can still be revised under it), (b) sizer/fees/pending-expiry parity documented in `docs/DIVERGENCE.md` with owners+expiry, (c) bracket-leg parity, (d) corporate-action adoption in live, (e) a typed frontend contract before any UI ships.
 
 ## 1. Audit — remaining violations
 
