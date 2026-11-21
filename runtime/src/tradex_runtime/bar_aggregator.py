@@ -946,7 +946,11 @@ class SessionBarAggregator:
             # reading them here was an AttributeError swallowed by bus
             # isolation, so every correction vanished.
             revised = frame.frame if isinstance(frame, RevisedBar) else frame
-            if self._on_bar_frame is not None:
+            # The frame hook owns the *sequence* contract (integrity tracking,
+            # indicator ingest). A revision carries a bar time already passed,
+            # so handing it over there counts a false OUT_OF_ORDER; the
+            # correction travels as BarRevised instead.
+            if self._on_bar_frame is not None and not isinstance(frame, RevisedBar):
                 self._on_bar_frame(revised)
             if not revised.closed and not self._publish_forming:
                 return

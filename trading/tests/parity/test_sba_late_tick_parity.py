@@ -72,3 +72,28 @@ def test_sba_late_tick_parity(bus: ReactiveBus) -> None:
         assert revisions_seen[-1].reason == "late_tick"
     finally:
         aggregator.dispose()
+
+
+def test_revision_is_not_a_feed_integrity_violation(bus: ReactiveBus) -> None:
+    """A correction to an older bar is not an out-of-order feed event.
+
+    The integrity tracker owns the *sequence* contract: a revised bar has a
+    timestamp the tracker has already passed, so handing it the revision
+    counted a false OUT_OF_ORDER and could trip fail-closed recovery.
+    """
+    from tradex_runtime.feed_integrity import FeedIntegrityTracker
+
+    tracker = FeedIntegrityTracker()
+    aggregator = wire_bar_aggregation(
+        bus, [INSTRUMENT], now=lambda: 0.0, on_bar_frame=tracker.on_bar
+    )
+    try:
+        bus.publish(_quote(_stamp("10:15:00"), "100.00"))
+        bus.publish(_quote(_stamp("10:16:00"), "102.00"))
+        bus.publish(_quote(_stamp("10:17:00"), "102.50"))
+
+        bus.publish(_quote(_stamp("10:15:10"), "103.00"))
+
+        assert tracker.snapshot().out_of_order_events == 0
+    finally:
+        aggregator.dispose()

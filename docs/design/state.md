@@ -47,7 +47,7 @@ Every item below has a test pin and a commit. Suite at completion: **2808 passed
 - ✅ **H3** `9f95c2e` — `applied_fills_max` is an `__init__` parameter on `ExecutionEngine`; docstring on `_record_applied_fill` spells out the LRU cap.
 
 ### Sprint 2 — durability (7/7)
-- ✅ **R1** `bb62e39` — `SQLEventLog`: durable SQLite append-only event log replacing the in-memory `deque(maxlen=10_000)`. `ReactiveBus.set_message_log` accepts the new log.
+- ❌ **R1** `bb62e39` — `SQLEventLog`: durable SQLite append-only event log replacing the in-memory `deque(maxlen=10_000)`. **Deleted 2026-11-21**: it had zero production callers (`startup` never passed `event_log=`), so the durable-bus mode was tested but never launched. The message log is the bounded deque again; the durable record is the hash-chained event store.
 - ✅ **G5** `69c5aa9` — `ReactiveStrategyEngine._pending` indexed by `InstrumentId`; `pending_max_age_bars` cancels stale orders; `dispose_all` clears the dict.
 - ✅ **H4** `fb6395f` — `SQLiteOrderStore.upsert_from_event(OrderFilled)`; live fill path writes to SQLite; `get_recent(limit)` for post-crash recovery.
 - ✅ **H6** `75aed48` — `LiveFillBridge._engine_order_index: dict[OrderId, str]` for O(1) order lookup; populated from `OrderPlaced` events.
