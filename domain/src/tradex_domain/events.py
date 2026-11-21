@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from tradex_domain.execution import Fill, Order, OrderRequest, Position
 from tradex_domain.instruments import Instrument
@@ -267,7 +267,23 @@ class CashReconciled(DomainEvent):
     reason: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class BarRevised(DomainEvent):
+    stream: ClassVar[str] = "system"
+    """A closed bar was corrected by a print that arrived late.
+
+    Its own event, not a second ``Candle``: a strategy already acted on the
+    original bar, so a duplicate ``Candle`` would be counted as a new bar and
+    could fire a second signal. Consumers that want the correction subscribe
+    here; ``Candle`` subscribers keep seeing one bar per timestamp.
+    """
+
+    frame: Any
+    reason: str
+
+
 __all__ = [
+    "BarRevised",
     "BrokerOrderAcknowledged",
     "BrokerOrderRequested",
     "CancelRequested",

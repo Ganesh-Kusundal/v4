@@ -938,14 +938,24 @@ class SessionBarAggregator:
 
     # -- the bridge ---------------------------------------------------------
 
-    def _frame_publisher(self, key: str) -> Callable[[BarFrame], None]:
+    def _frame_publisher(self, key: str) -> Callable[[Any], None]:
         """The ``on_frame`` callback for one instrument's aggregator."""
-        def publish(frame: BarFrame) -> None:
+        def publish(frame: Any) -> None:
+            # A late tick revises an already-closed bar and arrives wrapped in
+            # RevisedBar, which has no ``closed``/``instrument`` of its own —
+            # reading them here was an AttributeError swallowed by bus
+            # isolation, so every correction vanished.
+            revised = frame.frame if isinstance(frame, RevisedBar) else frame
             if self._on_bar_frame is not None:
-                self._on_bar_frame(frame)
-            if not frame.closed and not self._publish_forming:
+                self._on_bar_frame(revised)
+            if not revised.closed and not self._publish_forming:
                 return
-            self._bus.publish(self._candle(frame))
+            if isinstance(frame, RevisedBar):
+                from tradex_domain.events import BarRevised
+
+                self._bus.publish(BarRevised(frame=revised, reason=frame.reason))
+                return
+            self._bus.publish(self._candle(revised))
         return publish
 
     def _candle(self, frame: BarFrame) -> Candle:

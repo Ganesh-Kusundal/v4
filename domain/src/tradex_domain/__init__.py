@@ -35,6 +35,7 @@ from tradex_domain.errors import (
     SessionStateError,
 )
 from tradex_domain.events import (
+    BarRevised,
     DomainEvent,
     ErrorOccurred,
     OrderCancelled,
@@ -224,6 +225,7 @@ __all__ = [
     "from_dict",
     "to_dict",
     # events
+    "BarRevised",
     "DomainEvent",
     "ErrorOccurred",
     "OrderCancelled",
