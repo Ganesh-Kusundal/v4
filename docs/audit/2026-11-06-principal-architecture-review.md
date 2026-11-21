@@ -267,7 +267,6 @@ Each item must land as either **code deleted/unified** or **a parity test that f
 
 - `frontend/` deleted 2026-09-29 (CLAUDE.md:217–220). `openalgo-charts` survives only as the pin for golden fixtures (`openalgo-charts.pin`, v2.3.2).
 - The old host was ~1,145 LOC in 9 modules; it had already been measured as a *pure consumer* in the 2026-09-13 integration map — the problem was never the host, it was the contract under it.
-- `.kanban/` board shows the platform post-cleanup; no UI task exists. `tradex_gateway` (2026-11-06) is data-plane-only for an external app, not this UI.
 
 So a "frontend refactor" cannot be executed; what can be produced is the **contract-first re-integration spec**:
 
