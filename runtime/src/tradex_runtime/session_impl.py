@@ -298,7 +298,12 @@ class TradingSession:
                 except Exception:  # pragma: no cover – defensive teardown
                     log.warning("mark-to-market stop failed", exc_info=True)
             self._shutdown_engine()
-            self._bus.dispose()
+            # The bus is disposed in the ``finally`` below, after the ``after``
+            # stop hooks. It used to be disposed here, which made the hook that
+            # flushes a session's open bar publish onto a disposed bus: the
+            # flush raised, the bar was dropped, and every clean shutdown
+            # logged "bar aggregator dispose failed". A hook that delivers a
+            # final bar needs the bus alive to deliver it.
             if self._fill_bridge is not None:
                 try:
                     self._fill_bridge.close()  # type: ignore[attr-defined]
@@ -337,6 +342,9 @@ class TradingSession:
             self._run_stop_hooks(self._after_stop_hooks, "after")
             self._before_stop_hooks.clear()
             self._after_stop_hooks.clear()
+            # Last, so ``after`` hooks that publish (the bar-aggregator flush)
+            # still have a live bus. Nothing else may subscribe after this.
+            self._bus.dispose()
 
     def _run_stop_hooks(self, hooks: list[Callable[[], None]], phase: str) -> None:
         for hook in hooks:

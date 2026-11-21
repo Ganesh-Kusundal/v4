@@ -1266,6 +1266,18 @@ def _boot_tail(
                 "from live ticks."
             )
 
+    # A5: the 15:30 half of the flush contract. ``SessionBarAggregator.flush``
+    # says the caller closes the open bucket at the cash close, and nothing
+    # did — so the day's last bar never closed and no strategy ever saw
+    # 15:29-15:30. This timer is that caller. It is not wired for sessions
+    # with no aggregator, and stopping it is a stop hook, so a boot that
+    # fails after the start below leaves no thread behind.
+    session_close: Any = None
+    if bar_aggregator is not None:
+        from tradex_runtime.session_close import SessionCloseFlush
+
+        session_close = SessionCloseFlush(bar_aggregator.flush)
+
     # AC-10 / lane 2f: prove at boot that the order gate actually fires, so
     # "one config flip stops all order flow" is a fact and not a runbook claim.
     # The session builds the gate from the flag it was constructed with; boot
@@ -1319,6 +1331,8 @@ def _boot_tail(
     # explicit stop hooks (not ``session.stop`` monkey-patching). Registry
     # stops before the feed; aggregator and tape close after, so no tick can
     # race a dispose.
+    if session_close is not None:
+        session.add_stop_hook(session_close.stop, phase="before")
     if strategy_registry is not None:
         session.add_stop_hook(strategy_registry.stop_all, phase="before")
     if bar_aggregator is not None:
@@ -1384,6 +1398,8 @@ def _boot_tail(
                 strategy_registry.start_all()
             if master_scheduler is not None:
                 master_scheduler.start()
+            if session_close is not None:
+                session_close.start()
         except BaseException:
             try:
                 session.stop()

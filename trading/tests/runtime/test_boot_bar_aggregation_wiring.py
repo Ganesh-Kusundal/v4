@@ -20,6 +20,7 @@ Negative controls (each fails when its fix is removed):
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
@@ -174,6 +175,26 @@ def test_aggregated_bar_is_m1() -> None:
         assert strategy.bars[0].timeframe in (Timeframe.M1, Timeframe.M1.value)
     finally:
         session.stop()
+
+
+def test_boot_starts_the_session_close_flush() -> None:
+    """A5: the 15:30 caller boot starts, and ``stop()`` reaps.
+
+    Same shape as F-39 — a correct component with no production caller. If the
+    timer is dropped, the day's last bucket stays open: no 15:29-15:30 candle,
+    so an intraday strategy holds overnight with no closed bar to exit on. A
+    leaked thread is the other half: teardown must leave none behind.
+    """
+    session, _ = _boot_with_strategy()
+    try:
+        assert [
+            t for t in threading.enumerate() if t.name == "session-close-flush"
+        ], "no session-close flush: SessionBarAggregator.flush has no 15:30 caller"
+    finally:
+        session.stop()
+    assert [
+        t for t in threading.enumerate() if t.name == "session-close-flush"
+    ] == [], "the session-close flush survived session.stop()"
 
 
 def test_a_bar_closes_only_when_the_next_bucket_starts() -> None:
