@@ -52,3 +52,21 @@ def test_nse_holidays_2026_seeded_from_store_evidence() -> None:
     # tracked symbol even after a clean Dhan backfill.
     assert date(2026, 5, 28) in NSE_HOLIDAYS_2026
     assert date(2026, 6, 26) in NSE_HOLIDAYS_2026
+
+
+def test_is_market_open_default_is_ist_not_host_time(monkeypatch) -> None:
+    """On a non-IST host the default must still read IST wall clock."""
+    from datetime import UTC, datetime
+
+    from tradex_domain import market_calendar
+
+    class _HostClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            # 04:30 UTC == 10:00 IST: open. A naive read would compare 04:30.
+            instant = datetime(2026, 8, 6, 4, 30, tzinfo=UTC)
+            return instant.astimezone(tz) if tz else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(market_calendar, "datetime", _HostClock)
+    cal = market_calendar.NSETradingCalendar()
+    assert cal.is_market_open() is True

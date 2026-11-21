@@ -116,7 +116,9 @@ class NSETradingCalendar:
     def is_market_open(self, dt: datetime | None = None) -> bool:
         """Check if the market is currently open (weekday + 09:15-15:30)."""
         if dt is None:
-            dt = datetime.now()
+            # Session bounds are IST wall clock; a naive ``datetime.now()``
+            # answers in the host's zone, so a UTC container gates 5h30m off.
+            dt = datetime.now(IST)
 
         if not self.is_trading_day(dt.date()):
             return False
